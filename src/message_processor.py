@@ -49,6 +49,7 @@ class MessageProcessor:
         model = agent["model"]
         temperature = agent["temperature"]
 
+        logging.info(f'Processing message prompt: {message}')
         # Check for alternative processing
         myResult = self.preprocessor.alternative_processing(message, conversationId, agent, self.account_prompt_manager)
 

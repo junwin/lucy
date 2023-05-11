@@ -11,26 +11,11 @@ class MessageProcessorStore:
     processors = {}
 
     def get_message_processor(self, agent_name: str, account_name: str):
-
-        #config = container.get(ConfigManager) 
-
-        #prompt_base_path=config.get('prompt_base_path')  
-
         processor_name = self.get_processor_name(agent_name, account_name)
 
         logging.info(f'get_message_processor: {processor_name}')
-        #agent_manager = container.get(AgentManager)
 
-        if processor_name not in self.processors:
-            
-            #agent = agent_manager.get_agent(agent_name)
-
-            #my_handler = FileResponseHandler(agent['max_output_size'])
-
-            #account_prompt_manager = container.get(PromptStore).get_prompt_manager(prompt_base_path, agent_name, account_name, agent['language_code'][:2])
-            #agent_prompt_manager = container.get(PromptStore).get_prompt_manager(prompt_base_path, agent_name, "aaaa", agent['language_code'][:2])   
-
-
+        if processor_name not in self.processors:       
             proc = MessageProcessor(agent_name, account_name)
             self.processors[processor_name] = proc
 

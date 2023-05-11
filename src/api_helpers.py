@@ -31,9 +31,12 @@ def ask_question(conversation, model="gpt-3.5-turbo", temperature=0, max_retries
             print(f"RateLimitError encountered, retrying... (attempt {retries})")
             time.sleep(retry_wait)
 
-def get_completion(prompt, temperature=0, model="gpt-3.5-turbo", max_retries=3, retry_wait=1):
+def get_completion(prompt:str, temperature:int=0, model:str="gpt-3.5-turbo", max_retries:int=3, retry_wait:int=1):
     logging.info(f'get_completion start: {model}')
     messages = [{"role": "user", "content": prompt}]
+    #messages = json.dumps(messages)
+    logging.info(f'before send: {messages}')
+
     retries = 0
     while retries <= max_retries:
         try:
