@@ -1,0 +1,66 @@
+{
+    "paralleltext": {
+        "name": "paralleltext",
+        "info": "/paralleltext, oliver twist, chapter 2, 12 year old, Spanish, 20 sentences, Vocabulary: add a vocabulary list from the translated text",
+        "num_mandatory_params": 5,
+        "prompt": "Please summarize  #<P2> of the #<P1> then transform the summary text into around #<P5> in a simple English style that a #<P3> could read; this is the simplified text, and translate that simplified text to #<P4> - the translated text.  \n\nUse the following output Format:\nSimplified: <simplified_text>\n\n\nTranslation: <translated_text> \n\n#<P6>"
+    },
+    "paralleltext_this": {
+        "name": "paralleltext_this",
+        "info": "/paralleltext_this, 12 year old, Spanish, 20 sentences, Vocabulary: add a vocabulary list from the translated text, hello my name is blah blah blah",
+        "num_mandatory_params": 5,
+        "prompt": "Please summarize the following text in triple backticks then transform the summary text into around #<P3> in a simple modern English style that a #<P1> could read; this is the simplified text, and translate that simplified text to #<P2> - the translated text.  \n\nUse the following output Format:\nSimplified: <simplified_text>\n\n\nTranslation: <translated_text> \n\n#<P4> \n\n ``` #<P5> ```"
+    },
+    "paralleltext_this_dialog": {
+        "name": "paralleltext_this_dialog",
+        "info": "/paralleltext_this_dialog, 12 year old, Spanish, 20 sentences, Vocabulary: add a vocabulary list from the translated text, hello my name is blah blah blah",
+        "num_mandatory_params": 5,
+        "prompt": "Please read the following dialog between people  that is in triple backticks keep the dialog, but transform what is said into a simple modern English style that a #<P1> could read; this is the simplified text, and translate that simplified text to #<P2> - the translated text.  \n\nUse the following output Format:\nSimplified: <simplified_text>\n\n\nTranslation: <translated_text> \n\n#<P4> \n\n ``` #<P5> ```"
+    },
+    "getrelevantfacts": {
+        "name": "getrelevantfacts",
+        "info": "/getrelevantfacts, lots of info and facts, some request",
+        "num_mandatory_params": 2,
+        "prompt": "Please carefully review the info delimited by triple backticks and the user request delimited by triple quotes '''. Then, follow these steps:\n1) Identify any statements of facts, actions, preferences or points of view in the info that are related to the user request into a list; this is useful information. If there is no related information, then useful information is set to NONE\n2) If no useful information is found then we should return NONE\n3) Remove any duplicate information from the useful information\n\nUse the following output Format:\\nUseful information: <useful information>\n\ninfo:#<P1>```\nuser request: '''#<P2>'''\n"
+    },
+    "gpt-4": {
+        "name": "gpt-4",
+        "info": "/gpt-4,  your free format request",
+        "num_mandatory_params": 1,
+        "prompt": "#<P1>"
+    },
+    "gpt-3.5": {
+        "name": "gpt-3.5",
+        "info": "/gpt-3.5,  your free format request",
+        "num_mandatory_params": 1,
+        "prompt": "#<P1>"
+    },
+    "conjugate": {
+        "name": "conjugate",
+        "info": "/conjugate, spanish, conocer",
+        "num_mandatory_params": 2,
+        "prompt": "please conjugate #<P2> in #<P1>  in a single table showing present, preterite, Imperfect going acros the top and pronouns down the side and output the table in markdown format",
+        "model": "gpt-3.5-turbo"
+    },
+    "eft_data_chunker": {
+        "name": "eft_data_chunker",
+        "info": "/eft_data_chunker, C:/Users/junwi/source/repos/jupy/finance/outputRed2.json, 2, eft_metrics_extract, eft_analize_metrics, I am 65 and have a low risk tolerance",
+        "num_mandatory_params": 5,
+        "prompt": "",
+        "model": "gpt-3.5-turbo"
+    },
+    "eft_metrics_extract": {
+        "name": "eft_metrics_extract",
+        "info": "/eft_metrics_extract, json for upto 3 ETFs",
+        "num_mandatory_params": 1,
+        "prompt": "Given a list of JSON objects representing stock data for 1 to 3 stocks, provide a summary of key metrics for each stock, including previous close, open, volume, average volume, yield, total assets, beta3Year, YTD return, and three-year average return. Here is the input data: #<P1>",
+        "model": "gpt-3.5-turbo"
+    },
+    "eft_analize_metrics": {
+        "name": "eft_analize_metrics",
+        "info": "/eft_analize_metrics, metric produced by eft_metrics_extract",
+        "num_mandatory_params": 2,
+        "prompt": "Given a list of JSON objects representing summarized key metrics for multiple sets of ETFs, provide an analysis of the ETF candidates based on the key metrics, including previous close, open, volume, average volume, yield, total assets,beta3Year, YTD return, and three-year average return. #<P2>  Here is the input data: #<P1>",
+        "model": "gpt-4"
+    }
+}
