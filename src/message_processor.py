@@ -72,7 +72,7 @@ class MessageProcessor:
 
         response = ask_question(conversation, model, temperature)
 
-        if 'source_code' in response and 'file_path' in response:
+        if 'program_language' in response and 'file_path' in response:
             logging.info(f'Processing code response: {response}')
             my_handler = SourceCodeResponseHandler(self.config.get('account_output_path'), 0)
             response = my_handler.handle_response(self.account_name, response)  # Use the source code handler instance

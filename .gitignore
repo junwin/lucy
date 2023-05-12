@@ -46,3 +46,4 @@ data/prompts/pedro_test_conv.json
 data/prompts/lucy_test_conv.json
 static/output/junwin
 test_data
+static/output

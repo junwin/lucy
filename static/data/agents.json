@@ -36,10 +36,10 @@
         "num_relevant_conversations": 4,
         "max_output_size": 1000,
         "write_file_threashold": 6000,
-        "use_prompt_reduction": true,
+        "use_prompt_reduction": false,
         "temperature": 1,
-        "save_reposnses": false,
-        "model": "gpt-4"
+        "save_reposnses": true,
+        "model": "gpt-3.5-turbo"
     },
     {
         "name": "pedro",

@@ -1,0 +1,34 @@
+{
+    "prompts": [
+        {
+            "id": "1683424981059547800",
+            "utc_timestamp": "2023-05-07T02:03:01.059547Z",
+            "total_chars": 300,
+            "conversation": [
+                {
+                    "role": "user",
+                    "content": "Hello please summarize the wind in the willows in under 50 words"
+                },
+                {
+                    "role": "assistant",
+                    "content": "\"The Wind in the Willows\" follows the adventures of four anthropomorphic animals - Mole, Rat, Toad, and Badger - as they explore the English countryside, learn life lessons, and strengthen their friendships in a charming, timeless tale."
+                }
+            ],
+            "keywords": [
+                "follow",
+                "word",
+                "rat",
+                "animal",
+                "adventure",
+                "summarize",
+                "explore",
+                "toad",
+                "wind",
+                "countryside",
+                "mole",
+                "willow"
+            ],
+            "conversationId": "20230506"
+        }
+    ]
+}
