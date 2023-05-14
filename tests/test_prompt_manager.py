@@ -1,6 +1,6 @@
 import os
 import json
-from prompt_manager import PromptManager
+from src.prompt_manager import PromptManager
 
 agent_name = "lucy"
 account_name = "test"

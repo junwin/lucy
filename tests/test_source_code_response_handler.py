@@ -2,8 +2,8 @@ import os
 import re
 import json
 from typing import Dict, Any
-from response_handler import ResponseHandler
-from source_code_response_handler import SourceCodeResponseHandler
+from src.response_handler import ResponseHandler
+from src.source_code_response_handler import SourceCodeResponseHandler
 
 
 class TestSourceCodeResponseHandler:

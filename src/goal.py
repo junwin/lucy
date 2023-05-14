@@ -1,11 +1,12 @@
 import json
+import datetime
 from typing import List, Dict, Set
 
 class Goal:
     def __init__(self, name, conversation_id: str, sub_goals=None):
         self.name = name
         self.conversation_id=conversation_id
-        self.utc_timestamp = None
+        self.utc_timestamp = datetime.utcnow().isoformat() + "Z"
         self.id # ticks as a string
         self.keywords: List[str]
         self.sub_goals = sub_goals if sub_goals else []

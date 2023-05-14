@@ -16,6 +16,8 @@ from src.preset_prompts import PresetPrompts
 from src.container_config import container
 from src.config_manager import ConfigManager
 
+from src.prompt_builders.prompt_builder import PromptBuilder
+
 
 
 
@@ -151,11 +153,17 @@ def post_prompt():
 
     agents = agent_manager.get_available_agents()
 
-    processor = get_message_processor(prompt_base_path, agentName, accountName, agents, processors)
+    prompt_builder = PromptBuilder(agentName, accountName)
 
-    processor.context_type = select_type
 
-    prompt = processor.assemble_conversation( question, conversationId, my_agent, select_type)
+    #processor = get_message_processor(prompt_base_path, agentName, accountName, agents, processors)
+    #build_prompt(self, content_text:str, conversationId:str, agent, context_type="none", seed_name="seed", seed_paramters=[], max_prompt_chars=6000, max_prompt_conversations=20):
+
+    prompt_builder.context_type = select_type
+
+    prompt = prompt_builder.build_prompt( question, conversationId, my_agent, select_type)
+
+    
 
     return jsonify(prompt)
 

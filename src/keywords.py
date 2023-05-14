@@ -16,6 +16,9 @@ from spacy.lang.en import STOP_WORDS
 import re
 
 
+
+
+
 nltk.download('wordnet')
 nltk.download('punkt')
 
@@ -32,6 +35,9 @@ class Keywords:
         except LookupError:
             nltk.download("punkt")
 
+
+    def extract_from_content(self, content: str, top_n: int = 10) -> List[str]:
+        return self.extract_keywords(content, top_n)
 
 
     def extract_keywords(self, content: str, top_n: int = 10) -> List[str]:
@@ -56,3 +62,32 @@ class Keywords:
             return extracted_text.split(',')
         else:
             return []
+
+    def compare_keyword_lists_semantic_similarity(self, keywords1: List[str], keywords2: List[str]) -> float:
+        t1 = self.concatenate_keywords(keywords1)   
+        t2 = self.concatenate_keywords(keywords2)
+        similarity = self.compare_semantic_similarity(t1, t2 )
+        return round(similarity, 6)
+    
+
+    def compare_semantic_similarity(self, text1: str, text2: str) -> float:
+        vectorizer = TfidfVectorizer()
+        tfidf_matrix = vectorizer.fit_transform([text1, text2])
+        similarity = cosine_similarity(tfidf_matrix[0:1], tfidf_matrix[1:2])
+        return round(similarity[0][0],6)
+    
+    def compare_keywords(self, set1: set, set2: set, operator: str = "and") -> bool:
+        set1 = set(set1)  # Convert to set if not already a set
+        set2 = set(set2)  # Convert to set if not already a set
+        
+        if operator == "and":
+            return set1 == set2
+        elif operator == "or":
+            return len(set1.intersection(set2)) > 0
+        else:
+            raise ValueError("Invalid operator. Please use 'and' or 'or'.")
+
+        
+    def concatenate_keywords(self, keyword_list: List[str]) -> str:
+        concatenated_keywords = " ".join(keyword_list)
+        return concatenated_keywords

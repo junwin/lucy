@@ -10,7 +10,7 @@ with open("G:\My Drive\credential\oaicred.json", "r") as config_file:
 
 openai.api_key = config_data["openai_api_key"]
 
-def ask_question(conversation, model="gpt-3.5-turbo", temperature=0, max_retries=3, retry_wait=1):
+def ask_question(conversation, model="gpt-3.5-turbo", temperature=0, max_retries=3, retry_wait=1) -> str:
     logging.info(f'ask_question start: {model}')
     retries = 0
     while retries <= max_retries:

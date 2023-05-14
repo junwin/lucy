@@ -15,7 +15,11 @@ from src.preset_handler import PresetHandler
 from src.api_helpers import ask_question, get_completion
 from src.preset_prompts import PresetPrompts 
  
-
+from src.prompt_builders.prompt_builder import PromptBuilder
+from src.completion.completion_manager import CompletionManager
+from src.completion.completion_store import CompletionStore
+from src.completion.completion import Completion
+from src.completion.message import Message
 
 
 class MessageProcessor:
@@ -34,13 +38,15 @@ class MessageProcessor:
         self.handler = container.get(FileResponseHandler)   
         self.preprocessor = container.get(MessagePreProcess)
         self.account_name = account_name
-        self.preset_handler = PresetHandler(container.get(PresetPrompts))
+        self.preset_handler = PresetHandler(container.get(PresetPrompts)
+                                            )
+        self.prompt_builder = PromptBuilder(agent_name, account_name)
+        self.completion_manager_store = container.get(CompletionStore)
+        self.account_completion_manager = self.completion_manager_store.get_completion_manager(agent_name, account_name, self.agent['language_code'][:2])
+        self.agent_account = self.config.get("agent_internal_account_name")
+        self.agent_completion_manager = self.completion_manager_store.get_completion_manager(agent_name, self.agent_account, self.agent['language_code'][:2])
 
 
-
-  
-
-    
 
     def process_message(self, message, conversationId="0"):
         logging.info(f'Processing message inbound: {message}')
@@ -65,12 +71,14 @@ class MessageProcessor:
              seed_name=seed_info["seedName"]
              seed_paramters=seed_info["values"]
 
-        conversation = self.assemble_conversation(message,conversationId,  agent, self.context_type)
+        #conversation = self.assemble_conversation(message,conversationId,  agent, self.context_type)
+        conversation = self.prompt_builder.build_prompt( message, conversationId, agent, self.context_type)
        
-
+       
+        # coversations [ {role: user, content: message} ]
         logging.info(f'Processing message prompt: {conversation}')
 
-        response = ask_question(conversation, model, temperature)
+        response = ask_question(conversation, model, temperature)  #string response
 
         if 'program_language' in response and 'file_path' in response:
             logging.info(f'Processing code response: {response}')
@@ -82,9 +90,9 @@ class MessageProcessor:
 
         logging.info(f'Processing message response: {response}')
 
-        if self.config.get('save_reposnses') == 'true':
+        if self.agent['save_reposnses']:
             self.add_response_message(conversationId,  message, response)
-            self.account_prompt_manager.save()
+            self.account_completion_manager.save()
 
         logging.info(f'Processing message complete: {message}')
 
@@ -92,8 +100,15 @@ class MessageProcessor:
     
     def is_none_or_empty(self, string):
         return string is None or string.strip() == ""
-
+    
     def add_response_message(self, conversationId, request: str, response: str):
+        if request is not self.is_none_or_empty(request):
+            self.account_completion_manager.create_store_completion(conversationId, request, response)
+        if not response.startswith("Response is too long"):
+            self.account_completion_manager.create_store_completion(conversationId, request,  response)
+
+
+    def add_response_message2(self, conversationId, request: str, response: str):
         conversation = []
         if request is not self.is_none_or_empty(request):
             conversation.append({"role": "user", "content": request})
@@ -101,6 +116,7 @@ class MessageProcessor:
             conversation.append({"role": "assistant", "content": response})
 
         self.account_prompt_manager.store_prompt_conversations(conversation, conversationId)
+
 
 
     
@@ -179,9 +195,9 @@ class MessageProcessor:
         matched_accountIds = []
 
         if context_type == "keyword":
-            matched_accountIds = prompt_manager.find_keyword_promptIds(content_text, False, num_relevant_conversations)
+            matched_accountIds = prompt_manager.find_keyword_promptIds(content_text, 'or', num_relevant_conversations)
         elif context_type == "keyword_match_all":
-            matched_accountIds = prompt_manager.find_keyword_promptIds(content_text, True, num_relevant_conversations)
+            matched_accountIds = prompt_manager.find_keyword_promptIds(content_text,'and', num_relevant_conversations)
         elif context_type == "semantic":
             matched_accountIds = prompt_manager.find_closest_promptIds(content_text, num_relevant_conversations, 0.1)
         elif context_type == "hybrid":

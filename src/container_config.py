@@ -9,6 +9,7 @@ from src.message_preProcess import MessagePreProcess
 from src.agent_manager import AgentManager
 from src.prompt_store import PromptStore
 from src.response_handler import FileResponseHandler 
+from src.completion.completion_store import CompletionStore
 
 
 
@@ -40,7 +41,12 @@ class AgentManagerModule(Module):
     def provide_agent_manager(self) -> AgentManager:
         return AgentManager(config.get('agents_path'))
 
-
+class CompletionStoreModule(Module):
+    @provider
+    @singleton
+    def provide_completion_store(self) -> CompletionStore:
+        base_path = config.get('completion_base_path')  
+        return CompletionStore(base_path)
 
 class PreProcessModule(Module):
     @provider
@@ -57,7 +63,7 @@ class FileResponseHandlerModule(Module):
 
 def configure_container():
     container = Injector([AgentManagerModule(), PresetPromptsModule(), PreProcessModule(), PromptStoreModule(), 
-                          FileResponseHandlerModule(), ConfigManagerModule()])
+                          FileResponseHandlerModule(), ConfigManagerModule(), CompletionStoreModule()])
     return container
 
 container = configure_container()

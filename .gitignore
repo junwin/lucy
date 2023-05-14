@@ -47,3 +47,12 @@ data/prompts/lucy_test_conv.json
 static/output/junwin
 test_data
 static/output
+
+data/completions/dorothy_junwin_conv.json
+data/completions/dorothy_test_conv.json
+data/completions/lucy_test_conv.json
+data/completions/maria_junwin_conv.json
+data/completions/pedro_junwin_conv.json
+data/completions/pedro_test_conv.json
+data/completions/maria_test_conv.json
+data/completions/lucy_junwin_conv.json
