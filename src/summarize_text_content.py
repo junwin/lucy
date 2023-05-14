@@ -1,15 +1,17 @@
 import os
 import logging
 from src.api_helpers import ask_question, get_completion
-
 from src.config_manager import ConfigManager
+from src.container_config import container
+from src.agent_manager import AgentManager
 #from src.message_processor_store import MessageProcessorStore
 
 class SummarizeTextContent:
-    def __init__(self, account_output_path:str, agent:dict, account_name:str, max_words=500):
+    def __init__(self, account_output_path:str, agent_name:str, account_name:str, max_words=500):
+        agent_manager = container.get(AgentManager)
+        self.agent = agent_manager.get_agent(agent_name)
         self.max_words = max_words
         self.output_folder = account_output_path
-        self.agent = agent
         self.account_name = account_name
         self.request_instruction = f'Summarize the content of the following text or code in less then {max_words} words:'
         self.digest = ''

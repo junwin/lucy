@@ -1,13 +1,11 @@
 
 import logging
 from src.message_processor import MessageProcessor, FileResponseHandler
-from src.prompt_manager import PromptManager
 from injector import Injector
 from src.container_config import container
 from src.config_manager import ConfigManager
 from src.response_handler import FileResponseHandler
-from src.prompt_manager import PromptManager
-from src.prompt_store import PromptStore
+
 from src.message_processor_store import MessageProcessorStore
 
 config = ConfigManager('config.json')

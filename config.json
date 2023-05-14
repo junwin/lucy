@@ -5,6 +5,7 @@
     "agent_internal_account_name": "aaaa",
     "preset_path": "static/data/presets.json",
     "account_output_path": "static/output/",
+    "seed_name": "seed",
     "swagger_url": "/api/docs",
     "api_url": "/static/swagger.json",
     "app_name": "Lucy API",

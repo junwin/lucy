@@ -35,7 +35,7 @@
         "total_chars": 117,
         "messages": [
             {
-                "content": "Your task is to 1) review the given spec and write runnable python code.  2) you must only return a JSON object with the following keys output_file_path, program_language, request_keywords followed by the source code you have written here is a sample response in triple quotes '''{ \"output_file_path\": \"zz.py\", \"program_language\": \"Python\", \"request_keywords\":\"aa,bb,cc\"}\\nimport os\\nprint (\"hello world\")'''",
+                "content": "Your task is to 1) review the given spec and write runnable python code.  2) you must only first return a JSON object with the following keys output_file_path, program_language, request_keywords, then follow the JSON  with the source code you have written here is a sample response in triple quotes '''{ \"output_file_path\": \"zz.py\", \"program_language\": \"Python\", \"request_keywords\":\"aa,bb,cc\"}\\nimport os\\nprint (\"hello world\")'''",
                 "role": "system"
             }
         ],

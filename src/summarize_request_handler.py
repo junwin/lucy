@@ -1,4 +1,4 @@
-from src.prompt_manager import PromptManager
+
 from src.api_helpers import get_completion
 
 

@@ -1,6 +1,7 @@
 import json
 
 
+
 class PresetPrompts:
 
     def __init__(self, file_name: str = 'prompts.json'):

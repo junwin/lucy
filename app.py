@@ -7,16 +7,15 @@ from typing import Set
 import logging
 from injector import Injector
 
-from src.message_processor_store import MessageProcessorStore
 from src.response_handler import FileResponseHandler
-from src.prompt_manager import PromptManager
-from src.prompt_store import PromptStore
+
 from src.agent_manager import AgentManager
-from src.preset_prompts import PresetPrompts
+
 from src.container_config import container
 from src.config_manager import ConfigManager
 
 from src.prompt_builders.prompt_builder import PromptBuilder
+from src.message_processor import MessageProcessor
 
 
 
@@ -54,8 +53,6 @@ swaggerui_blueprint = get_swaggerui_blueprint(
 app.register_blueprint(swaggerui_blueprint, url_prefix=config.get("swagger_url", "/api/docs"))
 
 
-message_processor_store = MessageProcessorStore()
-
 
 
 handler = FileResponseHandler(config.get("account_output_path"), 1000)
@@ -63,23 +60,6 @@ handler = FileResponseHandler(config.get("account_output_path"), 1000)
 # Get the AgentManager instance
 agent_manager = container.get(AgentManager)
 agent_manager.load_agents()
-
-
-# Get the Prompts instance
-preset_prompts = container.get(PresetPrompts)
-preset_prompts.load()
-
-
-
-
-def get_prompt_manager(prompt_base_path, agent_name, account_name, language_code):
-    prompt_store = container.get(PromptStore)
-    return prompt_store.get_prompt_manager(agent_name, account_name, language_code)
-   
-
-def get_message_processor(agent_name, account_name):
-    manager=message_processor_store.get_message_processor(agent_name, account_name)
-    return manager
 
 
 @app.route('/ask', methods=['POST'])
@@ -95,22 +75,22 @@ def ask():
     if not question or not agentName or not accountName:
         return jsonify({"error": "Missing question, agentName, accountName, or conversationId"}), 400
 
-
     if not agent_manager.is_valid(agentName):
         return jsonify({"error": "Invalid agentName"}), 400
 
     my_agent = agent_manager.get_agent(agentName)
     
-    processor_name = get_processor_name(agentName, accountName)
     file_path = get_complete_path(prompt_base_path, agentName, accountName)
     if not select_type:
         select_type = my_agent['select_type']
-    agents = agent_manager.get_available_agents()
-    processor = get_message_processor(agentName, accountName)
+
+
+    processor = MessageProcessor()
 
     processor.context_type = select_type
     # Modify the process_message method in the MessageProcessor class if needed
-    response = processor.process_message(question, conversationId)
+    #process_message(self, agent_name:str, account_name:str, message, conversationId="0"):
+    response = processor.process_message(agentName, accountName, question, conversationId)
     # processor.save_conversations()
     return jsonify({"response": response})
 
@@ -151,9 +131,9 @@ def post_prompt():
     if not select_type:
         select_type = my_agent['select_type']
 
-    agents = agent_manager.get_available_agents()
+    #agents = agent_manager.get_available_agents()
 
-    prompt_builder = PromptBuilder(agentName, accountName)
+    prompt_builder = PromptBuilder()
 
 
     #processor = get_message_processor(prompt_base_path, agentName, accountName, agents, processors)
@@ -161,7 +141,9 @@ def post_prompt():
 
     prompt_builder.context_type = select_type
 
-    prompt = prompt_builder.build_prompt( question, conversationId, my_agent, select_type)
+    #def build_prompt(self, content_text:str, conversationId:str, agent_name, account_name, context_type="none", max_prompt_chars=6000, max_prompt_conversations=20):
+
+    prompt = prompt_builder.build_prompt( question, conversationId, agentName, accountName, select_type)
 
     
 
