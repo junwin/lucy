@@ -32,6 +32,22 @@ class Completion:
             conversation_id=conversation_id)
         return completion
     
+    def as_dict(self):
+        return {
+            "id": self.id,
+            "utc_timestamp": self.utc_timestamp,
+            "total_chars": self.total_chars,
+            "messages": [message.as_dict() for message in self.messages],
+            "tags": self.tags,
+            "conversation_id": self.conversation_id
+        }   
+    
+    @classmethod
+    def from_dict(cls, completion_dict: Dict[str, str]) -> "Completion" :
+        my_competion =  Completion(completion_dict["id"], completion_dict["utc_timestamp"], completion_dict["total_chars"], [], completion_dict["tags"], completion_dict["conversation_id"])
+        my_competion.messages = Message.from_list_dict(completion_dict["messages"])
+        return my_competion
+
     def is_none_or_empty(self, string):
         return string is None or string.strip() == "" 
     

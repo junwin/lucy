@@ -28,14 +28,7 @@ class CompletionManager:
             # Convert each Completion object and its Messages into a dictionary
             data = []
             for completion in self.completions:
-                completion_dict = {
-                    'id': completion.id,
-                    'utc_timestamp': completion.utc_timestamp,
-                    'total_chars': completion.total_chars,
-                    'messages': [message.as_dict() for message in completion.messages],
-                    'tags': completion.tags,
-                    'conversation_id': completion.conversation_id
-                }
+                completion_dict = completion.as_dict()
                 data.append(completion_dict)
 
             # Save the data to the file as JSON
@@ -180,7 +173,7 @@ class CompletionManager:
         matching_ids = []
 
         for completion in self.completions:
-            if completion.id == conversation_id:
+            if completion.conversation_id == conversation_id:
                 matching_ids.append(completion.id)
 
         return matching_ids
@@ -201,3 +194,14 @@ class CompletionManager:
             if len(text) > 0:
                 response_text += text + "\n"
         return response_text
+    
+    def get_distinct_conversation_ids(self) -> List[str]:
+        conversation_ids = set()
+        for completion in self.completions:
+            conversation_ids.add(completion.conversation_id)
+        return list(conversation_ids)
+
+    def change_conversation_id(self, old_id: str, new_id: str) -> None:
+        for completion in self.completions:
+            if completion.coversation_id == old_id:
+                completion.coversation_id = new_id

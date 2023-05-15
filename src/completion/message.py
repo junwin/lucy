@@ -18,6 +18,9 @@ class Message:
     
     def as_dict(self):
         return {"role": self.role, "content": self.content}
+    
+    def from_dict(self, message_dict: Dict[str, str]) -> "Message" :
+        return Message(message_dict["role"], message_dict["content"])
 
     @classmethod
     def from_dict(cls, message_dict: Dict[str, str]) -> "Message" :

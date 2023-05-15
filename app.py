@@ -16,6 +16,9 @@ from src.config_manager import ConfigManager
 
 from src.prompt_builders.prompt_builder import PromptBuilder
 from src.message_processor import MessageProcessor
+from src.completion.completion_store import CompletionStore
+from src.completion.completion_manager import CompletionManager
+from src.completion.completion import Completion
 
 
 
@@ -164,17 +167,18 @@ def post_prompts():
         return jsonify({"error": "Invalid agentName"}), 400
 
     agent = agent_manager.get_agent(agentName)
-
-    prompt_manager = get_prompt_manager( prompt_base_path, agentName, accountName, agent['language_code'][:2])
+    completion_manager = get_completion_manager(agentName, accountName)
+    completion = Completion.from_dict(prompt) 
+    success = completion_manager.store_completion(completion)
 
     # add the new prompt to the prompt manager check the bool success to see if it was added
-    success = prompt_manager.store_prompt(prompt)
+
 
     if not success:
         return jsonify({"error": "Failed to store the new prompt"}), 400
 
     # Save the new prompt
-    prompt_manager.save()
+    completion_manager.save()
 
     # Return the newly created prompt
     return jsonify(prompt)
@@ -197,12 +201,12 @@ def put_prompts():
         return jsonify({"error": "Invalid agentName"}), 400
 
     agent = agent_manager.get_agent(agentName)
+    completion_manager = get_completion_manager(agentName, accountName)
+    completion = Completion.from_dict(data) 
+    success = completion_manager.update_completion(prompt_id, completion)
 
-    prompt_manager = get_prompt_manager( prompt_base_path, agentName, accountName, agent['language_code'][:2])
-
-    success = prompt_manager.update_prompt(prompt_id, data)
     if success:
-        prompt_manager.save()
+        completion_manager.save()
         return jsonify(data)
 
     return jsonify({"status": "fail", "message": "Prompt failed to update"})
@@ -221,12 +225,12 @@ def delete_prompts():
         return jsonify({"error": "Invalid agentName"}), 400
 
     agent = agent_manager.get_agent(agentName)
+    completion_manager = get_completion_manager(agentName, accountName)
+    success = completion_manager.delete_completion(prompt_id)
 
-    prompt_manager = get_prompt_manager(prompt_base_path, agentName, accountName, agent['language_code'][:2])
 
-    success = prompt_manager.delete_prompt(prompt_id)
     if success:
-        prompt_manager.save()
+        completion_manager.save()
         return jsonify({"status": "success", "message": "Prompt successfully deleted"})
 
     return jsonify({"status": "fail", "message": "Prompt failed to deleted"})
@@ -245,30 +249,37 @@ def get_prompts():
         return jsonify({"error": "Invalid agentName"}), 400
 
     agent = agent_manager.get_agent(agentName)
+    completion_manager = get_completion_manager(agentName, accountName)
 
-    prompt_manager = get_prompt_manager(prompt_base_path, agentName, accountName, agent['language_code'][:2])
+    ids = completion_manager.get_Ids_with_conversation_id(conversationId) 
+    prompts = completion_manager.get_completion_byId(ids)
+    my_completions = []
+    for completion in prompts:  
+        my_completions.append(completion.as_dict())
 
-    prompts = prompt_manager.get_prompts(conversationId)
 
-    return jsonify(prompts)
+    return jsonify(my_completions)
+
+
 
 
 @app.route('/conversationIds', methods=['GET'])
 def get_conversation_ids():
     agentName = request.args.get('agentName', '').lower()
     accountName = request.args.get('accountName', '').lower()
+    conversationId = request.args.get('conversationId', '')
 
     if not agentName or not accountName:
-        return jsonify({"error": "Missing agentName or accountName"}), 400
+        return jsonify({"error": "Missing agentName, accountName"}), 400
 
     if not agent_manager.is_valid(agentName):
         return jsonify({"error": "Invalid agentName"}), 400
 
     agent = agent_manager.get_agent(agentName)
 
-    prompt_manager = get_prompt_manager( prompt_base_path, agentName, accountName, agent['language_code'][:2])
+    completion_manager = get_completion_manager(agentName, accountName)
     # prompt_manager.load()
-    conversation_ids = prompt_manager.get_distinct_conversation_ids()
+    conversation_ids = completion_manager.get_distinct_conversation_ids()
     return jsonify(conversation_ids)
 
 
@@ -287,12 +298,15 @@ def change_conversation_id():
 
     agent = agent_manager.get_agent(agentName)
 
-    prompt_manager = get_prompt_manager(prompt_base_path, agentName, accountName, agent['language_code'][:2])
-    prompt_manager.load()
-    prompt_manager.change_conversation_id(existingId, newId)
-    prompt_manager.save()
+    completion_manager = get_completion_manager(agentName, accountName)
+    completion_manager.change_conversation_id(existingId, newId)
+    completion_manager.save()
     return jsonify({"message": "Conversation ID changed successfully"})
 
+def get_completion_manager(agent_name, account_name):
+    completion_store = container.get(CompletionStore)
+    completion_manager = completion_store.get_completion_manager(agent_name, account_name)
+    return completion_manager
 
 def get_complete_path(base_path, agent_name, account_name):
     full_path = base_path + '/' + agent_name + '_' + account_name
