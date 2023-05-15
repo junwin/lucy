@@ -2,7 +2,7 @@
   "openapi": "3.0.0",
   "info": {
     "title": "Lucy API",
-    "version": "1.0.0"
+    "version": "1.1.0"
   },
   "paths": {
     "/conversationIds": {
@@ -91,7 +91,7 @@
         }
       }
     },
-    "/computeConversations": {
+    "/prompt_builder": {
       "post": {
         "summary": "Get the prompt that would be used given an agentName, accountName, selectType and query text",
         "requestBody": {
@@ -270,9 +270,9 @@
         }
       }
     },
-    "/prompts": {
+    "/completions": {
       "post": {
-        "summary": "Add a new prompt to the prompt database",
+        "summary": "Add a new prompt to the completions database",
         "requestBody": {
           "required": true,
           "content": {
@@ -305,7 +305,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Prompt"
+                  "$ref": "#/components/schemas/Completion"
                 }
               }
             }
@@ -316,7 +316,7 @@
         }
       },
       "get": {
-        "summary": "Get one or more prompts",
+        "summary": "Get one or more completions",
         "parameters": [
           {
             "name": "agentName",
@@ -345,13 +345,13 @@
         ],
         "responses": {
           "200": {
-            "description": "A list of prompt objects",
+            "description": "A list of completions objects",
             "content": {
               "application/json": {
                 "schema": {
                   "type": "array",
                   "items": {
-                    "$ref": "#/components/schemas/Prompt"
+                    "$ref": "#/components/schemas/Completion"
                   }
                 }
               }
@@ -360,7 +360,7 @@
         }
       },
       "put": {
-        "summary": "Update a prompt",
+        "summary": "Update/replace a completion",
         "parameters": [
           {
             "name": "agentName",
@@ -398,7 +398,7 @@
                     "type": "string"
                   },
                   "prompt": {
-                    "$ref": "#/components/schemas/Prompt"
+                    "$ref": "#/components/schemas/Completion"
                   }
                 },
                 "required": [
@@ -415,18 +415,18 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Prompt"
+                  "$ref": "#/components/schemas/Completion"
                 }
               }
             }
           },
           "400": {
-            "description": "Bad request (missing accountName or prompt object)"
+            "description": "Bad request (missing accountName or Completion object)"
           }
         }
       },
       "delete": {
-        "summary": "Delete a prompt",
+        "summary": "Delete a completion",
         "parameters": [
           {
             "name": "agentName",
@@ -455,7 +455,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Prompt successfully deleted",
+            "description": "completion successfully deleted",
             "content": {
               "application/json": {
                 "schema": {
@@ -481,7 +481,7 @@
   },
   "components": {
     "schemas": {
-      "Prompt": {
+      "Completion": {
         "type": "object",
         "properties": {
           "conversation": {

@@ -1,5 +1,7 @@
 from flask import Flask, request, jsonify, send_from_directory
 from flask_swagger_ui import get_swaggerui_blueprint
+from flask_swagger import swagger
+
 from flask_cors import CORS
 import ssl
 import json
@@ -28,6 +30,16 @@ CORS(app)
 
 
 config = ConfigManager('config.json')
+swaggerui_blueprint = get_swaggerui_blueprint(
+    config.get("swagger_url", "/api/docs"),
+    config.get("api_url", "/static/swagger.json"),
+    config={
+        'app_name': config.get("app_name", "Lucy API")
+    }
+)
+app.register_blueprint(swaggerui_blueprint, url_prefix=config.get("swagger_url", "/api/docs"))
+
+
 
 
 # Set up Swagger UI
@@ -45,15 +57,6 @@ preset_path = config.get("preset_path", "static/data/presets.json")
 logging.basicConfig(filename='logs/my_log_file.log', level=logging.INFO,
                     format='%(asctime)s - %(levelname)s - %(message)s')
 
-
-swaggerui_blueprint = get_swaggerui_blueprint(
-    config.get("swagger_url", "/api/docs"),
-    config.get("api_url", "/static/swagger.json"),
-    config={
-        'app_name': config.get("app_name", "Lucy API")
-    }
-)
-app.register_blueprint(swaggerui_blueprint, url_prefix=config.get("swagger_url", "/api/docs"))
 
 
 
@@ -111,8 +114,8 @@ def get_agents():
    
 
 
-@app.route('/computeConversations', methods=['POST'])
-def post_prompt():
+@app.route('/prompt_builder', methods=['POST'])
+def build_prompt():
 
     question = request.json.get('query', '')
     agentName = request.json.get('agentName', '')
@@ -153,8 +156,8 @@ def post_prompt():
     return jsonify(prompt)
 
 
-@app.route('/prompts', methods=['POST'])
-def post_prompts():
+@app.route('/completions', methods=['POST'])
+def post_completions():
     agentName = request.json.get('agentName', '').lower()
     accountName = request.json.get('accountName', '').lower()
     conversationId = request.json.get('conversationId', '')
@@ -184,8 +187,8 @@ def post_prompts():
     return jsonify(prompt)
 
 
-@app.route('/prompts', methods=['PUT'])
-def put_prompts():
+@app.route('/completions', methods=['PUT'])
+def put_completions():
     agentName = request.args.get('agentName', '').lower()
     accountName = request.args.get('accountName', '').lower()
     prompt_id = request.args.get('id', '')
@@ -212,8 +215,8 @@ def put_prompts():
     return jsonify({"status": "fail", "message": "Prompt failed to update"})
 
 
-@app.route('/prompts', methods=['DELETE'])
-def delete_prompts():
+@app.route('/completions', methods=['DELETE'])
+def delete_completions():
     agentName = request.args.get('agentName', '').lower()
     accountName = request.args.get('accountName', '').lower()
     prompt_id = request.args.get('id', '')
@@ -236,8 +239,8 @@ def delete_prompts():
     return jsonify({"status": "fail", "message": "Prompt failed to deleted"})
 
 
-@app.route('/prompts', methods=['GET'])
-def get_prompts():
+@app.route('/completions', methods=['GET'])
+def get_completions():
     agentName = request.args.get('agentName', '').lower()
     accountName = request.args.get('accountName', '').lower()
     conversationId = request.args.get('conversationId', '')
