@@ -4,12 +4,12 @@ from src.completion.utils import get_id
 from datetime import datetime
 import time
 
-
-
-
-
-
 class Completion:
+    """
+    The Completion class is responsible for managing the completions, where a completion is a
+    collection of messages that are related to each other and formed part of a conversation with
+    the openai completions api
+    """
     def __init__(self, id:str, utc_timestamp:str, total_chars:int, messages:List[Message], tags:List[str], conversation_id:str):
         self.id = id
         self.utc_timestamp = utc_timestamp

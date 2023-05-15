@@ -16,7 +16,7 @@ The Lucy API schema supports the following methods:
 
 ### Compute Conversations
 
-- `POST /computeConversations`: Computes the prompt used, given specific parameters.
+- `POST /prompt_builder`: Computes the prompt used, given specific parameters.
   - Required request body properties: `agentName`, `accountName`, `selectType`, `query`
   - Additional required property in the request body: `conversationId`
 
@@ -31,19 +31,19 @@ The Lucy API schema supports the following methods:
 
 ### Prompts
 
-- `POST /prompts`: Similar to `POST /computeConversations`, gets the prompt that would be used, given specific parameters.
+- `POST /completions`: Similar to `POST /computeConversations`, adds a completions to the store.
   - Required request body properties: `agentName`, `accountName`, `selectType`, `query`
   - Additional required property in the request body: `conversationId`
 
-- `GET /prompts`: Retrieves one or more prompts.
+- `GET /completions`: Retrieves one or more completions.
   - Required query parameters: `agentName`, `accountName`
   - Optional query parameter: `conversationId`
 
-- `PUT /prompts`: Updates a prompt.
+- `PUT /completions`: Updates a completions.
   - Required query parameters: `agentName`, `accountName`, `id`
   - Required request body properties: `id`, `prompt`
 
-- `DELETE /prompts`: Deletes a prompt.
+- `DELETE /completions`: Deletes a completions.
   - Required query parameters: `agentName`, `accountName`, `id`
 
 ## Getting Started

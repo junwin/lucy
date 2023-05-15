@@ -23,6 +23,18 @@ from src.completion.message import Message
 
 
 class PromptBuilder:
+    """
+    The PromptBuilder class is responsible for constructing prompts that will be used to generate responses in a conversational system.
+    It interacts with various components of the system, such as agents, configuration settings, and completion managers, to build these prompts.
+
+    Attributes:
+    agent_manager (AgentManager): An instance of AgentManager, used for getting agent details.
+    config (ConfigManager): An instance of ConfigManager, used for getting configuration settings.
+    seed_conversations (list): A list used to store seed conversations.
+    handler (FileResponseHandler): An instance of FileResponseHandler, used for handling responses.
+    preset_handler (PresetHandler): An instance of PresetHandler, used for processing preset prompt values.
+    """
+
     def __init__(self ):
         # self.name = name
 
@@ -34,6 +46,23 @@ class PromptBuilder:
         self.preset_handler = PresetHandler()
 
     def build_prompt(self, content_text:str, conversationId:str, agent_name, account_name, context_type="none", max_prompt_chars=6000, max_prompt_conversations=20):
+        """
+        This method is used to construct a prompt that can be used to generate a response in the conversational system.
+        It retrieves and prepares various pieces of information, such as agent details, account details, relevant prompts, and seed prompts.
+        It also uses various strategies (e.g., keyword matching, semantic matching) to select relevant prompts based on the given context.
+
+        Parameters:
+        content_text (str): The content text that will be part of the constructed prompt.
+        conversationId (str): The identifier of the conversation.
+        agent_name (str): The name of the agent.
+        account_name (str): The name of the account.
+        context_type (str): The type of context (e.g., 'simpleprompt', 'keyword', 'semantic'). Default is 'none'.
+        max_prompt_chars (int): The maximum number of characters allowed in the prompt. Default is 6000.
+        max_prompt_conversations (int): The maximum number of conversations allowed in the prompt. Default is 20.
+
+        Returns:
+        list: A list of dictionaries that represents the constructed prompt.
+        """
         logging.info(f'build_prompt: {context_type}')
 
         seed_name = self.config.get("seed_name")

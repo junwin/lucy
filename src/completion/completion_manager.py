@@ -12,6 +12,11 @@ from src.completion.utils import get_id, get_complete_path
 
 
 class CompletionManager:
+    """
+    The CompletionManager class is responsible for managing the completions, where a completion is a
+    collection of messages that are related to each other and formed part of a conversation with 
+    the openai completions api
+    """
     def __init__(self, base_path, agent_name, account_name, language_code="en"):
         self.language_code = language_code
         self.keywords_util = Keywords(language_code)

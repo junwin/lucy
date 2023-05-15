@@ -1,7 +1,5 @@
-import json
+
 from typing import List, Dict, Set
-import time
-import string
 from collections import Counter
 from nltk.stem import SnowballStemmer
 from nltk.tokenize import word_tokenize
@@ -13,17 +11,23 @@ from sklearn.metrics.pairwise import cosine_similarity
 from sklearn.feature_extraction.text import TfidfVectorizer
 from datetime import datetime
 from spacy.lang.en import STOP_WORDS
-import re
-
-
-
+import re  
 
 
 nltk.download('wordnet')
 nltk.download('punkt')
 
-
 class Keywords:
+    """
+    The Keywords class is responsible for managing the keywords, where a keyword is a
+    collection of words that are related to each other and formed part of a conversation with
+    the openai completions api. The class provides methods to extract keywords from a string and
+    compare keywords to determine if they are similar.
+
+    Attributes:
+        language_code (str): The language code to be used for text processing.
+        nlp (spacy.lang): The spacy NLP model loaded based on the language code.
+    """
     def __init__(self, language_code="en"):
         self.language_code = language_code
         if language_code == "es":
