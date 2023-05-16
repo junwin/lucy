@@ -12,6 +12,7 @@ from src.completion.completion_store import CompletionStore
 
 
 
+
 config = ConfigManager('config.json')
 
 
@@ -38,18 +39,19 @@ class CompletionStoreModule(Module):
         return CompletionStore(base_path)
 
 
+
     
 class FileResponseHandlerModule(Module):
     @provider
     @singleton
     def provide_agent_manager(self) -> FileResponseHandler:
-        return FileResponseHandler(config.get('account_output_path'), 1000)
+        return FileResponseHandler(config.get('account_output_path'), 1500)
     
 class SourceCodeResponseHandlerModule(Module):
     @provider
     @singleton
     def provide_agent_manager(self) -> SourceCodeResponseHandler:
-        return SourceCodeResponseHandler(config.get('account_output_path'), 1000)
+        return SourceCodeResponseHandler(config.get('account_output_path'), 1500)
 
 def configure_container():
     container = Injector([AgentManagerModule(), FileResponseHandlerModule(), SourceCodeResponseHandlerModule(), ConfigManagerModule(), CompletionStoreModule()])

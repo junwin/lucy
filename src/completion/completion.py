@@ -65,9 +65,13 @@ class Completion:
             message = Message(message_role, message_text)
             self.messages.append(message)
             
-    def format_completion_text(self):
+    def format_completion_text(self, user_intro='', assistant_intro=''):
         concatenated_content = ""
         for message in self.messages:
-            concatenated_content += message.content + " "
+            if message.role == "user":
+                concatenated_content += user_intro + "'" + message.content + "' "
+            elif message.role == "assistant":
+                concatenated_content += assistant_intro + "'" + message.content + "'  "
+
 
         return concatenated_content.strip()

@@ -4,14 +4,14 @@
         "seed_conversation": [],
         "language_code": "en-US",
         "select_type": "hybrid",
-        "num_past_conversations": 4,
+        "num_past_conversations": 1,
         "num_relevant_conversations": 4,
-        "max_output_size": 750,
+        "max_output_size": 2050,
         "write_file_threashold": 5000,
         "use_prompt_reduction": true,
         "temperature": 0,
         "save_reposnses": true,
-        "model": "gpt-4"
+        "model": "gpt-3.5-turbo"
     },
     {
         "name": "colin",

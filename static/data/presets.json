@@ -21,7 +21,13 @@
         "name": "getrelevantfacts",
         "info": "/getrelevantfacts, lots of info and facts, some request",
         "num_mandatory_params": 2,
-        "prompt": "Please carefully review the info delimited by triple backticks and the user request delimited by triple quotes '''. Then, follow these steps:\n1) Identify any statements of facts, actions, preferences or points of view in the info that are related to the user request into a list; this is useful information. If there is no related information, then useful information is set to NONE\n2) If no useful information is found then we should return NONE\n3) Remove any duplicate information from the useful information\n\nUse the following output Format:\\nUseful information: <useful information>\n\ninfo:#<P1>```\nuser request: '''#<P2>'''\n"
+        "prompt": "Your task is to carefully review the info delimited by triple backticks and the user request delimited by triple quotes '''. Then, follow these steps:\n1) Identify User: preferences or rules - these MUST be included and any other statements of facts, actions, then select only information that is related to the user request into a list; this is useful information. If there is no related information, then useful information is set to NONE\n2) If no useful information is found then we should return NONE\n3) Remove any duplicate information from the useful information\n\nUse the following output Format:\\nUseful information: <useful information>\n\ninfo:```#<P1>```\nuser request: '''#<P2>'''\n"
+    },
+    "summarize": {
+        "name": "summarize",
+        "info": "/summarize,  your content",
+        "num_mandatory_params": 1,
+        "prompt": "Your task is to summarize the following content #<P1>"
     },
     "gpt-4": {
         "name": "gpt-4",

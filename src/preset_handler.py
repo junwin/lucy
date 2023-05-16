@@ -78,6 +78,29 @@ class PresetHandler:
             model = "gpt-3.5-turbo"
         return model
 
+    
+    def transform_to_dict_test(self, input_string, num_parms=0, delimiter=','):
+        if num_parms < 0:
+            raise ValueError("num_parms must be a non-negative integer.")
+        
+        # Split input_string on space first
+        split_string = input_string.strip().split(' ', 1)
+        seed_name = split_string[0].lstrip('/')
+        
+        if len(split_string) > 1:  # If there are parameters after the seed_name
+            # Split the rest of the string on the delimiter
+            input_list = split_string[1].strip().split(delimiter, num_parms)
+            values_list = [value.strip() for value in input_list]
+        else:
+            values_list = []
+
+        if num_parms > 0 and len(values_list) > num_parms:
+            last_value = delimiter.join(values_list[num_parms:])
+            values_list = values_list[:num_parms] + [last_value]
+
+        return {"seedName": seed_name, "values": values_list}
+
+
     def transform_to_dict(self, input_string, num_parms=0, delimiter=','):
         if num_parms < 0:
             raise ValueError("num_parms must be a non-negative integer.")

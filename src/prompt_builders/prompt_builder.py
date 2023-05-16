@@ -89,28 +89,33 @@ class PromptBuilder:
         if context_type == "simpleprompt":
             # use the text from compeltions
             my_agent_completions = agent_completion_manager.get_completion_byId(agent_matched_ids)
-            my_text = my_agent_completions[0].format_completion_text()
-            content_text = my_text + content_text   
+            if len(my_agent_completions) > 0:  
+                my_text = my_agent_completions[0].format_completion_text()
+                content_text = my_text + content_text   
             matched_messages_agent = []
  
 
 
-        # get any matched account prompts for the account - this is fixed information for the account
-        account_matched_ids = self.get_matched_ids(account_completion_manager, context_type, content_text, num_relevant_conversations, num_past_conversations)
-        matched_messages_account = account_completion_manager.get_completion_messages(account_matched_ids)
 
+        matched_messages_account = []
         # does this agent use an open ai model to reduce and select only relevant prompts
         if use_prompt_reduction:
+            account_matched_ids = self.get_matched_ids(account_completion_manager, context_type, content_text, num_relevant_conversations, num_past_conversations)
+            matched_messages_account = account_completion_manager.get_completion_messages(account_matched_ids) 
+            
             text_info = account_completion_manager.get_formatted_text(account_matched_ids)
+            logging.info(f'PromptBuilder text_info: {text_info}')
 
             preset_values = [text_info, content_text]
             my_useful_response = self.preset_handler.process_preset_prompt_values("getrelevantfacts", preset_values)
             useful_reponse = self.get_data_item(my_useful_response, "Useful information:")
 
             if useful_reponse != 'NONE' :
-                matched_messages_account =  [Message('assistant', useful_reponse)]
-            else:
-                matched_messages_account = []
+                matched_messages_account =  [Message('system', useful_reponse)]
+                logging.info(f'Useful information: {useful_reponse}')
+        else:
+            account_matched_ids = self.get_matched_ids(account_completion_manager, context_type, content_text, num_relevant_conversations, num_past_conversations)
+            matched_messages_account = account_completion_manager.get_completion_messages(account_matched_ids) 
 
         agent_message_dicts = Message.get_list_of_dicts(matched_messages_agent)
         account_message_dicts = Message.get_list_of_dicts(matched_messages_account)

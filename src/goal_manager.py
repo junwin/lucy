@@ -4,29 +4,28 @@ class GoalManager:
     def __init__(self):
         self.goals = {}
 
-    def add_goal(self, goal_name, sub_goals=None):
-        goal = Goal(goal_name, sub_goals)
-        self.goals[goal_name] = goal
+    def add_goal(self, goal_name, conversation_id, sub_goals=None):
+        goal = Goal(goal_name, conversation_id, sub_goals)
+        self.goals[goal.id] = goal
 
-    def update_goal(self, old_goal_name, new_goal_name, new_sub_goals=None):
-        if old_goal_name in self.goals:
-            goal = self.goals.pop(old_goal_name)
+    def update_goal(self, goal_id, new_goal:Goal):
+        if goal_id in self.goals:
+            goal = self.goals[goal_id]
             goal.name = new_goal_name
             if new_sub_goals:
                 goal.sub_goals = new_sub_goals
-            self.goals[new_goal_name] = goal
 
-    def remove_goal(self, goal_name):
-        if goal_name in self.goals:
-            self.goals.pop(goal_name)
+    def remove_goal(self, goal_id):
+        if goal_id in self.goals:
+            self.goals.pop(goal_id)
 
-    def add_sub_goal(self, goal_name, sub_goal):
-        if goal_name in self.goals:
-            self.goals[goal_name].add_sub_goal(sub_goal)
+    def add_sub_goal(self, goal_id, sub_goal):
+        if goal_id in self.goals:
+            self.goals[goal_id].add_sub_goal(sub_goal)
 
-    def remove_sub_goal(self, goal_name, sub_goal):
-        if goal_name in self.goals:
-            self.goals[goal_name].remove_sub_goal(sub_goal)
+    def remove_sub_goal(self, goal_id, sub_goal):
+        if goal_id in self.goals:
+            self.goals[goal_id].remove_sub_goal(sub_goal)
 
     def __repr__(self):
         return f"GoalManager(goals={self.goals})"

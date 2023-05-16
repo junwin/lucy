@@ -192,13 +192,24 @@ class CompletionManager:
         return messages
 
     
-    def get_formatted_text(self, completionIds: List[str]) -> str:
+    def get_formatted_text(self, completionIds: List[str], user_intro = "User: ", assistant_intro = "Assistant:" ) -> str:
         response_text = ""
         for completion in self.get_completion_byId(completionIds):
-            text = completion.format_completion_text()
+            text = completion.format_completion_text(user_intro, assistant_intro)
             if len(text) > 0:
                 response_text += text + "\n"
         return response_text
+    
+    def get_formatted_conversations(self, completionIds: List[str]) -> str:
+        response_text = ""
+        user_intro = "User: "
+        assistant_intro = "Assistant: "
+        for completion in self.get_completion_byId(completionIds):
+            text = completion.format_completion_text(user_intro, assistant_intro)
+            if len(text) > 0:
+                response_text += text + "\n"
+        return response_text
+    
     
     def get_distinct_conversation_ids(self) -> List[str]:
         conversation_ids = set()
