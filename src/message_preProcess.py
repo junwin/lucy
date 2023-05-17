@@ -28,11 +28,29 @@ class MessagePreProcess:
             response["result"] = self.preset_handler.process_preset_prompt(message, agent_name, account_name)
         elif message.startswith("!folder_summarize"):
             response["action"] = "return"
-            response["result"] = self.do_folder_summarize(agent_name, message)   
+            response["result"] = self.do_folder_summarize(agent_name, message)  
+        elif "!inline_file_path:" in message:
+            response["action"] = "updatemessage"
+            response["result"] = self.process_inline_file(message)
  
         return response
     
+    def process_inline_file(self, message: str) -> str:
+        file_paths = re.findall(r"file_path:(\S+)", message)
+        
+        for file_path in file_paths:
+            with open(file_path, 'r') as file:
+                file_contents = file.read()
+                message = message.replace(f"file_path:{file_path}", file_contents, 1)
+        
+        return message
 
+
+
+    def read_file_as_string(self, file_path: str) -> str:
+        with open(file_path, 'r') as file:
+            return file.read()  
+        
     def do_folder_summarize(self, agent_name: str, message:str) ->str:
         my_params = self.get_action_and_parameters( message)
         input_path = my_params["input_path"]

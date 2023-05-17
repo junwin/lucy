@@ -107,5 +107,5 @@ class SourceCodeResponseHandler(ResponseHandler):
 
         return f"File '{filename}' saved to '{tests_folder}'."
 
-    
-    
+   ## inline files 
+  good morning !inline_file_path:"C:\temp\sandbox\Whiteboard.txt"   need to work what is next  

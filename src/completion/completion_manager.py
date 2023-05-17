@@ -1,5 +1,6 @@
 import json
-from typing import List, Dict, Set
+from typing import List, Dict, Set, Optional
+
 from datetime import datetime
 from time import time
 import logging
@@ -183,29 +184,40 @@ class CompletionManager:
 
         return matching_ids
     
-    def get_completion_messages(self, completionIds: List[str]) -> List[Message]:
+    def get_completion_messages(self, completionIds: List[str], roles: Optional[List[str]] = None) -> List[Message]:
+        if roles is None:
+            roles = ['user', 'assistant', 'system']
+
         completions = self.get_completion_byId(completionIds)
         messages = []
         for completion in completions:
             for message in completion.messages:
-                messages.append(message)    
+                if(message.role in roles):
+                    messages.append(message)    
         return messages
 
+    def get_default_roles(self) -> List[str]:
+        return ['user', 'assistant', 'system']
     
-    def get_formatted_text(self, completionIds: List[str], user_intro = "User: ", assistant_intro = "Assistant:" ) -> str:
+    def get_formatted_text(self, completionIds: List[str], roles: Optional[List[str]] = None, user_intro = "User: ", assistant_intro = "Assistant:" ) -> str:
+        if roles is None:
+            roles = self.get_default_roles()
         response_text = ""
         for completion in self.get_completion_byId(completionIds):
-            text = completion.format_completion_text(user_intro, assistant_intro)
+            text = completion.format_completion_text(roles, user_intro, assistant_intro)
             if len(text) > 0:
                 response_text += text + "\n"
         return response_text
     
-    def get_formatted_conversations(self, completionIds: List[str]) -> str:
+    def get_formatted_conversations(self, completionIds: List[str], roles: Optional[List[str]] = None) -> str:
+        if roles is None:
+            roles = self.get_default_roles()
         response_text = ""
         user_intro = "User: "
         assistant_intro = "Assistant: "
+        
         for completion in self.get_completion_byId(completionIds):
-            text = completion.format_completion_text(user_intro, assistant_intro)
+            text = completion.format_completion_text(roles, user_intro, assistant_intro)
             if len(text) > 0:
                 response_text += text + "\n"
         return response_text

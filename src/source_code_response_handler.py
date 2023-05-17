@@ -10,8 +10,9 @@ class SourceCodeResponseHandler(ResponseHandler):
         self.max_length = max_length
         self.output_folder = account_output_path
 
-    def handle_response(self, agent_name:str, response: str) ->str:
-        self.save_test_code(response, self.output_folder)
+    def handle_response(self, account_name:str, response: str) ->str:
+        my_folder_path = os.path.join(self.output_folder, account_name)
+        self.save_test_code(response, my_folder_path)
         response = "files saved to " + self.output_folder
         return response
 

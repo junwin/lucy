@@ -1,7 +1,7 @@
 import pytest
 from datetime import datetime
 from typing import List, Dict, Set
-from src.goal import Goal
+from src.hierarchical_node import Goal
 import time
 
 class TestGoal:

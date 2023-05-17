@@ -29,6 +29,12 @@
         "num_mandatory_params": 1,
         "prompt": "Your task is to summarize the following content #<P1>"
     },
+    "python_test_this": {
+        "name": "python_test_this",
+        "info": "/python_test_this,  your free format code",
+        "num_mandatory_params": 1,
+        "prompt": "your task is to produce a pytest test class for the following code, test functions, also test cases where inputs are None and with invalid cases, e.g. where some resource does not exist  code:```#<P1>```"
+    },
     "gpt-4": {
         "name": "gpt-4",
         "info": "/gpt-4,  your free format request",

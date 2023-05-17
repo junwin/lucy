@@ -1,4 +1,4 @@
-from typing import List, Dict, Set
+from typing import List, Dict, Set, Optional
 from src.completion.message import Message
 from src.completion.utils import get_id
 from datetime import datetime
@@ -65,13 +65,21 @@ class Completion:
             message = Message(message_role, message_text)
             self.messages.append(message)
             
-    def format_completion_text(self, user_intro='', assistant_intro=''):
+    def get_default_roles(self) -> List[str]:
+        return ['user', 'assistant', 'system']
+    
+    def format_completion_text(self, roles: Optional[List[str]] = None, user_intro='', assistant_intro=''):
+        if roles is None:
+            roles = self. get_default_roles()
+
         concatenated_content = ""
         for message in self.messages:
-            if message.role == "user":
-                concatenated_content += user_intro + "'" + message.content + "' "
-            elif message.role == "assistant":
-                concatenated_content += assistant_intro + "'" + message.content + "'  "
-
+            if message.role in roles:
+                if message.role == "user":
+                    concatenated_content += user_intro + "'" + message.content + "' "
+                elif message.role == "assistant":
+                    concatenated_content += assistant_intro + "'" + message.content + "'  "
+                elif message.role == "system":
+                    concatenated_content += ' ' + "'" + message.content + "'  "
 
         return concatenated_content.strip()

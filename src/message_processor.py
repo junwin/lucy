@@ -28,7 +28,7 @@ class MessageProcessor:
         
 
 
-    def process_message(self, agent_name:str, account_name:str, message, conversationId="0"):
+    def process_message(self, agent_name:str, account_name:str, message, conversationId="0") -> str:
         logging.info(f'Processing message inbound: {message}')
         agent_manager = container.get(AgentManager)
         agent = agent_manager.get_agent(agent_name)
@@ -55,6 +55,9 @@ class MessageProcessor:
              seed_info = myResult["result"]
              seed_name=seed_info["seedName"]
              seed_paramters=seed_info["values"]
+        elif myResult["action"] == "updatemessage":
+             message =  myResult["result"]
+ 
 
         prompt_builder = PromptBuilder()
         conversation = prompt_builder.build_prompt( message, conversationId, agent_name, account_name, context_type)

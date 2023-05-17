@@ -1,4 +1,4 @@
-from src.goal import Goal
+from src.hierarchical_node import HierarchicalNode
 
 class GoalManager:
     def __init__(self):

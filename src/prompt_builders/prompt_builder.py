@@ -78,13 +78,18 @@ class PromptBuilder:
         num_past_conversations = agent["num_past_conversations"]
         num_relevant_conversations = agent["num_relevant_conversations"]
         use_prompt_reduction = agent["use_prompt_reduction"]
+        if "roles_used_in_context" in agent:
+            roles_used_in_context = agent["roles_used_in_context"]
+        else:
+            roles_used_in_context = None
 
         
         # get the agents seed prompts - this is fixed information for the agent
+        agent_roles = ['system']
         agent_matched_seed_ids = self.get_matched_ids(agent_completion_manager, "keyword_match_all", seed_name, num_relevant_conversations, num_past_conversations)
         agent_matched_ids = self.get_matched_ids(agent_completion_manager, "keyword", content_text, num_relevant_conversations, num_past_conversations)
         agent_all_matched_ids = agent_matched_seed_ids + agent_matched_ids
-        matched_messages_agent = agent_completion_manager.get_completion_messages(agent_all_matched_ids)
+        matched_messages_agent = agent_completion_manager.get_completion_messages(agent_all_matched_ids, agent_roles)
 
         if context_type == "simpleprompt":
             # use the text from compeltions
@@ -100,10 +105,15 @@ class PromptBuilder:
         matched_messages_account = []
         # does this agent use an open ai model to reduce and select only relevant prompts
         if use_prompt_reduction:
-            account_matched_ids = self.get_matched_ids(account_completion_manager, context_type, content_text, num_relevant_conversations, num_past_conversations)
-            matched_messages_account = account_completion_manager.get_completion_messages(account_matched_ids) 
+            # this will work on related prompts - not the latest prompts
+            # later we need to determine if the request actually relates to a previous conversation
+            account_matched_ids = self.get_matched_ids(account_completion_manager, context_type, "semantic", num_relevant_conversations, num_past_conversations)
+            account_latest_ids = self.get_matched_ids(account_completion_manager, "latest", "semantic", num_relevant_conversations, num_past_conversations)
             
-            text_info = account_completion_manager.get_formatted_text(account_matched_ids)
+            #matched_messages_account_relevant = account_completion_manager.get_completion_messages(account_matched_ids, roles_used_in_context)
+            matched_messages_account_latest = account_completion_manager.get_completion_messages(account_latest_ids, roles_used_in_context) 
+            
+            text_info = account_completion_manager.get_formatted_text(account_matched_ids, roles_used_in_context)
             logging.info(f'PromptBuilder text_info: {text_info}')
 
             preset_values = [text_info, content_text]
@@ -111,11 +121,11 @@ class PromptBuilder:
             useful_reponse = self.get_data_item(my_useful_response, "Useful information:")
 
             if useful_reponse != 'NONE' :
-                matched_messages_account =  [Message('system', useful_reponse)]
+                matched_messages_account = matched_messages_account_latest +  [Message('system', useful_reponse)]
                 logging.info(f'Useful information: {useful_reponse}')
         else:
             account_matched_ids = self.get_matched_ids(account_completion_manager, context_type, content_text, num_relevant_conversations, num_past_conversations)
-            matched_messages_account = account_completion_manager.get_completion_messages(account_matched_ids) 
+            matched_messages_account = account_completion_manager.get_completion_messages(account_matched_ids, roles_used_in_context) 
 
         agent_message_dicts = Message.get_list_of_dicts(matched_messages_agent)
         account_message_dicts = Message.get_list_of_dicts(matched_messages_account)
