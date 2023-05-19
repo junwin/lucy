@@ -31,6 +31,20 @@
         "model": "gpt-3.5-turbo"
     },
     {
+        "name": "doris",
+        "seed_conversation": [],
+        "language_code": "en-US",
+        "select_type": "latest",
+        "num_past_conversations": 3,
+        "num_relevant_conversations":0,
+        "max_output_size": 4000,
+        "write_file_threashold": 60000,
+        "use_prompt_reduction": false,
+        "temperature": 0,
+        "save_reposnses": false,
+        "model": "gpt-3.5-turbo"
+    },
+    {
         "name": "maria",
         "seed_conversation": [],
         "language_code": "es-US",

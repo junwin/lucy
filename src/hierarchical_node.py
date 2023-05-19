@@ -4,16 +4,23 @@ import time
 from typing import List, Dict, Set
 
 class HierarchicalNode:
-    def __init__(self, name: str, conversation_id: str, info: str = "", parent_id: str = "", children: List[str] = None):
+    incrementing_id = 0
+    def __init__(self, name: str, conversation_id: str, description: str = "",  info: str = "", parent_id: str = "", children: List[str] = None, state: str = "none"):
         self.name = name
+        self.description = description
         self.conversation_id = conversation_id
         self.info = info
         self.parent_id = parent_id
         self.utc_timestamp = datetime.datetime.utcnow().isoformat() + "Z"
-        self.id = str(time.time())
+        self.id = self.get_id()
         self.children = children if children else []
         self.tags: List[str] = []
-        self.state: str = "none"
+        self.state: str = state
+
+    def get_id(self) -> str:
+        id =  str(time.time()) + str(HierarchicalNode.incrementing_id)
+        HierarchicalNode.incrementing_id += 1
+        return id
 
     def add_child(self, child_id: str):
         self.children.append(child_id)

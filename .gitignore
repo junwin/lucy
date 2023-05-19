@@ -57,3 +57,7 @@ data/completions/pedro_test_conv.json
 data/completions/maria_test_conv.json
 data/completions/lucy_junwin_conv.json
 data/completions/colin_test_conv.json
+data/completions/lucy_cli_conv.json
+static/data/code_sandbox/
+your path/hello_world.py
+data/completions/lucy_cli_conv.json

@@ -1,11 +1,12 @@
 import pytest
-from hierarchical_node import HierarchicalNode
+from src.hierarchical_node import HierarchicalNode
 
 class TestHierarchicalNode:
     def test_init(self):
         node = HierarchicalNode("test", "123")
         assert node.name == "test"
         assert node.conversation_id == "123"
+        assert node.description == ""
         assert node.info == ""
         assert node.parent_id == ""
         assert node.children == []
@@ -27,6 +28,7 @@ class TestHierarchicalNode:
         node_dict = node.as_dict()
         assert node_dict["name"] == "test"
         assert node_dict["conversation_id"] == "123"
+        assert node_dict["description"] == ""
         assert node_dict["info"] == ""
         assert node_dict["parent_id"] == ""
         assert node_dict["children"] == []
@@ -37,6 +39,7 @@ class TestHierarchicalNode:
         node_dict = {
             "name": "test",
             "conversation_id": "123",
+            "description": "mynode",
             "info": "",
             "parent_id": "",
             "children": [],
@@ -46,6 +49,7 @@ class TestHierarchicalNode:
         node = HierarchicalNode.from_dict(node_dict)
         assert node.name == "test"
         assert node.conversation_id == "123"
+        assert node.description == "mynode"
         assert node.info == ""
         assert node.parent_id == ""
         assert node.children == []

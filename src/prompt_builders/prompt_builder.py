@@ -86,7 +86,9 @@ class PromptBuilder:
         
         # get the agents seed prompts - this is fixed information for the agent
         agent_roles = ['system']
-        agent_matched_seed_ids = self.get_matched_ids(agent_completion_manager, "keyword_match_all", seed_name, num_relevant_conversations, num_past_conversations)
+        
+        # we always want to get the latest seed prompts
+        agent_matched_seed_ids = self.get_matched_ids(agent_completion_manager, "keyword_match_all", seed_name, 2, num_past_conversations)
         agent_matched_ids = self.get_matched_ids(agent_completion_manager, "keyword", content_text, num_relevant_conversations, num_past_conversations)
         agent_all_matched_ids = agent_matched_seed_ids + agent_matched_ids
         matched_messages_agent = agent_completion_manager.get_completion_messages(agent_all_matched_ids, agent_roles)

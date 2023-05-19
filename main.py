@@ -29,7 +29,7 @@ def role_play():
         print(response)
 
 def ask(question: str) -> str:
-    agentName = "lucy"
+    agentName = "doris"
     accountName = "cli"
     #select_type = request.json.get('selectType', '')
     conversationId = "cli"

@@ -12,6 +12,24 @@ class NodeManager:
             return node
         else:
             return None
+        
+    def get_nodes_conversation_id(self, conversation_id: str, name: str = None) -> List[HierarchicalNode]:
+        nodes = []
+        for node in self.nodes.values():
+            if node.conversation_id == conversation_id and node.state != "deleted":
+                if name:
+                    if node.name == name:
+                        nodes.append(node)
+                else: 
+                    nodes.append(node)
+        return nodes
+    
+    def get_nodes_parent_id(self, parent_id: str) -> List[HierarchicalNode]:
+        nodes = []
+        for node in self.nodes.values():
+            if node.parent_id == parent_id and node.state != "deleted":
+                nodes.append(node)
+        return nodes
 
     def add_node(self, node: HierarchicalNode) -> None:
         self.nodes[node.id] = node
