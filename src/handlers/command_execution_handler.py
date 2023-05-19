@@ -7,31 +7,41 @@ from typing import List, Tuple
 from src.handlers.handler import Handler
 from src.container_config import container
 from src.config_manager import ConfigManager
+from src.handlers.quokka_loki import QuokkaLoki
 
 
 class CommandExecutionHandler(Handler):  
-    def handle(self, request:str) -> Tuple[str, str]:
-        if "please execute a command:" in request:
-            config = container.get(ConfigManager) 
-            base_path = config.get('code_sandbox_path')  
+    def handle(self, request:str):
 
-            command_pattern = "```(.*?)```"
-            commands = re.findall(command_pattern, request)
+        results = ''
+        next_action_index = 0
+        request_len = len(request)
+        if not "action_execute_command:" in request:
+            return None
+        
+        config = container.get(ConfigManager)
+        base_path = config.get('code_sandbox_path')  
 
-            if commands:
-                results = []
-                for command in commands:
-                    my_command = command
-                    result = self.execute_script(my_command, base_path)
-                    results.append(result)
-                return (self.__class__.__name__, ', '.join(results))
+        while next_action_index < request_len and next_action_index != -1:
 
-            else:
-                return "Error: Invalid parameters for 'execute a command' command."
+            request_substring = request[next_action_index:request_len]
+            my_action = QuokkaLoki.extract_action(request_substring, "action_execute_command:", ['command', 'command_path'] )
+            my_action_name = my_action['action']
+            next_action_index = my_action[my_action_name]
+            if my_action_name != "action_execute_command:":
+                return [{ "handler": self.__class__.__name__}, {"result": "Error: Invalid action name for 'action_execute_command:' command."}]
             
-        return None
+            command = my_action['command']  
+            command_path = my_action['command_path']  
+
+            result = self.execute_script(command, base_path)
+            results += result + '\n'
+            results +=  '\n'
 
 
+        return [{ "handler": self.__class__.__name__}, {"result": results}]
+     
+       
     def execute_script(self, command: str, script_path: str)-> str:
         # Make sure the script exists before attempting to execute it
         if os.path.exists(script_path):

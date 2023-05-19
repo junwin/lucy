@@ -5,16 +5,51 @@ import shlex
 import subprocess
 from typing import List, Tuple
 from src.handlers.handler import Handler
+from src.node_manager import NodeManager
+from src.hierarchical_node import HierarchicalNode 
+from src.container_config import container
+from src.config_manager import ConfigManager
+from src.handlers.quokka_loki import QuokkaLoki 
 
-class TaskUpdateHandler(Handler):  # Another concrete handler
-    def handle(self, request:str) -> Tuple[str, str]:
-        if "update steps:" in request:
-            steps_pattern = "```(.*?)```"
-            #steps = re.search(steps_pattern, request, re.DOTALL)
+class TaskUpdateHandler(Handler):
+    def __init__(self, node_manager: NodeManager):
+        self.node_manager = node_manager
 
-            #if steps:
-            #    self.steps = yaml.safe_load(steps.group(1))
-            #else:
-            #    return ["Error: Invalid parameters for 'update steps' command."]
-            
-        return None
+    def handle(self, request:str) :
+
+        if not "action_add_steps:" in request:
+            return None
+        
+        results = []
+        next_action_index = 0
+        request_len = len(request)
+
+        while next_action_index < request_len and next_action_index != -1:
+
+            request_substring = request[next_action_index:request_len]
+            my_action = QuokkaLoki.extract_action(request_substring, "action_add_steps:", ['current_node_id', 'name', 'description', 'state'] )
+            my_action_name = my_action['action']
+            next_action_index = my_action[my_action_name]
+
+            if my_action_name != "action_add_steps:":
+                return [ { "handler": self.__class__.__name__}, {"result": 'Error: Invalid action name for save a file command.'}]
+
+            node_id = my_action['current_node_id']
+            name = my_action['name']
+            description = my_action['description']
+            state = my_action['state']
+
+            # get the currtent node using the  id
+            my_node = self.node_manager.get_node(node_id)
+            if my_node is None:
+                return [ { "handler": self.__class__.__name__}, {"result": f"Error: Invalid node id {node_id}"}]
+
+            new_node = HierarchicalNode.new_node_minimal(name, my_node.conversation_id, description, state)
+            my_node.add_child(new_node.id)
+            new_node.parent_id = my_node.id
+            self.node_manager.add_node(new_node) 
+
+            results.append( { "handler": self.__class__.__name__}, {"result": f"Node added {name}"})
+
+        return results
+   
