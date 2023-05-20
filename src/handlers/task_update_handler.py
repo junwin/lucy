@@ -30,6 +30,7 @@ class TaskUpdateHandler(Handler):
             my_action = QuokkaLoki.extract_action(request_substring, "action_add_steps:", ['current_node_id', 'name', 'description', 'state'] )
             my_action_name = my_action['action']
             next_action_index = my_action[my_action_name]
+            next_action_index = next_action_index
 
             if my_action_name != "action_add_steps:":
                 return [ { "handler": self.__class__.__name__}, {"result": 'Error: Invalid action name for save a file command.'}]
@@ -49,7 +50,7 @@ class TaskUpdateHandler(Handler):
             new_node.parent_id = my_node.id
             self.node_manager.add_node(new_node) 
 
-            results.append( { "handler": self.__class__.__name__}, {"result": f"Node added {name}"})
+            results = results + [{ "handler": self.__class__.__name__}, {"result": f"Node added {name}"}]
 
         return results
    

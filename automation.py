@@ -33,7 +33,28 @@ logging.basicConfig(filename='logs/my_log_file.log', level=logging.INFO,
 
 task_prompt_part = """\nPerform the description: field in the backticks below\n use only the actions described in your prompt to do the task. Do not be verbose, 
 do not provide any other commentary\n\n
+Use a script to perform the task, do not do it manually\n\n
+Avoid user interaction\n\n
+User scrits to access the internet\n\n
 output format: only output actions from the list above there is no need to provide any other comentary do not be verbose!\n
+IMPORTANT: If the state is 'retry' consult the info: field, if you cannot resolve the issue return ERROR \n"""
+
+task_prompt_part_goal = """\nYour mission is to break down the requirement found in the description: below into a list of steps that other assisaatant or humans will then
+perform using the following primatives(action_save_file,action_load_file, action_execute_command, action_request_user_action) You will ONLY use the 'action_add_steps' primative to
+have then external system prepare a task list. You should aim to break the task into manageble tasks and provide sufficent detail. 
+
+When you have got the list of tasks you then need return one 'action_add_steps' per task in the response. You will:
+* put a short name in the name field,
+* put the detaied deascription of the task in the description field in the 'action_add_steps'
+* the status is set to none
+* most important is that you will take the node_id given in the context:  this must go in the current_node_id field of the action
+* you must adhere to the EXACT format shown in the previous system prompt
+
+Output format example (assuming you had 2 tasks to add):
+action_add_steps: current_node_id: ``` 999999.9999  ``` name: ``` example name ``` description: ``` exampleyour description ``` state: ``` none ```  \n
+action_add_steps: current_node_id: ``` 123456.1234  ``` name: ``` example name 2 ``` description: ``` exampleyour description2 ``` state: ``` none ``` \n
+
+Do not be verbose, do not provide any other commentary - just the action_add_steps primative in the format shown in the previous system prompt\n\n
 IMPORTANT: If the state is 'retry' consult the info: field, if you cannot resolve the issue return ERROR \n"""
 
 class Automation:
@@ -98,8 +119,12 @@ class Automation:
 
     def run(self, user_goal: str) -> str:
         max_iterations = 10
-        self.task_generator.generate_tasks(user_goal)
+        #self.task_generator.generate_tasks(user_goal)
+
+        self.workout_steps('search internet for hot cross buns, then prepare a blog entry about them')
+
         self.top_node = self.node_manager.get_nodes_conversation_id("conv1", "top")
+
         self.task_nodes = self.node_manager.get_nodes_parent_id(self.top_node[0].id) 
 
         #self.test_extract_action2()
@@ -114,7 +139,7 @@ class Automation:
             else:
                 print("No more steps to process")
                 break
-            
+
             itr += 1
 
     def process_step(self, step):
@@ -144,14 +169,39 @@ class Automation:
                 context_info = {"handler_result:": response_text}
                 self.context.add_info(context_info)
             else:
-                context_info = {"response": step.id + ': ' + f"This step failed {response}"}
+                context_info = {"response": step.id + ': ' + f"ERROR - this method did not work: {response}  You must try some other appraoch"}
                 self.context.add_info(context_info)
-                context_info = {"handler_result:": response_text}
+                context_info = {"handler_result:": f"ERROR - here is the response when running your request : {response_text}  You must try some other appraoch"}
                 self.context.add_info(context_info)
                 step.state = 'retry'
                 step.info = response2
 
             #self.context.add_info(context_info)
+
+
+
+    def workout_steps(self, goal):
+        
+        top_node = HierarchicalNode("top", "conv1", goal)
+        #top_node.id= '1684550657.07442864'  #testing aid
+        self.node_manager.add_node(top_node) 
+
+        self.context.add_info({"parent_node_id": top_node.id})
+        context_text = self.context.get_info_text()  
+
+        my_step_text = top_node.get_formatted_text(["name", "description", "info", "state"])
+ 
+        message = task_prompt_part_goal + " ```" + my_step_text + " ```" + " ```" + 'context_info:'  + context_text + "``` " 
+
+        response = self.ask(message)
+        #response = ''' action_add_steps: current_node_id: ``` 1684550657.07442864 ``` name: ``` Identify high yield stocks ``` description: ``` Use a stock analysis tool to identify the top 5 high yield stocks based on the given criteria. ``` state: ``` none ```  \n\naction_add_steps: current_node_id: ``` 1684550657.07442864 ``` name: ``` Save high yield stocks as CSV ``` description: ``` Save the identified high yield stocks as a CSV file with the given file name and path. ``` state: ``` none ``` '''
+            
+        rh_repsonse = self.handler.process_request(response)
+        response_text = self.handler_repsonse_formated_text(rh_repsonse)
+
+
+  
+
 
     def find_next_step(self, steps):
         # Check if there's an "in progress" step
@@ -187,8 +237,8 @@ class Automation:
         # If no next step is found, return None
         return None
 
-    def ask(self, question: str) -> str:
-        agentName = "doris"
+    def ask(self, question: str, agentName:str = 'doris') -> str:
+        agentName = agentName
         accountName = "auto"
         #select_type = request.json.get('selectType', '')
         conversationId = "auto"

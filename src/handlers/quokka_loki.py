@@ -19,7 +19,7 @@ class QuokkaLoki:
         # Find the end index of the current action
         end_index = request.find('action_', action_index + len(action_name))
         if end_index == -1:
-            end_index = len(request)
+            end_index
         
         # Extract the parameters
         result = [('action', action_name)]
