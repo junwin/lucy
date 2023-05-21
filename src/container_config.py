@@ -45,13 +45,13 @@ class FileResponseHandlerModule(Module):
     @provider
     @singleton
     def provide_agent_manager(self) -> FileResponseHandler:
-        return FileResponseHandler(config.get('account_output_path'), 1500)
+        return FileResponseHandler(config.get('account_output_path'), 5000)
     
 class SourceCodeResponseHandlerModule(Module):
     @provider
     @singleton
     def provide_agent_manager(self) -> SourceCodeResponseHandler:
-        return SourceCodeResponseHandler(config.get('account_output_path'), 1500)
+        return SourceCodeResponseHandler(config.get('account_output_path'), 5000)
 
 def configure_container():
     container = Injector([AgentManagerModule(), FileResponseHandlerModule(), SourceCodeResponseHandlerModule(), ConfigManagerModule(), CompletionStoreModule()])

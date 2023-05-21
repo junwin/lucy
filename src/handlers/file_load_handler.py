@@ -5,6 +5,10 @@ import shlex
 import subprocess
 from typing import List, Tuple
 from src.handlers.handler import Handler
+from src.handlers.handler import Handler
+from src.container_config import container
+from src.config_manager import ConfigManager
+from src.handlers.quokka_loki import QuokkaLoki
 
 
 class FileLoadHandler(Handler):  # Concrete handler
@@ -12,15 +16,25 @@ class FileLoadHandler(Handler):  # Concrete handler
     #!inline_file_path:"C:\temp\sandbox\Whiteboard.txt"  
     # please save a file file_path: 'your path' file_name: 'your file name' file_content``` your file content ```
     def handle(self, request:str) -> Tuple[str, str]:
-        if "please load a file" in request:
-            file_path_pattern = "file_path: '(.*?)'"
-            file_name_pattern = "file_name: '(.*?)'"
+        if "action_load_file:" in request:
+            config = container.get(ConfigManager) 
+            my_action = QuokkaLoki.extract_action(request, "action_load_file:", ['file_path', 'file_name'] )
+            my_action_name = my_action['action']
+            if my_action_name != "action_load_file:":
+                return [{ "handler": self.__class__.__name__}, {"result": "Error: Invalid action name for 'save a file' command."}]
+
+            file_path = my_action['file_path']
+            file_path = file_path.replace('.', '')
+            file_name = my_action['file_name']
+
+            base_path = config.get('code_sandbox_path') 
+            my_full_path = base_path+ '/' + file_path + '/'
 
 
-            file_path = re.search(file_path_pattern, request)
-            file_name = re.search(file_name_pattern, request)
-            result = self.read_file(file_path.group(1), file_name.group(1))
-            return (self.__class__.__name__, result)
+            result = self.read_file(my_full_path, file_name )
+
+            return [{ "handler": self.__class__.__name__}, {"result": result}]
+
 
 
 
@@ -43,7 +57,9 @@ class FileLoadHandler(Handler):  # Concrete handler
 
     def read_file(self, file_path: str, file_name: str) -> str:
         try:
-            with open(file_path, 'r') as file:
+            full_file_path = os.path.join(file_path, file_name)
+            full_file_path = full_file_path.replace('//', '/')
+            with open(full_file_path, 'r',  encoding='utf-8') as file:
                 file_contents = file.read()
                 return file_contents
         except Exception as e:

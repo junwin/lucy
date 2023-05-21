@@ -31,31 +31,45 @@ logging.basicConfig(filename='logs/my_log_file.log', level=logging.INFO,
 
 
 
-task_prompt_part = """\nPerform the description: field in the backticks below\n use only the actions described in your prompt to do the task. Do not be verbose, 
-do not provide any other commentary\n\n
-Use a script to perform the task, do not do it manually\n\n
-Avoid user interaction\n\n
-User scrits to access the internet\n\n
-output format: only output actions from the list above there is no need to provide any other comentary do not be verbose!\n
-IMPORTANT: If the state is 'retry' consult the info: field, if you cannot resolve the issue return ERROR \n"""
+task_prompt_part = """Your task is to provide automantion. Examine the context: provided below, the description: field describe what needs to be done - you will do your best to 
+provide a solution\nYou must not ask for user or human intervantion\nWhen the state: is 'retry' the last solution proposed by the AI (you) was not satisfactory so remedial action is required, the context provides the information to resolve things, request shows the request that failed, response: shows the result to running the request and the interpretation: shows why the request failed. Do not forget that any action_ must not be split over muliple lines and must be complete on a single line. 
+Check the environment os before using action_execute_command: to run a command. You must only respond with actions - do not provide comentary or update the context, 
+ALL paths and folders must be relative and added to the the output_folder: provided in the context.
+When developing code use action_save_file: to save the code to the output_folder: provided in the context.
+When running a .bat .cmd .exe use action_execute_command: to run the command in the output_folder: provided in the context.
+do not install components e.g. pip install - assume they are installed.
+You MUST NOT request user input for example, you should not ask the user to provide a file path or file name or browse the internet for information. Use scripts or curl to access the internet
+"""
 
-task_prompt_part_goal = """\nYour mission is to break down the requirement found in the description: below into a list of steps that other assisaatant or humans will then
-perform using the following primatives(action_save_file,action_load_file, action_execute_command, action_request_user_action) You will ONLY use the 'action_add_steps' primative to
-have then external system prepare a task list. You should aim to break the task into manageble tasks and provide sufficent detail. 
+task_prompt_part_goal = """The purpose of this request is to break down a given requirement/goal into a set of steps using the 
+provided action primitives (action_save_file, action_load_file, action_execute_command). 
+The assistant should use the 'action_add_steps' primitive to prepare a task list for external systems or other assistants. 
+The goal is to divide the goal into manageable tasks
+You MUST avoid tasks that require human intervention for example, you should not ask the user to provide a file path or file name or browse the internet for information.
 
-When you have got the list of tasks you then need return one 'action_add_steps' per task in the response. You will:
-* put a short name in the name field,
-* put the detaied deascription of the task in the description field in the 'action_add_steps'
-* the status is set to none
-* most important is that you will take the node_id given in the context:  this must go in the current_node_id field of the action
-* you must adhere to the EXACT format shown in the previous system prompt
+To accomplish this, please follow these guidelines:
 
-Output format example (assuming you had 2 tasks to add):
-action_add_steps: current_node_id: ``` 999999.9999  ``` name: ``` example name ``` description: ``` exampleyour description ``` state: ``` none ```  \n
-action_add_steps: current_node_id: ``` 123456.1234  ``` name: ``` example name 2 ``` description: ``` exampleyour description2 ``` state: ``` none ``` \n
+1. Use the 'action_add_steps' primitive to return one action per task in the response.
+2. In the 'name' field, provide a short name for the task.
+3. In the 'description' field of the 'action_add_steps', provide a detailed description of the task.
+4. Set the 'state' to 'none' for each task.
+5. Most importantly, take the 'node_id' provided in the context and include it in the 'current_node_id' field of the action.
+6. Adhere precisely to the format shown in the previous system prompt.
 
-Do not be verbose, do not provide any other commentary - just the action_add_steps primative in the format shown in the previous system prompt\n\n
-IMPORTANT: If the state is 'retry' consult the info: field, if you cannot resolve the issue return ERROR \n"""
+Please ensure the following format is used for the 'action_add_steps' action:
+
+Here are output examples:
+action_add_steps: current_node_id: ```999999.9999```  name: ```example name``` description: ```example description```  state: ```none``` 
+action_request_user_action: message: ```your message```
+
+YOU MUST!!! use the triple backticks as shown in the examples and have a complete action_ per line DO NOT SPLIT AN ACTION OVER MULTIPLE LINES FOLLOW THE EXAMPLE !!!!! !!!!!
+
+Avoid being verbose and providing any other commentary. 
+"""
+
+
+
+
 
 class Automation:
 
@@ -64,7 +78,7 @@ class Automation:
         self.goal = None
         self.steps_yaml = None
         self.steps = None
-        self.context = Context()
+        self.goal_context = None
         self.node_manager = NodeManager()
         task_update_handler = TaskUpdateHandler(self.node_manager) 
         file_save_handler = FileSaveHandler()
@@ -118,17 +132,19 @@ class Automation:
 
 
     def run(self, user_goal: str) -> str:
+
         max_iterations = 10
         #self.task_generator.generate_tasks(user_goal)
 
-        self.workout_steps('search internet for hot cross buns, then prepare a blog entry about them')
+        self.workout_steps(user_goal)
 
         self.top_node = self.node_manager.get_nodes_conversation_id("conv1", "top")
+        self.top_node = self.top_node[0]
 
-        self.task_nodes = self.node_manager.get_nodes_parent_id(self.top_node[0].id) 
+        self.task_nodes = self.node_manager.get_nodes_parent_id(self.top_node.id) 
 
-        #self.test_extract_action2()
-        self.context = Context()
+   
+        self.top_context = self.get_context_from_node(self.top_node)
 
         itr = 0
         while itr < max_iterations:
@@ -145,11 +161,16 @@ class Automation:
     def process_step(self, step):
         if step:
 
-            context_text = self.context.get_info_text()  
+            if step.state == 'none':
+                step.state = 'in_progress'
+                self.step_context = self.get_context_from_node(step)
+
+
+            context_text = self.step_context.get_info_text()  
 
             my_step_text = step.get_formatted_text(["name", "description", "info", "state"])
  
-            message = task_prompt_part + " ```" + my_step_text + " ```" + " ```" + 'context_info:'  + context_text + "``` " 
+            message = task_prompt_part + "  " + 'context_info:'  + context_text + " " 
 
             response = self.ask(message)
             
@@ -157,47 +178,44 @@ class Automation:
             response_text = self.handler_repsonse_formated_text(rh_repsonse)
    
 
-            prompt2 = "Did these requests complete correctly - see response ? (yes/no)  request: " + response + " response: " + response_text
+            prompt2 = "Did these requests complete correctly - see response ? first always answer (yes/no)  then and recomend remedial action  request: " + response + " response: " + response_text
 
 
-            response2 = self.ask(prompt2)
-            response2 = response2.lower()
-            if "yes" in response2:
+            critic_response = self.ask(prompt2)
+            critic_response = critic_response.lower()
+            if "yes" in critic_response:
                 step.state = 'completed'
-                context_info = {"response": step.id + ': ' + response}
-                self.context.add_info(context_info)
-                context_info = {"handler_result:": response_text}
-                self.context.add_info(context_info)
             else:
-                context_info = {"response": step.id + ': ' + f"ERROR - this method did not work: {response}  You must try some other appraoch"}
-                self.context.add_info(context_info)
-                context_info = {"handler_result:": f"ERROR - here is the response when running your request : {response_text}  You must try some other appraoch"}
-                self.context.add_info(context_info)
                 step.state = 'retry'
-                step.info = response2
 
-            #self.context.add_info(context_info)
-
+            self.step_context.add_action(response, response_text, 'ERROR -' + critic_response)
 
 
-    def workout_steps(self, goal):
+
+
+
+    def workout_steps(self, goal:str, conversation_id:str = 'conv1'):
         
-        top_node = HierarchicalNode("top", "conv1", goal)
+        top_node = HierarchicalNode("top", conversation_id, goal)
         #top_node.id= '1684550657.07442864'  #testing aid
         self.node_manager.add_node(top_node) 
 
-        self.context.add_info({"parent_node_id": top_node.id})
-        context_text = self.context.get_info_text()  
+        self.goal_context = self.get_context_from_node(top_node)
+        context_text = self.goal_context.context_formated_text()
 
-        my_step_text = top_node.get_formatted_text(["name", "description", "info", "state"])
+        #my_step_text = top_node.get_formatted_text(["name", "description", "info", "state"])
  
-        message = task_prompt_part_goal + " ```" + my_step_text + " ```" + " ```" + 'context_info:'  + context_text + "``` " 
+        message = task_prompt_part_goal + " ```"  + 'context_info:'  + context_text + "``` " 
 
         response = self.ask(message)
         #response = ''' action_add_steps: current_node_id: ``` 1684550657.07442864 ``` name: ``` Identify high yield stocks ``` description: ``` Use a stock analysis tool to identify the top 5 high yield stocks based on the given criteria. ``` state: ``` none ```  \n\naction_add_steps: current_node_id: ``` 1684550657.07442864 ``` name: ``` Save high yield stocks as CSV ``` description: ``` Save the identified high yield stocks as a CSV file with the given file name and path. ``` state: ``` none ``` '''
             
-        rh_repsonse = self.handler.process_request(response)
-        response_text = self.handler_repsonse_formated_text(rh_repsonse)
+        repsonse_handler = self.handler.process_request(response)
+        response_text = self.handler_repsonse_formated_text(repsonse_handler)
+
+        self.goal_context.add_action(response, response_text, 'none')
+
+
 
 
   
@@ -221,21 +239,12 @@ class Automation:
         return None
     
     
-    
-    def find_next_step2(self, steps):
-        # Check if there's an "in progress" step
-        for step in steps['steps']:
-            if step['state'] == 'in_progress':
-                print('A step is currently in progress.')
-                return None
+    def get_context_from_node(self, node):
+        context = Context(name=node.name, description=node.description, current_node_id=node.id, state=node.state)
+        context.add_info(node.info)
 
-        # If there's no "in progress" step, find the next available step
-        for step in steps['steps']:
-            if step['state'] == 'none':
-                return step
+        return context
 
-        # If no next step is found, return None
-        return None
 
     def ask(self, question: str, agentName:str = 'doris') -> str:
         agentName = agentName
@@ -258,4 +267,7 @@ class Automation:
     
 
 my_auto = Automation()
-my_auto.run("create and test the python code for hello world")
+#my_auto.run("create and test the python to print the first 5 prime numbers")
+#my_auto.run("whats on the first page of www.unwin.com")
+#my_auto.run('read then store text form this webpage https://echoblang.wordpress.com/2015/08/09/fast-introduction-to-scrum/  into a file called scrum.txt, then load the file and have an AI assitant summarize it and save the summary to a file called scrum_summary.txt')
+my_auto.run("load file scrum.txt and then tell the assistant to summarize it")

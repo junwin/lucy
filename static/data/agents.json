@@ -51,7 +51,7 @@
         "select_type": "latest",
         "num_past_conversations": 3,
         "num_relevant_conversations":0,
-        "max_output_size": 4000,
+        "max_output_size": 10000,
         "write_file_threashold": 60000,
         "use_prompt_reduction": false,
         "temperature": 0,

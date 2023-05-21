@@ -11,7 +11,7 @@ class ResponseHandler(ABC):
 
 
 class FileResponseHandler(ResponseHandler):
-    def __init__(self, account_output_path:str, max_length=2000):
+    def __init__(self, account_output_path:str, max_length=6000):
         self.max_length = max_length
         self.output_folder = account_output_path
 

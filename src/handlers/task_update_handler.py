@@ -23,14 +23,17 @@ class TaskUpdateHandler(Handler):
         results = []
         next_action_index = 0
         request_len = len(request)
+        lines = request.split('\n')
 
-        while next_action_index < request_len and next_action_index != -1:
+        # Remove any lines that are only whitespace
+        lines = [line for line in lines if line.strip()]
 
-            request_substring = request[next_action_index:request_len]
-            my_action = QuokkaLoki.extract_action(request_substring, "action_add_steps:", ['current_node_id', 'name', 'description', 'state'] )
+        for line in lines:
+
+            my_action = QuokkaLoki.extract_action(line, "action_add_steps:", ['current_node_id', 'name', 'description', 'state'] )
             my_action_name = my_action['action']
-            next_action_index = my_action[my_action_name]
-            next_action_index = next_action_index
+            #next_action_index = my_action[my_action_name]
+            #next_action_index = next_action_index
 
             if my_action_name != "action_add_steps:":
                 return [ { "handler": self.__class__.__name__}, {"result": 'Error: Invalid action name for save a file command.'}]

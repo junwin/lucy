@@ -24,7 +24,8 @@ class FileSaveHandler(Handler):  # Concrete handler
             file_content =  my_action['file_content']
             base_path = config.get('code_sandbox_path')  
 
-            my_path = base_path
+            folders = os.path.dirname(file_path)
+            my_path = base_path + '/' + folders
             
             #my_full_path = base_path
 
