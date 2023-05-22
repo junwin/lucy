@@ -2,8 +2,11 @@
 from typing import List,  Tuple
 import re
 from src.handlers.handler import Handler
+import yaml
 
-
+action_start_delimiter = '<action_'
+action_end_delimiter = '</action'
+content_delimiter = '```'
 
 class QuokkaLoki:
     def __init__(self):
@@ -21,13 +24,52 @@ class QuokkaLoki:
             for handler in self.handlers:
                 try:
                     action_result = handler.handle(action_dict)
-                    results.append(action_result)
+                    if action_result != None:
+                        results.append(action_result)
                 except Exception as e:
                     print( f"An error occurred while processing the request with {handler.__class__.__name__}: {e}")
                     return [{ "handler": handler.__class__.__name__}, {"result": f"An error occurred while processing the request with: {e} check the format of your request!."}]
 
         return results
     
+    
+    @classmethod
+    def handler_repsonse_formated_text(cls, handler_response:list) -> str:
+        response_text = ''
+        for response in handler_response:
+            handler_name = QuokkaLoki.get_field_value(response, 'handler')
+            response_text += handler_name + '\n'
+            if response == None:
+                continue
+            for item in response:
+                if type(item) == dict:  
+                    for key, value in item.items():
+                        if key == 'action_name':
+                            response_text += f"  - {key}:{value}" + '\n'
+                        if key == 'command':
+                            response_text += f"  - {key}:{value}" + '\n'
+                        if key == 'result':
+                            response_text += f"  - {key}:{value}" + '\n'
+                else:
+                    response_text += f"  - {item}" + '\n'
+            
+        
+        return response_text
+    
+    @classmethod
+    def get_field_value(cls, response:list, field_name:str) -> str:
+        field_value = ''
+        try:
+            if response == None:
+                    return field_value
+            for item in response:
+                for key, value in item.items():
+                    if key == field_name:
+                        field_value = value
+                        return field_value
+        except Exception as e:
+            print(f"An error occurred while getting field value: {e}")
+            return field_value
 
 
     @classmethod
@@ -78,24 +120,24 @@ class QuokkaLoki:
     def extract_actions(cls, input_string):
         actions = []
 
-        start_index = input_string.find('<action_')
+        start_index = input_string.find(action_start_delimiter)
         while start_index != -1:
-            end_index = input_string.find('</action>', start_index)
+            end_index = input_string.find(action_end_delimiter, start_index)
             if end_index == -1:
                 raise ValueError("Missing closing tag for action at index {}".format(start_index))
-            end_index += len('</action>')  # include closing tag in extracted action
+            end_index += len('</action')  # include closing tag in extracted action
             actions.append(input_string[start_index:end_index])
-            start_index = input_string.find('<action_', end_index)
+            start_index = input_string.find(action_start_delimiter, end_index)
 
         return actions
 
     @classmethod
     def parse_action(cls, action):
-        # Validate the presence of '<action_'
-        if not action.startswith('<action_'):
-            raise ValueError("Input action does not start with '<action_'")
+        # Validate the presence of 'action_start_delimiter'
+        if not action.startswith(action_start_delimiter):
+            raise ValueError("Input action does not start with action_start_delimiter")
 
-        # Locate the first '>' after '<action_'
+        # Locate the first '>' after 'action_start_delimiter'
         action_end = action.find('>')
         if action_end == -1:
             raise ValueError("Missing '>' in action")
@@ -107,24 +149,26 @@ class QuokkaLoki:
         # Initialize parameters start index
         param_start = action_end + 1
 
-        while param_start < len(action) - 9:  # 9 is the length of '</action>'
-            # Extract parameter name
-            param_end = action.find(': ```', param_start)
+        while param_start < len(action) - len(action_end_delimiter): 
+
+            # Extract parameter name - do not assume a space after the colon
+            param_end = action.find(':', param_start)
             if param_end == -1:
                 break
+
             param_name = action[param_start:param_end].strip()
 
             # Update parameters start index
-            param_start = param_end + 5
+            param_start = action.find(content_delimiter, param_end) + len(content_delimiter)
 
             # Extract parameter value
-            param_end = action.find('``` ', param_start)
+            param_end = action.find(content_delimiter, param_start)
             if param_end == -1:
-                param_end = action.find('</action>', param_start) - 1
+                param_end = action.find(action_end_delimiter, param_start) - 1
             param_value = action[param_start:param_end]
 
             # Update parameters start index
-            param_start = param_end + 4
+            param_start = param_end + 3
 
             # Add parameter to the dictionary
             action_dict[param_name] = param_value

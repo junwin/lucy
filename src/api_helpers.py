@@ -12,6 +12,7 @@ openai.api_key = config_data["openai_api_key"]
 
 def ask_question(conversation, model="gpt-3.5-turbo", temperature=0, max_retries=3, retry_wait=1) -> str:
     logging.info(f'ask_question start: {model}')
+    logging.info(f'before send: {conversation}')
     retries = 0
     while retries <= max_retries:
         try:

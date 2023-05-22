@@ -42,7 +42,7 @@
         "use_prompt_reduction": false,
         "temperature": 0,
         "save_reposnses": false,
-        "model": "gpt-3.5-turbo"
+        "model": "gpt-4"
     },
     {
         "name": "debo",

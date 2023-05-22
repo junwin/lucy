@@ -18,23 +18,23 @@ class CommandExecutionHandler(Handler):
         if action_name != "action_execute_command":
             return None
         
+        print(action)
+        
         command = action['command']  
-        command_path = action['command_path']  
+        working_directory = action['working_directory']  
 
         config = container.get(ConfigManager) 
         base_path = config.get('code_sandbox_path')
 
-        command_path = base_path + '/' + command_path   
+        working_directory = base_path + '/' + working_directory   
 
-        result = self.execute_script(command, command_path)
+        result = self.execute_script(command, working_directory)
 
-        zz = [{"result": result},{ "handler": self.__class__.__name__} ]
-        xx = [{key: value} for key, value in action.items()]
-        yy = zz + xx
+        temp = [{"result": result},{ "handler": self.__class__.__name__} ]
+        temp.append(action)
+        return temp
 
-        my_result=yy
-
-        return my_result
+     
      
        
 
@@ -51,13 +51,19 @@ class CommandExecutionHandler(Handler):
             result = subprocess.run(split_command, shell=True, cwd=script_path, capture_output=True, text=True)
 
             if len(result.stderr) > 0:
-                return f"an error ocurred: {result.stderr}"
+                return f"an error ocurred: {result.stderr} {result.stdout}"
+            
+            if(result.returncode != 0):
+                return f"an error ocurred: {result.returncode} {result.stdout}"
+            else:
+                if len(result.stdout) == 0:
+                    return "success"
         
             return str(result.stdout)
     
         except Exception as e:
             print(f"Error occurred while executing script - possibly a sytax error or file not found: {e}")
-            return str(e)
+            return f"Error occurred while executing script - possibly a sytax error or file not found: {e}"
            
     def split_command(self, command):
         split_command = shlex.split(command)

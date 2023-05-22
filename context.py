@@ -1,5 +1,6 @@
 from typing import List, Dict
 import yaml
+from src.handlers.quokka_loki import QuokkaLoki
 
 class Context:
     
@@ -7,12 +8,14 @@ class Context:
         self.name = name
         self.info = []
         self.description = description.replace('\n', '')
+        self.retry_information = ''
         self.state = state
         self.actions = [ ]
         self.current_node_id = current_node_id
         self.environment = []
-        self.output_folder = 'auto/'
-        self.input_folder = 'auto/'
+        self.files = dict()
+        self.output_directory = 'auto/'
+        self.input_directory = 'auto/'
         self.add_environment('os:', 'Microsoft Windows 10')
         
 
@@ -27,6 +30,13 @@ class Context:
         env = {name:value}
         self.environment.append(env)
 
+    def add_replace_file(self, file_name:str, content:str):
+        self.files[file_name] = content
+
+    def get_file_content(self, file_name:str):
+        return self.files[file_name]    
+        
+
     def get_info_text(self) -> str: 
         my_text =  self.context_formated_text()   
         return my_text
@@ -37,14 +47,44 @@ class Context:
 
         return response_text
     
+    def update_from_results(self, handler_response:list):
+        # intended to update from QuokkaLoki results list
+        for response in handler_response:
+            #handler_name = QuokkaLoki.get_field_value(response, 'handler')
+            #response_text += handler_name + '\n'
+            if response == None:
+                continue
+            result = QuokkaLoki.get_field_value(response, 'result')
+            for item in response:
+                for key, value in item.items():
+                    if key == 'action_name':
+                        if value == 'action_load_file':
+                            file_name = item['file_name']
+                            file_content = result
+                            self.add_replace_file(file_name, file_content)
+                        if value == 'action_save_file':
+                            file_name = item['file_name']
+                            file_content = item['file_content']
+                            self.add_replace_file(file_name, file_content)
+                        if value == 'action_execute_command':                            
+                            command = item['command']
+                            self.add_action(command, result, '')
+
+
+    
     def context_formated_text2(self) -> str:
-        response_text = ''
+
+        response_text = 'Context: ' + '\n'   
+        
         response_text += 'name: ' + self.name + '\n'
+        if self.retry_information != '':
+            response_text += 'retry_information: ' + self.retry_information + '\n'
+
         response_text += 'description: ' + self.description + '\n'
         response_text += 'state: ' + self.state + '\n'
         response_text += 'current_node_id: ' + self.current_node_id + '\n'
-        response_text += 'output_folder: ' + self.output_folder + '\n'
-        response_text += 'input_folder: ' + self.input_folder + '\n'
+        response_text += 'output_directory: ' + self.output_directory + '\n'
+        response_text += 'input_directory: ' + self.input_directory + '\n'
         response_text += 'info: ' + '\n'
 
         for info in self.info:
@@ -60,6 +100,12 @@ class Context:
         for env in self.environment:
             for key, value in env.items():
                 response_text += '  - ' + key + ' ' + value + '\n'
+                response_text += 'environment: ' + '\n'
+
+        response_text += 'files, source code and other data: ' + '\n'
+        for key, value in self.files.items():
+            response_text += f"  - file_name: {key}\n"
+            response_text += f"``` {value} ```\n\n"
 
 
 

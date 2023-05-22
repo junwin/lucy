@@ -17,19 +17,23 @@ class FileSaveHandler(Handler):  # Concrete handler
         if action_name != "action_save_file":
             return None
         
-        file_path = action['file_path']
+        print(action)
+        
+        directory_path = action['directory_path']
         file_name = action['file_name']
         file_content =  action['file_content']
         
         config = container.get(ConfigManager) 
         base_path = config.get('code_sandbox_path')
 
-        my_path = base_path + '/' + file_path  
-        result = self.save_file(self, my_path, file_name, file_content)
+        my_path = base_path + '/' + directory_path  
+        result = self.save_file( my_path, file_name, file_content)
 
-        my_result=[{"result": result},{ "handler": self.__class__.__name__} ].append(action)
+        temp = [{"result": result},{ "handler": self.__class__.__name__} ]
+        temp.append(action)
+        return temp
 
-        return my_result
+
 
         
     def save_file(self, path, filename, text_content):
@@ -43,4 +47,5 @@ class FileSaveHandler(Handler):  # Concrete handler
         # Write the text content to the file.
         with open(file_path, 'w') as file:
             file.write(text_content)
-        print(f"File saved at {file_path}")
+
+        return f"success file saved at {file_path}"

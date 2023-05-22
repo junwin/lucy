@@ -31,15 +31,8 @@ logging.basicConfig(filename='logs/my_log_file.log', level=logging.INFO,
 
 
 
-task_prompt_part = """Your task is to provide automantion. Examine the context: provided below, the description: field describe what needs to be done - you will do your best to 
-provide a solution\nYou must not ask for user or human intervantion\nWhen the state: is 'retry' the last solution proposed by the AI (you) was not satisfactory so remedial action is required, the context provides the information to resolve things, request shows the request that failed, response: shows the result to running the request and the interpretation: shows why the request failed. Do not forget that any action_ must not be split over muliple lines and must be complete on a single line. 
-Check the environment os before using action_execute_command: to run a command. You must only respond with actions - do not provide comentary or update the context, 
-ALL paths and folders must be relative and added to the the output_folder: provided in the context.
-When developing code use action_save_file: to save the code to the output_folder: provided in the context.
-When running a .bat .cmd .exe use action_execute_command: to run the command in the output_folder: provided in the context.
-do not install components e.g. pip install - assume they are installed.
-You MUST NOT request user input for example, you should not ask the user to provide a file path or file name or browse the internet for information. Use scripts or curl to access the internet
-"""
+task_prompt_part = """Hello! Your task is to provide automantion. Examine the context: provided below, the description: field in the following context describe what needs to be done """
+task_prompt_retry = """Hello! there seems to a problem, please look at the retry_information in the following context provided below make any fixes and try again - thanks"""
 
 task_prompt_part_goal = """The purpose of this request is to break down a given requirement/goal into a set of steps using the 
 provided action primitives (action_save_file, action_load_file, action_execute_command). 
@@ -78,6 +71,7 @@ class Automation:
         self.goal = None
         self.steps_yaml = None
         self.steps = None
+        self.step_context = None
         self.goal_context = None
         self.node_manager = NodeManager()
         task_update_handler = TaskUpdateHandler(self.node_manager) 
@@ -90,7 +84,7 @@ class Automation:
         self.handler.add_handler(command_execution_handler)
         #self.handler.add_handler(user_action_required_handler)
         self.handler.add_handler(file_load_handler)
-        #self.handler.add_handler(task_update_handler)
+        self.handler.add_handler(task_update_handler)
         self.task_generator = TaskGenerator(self.node_manager)
 
     def test_extract_action(self):
@@ -112,21 +106,12 @@ class Automation:
 
         request2 = ''' <action_execute_command> command: ```python hello_world.py``` command_path: ```auto/ ``` </action> '''
         result = self.handler.process_request(request2)
-        zz = self.handler_repsonse_formated_text(result) 
+        zz = QuokkaLoki.handler_repsonse_formated_text(result) 
         print(result)
 
      
 
-    def handler_repsonse_formated_text(self, response) -> str:
-        response_text = ''
-        for handler_response in response:
-            for respnose_element in handler_response:
-                xx = respnose_element.keys()
-                key = list(respnose_element.keys())[0]
-                value = list(respnose_element.values())[0]
-                response_text += key + ': ' + value + '\n'
-
-        return response_text
+ 
 
         
 
@@ -134,19 +119,18 @@ class Automation:
     def run(self, user_goal: str) -> str:
 
 
-        self.test_extract_action2()
+        #self.test_extract_action2()
 
         max_iterations = 10
         #self.task_generator.generate_tasks(user_goal)
 
-        self.workout_steps(user_goal)
+        #self.workout_steps(user_goal)
+        self.setup_demo_steps("lets test a python file")
 
         self.top_node = self.node_manager.get_nodes_conversation_id("conv1", "top")
         self.top_node = self.top_node[0]
 
         self.task_nodes = self.node_manager.get_nodes_parent_id(self.top_node.id) 
-
-   
         self.top_context = self.get_context_from_node(self.top_node)
 
         itr = 0
@@ -166,23 +150,36 @@ class Automation:
 
             if step.state == 'none':
                 step.state = 'in_progress'
-                self.step_context = self.get_context_from_node(step)
+                if self.step_context is None:
+                    self.step_context = self.get_context_from_node(step)
+                else:
+                    self.step_context.description = step.description
+                    self.step_context.name = step.name
+                    self.step_context.state = step.state
+                    self.step_context.current_node_id = step.id
+                    self.step_context.info = step.info
+
 
 
             context_text = self.step_context.get_info_text()  
 
             my_step_text = step.get_formatted_text(["name", "description", "info", "state"])
 
-            message = task_prompt_part + "  " + 'context_info:'  + context_text + " " 
-
             if step.state == 'retry':
-                message += 'Ensure you always use the triple backticks as shown in the examples and have a complete action_ per line DO NOT SPLIT AN ACTION OVER MULTIPLE LINES FOLLOW THE EXAMPLE !!!!! !!!!!'
+                message = task_prompt_retry + "  "  + 'context_info:'  + context_text + " "
+            else:
+                message = task_prompt_part + "  " + 'context_info:'  + context_text + " " 
+
+            #if step.state == 'retry':
+            #    message += 'Ensure you always use the triple backticks as shown in the examples and have a complete action_ per line DO NOT SPLIT AN ACTION OVER MULTIPLE LINES FOLLOW THE EXAMPLE !!!!! !!!!!'
            
 
             response = self.ask(message)
+
+            self.step_context.actions = []  # clear actions
             
             rh_repsonse = self.handler.process_request(response)
-            response_text = self.handler_repsonse_formated_text(rh_repsonse)
+            response_text = QuokkaLoki.handler_repsonse_formated_text(rh_repsonse)
    
 
             prompt2 = "Did these requests complete correctly - see response ? first always answer (yes/no)  then and recomend remedial action  request: " + response + " response: " + response_text
@@ -192,34 +189,58 @@ class Automation:
             critic_response = critic_response.lower()
             if "yes" in critic_response:
                 step.state = 'completed'
+                self.step_context.update_from_results(rh_repsonse)
+                self.step_context.description
             else:
                 step.state = 'retry'
                 self.step_context.add_action(response, response_text, 'ERROR -' + critic_response)
+                self.step_context.retry_information = critic_response
+
+            print(self.step_context.get_info_text())
 
 
-
+    
 
 
     def workout_steps(self, goal:str, conversation_id:str = 'conv1'):
         
-        top_node = HierarchicalNode("top", conversation_id, goal)
-        #top_node.id= '1684550657.07442864'  #testing aid
-        self.node_manager.add_node(top_node) 
-
-        self.goal_context = self.get_context_from_node(top_node)
+        self.setup_top_node(goal, conversation_id)
+        
         context_text = self.goal_context.context_formated_text()
 
-        #my_step_text = top_node.get_formatted_text(["name", "description", "info", "state"])
+
  
         message = task_prompt_part_goal + " ```"  + 'context_info:'  + context_text + "``` " 
 
         response = self.ask(message)
-        #response = ''' action_add_steps: current_node_id: ``` 1684550657.07442864 ``` name: ``` Identify high yield stocks ``` description: ``` Use a stock analysis tool to identify the top 5 high yield stocks based on the given criteria. ``` state: ``` none ```  \n\naction_add_steps: current_node_id: ``` 1684550657.07442864 ``` name: ``` Save high yield stocks as CSV ``` description: ``` Save the identified high yield stocks as a CSV file with the given file name and path. ``` state: ``` none ``` '''
             
         repsonse_handler = self.handler.process_request(response)
         response_text = self.handler_repsonse_formated_text(repsonse_handler)
 
         self.goal_context.add_action(response, response_text, 'none')
+
+    def setup_top_node(self, goal:str, conversation_id:str) :
+        self.top_node = HierarchicalNode("top", conversation_id, goal)
+        self.node_manager.add_node(self.top_node) 
+        self.goal_context = self.get_context_from_node(self.top_node)
+
+    def setup_demo_steps(self, goal:str, conversation_id:str = 'conv1') :
+        self.setup_top_node(goal, conversation_id)
+        current_node_id = self.top_node.id
+        add_tasks = ''
+
+        add_tasks += f" <action_add_steps> current_node_id: ```{current_node_id}``` name: ```write a new function``` description: ``` 1) write the python code  word_count.py that takes a string of text and outputs the word count. 2) then save it``` state: ```none``` </action>\n"
+
+        add_tasks += f" <action_add_steps> current_node_id: ```{current_node_id}``` name: ```get the file we want to use ``` description: ``` load the file we want to test called word_count.py``` state: ```none``` </action>\n"
+
+        add_tasks += f" <action_add_steps> current_node_id: ```{current_node_id}``` name: ```make test file ``` description: ``` we need a pytest test file to test word_count.py in the context``` state: ```none``` </action>\n"
+
+        add_tasks += f" <action_add_steps> current_node_id: ```{current_node_id}``` name: ```run tests ``` description: ``` execute pytest to run your test file``` state: ```none``` </action>\n"
+
+        results = self.handler.process_request(add_tasks)
+        print(QuokkaLoki.handler_repsonse_formated_text(results))
+
+       
 
 
 

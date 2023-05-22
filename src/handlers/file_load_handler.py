@@ -19,19 +19,22 @@ class FileLoadHandler(Handler):  # Concrete handler
         if action_name != "action_load_file":
             return None
         
-        file_path = action['file_path']
+        print(action)
+        
+        directory_path = action['directory_path']
         file_name = action['file_name']
   
         config = container.get(ConfigManager) 
         base_path = config.get('code_sandbox_path')
 
-        my_path = base_path + '/' + file_path  
+        my_path = base_path + '/' + directory_path  
 
         result = self.read_file(my_path, file_name )
 
-        my_result=[{"result": result},{ "handler": self.__class__.__name__} ].append(action)
+        temp = [{"result": result},{ "handler": self.__class__.__name__} ]
+        temp.append(action)
+        return temp
 
-        return my_result
 
   
 
@@ -45,11 +48,11 @@ class FileLoadHandler(Handler):  # Concrete handler
         
         return message
 
-    def read_file(self, file_path: str, file_name: str) -> str:
+    def read_file(self, directory_path: str, file_name: str) -> str:
         try:
-            full_file_path = os.path.join(file_path, file_name)
-            full_file_path = full_file_path.replace('//', '/')
-            with open(full_file_path, 'r',  encoding='utf-8') as file:
+            full_directory_path = os.path.join(directory_path, file_name)
+            full_directory_path = full_directory_path.replace('//', '/')
+            with open(full_directory_path, 'r',  encoding='utf-8') as file:
                 file_contents = file.read()
                 return file_contents
         except Exception as e:
@@ -57,16 +60,3 @@ class FileLoadHandler(Handler):  # Concrete handler
             return str(e)
   
 
-
-    def save_file(self, path, filename, text_content):
-        # Make sure the directory exists. If it doesn't, create it.
-        if not os.path.exists(path):
-            os.makedirs(path)
-        
-        # Join the path and filename
-        file_path = os.path.join(path, filename)
-
-        # Write the text content to the file.
-        with open(file_path, 'w') as file:
-            file.write(text_content)
-        print(f"File saved at {file_path}")
