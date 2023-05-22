@@ -34,6 +34,8 @@ logging.basicConfig(filename='logs/my_log_file.log', level=logging.INFO,
 task_prompt_part = """Hello! Your task is to provide automantion. Examine the context: provided below, the description: field in the following context describe what needs to be done """
 task_prompt_retry = """Hello! there seems to a problem, please look at the retry_information in the following context provided below make any fixes and try again - thanks"""
 
+task_prompt_work = """Hello!  Examine the 'context' provided below, the description: field in the following context describes what you need to do """
+
 task_prompt_part_goal = """The purpose of this request is to break down a given requirement/goal into a set of steps using the 
 provided action primitives (action_save_file, action_load_file, action_execute_command). 
 The assistant should use the 'action_add_steps' primitive to prepare a task list for external systems or other assistants. 
@@ -165,6 +167,8 @@ class Automation:
 
             my_step_text = step.get_formatted_text(["name", "description", "info", "state"])
 
+            
+            #message = task_prompt_work + "  "  + 'context_info:'  + context_text + " "
             if step.state == 'retry':
                 message = task_prompt_retry + "  "  + 'context_info:'  + context_text + " "
             else:
@@ -173,7 +177,7 @@ class Automation:
             #if step.state == 'retry':
             #    message += 'Ensure you always use the triple backticks as shown in the examples and have a complete action_ per line DO NOT SPLIT AN ACTION OVER MULTIPLE LINES FOLLOW THE EXAMPLE !!!!! !!!!!'
            
-
+            #response = self.ask(message, 'colin')
             response = self.ask(message)
 
             self.step_context.actions = []  # clear actions
@@ -229,13 +233,11 @@ class Automation:
         current_node_id = self.top_node.id
         add_tasks = ''
 
-        add_tasks += f" <action_add_steps> current_node_id: ```{current_node_id}``` name: ```write a new function``` description: ``` 1) write the python code  word_count.py that takes a string of text and outputs the word count. 2) then save it``` state: ```none``` </action>\n"
+  
+        add_tasks += f" <action_add_steps> current_node_id: ```{current_node_id}``` name: ```get the extract file ``` description: ``` get the file extract.txt from the working folder ``` state: ```none``` </action>\n"
 
-        add_tasks += f" <action_add_steps> current_node_id: ```{current_node_id}``` name: ```get the file we want to use ``` description: ``` load the file we want to test called word_count.py``` state: ```none``` </action>\n"
+        add_tasks += f" <action_add_steps> current_node_id: ```{current_node_id}``` name: ```summarize ``` description: ``` You will find the content for extract.txt  is already in the following text -  please and summarize it, return you summary as the response ``` state: ```none``` </action>\n"
 
-        add_tasks += f" <action_add_steps> current_node_id: ```{current_node_id}``` name: ```make test file ``` description: ``` we need a pytest test file to test word_count.py in the context``` state: ```none``` </action>\n"
-
-        add_tasks += f" <action_add_steps> current_node_id: ```{current_node_id}``` name: ```run tests ``` description: ``` execute pytest to run your test file``` state: ```none``` </action>\n"
 
         results = self.handler.process_request(add_tasks)
         print(QuokkaLoki.handler_repsonse_formated_text(results))
