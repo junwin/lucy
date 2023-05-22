@@ -88,9 +88,9 @@ class Automation:
         self.handler = QuokkaLoki()
         self.handler.add_handler(file_save_handler)
         self.handler.add_handler(command_execution_handler)
-        self.handler.add_handler(user_action_required_handler)
+        #self.handler.add_handler(user_action_required_handler)
         self.handler.add_handler(file_load_handler)
-        self.handler.add_handler(task_update_handler)
+        #self.handler.add_handler(task_update_handler)
         self.task_generator = TaskGenerator(self.node_manager)
 
     def test_extract_action(self):
@@ -110,7 +110,7 @@ class Automation:
         request = ''' Processing code response: ```action_save_file: file_path: ```insert your path``` file_name: ```hello_world.py``` file_content:```print("hello world!")``` ```
 ```action_add_steps: current_node_id: ```node id``` name: ```Create Python file``` description: ```Create a new Python file named 'hello_world.py' that outputs 'hello world!'``` state: ```none``` ```context_info:```'''
 
-        request2 = ''' '```action_execute_command: command: ```python hello_world.py``` command_path: ```insert your path``` ```' '''
+        request2 = ''' <action_execute_command> command: ```python hello_world.py``` command_path: ```auto/ ``` </action> '''
         result = self.handler.process_request(request2)
         zz = self.handler_repsonse_formated_text(result) 
         print(result)
@@ -132,6 +132,9 @@ class Automation:
 
 
     def run(self, user_goal: str) -> str:
+
+
+        self.test_extract_action2()
 
         max_iterations = 10
         #self.task_generator.generate_tasks(user_goal)
@@ -169,8 +172,12 @@ class Automation:
             context_text = self.step_context.get_info_text()  
 
             my_step_text = step.get_formatted_text(["name", "description", "info", "state"])
- 
+
             message = task_prompt_part + "  " + 'context_info:'  + context_text + " " 
+
+            if step.state == 'retry':
+                message += 'Ensure you always use the triple backticks as shown in the examples and have a complete action_ per line DO NOT SPLIT AN ACTION OVER MULTIPLE LINES FOLLOW THE EXAMPLE !!!!! !!!!!'
+           
 
             response = self.ask(message)
             
@@ -187,8 +194,7 @@ class Automation:
                 step.state = 'completed'
             else:
                 step.state = 'retry'
-
-            self.step_context.add_action(response, response_text, 'ERROR -' + critic_response)
+                self.step_context.add_action(response, response_text, 'ERROR -' + critic_response)
 
 
 
@@ -270,4 +276,6 @@ my_auto = Automation()
 #my_auto.run("create and test the python to print the first 5 prime numbers")
 #my_auto.run("whats on the first page of www.unwin.com")
 #my_auto.run('read then store text form this webpage https://echoblang.wordpress.com/2015/08/09/fast-introduction-to-scrum/  into a file called scrum.txt, then load the file and have an AI assitant summarize it and save the summary to a file called scrum_summary.txt')
-my_auto.run("load file scrum.txt and then tell the assistant to summarize it")
+#my_auto.run("load file scrum.txt and then tell the assistant to summarize it")
+my_auto.run('1) write a program get_web_text.py that takes a url as a parameter outputs text to stdout it needs to use BeautifulSoup extract the text Then and save it, then use get_wev_text.py to get the text from  this webpage https://echoblang.wordpress.com/2015/08/09/fast-introduction-to-scrum/  ')
+

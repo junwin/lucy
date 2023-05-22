@@ -5,7 +5,7 @@
     "agent_internal_account_name": "aaaa",
     "preset_path": "static/data/presets.json",
     "account_output_path": "static/output/",
-    "code_sandbox_path": "static/data/code_sandbox/",
+    "code_sandbox_path": "c:/temp/sandbox/",
     "seed_name": "seed",
     "swagger_url": "/api/docs",
     "api_url": "/static/swagger.json",

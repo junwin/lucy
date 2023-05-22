@@ -13,37 +13,27 @@ from src.handlers.quokka_loki import QuokkaLoki
 
 class FileLoadHandler(Handler):  # Concrete handler
 
-    #!inline_file_path:"C:\temp\sandbox\Whiteboard.txt"  
-    # please save a file file_path: 'your path' file_name: 'your file name' file_content``` your file content ```
-    def handle(self, request:str) -> Tuple[str, str]:
-        if "action_load_file:" in request:
-            config = container.get(ConfigManager) 
-            my_action = QuokkaLoki.extract_action(request, "action_load_file:", ['file_path', 'file_name'] )
-            my_action_name = my_action['action']
-            if my_action_name != "action_load_file:":
-                return [{ "handler": self.__class__.__name__}, {"result": "Error: Invalid action name for 'save a file' command."}]
 
-            file_path = my_action['file_path']
-            file_path = file_path.replace('.', '')
-            file_name = my_action['file_name']
-
-            base_path = config.get('code_sandbox_path') 
-            my_full_path = base_path+ '/' + file_path + '/'
-
-
-            result = self.read_file(my_full_path, file_name )
-
-            return [{ "handler": self.__class__.__name__}, {"result": result}]
-
-
-
-
-        #elif "inline_file_path:" in request:
-         #   return self.process_inline_file(request)
-
-        return None
+    def handle(self, action: dict) -> List[dict]:
+        action_name = action['action_name']
+        if action_name != "action_load_file":
+            return None
         
+        file_path = action['file_path']
+        file_name = action['file_name']
+  
+        config = container.get(ConfigManager) 
+        base_path = config.get('code_sandbox_path')
 
+        my_path = base_path + '/' + file_path  
+
+        result = self.read_file(my_path, file_name )
+
+        my_result=[{"result": result},{ "handler": self.__class__.__name__} ].append(action)
+
+        return my_result
+
+  
 
     def process_inline_file(self, message: str) -> str:
         file_paths = re.findall(r"file_path:(\S+)", message)
