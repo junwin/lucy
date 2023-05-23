@@ -23,7 +23,11 @@ class TaskUpdateHandler(Handler):
         current_node_id = action['current_node_id']
         description = action['description']
         state = action['state']
+
         name = action['name']
+        node_type = 'task'
+        if 'node_type' in action:
+            node_type = action['node_type']
   
         config = container.get(ConfigManager) 
 
@@ -33,6 +37,8 @@ class TaskUpdateHandler(Handler):
             return [{"result": f"Error: Invalid node id {current_node_id}"},{ "handler": self.__class__.__name__} ]
 
         new_node = HierarchicalNode.new_node_minimal(name, my_current_node.conversation_id, description, state)
+        new_node.node_type = node_type
+
         my_current_node.add_child(new_node.id)
         new_node.parent_id = current_node_id
         self.node_manager.add_node(new_node) 

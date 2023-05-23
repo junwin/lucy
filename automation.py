@@ -169,16 +169,17 @@ class Automation:
 
             
             #message = task_prompt_work + "  "  + 'context_info:'  + context_text + " "
-            if step.state == 'retry':
-                message = task_prompt_retry + "  "  + 'context_info:'  + context_text + " "
-            else:
-                message = task_prompt_part + "  " + 'context_info:'  + context_text + " " 
 
-            #if step.state == 'retry':
-            #    message += 'Ensure you always use the triple backticks as shown in the examples and have a complete action_ per line DO NOT SPLIT AN ACTION OVER MULTIPLE LINES FOLLOW THE EXAMPLE !!!!! !!!!!'
-           
-            #response = self.ask(message, 'colin')
-            response = self.ask(message)
+            if(step.node_type == 'doug'):
+                message = task_prompt_work + "  "  + 'context_info:'  + context_text + " "
+                response = self.ask(message, 'doug')
+            else:
+                if step.state == 'retry':
+                    message = task_prompt_retry + "  "  + 'context_info:'  + context_text + " "
+                else:
+                    message = task_prompt_part + "  " + 'context_info:'  + context_text + " " 
+                response = self.ask(message)
+
 
             self.step_context.actions = []  # clear actions
             
@@ -236,19 +237,13 @@ class Automation:
   
         add_tasks += f" <action_add_steps> current_node_id: ```{current_node_id}``` name: ```get the extract file ``` description: ``` get the file extract.txt from the working folder ``` state: ```none``` </action>\n"
 
-        add_tasks += f" <action_add_steps> current_node_id: ```{current_node_id}``` name: ```summarize ``` description: ``` You will find the content for extract.txt  is already in the following text -  please and summarize it, return you summary as the response ``` state: ```none``` </action>\n"
+        add_tasks += f" <action_add_steps> current_node_id: ```{current_node_id}``` name: ```summarize ``` description: ``` You will find the content for extract.txt  is already in the following text -  please and summarize it, return you summary as the response ``` state: ```none``` node_type: ```doug``` </action>\n"
 
 
         results = self.handler.process_request(add_tasks)
         print(QuokkaLoki.handler_repsonse_formated_text(results))
 
        
-
-
-
-
-  
-
 
     def find_next_step(self, steps):
         # Check if there's an "in progress" step
