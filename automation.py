@@ -14,6 +14,7 @@ from src.handlers.file_save_handler import FileSaveHandler
 from src.handlers.command_execution_handler import CommandExecutionHandler  
 from src.handlers.user_action_required_handler import UserActionRequiredHandler
 from src.handlers.file_load_handler import FileLoadHandler
+from src.handlers.web_search_handler import WebSearchHandler
 
 from task_generator import TaskGenerator
 from context import Context
@@ -87,6 +88,7 @@ class Automation:
         #self.handler.add_handler(user_action_required_handler)
         self.handler.add_handler(file_load_handler)
         self.handler.add_handler(task_update_handler)
+        self.handler.add_handler(WebSearchHandler())
         self.task_generator = TaskGenerator(self.node_manager)
 
     def test_extract_action(self):
@@ -112,11 +114,6 @@ class Automation:
         print(result)
 
      
-
- 
-
-        
-
 
     def run(self, user_goal: str) -> str:
 
@@ -235,10 +232,9 @@ class Automation:
         add_tasks = ''
 
   
-        add_tasks += f" <action_add_steps> current_node_id: ```{current_node_id}``` name: ```get the extract file ``` description: ``` get the file extract.txt from the working folder ``` state: ```none``` </action>\n"
+        add_tasks += f" <action_add_steps> current_node_id: ```{current_node_id}``` name: ```find etfs ``` description: ``` search the web for the top 5 high yield ETFs ``` state: ```none``` </action>\n"
 
-        add_tasks += f" <action_add_steps> current_node_id: ```{current_node_id}``` name: ```summarize ``` description: ``` You will find the content for extract.txt  is already in the following text -  please and summarize it, return you summary as the response ``` state: ```none``` node_type: ```doug``` </action>\n"
-
+     
 
         results = self.handler.process_request(add_tasks)
         print(QuokkaLoki.handler_repsonse_formated_text(results))

@@ -69,6 +69,9 @@ class Context:
                         if value == 'action_execute_command':                            
                             command = item['command']
                             self.add_action(command, result, '')
+                        if value == 'action_websearch':
+                            query = item['query']
+                            self.add_action(f"web seach: {query} ", result, '')  
 
 
     
@@ -93,7 +96,9 @@ class Context:
         response_text += 'actions: ' + '\n'
         for action in self.actions:
             response_text += '  - ' + 'request:' +  action['request:'] + '\n'
-            response_text += '    ' + 'response:' +  action['response:'] + '\n'
+            my_action_response = action['response:']
+            my_response_text = self.format_action_reponse(my_action_response)
+            response_text += '    ' + 'response:' +  my_response_text + '\n'
             response_text += '    ' + 'interpretation:' +  action['interpretation:'] + '\n'
 
         response_text += 'environment: ' + '\n'
@@ -110,3 +115,16 @@ class Context:
 
 
         return response_text
+    
+    def format_action_reponse(self, response)-> str:
+
+        if type(response) == dict:
+            return yaml.dump(response, default_flow_style=False)
+        elif type(response) == list:
+            my_text = ''
+            for item in response:
+                my_text += yaml.dump(item, default_flow_style=False)
+                my_text += '\n'
+            return my_text
+        else:
+            return response
