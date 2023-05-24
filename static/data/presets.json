@@ -74,5 +74,33 @@
         "num_mandatory_params": 2,
         "prompt": "Given a list of JSON objects representing summarized key metrics for multiple sets of ETFs, provide an analysis of the ETF candidates based on the key metrics, including previous close, open, volume, average volume, yield, total assets,beta3Year, YTD return, and three-year average return. #<P2>  Here is the input data: #<P1>",
         "model": "gpt-4"
+    },
+    "task_prompt_part": {
+        "name": "task_prompt_part",
+        "info": "/task_prompt_part",
+        "num_mandatory_params": 0,
+        "prompt": "Hello! Your task is to provide automantion. Examine the context: provided below, the description: field in the following context describe what needs to be done",
+        "model": "gpt-4"
+    },
+    "task_prompt_retry": {
+        "name": "task_prompt_retry",
+        "info": "/task_prompt_retry",
+        "num_mandatory_params": 0,
+        "prompt": "Hello! there seems to a problem, please look at the retry_information in the following context provided below make any fixes and try again - thanks",
+        "model": "gpt-4"
+    },
+    "task_prompt_work": {
+        "name": "task_prompt_work",
+        "info": "/task_prompt_work",
+        "num_mandatory_params": 0,
+        "prompt": "Hello!  Examine the 'context' provided below, the description: field in the following context describes what you need to do",
+        "model": "gpt-4"
+    },
+    "task_prompt_critic": {
+        "name": "task_prompt_critic",
+        "info": "/task_prompt_critic",
+        "num_mandatory_params": 0,
+        "prompt": "Did these requests complete correctly - see response ? first always answer (yes/no)  then and recomend remedial action  request: ",
+        "model": "gpt-4"
     }
 }

@@ -20,6 +20,8 @@ from task_generator import TaskGenerator
 from context import Context
 from src.hierarchical_node import HierarchicalNode
 from src.node_manager import NodeManager
+from src.presets.preset_handler import PresetHandler
+from src.presets.preset_prompts import PresetPrompts
 
 
 
@@ -31,11 +33,6 @@ logging.basicConfig(filename='logs/my_log_file.log', level=logging.INFO,
                     format='%(asctime)s - %(levelname)s - %(message)s')
 
 
-
-task_prompt_part = """Hello! Your task is to provide automantion. Examine the context: provided below, the description: field in the following context describe what needs to be done """
-task_prompt_retry = """Hello! there seems to a problem, please look at the retry_information in the following context provided below make any fixes and try again - thanks"""
-
-task_prompt_work = """Hello!  Examine the 'context' provided below, the description: field in the following context describes what you need to do """
 
 task_prompt_part_goal = """The purpose of this request is to break down a given requirement/goal into a set of steps using the 
 provided action primitives (action_save_file, action_load_file, action_execute_command). 
@@ -90,30 +87,13 @@ class Automation:
         self.handler.add_handler(task_update_handler)
         self.handler.add_handler(WebSearchHandler())
         self.task_generator = TaskGenerator(self.node_manager)
+        self.presets = PresetPrompts()
+        self.task_prompt_part = self.presets.get_prompt('task_prompt_part')
+        self.task_prompt_retry = self.presets.get_prompt('task_prompt_retry')
+        self.task_prompt_work = self.presets.get_prompt('task_prompt_work')
+        self.task_prompt_critic = self.presets.get_prompt('task_prompt_critic')
 
-    def test_extract_action(self):
-        request = ''' hello zzz ddd fgg 123 ```action_save_file: file_path: ``` insert your path ``` file_name: ```hello_world.py``` file_content:```print("hello world!")``` ``` 
-    99 myohmy code: blah ```action_add_steps: current_node_id: ```node id``` name: ```Create Python file``` description: ```Create a new Python file named 'hello_world.py' that outputs 'hello world!'``` state: ```none``` ```'''
-        action_name = 'action_save_file'
-        parameter_names = ['file_path', 'file_name', 'file_content']
-        result = QuokkaLoki.extract_action(request, action_name, parameter_names)
-        print(result)
 
-        action_name = 'action_add_steps'
-        parameter_names = ['current_node_id', 'name', 'description', 'state']
-        result = QuokkaLoki.extract_action(request, action_name, parameter_names)
-        print(result)
-
-    def test_extract_action2(self):
-        request = ''' Processing code response: ```action_save_file: file_path: ```insert your path``` file_name: ```hello_world.py``` file_content:```print("hello world!")``` ```
-```action_add_steps: current_node_id: ```node id``` name: ```Create Python file``` description: ```Create a new Python file named 'hello_world.py' that outputs 'hello world!'``` state: ```none``` ```context_info:```'''
-
-        request2 = ''' <action_execute_command> command: ```python hello_world.py``` command_path: ```auto/ ``` </action> '''
-        result = self.handler.process_request(request2)
-        zz = QuokkaLoki.handler_repsonse_formated_text(result) 
-        print(result)
-
-     
 
     def run(self, user_goal: str) -> str:
 
@@ -168,13 +148,13 @@ class Automation:
             #message = task_prompt_work + "  "  + 'context_info:'  + context_text + " "
 
             if(step.node_type == 'doug'):
-                message = task_prompt_work + "  "  + 'context_info:'  + context_text + " "
+                message = self.task_prompt_work['prompt'] + "  "  + 'context_info:'  + context_text + " "
                 response = self.ask(message, 'doug')
             else:
                 if step.state == 'retry':
-                    message = task_prompt_retry + "  "  + 'context_info:'  + context_text + " "
+                    message = self.task_prompt_retry['prompt'] + "  "  + 'context_info:'  + context_text + " "
                 else:
-                    message = task_prompt_part + "  " + 'context_info:'  + context_text + " " 
+                    message = self.task_prompt_part['prompt'] + "  " + 'context_info:'  + context_text + " " 
                 response = self.ask(message)
 
 
@@ -184,7 +164,7 @@ class Automation:
             response_text = QuokkaLoki.handler_repsonse_formated_text(rh_repsonse)
    
 
-            prompt2 = "Did these requests complete correctly - see response ? first always answer (yes/no)  then and recomend remedial action  request: " + response + " response: " + response_text
+            prompt2 = self.task_prompt_critic['prompt'] + response + " response: " + response_text
 
 
             critic_response = self.ask(prompt2)
@@ -226,18 +206,7 @@ class Automation:
         self.node_manager.add_node(self.top_node) 
         self.goal_context = self.get_context_from_node(self.top_node)
 
-    def setup_demo_steps(self, goal:str, conversation_id:str = 'conv1') :
-        self.setup_top_node(goal, conversation_id)
-        current_node_id = self.top_node.id
-        add_tasks = ''
 
-  
-        add_tasks += f" <action_add_steps> current_node_id: ```{current_node_id}``` name: ```find etfs ``` description: ``` search the web for the top 5 high yield ETFs ``` state: ```none``` </action>\n"
-
-     
-
-        results = self.handler.process_request(add_tasks)
-        print(QuokkaLoki.handler_repsonse_formated_text(results))
 
        
 

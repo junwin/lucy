@@ -9,6 +9,8 @@ from src.handlers.handler import Handler
 from src.container_config import container
 from src.config_manager import ConfigManager
 from src.handlers.quokka_loki import QuokkaLoki
+from src.chunkers.chuncked_file_processor import ChunkedFileProcessor
+from src.chunkers.text_chunker import TextChunker
 
 
 class FileLoadHandler(Handler):  # Concrete handler
@@ -30,6 +32,12 @@ class FileLoadHandler(Handler):  # Concrete handler
         my_path = base_path + '/' + directory_path  
 
         result = self.read_file(my_path, file_name )
+
+        if len(result) > 2000:
+            chunk_processor = ChunkedFileProcessor()
+            chunker = TextChunker()
+            result = chunk_processor.process_text_data(result, chunker, 1000)
+        
 
         temp = [{"result": result},{ "handler": self.__class__.__name__} ]
         temp.append(action)

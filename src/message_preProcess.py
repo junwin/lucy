@@ -3,7 +3,7 @@ import re
 from typing import List, Dict, Set
 
 from src.api_helpers import ask_question, get_completion
-from src.preset_handler import PresetHandler
+from src.presets.preset_handler import PresetHandler
 from src.summarize_request_handler import SummarizeRequestHandler
 from src.summarize_text_content import SummarizeTextContent
 from src.folder_processor import FolderProcessor
