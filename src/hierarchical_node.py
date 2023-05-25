@@ -5,7 +5,7 @@ from typing import List, Dict, Set
 
 class HierarchicalNode:
     incrementing_id = 0
-    def __init__(self, name: str, conversation_id: str, description: str = "",  info: str = "", parent_id: str = "", children: List[str] = None, state: str = "none", node_type: str = "node"):
+    def __init__(self, name: str, conversation_id: str, description: str = "",  info: str = "", parent_id: str = "", children: List[str] = None, state: str = "none", node_type: str = "node", working_directory: str = ""):
         self.name = name
         self.description = description
         self.conversation_id = conversation_id
@@ -18,6 +18,7 @@ class HierarchicalNode:
         self.tags: List[str] = []
         self.state: str = state
         self.node_type: str = "node"
+        self.working_directory: str = working_directory
 
     @classmethod
     def as_dict(self) -> Dict[str, any]:
@@ -34,7 +35,8 @@ class HierarchicalNode:
             "tags": self.tags,
             "children": self.children,
             "state": self.state,
-            "node_type": self.node_type
+            "node_type": self.node_type,
+            "working_directory": self.working_directory
         }
 
     @classmethod
@@ -53,6 +55,7 @@ class HierarchicalNode:
         node.tags = node_dict.get("tags", [])
         node.state = node_dict.get("state", "none")
         node.node_type = node_dict.get("node_type", "node") 
+        node.working_directory = node_dict.get("working_directory", "")
         return node
     
 

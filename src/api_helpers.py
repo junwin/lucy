@@ -2,7 +2,7 @@ import os
 import json
 import openai
 import time
-from openai.error import RateLimitError
+from openai.error import RateLimitError, InvalidRequestError
 import logging
 
 with open("G:\My Drive\credential\oaicred.json", "r") as config_file:
@@ -31,6 +31,13 @@ def ask_question(conversation, model="gpt-3.5-turbo", temperature=0, max_retries
             retries += 1
             print(f"RateLimitError encountered, retrying... (attempt {retries})")
             time.sleep(retry_wait)
+        except InvalidRequestError as e:
+            if retries == max_retries:
+                raise e
+            retries += 1
+            print(f"InvalidRequestError encountered, retrying... (attempt {retries})")
+            time.sleep(retry_wait)
+
 
 def get_completion(prompt:str, temperature:int=0, model:str="gpt-3.5-turbo", max_retries:int=3, retry_wait:int=1):
     logging.info(f'get_completion start: {model}')

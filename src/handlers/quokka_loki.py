@@ -98,6 +98,8 @@ class QuokkaLoki:
             param_value_start = request.find('```', param_index) + 3
             param_value_end = request.find('```', param_value_start)
             param_value = request[param_value_start:param_value_end].strip()
+            if param_value == ' ':
+                param_value = ''
             param_dict[param_name] = param_value
 
         # Uncomment below if you need to check parameters
@@ -167,6 +169,8 @@ class QuokkaLoki:
             if param_end == -1:
                 param_end = action.find(action_end_delimiter, param_start) - 1
             param_value = action[param_start:param_end]
+            if param_value == ' ':
+                param_value = ''    
 
             # Update parameters start index
             param_start = param_end + 3

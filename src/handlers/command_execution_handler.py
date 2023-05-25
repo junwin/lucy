@@ -27,7 +27,7 @@ class CommandExecutionHandler(Handler):
         config = container.get(ConfigManager) 
         base_path = get_base_path(config, account_name, working_directory)
 
-        result = self.execute_script(command, working_directory)
+        result = self.execute_script(command, base_path)
 
         temp = [{"result": result},{ "handler": self.__class__.__name__} ]
         temp.append(action)
@@ -49,8 +49,8 @@ class CommandExecutionHandler(Handler):
             #aa = subprocess.Popen('dir ', shell=True, cwd=script_path)
             result = subprocess.run(split_command, shell=True, cwd=script_path, capture_output=True, text=True)
 
-            if len(result.stderr) > 0:
-                return f"an error ocurred: {result.stderr} {result.stdout}"
+            #if len(result.stderr) > 0:
+             #   return f"an error ocurred: {result.stderr} {result.stdout}"
             
             if(result.returncode != 0):
                 return f"an error ocurred: {result.returncode} {result.stdout}"

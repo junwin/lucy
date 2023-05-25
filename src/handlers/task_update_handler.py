@@ -31,6 +31,10 @@ class TaskUpdateHandler(Handler):
         node_type = 'task'
         if 'node_type' in action:
             node_type = action['node_type']
+
+        working_directory = ''
+        if 'working_directory' in action:
+            working_directory = action['working_directory']
   
         config = container.get(ConfigManager) 
 
@@ -41,6 +45,7 @@ class TaskUpdateHandler(Handler):
 
         new_node = HierarchicalNode.new_node_minimal(name, my_current_node.conversation_id, description, state)
         new_node.node_type = node_type
+        new_node.working_directory = working_directory
 
         my_current_node.add_child(new_node.id)
         new_node.parent_id = current_node_id

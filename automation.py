@@ -142,6 +142,8 @@ class Automation:
                     self.step_context.state = step.state
                     self.step_context.current_node_id = step.id
                     self.step_context.info = step.info
+                    self.step_context.output_directory = step.working_directory
+                    self.step_context.input_directory = step.working_directory
 
 
 
@@ -159,7 +161,8 @@ class Automation:
                 if step.state == 'retry':
                     message = self.task_prompt_retry['prompt'] + "  "  + 'context_info:'  + context_text + " "
                 else:
-                    message = self.task_prompt_part['prompt'] + "  " + 'context_info:'  + context_text + " " 
+                    #message = self.task_prompt_part['prompt'] + "  " + 'context_info:'  + context_text + " " 
+                    message = "hello your task is " + self.step_context.description + "  " + 'context_info:'  + context_text + " " 
                 response = self.ask(message)
 
 
@@ -235,6 +238,8 @@ class Automation:
     
     def get_context_from_node(self, node):
         context = Context(name=node.name, description=node.description, current_node_id=node.id, state=node.state,account_name=node.account_name, conversation_id=node.conversation_id)
+        context.output_directory = node.working_directory
+        context.input_directory = node.working_directory
         context.add_info(node.info)
 
         return context
