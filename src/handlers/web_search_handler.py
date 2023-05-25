@@ -1,10 +1,7 @@
-import os
-import re
-import yaml
-import shlex
-import subprocess
+
+import logging
 import json
-import os 
+
 from pprint import pprint
 import requests
 
@@ -25,12 +22,13 @@ subscription_key = config_data["subscription_key"]
 class WebSearchHandler(Handler):  # Concrete handler
 
 
-    def handle(self, action: dict) -> List[dict]:
+    def handle(self, action: dict, account_name:str = "auto") -> List[dict]:
         action_name = action['action_name']
         if action_name != "action_websearch":
             return None
         
         print(action)
+        logging.info(self.__class__.__name__ )
         
         query = action['query']
         result_type = 'webpages'

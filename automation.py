@@ -17,11 +17,12 @@ from src.handlers.file_load_handler import FileLoadHandler
 from src.handlers.web_search_handler import WebSearchHandler
 
 from task_generator import TaskGenerator
-from context import Context
+from src.context.context import Context
 from src.hierarchical_node import HierarchicalNode
 from src.node_manager import NodeManager
 from src.presets.preset_handler import PresetHandler
 from src.presets.preset_prompts import PresetPrompts
+from src.task_creation.task_builder import TaskBuilder
 
 
 
@@ -73,7 +74,7 @@ class Automation:
         self.steps = None
         self.step_context = None
         self.goal_context = None
-        self.node_manager = NodeManager()
+        self.node_manager = container.get(NodeManager)
         task_update_handler = TaskUpdateHandler(self.node_manager) 
         file_save_handler = FileSaveHandler()
         command_execution_handler = CommandExecutionHandler()
@@ -86,8 +87,9 @@ class Automation:
         self.handler.add_handler(file_load_handler)
         self.handler.add_handler(task_update_handler)
         self.handler.add_handler(WebSearchHandler())
-        self.task_generator = TaskGenerator(self.node_manager)
-        self.presets = PresetPrompts()
+        #self.task_generator = TaskGenerator(self.node_manager)
+        self.presets = PresetPrompts(config.get('preset_path'))
+        self.task_builder = TaskBuilder()
         self.task_prompt_part = self.presets.get_prompt('task_prompt_part')
         self.task_prompt_retry = self.presets.get_prompt('task_prompt_retry')
         self.task_prompt_work = self.presets.get_prompt('task_prompt_work')
@@ -103,8 +105,11 @@ class Automation:
         max_iterations = 10
         #self.task_generator.generate_tasks(user_goal)
 
+        task_builder = TaskBuilder()
+        task_builder.create_task_nodes(user_goal, 'auto', 'conv1') 
+
         #self.workout_steps(user_goal)
-        self.setup_demo_steps("lets test a python file")
+        #self.setup_demo_steps("lets test a python file")
 
         self.top_node = self.node_manager.get_nodes_conversation_id("conv1", "top")
         self.top_node = self.top_node[0]
@@ -229,7 +234,7 @@ class Automation:
     
     
     def get_context_from_node(self, node):
-        context = Context(name=node.name, description=node.description, current_node_id=node.id, state=node.state)
+        context = Context(name=node.name, description=node.description, current_node_id=node.id, state=node.state,account_name=node.account_name, conversation_id=node.conversation_id)
         context.add_info(node.info)
 
         return context

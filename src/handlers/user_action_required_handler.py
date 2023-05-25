@@ -7,7 +7,7 @@ from typing import List,  Tuple
 from src.handlers.handler import Handler
 
 class UserActionRequiredHandler(Handler):  # Another concrete handler
-    def handle(self, request)-> Tuple[str, str]:
+    def handle(self, request, account_name:str = "auto")-> Tuple[str, str]:
         if "user action required:" in request:
             user_action_pattern = "```(.*?)```"
             user_action = re.search(user_action_pattern, request)

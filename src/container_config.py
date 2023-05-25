@@ -8,6 +8,7 @@ from src.agent_manager import AgentManager
 from src.response_handler import FileResponseHandler
 from src.source_code_response_handler import SourceCodeResponseHandler
 from src.completion.completion_store import CompletionStore
+from src.node_manager import NodeManager
 
 
 
@@ -37,6 +38,13 @@ class CompletionStoreModule(Module):
     def provide_completion_store(self) -> CompletionStore:
         base_path = config.get('completion_base_path')  
         return CompletionStore(base_path)
+    
+class NodeManagerModule(Module):
+    @provider
+    @singleton
+    def provide_completion_store(self) -> NodeManager:
+        #base_path = config.get('completion_base_path')  
+        return NodeManager()
 
 
 
@@ -54,7 +62,7 @@ class SourceCodeResponseHandlerModule(Module):
         return SourceCodeResponseHandler(config.get('account_output_path'), 5000)
 
 def configure_container():
-    container = Injector([AgentManagerModule(), FileResponseHandlerModule(), SourceCodeResponseHandlerModule(), ConfigManagerModule(), CompletionStoreModule()])
+    container = Injector([AgentManagerModule(), FileResponseHandlerModule(), SourceCodeResponseHandlerModule(), ConfigManagerModule(), CompletionStoreModule(), NodeManagerModule()])
     return container
 
 container = configure_container()

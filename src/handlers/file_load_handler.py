@@ -3,6 +3,7 @@ import re
 import yaml
 import shlex
 import subprocess
+import logging
 from typing import List, Tuple
 from src.handlers.handler import Handler
 from src.handlers.handler import Handler
@@ -11,32 +12,36 @@ from src.config_manager import ConfigManager
 from src.handlers.quokka_loki import QuokkaLoki
 from src.chunkers.chuncked_file_processor import ChunkedFileProcessor
 from src.chunkers.text_chunker import TextChunker
+from src.handlers.handler_utils import get_base_path
 
 
 class FileLoadHandler(Handler):  # Concrete handler
 
 
-    def handle(self, action: dict) -> List[dict]:
+    def handle(self, action: dict, account_name:str = "auto") -> List[dict]:
         action_name = action['action_name']
         if action_name != "action_load_file":
             return None
         
         print(action)
+        logging.info(self.__class__.__name__ )
         
         directory_path = action['directory_path']
         file_name = action['file_name']
   
         config = container.get(ConfigManager) 
-        base_path = config.get('code_sandbox_path')
 
-        my_path = base_path + '/' + directory_path  
+        base_path = get_base_path(config, account_name, directory_path)
 
-        result = self.read_file(my_path, file_name )
+        file_chunk_threshold = config.get('file_chunk_threshold')
+        file_chunk_size = config.get('file_chunk_size')
 
-        if len(result) > 2000:
+        result = self.read_file(base_path, file_name )
+
+        if len(result) > file_chunk_threshold:
             chunk_processor = ChunkedFileProcessor()
             chunker = TextChunker()
-            result = chunk_processor.process_text_data(result, chunker, 1000)
+            result = chunk_processor.process_text_data(result, chunker, file_chunk_size)
         
 
         temp = [{"result": result},{ "handler": self.__class__.__name__} ]

@@ -10,23 +10,22 @@ from src.handlers.handler import Handler
 from src.container_config import container
 from src.config_manager import ConfigManager
 from src.handlers.quokka_loki import QuokkaLoki
+from src.handlers.handler_utils import get_base_path
 
 
 class CommandExecutionHandler(Handler):  
-    def handle(self, action: dict) -> List[dict]:
+    def handle(self, action: dict, account_name:str = "auto") -> List[dict]:
         action_name = action['action_name']
         if action_name != "action_execute_command":
             return None
         
-        print(action)
+        logging.info(self.__class__.__name__ )
         
         command = action['command']  
         working_directory = action['working_directory']  
 
         config = container.get(ConfigManager) 
-        base_path = config.get('code_sandbox_path')
-
-        working_directory = base_path + '/' + working_directory   
+        base_path = get_base_path(config, account_name, working_directory)
 
         result = self.execute_script(command, working_directory)
 

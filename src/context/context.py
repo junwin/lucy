@@ -1,16 +1,21 @@
 from typing import List, Dict
 import yaml
+import os
+from src.container_config import container
+from src.config_manager import ConfigManager
 from src.handlers.quokka_loki import QuokkaLoki
 
 class Context:
     
-    def __init__(self, name:str, description:str, current_node_id:str,state:str = 'none'):
+    def __init__(self, name:str, description:str, current_node_id:str,state:str = 'none', account_name:str = 'auto', conversation_id:str = 'conv1'):
+        self.account_name = account_name
+        self.conversation_id = conversation_id
         self.name = name
         self.info = []
         self.description = description.replace('\n', '')
         self.retry_information = ''
         self.state = state
-        self.actions = [ ]
+        self.actions = []
         self.current_node_id = current_node_id
         self.environment = []
         self.files = dict()
@@ -128,3 +133,5 @@ class Context:
             return my_text
         else:
             return response
+        
+

@@ -6,7 +6,7 @@ class PresetPrompts:
 
     def __init__(self, file_name: str = 'prompts.json'):
         self.file_name = file_name
-        self.prompts = []
+        self.prompts = dict
         self.load()
 
     def load(self):

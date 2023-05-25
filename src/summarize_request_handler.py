@@ -2,7 +2,7 @@
 from src.api_helpers import get_completion
 from src.container_config import container
 from src.completion.completion_store import CompletionStore
-from src.preset_handler import PresetHandler
+from src.presets.preset_handler import PresetHandler
 
 
 class SummarizeRequestHandler:

@@ -3,6 +3,7 @@ import re
 import yaml
 import shlex
 import subprocess
+import logging
 from typing import List, Tuple
 from src.handlers.handler import Handler
 from src.node_manager import NodeManager
@@ -15,10 +16,12 @@ class TaskUpdateHandler(Handler):
     def __init__(self, node_manager: NodeManager):
         self.node_manager = node_manager
 
-    def handle(self, action: dict) -> List[dict]:
+    def handle(self, action: dict, account_name:str = "auto") -> List[dict]:
         action_name = action['action_name']
         if action_name != "action_add_steps":
             return None
+        
+        logging.info(self.__class__.__name__ )
         
         current_node_id = action['current_node_id']
         description = action['description']

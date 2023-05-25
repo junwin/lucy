@@ -9,6 +9,7 @@ class HierarchicalNode:
         self.name = name
         self.description = description
         self.conversation_id = conversation_id
+        self.account_name = 'conv1'
         self.info = info
         self.parent_id = parent_id
         self.utc_timestamp = datetime.datetime.utcnow().isoformat() + "Z"
@@ -25,6 +26,7 @@ class HierarchicalNode:
             "name": self.name,
             "description": self.description, 
             "conversation_id": self.conversation_id,
+            "account_name": self.account_name,
             "info": self.info,
             "parent_id": self.parent_id,
             "utc_timestamp": self.utc_timestamp,
@@ -45,6 +47,7 @@ class HierarchicalNode:
             parent_id=node_dict.get("parent_id", ""),
             children=node_dict.get("children", [])
         )
+        node.account_name = node_dict.get("account_name", "conv1")
         node.utc_timestamp = node_dict.get("utc_timestamp", datetime.datetime.utcnow().isoformat() + "Z")
         node.id = node_dict.get("id", str(time.time()))
         node.tags = node_dict.get("tags", [])

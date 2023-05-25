@@ -119,7 +119,7 @@
         "seed_conversation": [],
         "language_code": "en-US",
         "select_type": "keyword",
-        "num_past_conversations": 0,
+        "num_past_conversations": 1,
         "num_relevant_conversations": 4,
         "max_output_size": 4000,
         "write_file_threashold": 6000,

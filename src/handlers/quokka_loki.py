@@ -9,8 +9,9 @@ action_end_delimiter = '</action'
 content_delimiter = '```'
 
 class QuokkaLoki:
-    def __init__(self):
-        self.handlers = []  
+    def __init__(self, account_name:str = "auto"):
+        self.handlers = []
+        self.account_name = account_name
 
 
     def add_handler(self, handler: Handler):
@@ -23,7 +24,7 @@ class QuokkaLoki:
             action_dict = QuokkaLoki.parse_action(action)
             for handler in self.handlers:
                 try:
-                    action_result = handler.handle(action_dict)
+                    action_result = handler.handle(action_dict, self.account_name)
                     if action_result != None:
                         results.append(action_result)
                 except Exception as e:
