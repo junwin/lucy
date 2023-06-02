@@ -60,13 +60,19 @@ pip install -r requirements.txt
 python -m spacy download en_core_web_sm
 python -m spacy download es_core_news_sm
 
+or
+
+python3 -m spacy download en_core_web_sm
+python3 -m spacy download es_core_news_sm
+
 ### Virtual Environment
 
 To activate the virtual environment:
 
 
 
-venv\Scripts\activate  # On Unix-based systems, use `source venv/bin/activate`
+venv\Scripts\activate  # On Unix-based systems, use `source venv/bin/activate`  source venv/bin/activate
+
 
 ### Running the Flask App
 

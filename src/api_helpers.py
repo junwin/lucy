@@ -3,12 +3,19 @@ import json
 import openai
 import time
 from openai.error import RateLimitError, InvalidRequestError
+from src.container_config import container
+from src.config_manager import ConfigManager
 import logging
 
-with open("G:\My Drive\credential\oaicred.json", "r") as config_file:
-    config_data = json.load(config_file)
+config = container.get(ConfigManager) 
+credential_path = config.get('credential_path')
+with open(credential_path + "/oaicred.json", "r") as config_file:
+   config_data = json.load(config_file)
 
 openai.api_key = config_data["openai_api_key"]
+
+
+
 
 def ask_question(conversation, model="gpt-3.5-turbo", temperature=0, max_retries=3, retry_wait=1) -> str:
     logging.info(f'ask_question start: {model}')

@@ -61,3 +61,7 @@ data/completions/lucy_cli_conv.json
 static/data/code_sandbox/
 your path/hello_world.py
 data/completions/lucy_cli_conv.json
+package-lock.json
+source/bin/pip
+source
+

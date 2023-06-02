@@ -17,5 +17,6 @@
     "debug": true,
     "file_chunk_threshold": 2000,
     "file_chunk_size": 1000,
-    "context_base_path": "data/context"
+    "context_base_path": "data/context",
+    "credential_path": "/home/junwin/credential"
 }
