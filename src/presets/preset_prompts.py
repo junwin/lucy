@@ -29,3 +29,6 @@ class PresetPrompts:
     def remove_prompt(self, name):
         if name in self.prompts:
             del self.prompts[name]
+
+    def get_available_presets(self) -> list:
+        return list(self.prompts.keys())

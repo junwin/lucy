@@ -179,3 +179,36 @@ class QuokkaLoki:
             action_dict[param_name] = param_value
 
         return action_dict
+    
+    def yaml_to_dict(self, yaml_str:str):
+        yaml_list = yaml.safe_load(yaml_str)
+        dict_list = []
+        for item in yaml_list:
+            dict_list.append({"name": item["name"], "description": item["description"]})
+        return dict_list
+
+
+    def process_yaml_goals(self, goal:str, current_node_id:str, account_name:str, conversation_id:str, working_directory:str):
+
+        
+
+        add_tasks = ''
+    
+        spec = self.yaml_to_dict(goal)
+        x = 0
+        for item in spec:
+            if x >= 0:
+                add_tasks += self.format_task(current_node_id, item["name"], item["description"], working_directory='fpe_assembly')
+            else:
+                add_tasks += self.format_task(current_node_id, item["name"], item["description"])
+
+            x += 1
+
+        results = self.process_request(add_tasks)
+        return results
+
+    def format_task(self, current_node_id, name:str, description:str, working_directory:str = ''):
+        print(f"adding task {name}")
+        t =  f" <action_add_steps> current_node_id: ```{current_node_id}``` name: ```{name}  ``` description: ``` {description} ``` state: ```none```  working_directory: ```{working_directory}```</action>\n"
+        return t
+    

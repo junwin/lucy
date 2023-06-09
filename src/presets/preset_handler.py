@@ -31,6 +31,12 @@ class PresetHandler:
 
         myResult = self.transform_to_dict(message, 1)
         preset_name = myResult["seedName"]
+
+        if preset_name == "?" or preset_name == "help":
+            available_presets = self.preset_prompts.get_available_presets()
+            my_response = "available presets: " + ", ".join(available_presets)
+            return my_response
+        
         prompt = self.preset_prompts.get_prompt(preset_name)
         if prompt is None:
             my_response = "no such preset: " + preset_name

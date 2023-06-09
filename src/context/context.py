@@ -112,7 +112,7 @@ class Context:
                 response_text += '  - ' + key + ' ' + value + '\n'
                 response_text += 'environment: ' + '\n'
 
-        response_text += 'files, source code and other data: ' + '\n'
+        response_text += 'Files section, source code and other data: ' + '\n'
         for key, value in self.files.items():
             response_text += f"  - file_name: {key}\n"
             response_text += f"``` {value} ```\n\n"

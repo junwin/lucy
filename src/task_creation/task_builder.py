@@ -58,13 +58,7 @@ class TaskBuilder:
         return context
     
 
-    def yaml_to_dict(self, yaml_str:str):
-        yaml_list = yaml.safe_load(yaml_str)
-        dict_list = []
-        for item in yaml_list:
-            dict_list.append({"name": item["name"], "description": item["description"]})
-        return dict_list
-
+ 
 
     def process_yaml_spec(self, goal:str, account_name:str, conversation_id:str = 'conv1'):
         my_spec = """- name: Load App.vue into the context
@@ -76,26 +70,13 @@ class TaskBuilder:
 - name: Implement Testing
   description: Implement unit tests for the application using Vitest, Vite's built-in testing tool. """
         self.setup_top_node(goal, account_name, conversation_id)
+
         current_node_id = self.top_node.id
-        add_tasks = ''
-    
-        spec = self.yaml_to_dict(my_spec)
-        x = 0
-        for item in spec:
-            if x >= 0:
-                add_tasks += self.format_task(current_node_id, item["name"], item["description"], working_directory='fpe_assembly')
-            else:
-                add_tasks += self.format_task(current_node_id, item["name"], item["description"])
 
-            x += 1
-
-        results = self.quokka_loki.process_request(add_tasks)
+        results = self.quokka_loki.process_yaml_goals(my_spec, current_node_id, account_name, conversation_id, working_directory='src')
+        
         print(QuokkaLoki.handler_repsonse_formated_text(results))
 
-    def format_task(self, current_node_id, name:str, description:str, working_directory:str = ''):
-        print(f"adding task {name}")
-        t =  f" <action_add_steps> current_node_id: ```{current_node_id}``` name: ```{name}  ``` description: ``` {description} ``` state: ```none```  working_directory: ```{working_directory}```</action>\n"
-        return t
     
 
     my_spec = """- name: Project Setup
