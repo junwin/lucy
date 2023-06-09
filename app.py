@@ -17,7 +17,7 @@ from src.container_config import container
 from src.config_manager import ConfigManager
 
 from src.prompt_builders.prompt_builder import PromptBuilder
-from src.message_processor import MessageProcessor
+from src.message_processors.message_processor import MessageProcessor
 from src.completion.completion_store import CompletionStore
 from src.completion.completion_manager import CompletionManager
 from src.completion.completion import Completion

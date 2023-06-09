@@ -8,8 +8,9 @@ from src.config_manager import ConfigManager
 from src.response_handler import FileResponseHandler
 from src.source_code_response_handler import SourceCodeResponseHandler
 from src.agent_manager import AgentManager
-from src.message_preProcess import MessagePreProcess
+from src.message_processors.message_preProcess import MessagePreProcess
 from src.api_helpers import ask_question, get_completion
+from src.message_processors.message_processor_interface import MessageProcessorInterface
 
 from src.prompt_builders.prompt_builder import PromptBuilder
 # from src.completion.completion_manager import CompletionManager
@@ -18,7 +19,7 @@ from src.completion.completion_store import CompletionStore
 # from src.completion.message import Message
 
 
-class MessageProcessor:
+class MessageProcessor(MessageProcessorInterface):
     def __init__(self ):
         # self.name = name
         agent_manager = container.get(AgentManager)
@@ -28,7 +29,7 @@ class MessageProcessor:
         
 
 
-    def process_message(self, agent_name:str, account_name:str, message, conversationId="0") -> str:
+    def process_message(self, agent_name:str, account_name:str, message, conversationId="0", context_name='', second_agent_name='') -> str:
         logging.info(f'Processing message inbound: {message}')
         agent_manager = container.get(AgentManager)
         agent = agent_manager.get_agent(agent_name)
@@ -93,22 +94,6 @@ class MessageProcessor:
     
 
 
-    def remove_utc_timestamp(self, data):
-        new_data = []
-        for item in data:
-            new_item = {"role": item["role"], "content": item["content"]}
-            new_data.append(new_item)
-        return new_data
-    
-   
-    
-    def get_data_item(self, input_string, data_point):
-        regex_pattern = f"{re.escape(data_point)}\\s*(.*)"
-        result = re.search(regex_pattern, input_string)
-        if result:
-            return result.group(1).strip()
-        else:
-            return None
 
     
     

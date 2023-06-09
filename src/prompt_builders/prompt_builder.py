@@ -10,9 +10,11 @@ from src.config_manager import ConfigManager
 from src.response_handler import FileResponseHandler
 #from src.source_code_response_handler import SourceCodeResponseHandler
 from src.agent_manager import AgentManager
-from src.message_preProcess import MessagePreProcess
+from src.message_processors.message_preProcess import MessagePreProcess
 from src.presets.preset_handler import PresetHandler
 from src.api_helpers import ask_question, get_completion
+from src.context.context_manager import ContextManager
+from src.context.context import Context
 
 from src.completion.completion_manager import CompletionManager
 from src.completion.completion_store import CompletionStore
@@ -45,7 +47,7 @@ class PromptBuilder:
         #self.preprocessor = container.get(MessagePreProcess)
         self.preset_handler = PresetHandler()
 
-    def build_prompt(self, content_text:str, conversationId:str, agent_name, account_name, context_type="none", max_prompt_chars=6000, max_prompt_conversations=20):
+    def build_prompt(self, content_text:str, conversationId:str, agent_name, account_name, context_type="none", max_prompt_chars=6000, max_prompt_conversations=20, context_name=''):
         """
         This method is used to construct a prompt that can be used to generate a response in the conversational system.
         It retrieves and prepares various pieces of information, such as agent details, account details, relevant prompts, and seed prompts.
@@ -129,9 +131,16 @@ class PromptBuilder:
             account_matched_ids = self.get_matched_ids(account_completion_manager, context_type, content_text, num_relevant_conversations, num_past_conversations)
             matched_messages_account = account_completion_manager.get_completion_messages(account_matched_ids, roles_used_in_context) 
 
+        # get the relevant context if any
+        context_text = ""
+        if context_name != "" and context_name != "none":
+            context_mgr =ContextManager()
+            context = context_mgr.get_context(account_name, context_name)
+            context_text = context.context_formated_text2()
+
         agent_message_dicts = Message.get_list_of_dicts(matched_messages_agent)
         account_message_dicts = Message.get_list_of_dicts(matched_messages_account)
-        my_user_content =  Message('user', content_text) 
+        my_user_content =  Message('user', context_text + "  /n" + content_text) 
         full_prompt = agent_message_dicts + account_message_dicts  + my_user_content.as_list_of_dicts()
 
         #logging.info(f'returned prompt: {full_prompt}')

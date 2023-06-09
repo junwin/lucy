@@ -1,6 +1,6 @@
 
 import logging
-from src.message_processor import MessageProcessor
+from src.message_processors.message_processor import MessageProcessor
 from injector import Injector
 from src.container_config import container
 from src.config_manager import ConfigManager

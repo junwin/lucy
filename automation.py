@@ -2,7 +2,7 @@ import os
 import yaml
 import logging
 
-from src.message_processor import MessageProcessor
+from src.message_processors.message_processor import MessageProcessor
 from src.container_config import container
 from src.config_manager import ConfigManager
 from src.agent_manager import AgentManager

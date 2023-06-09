@@ -4,7 +4,7 @@ from src.api_helpers import ask_question, get_completion
 from src.config_manager import ConfigManager
 from src.container_config import container
 from src.agent_manager import AgentManager
-#from src.message_processor_store import MessageProcessorStore
+#from src.message_processors.message_processor_store import MessageProcessorStore
 
 class SummarizeTextContent:
     def __init__(self, account_output_path:str, agent_name:str, account_name:str, max_words=500):
