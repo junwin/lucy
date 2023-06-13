@@ -1,6 +1,8 @@
 from typing import List, Dict
 import yaml
 import os
+import pickle
+import datetime
 from src.container_config import container
 from src.config_manager import ConfigManager
 from src.handlers.quokka_loki import QuokkaLoki
@@ -12,16 +14,21 @@ class Context:
         self.conversation_id = conversation_id
         self.name = name
         self.info = []
+        self.transcript = []
         self.description = description.replace('\n', '')
         self.retry_information = ''
         self.state = state
         self.actions = []
         self.current_node_id = current_node_id
+        self.recomendations = ''
+        self.conversation_state = ''
         self.environment = []
         self.files = dict()
         self.output_directory = 'auto/'
         self.input_directory = 'auto/'
         self.add_environment('os:', 'Microsoft Windows 10')
+        self.created_timestamp = datetime.datetime.utcnow()
+        self.last_updated_timestamp = datetime.datetime.utcnow()
         
 
     def add_info(self, info_text:str):     
@@ -34,6 +41,11 @@ class Context:
     def add_environment(self, name:str, value:str):
         env = {name:value}
         self.environment.append(env)
+
+    def add_transcript_item(self, account_name:str, item:str):
+        newItem = f"{account_name}: {item}\n"
+        self.transcript.insert(0, newItem)
+
 
     def add_replace_file(self, file_name:str, content:str):
         self.files[file_name] = content
@@ -80,15 +92,28 @@ class Context:
 
 
     
-    def context_formated_text2(self) -> str:
+    def context_formated_text2(self, detail_level:str="full") -> str:
 
-        response_text = 'Context: ' + '\n'   
+        response_text = 'Context: ' + '\n'
+        response_text += 'name: ' + self.name + '\n' 
+        response_text += 'description: ' + self.description + '\n'
+
+        if len(self.transcript) > 0:
+            for string in self.transcript:
+                response_text += 'transcript: ' + string + '\n'
+
+        if detail_level != "full":
+            if self.recomendations != '':
+                response_text += 'recomendations: ' + self.recomendations + '\n'
+            if self.conversation_state != '':
+                response_text += 'conversation state: ' + self.conversation_state + '\n'
+            return response_text
+
         
-        response_text += 'name: ' + self.name + '\n'
         if self.retry_information != '':
             response_text += 'retry_information: ' + self.retry_information + '\n'
 
-        response_text += 'description: ' + self.description + '\n'
+ 
         response_text += 'state: ' + self.state + '\n'
         response_text += 'current_node_id: ' + self.current_node_id + '\n'
         response_text += 'output_directory: ' + self.output_directory + '\n'
@@ -110,7 +135,6 @@ class Context:
         for env in self.environment:
             for key, value in env.items():
                 response_text += '  - ' + key + ' ' + value + '\n'
-                response_text += 'environment: ' + '\n'
 
         response_text += 'Files section, source code and other data: ' + '\n'
         for key, value in self.files.items():

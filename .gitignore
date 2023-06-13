@@ -65,3 +65,5 @@ package-lock.json
 source/bin/pip
 source
 
+data/completions/glinda_junwin_conv.json
+data/context/junwin/dorothy_glinda.dat

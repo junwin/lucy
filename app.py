@@ -18,6 +18,7 @@ from src.config_manager import ConfigManager
 
 from src.prompt_builders.prompt_builder import PromptBuilder
 from src.message_processors.message_processor import MessageProcessor
+from src.message_processors.guided_conversation_processor import GuidedConversationProcessor
 from src.completion.completion_store import CompletionStore
 from src.completion.completion_manager import CompletionManager
 from src.completion.completion import Completion
@@ -77,6 +78,7 @@ def ask():
     accountName = accountName.lower()
     select_type = request.json.get('selectType', '')
     conversationId = request.json.get('conversationId', '')
+    secondary_agent = request.json.get('secondaryAgent', '')    
 
     if not question or not agentName or not accountName:
         return jsonify({"error": "Missing question, agentName, accountName, or conversationId"}), 400
@@ -91,12 +93,19 @@ def ask():
         select_type = my_agent['select_type']
 
 
-    processor = MessageProcessor()
+    if not secondary_agent:
+        processor = MessageProcessor()
+        secondary_agent = ""
+        context_name = ""
+    else:
+        processor = GuidedConversationProcessor()
+        context_name = secondary_agent+"_"+agentName
+
 
     processor.context_type = select_type
     # Modify the process_message method in the MessageProcessor class if needed
     #process_message(self, agent_name:str, account_name:str, message, conversationId="0"):
-    response = processor.process_message(agentName, accountName, question, conversationId)
+    response = processor.process_message(agentName, accountName, question, conversationId, context_name, secondary_agent)
     # processor.save_conversations()
     return jsonify({"response": response})
 

@@ -61,7 +61,7 @@ class MessageProcessor(MessageProcessorInterface):
  
 
         prompt_builder = PromptBuilder()
-        conversation = prompt_builder.build_prompt( message, conversationId, agent_name, account_name, context_type)
+        conversation = prompt_builder.build_prompt( message, conversationId, agent_name, account_name, context_type,6000, 20, context_name)
        
        
         # coversations [ {role: user, content: message} ]

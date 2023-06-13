@@ -199,7 +199,7 @@ class CompletionManager:
     def get_default_roles(self) -> List[str]:
         return ['user', 'assistant', 'system']
     
-    def get_formatted_text(self, completionIds: List[str], roles: Optional[List[str]] = None, user_intro = "User: ", assistant_intro = "Assistant:" ) -> str:
+    def get_transcript(self, completionIds: List[str], roles: Optional[List[str]] = None, user_intro = "User: ", assistant_intro = "Assistant:" ) -> str:
         if roles is None:
             roles = self.get_default_roles()
         response_text = ""

@@ -58,7 +58,8 @@ class PromptBuilder:
         conversationId (str): The identifier of the conversation.
         agent_name (str): The name of the agent.
         account_name (str): The name of the account.
-        context_type (str): The type of context (e.g., 'simpleprompt', 'keyword', 'semantic'). Default is 'none'.
+        context_type (str): The type of context (e.g.,'keyword', 'semantic'). Default is 'none'.
+        completion_merge_type (str): The type of completion merge simple prompt adds completions to begining of content_text
         max_prompt_chars (int): The maximum number of characters allowed in the prompt. Default is 6000.
         max_prompt_conversations (int): The maximum number of conversations allowed in the prompt. Default is 20.
 
@@ -85,6 +86,13 @@ class PromptBuilder:
         else:
             roles_used_in_context = None
 
+        if "completion_merge_type" in agent:
+            completion_merge_type = agent["completion_merge_type"]
+        else:
+            completion_merge_type = "none"
+
+            
+
         
         # get the agents seed prompts - this is fixed information for the agent
         agent_roles = ['system']
@@ -95,9 +103,10 @@ class PromptBuilder:
         agent_all_matched_ids = agent_matched_seed_ids + agent_matched_ids
         matched_messages_agent = agent_completion_manager.get_completion_messages(agent_all_matched_ids, agent_roles)
 
-        if context_type == "simpleprompt":
+        # a simple prompt adds the agent completions to the start of the prompt
+        if completion_merge_type == "simpleprompt":
             # use the text from compeltions
-            my_agent_completions = agent_completion_manager.get_completion_byId(agent_matched_ids)
+            my_agent_completions = agent_completion_manager.get_completion_byId(agent_all_matched_ids)
             if len(my_agent_completions) > 0:  
                 my_text = my_agent_completions[0].format_completion_text()
                 content_text = my_text + content_text   
@@ -117,7 +126,7 @@ class PromptBuilder:
             #matched_messages_account_relevant = account_completion_manager.get_completion_messages(account_matched_ids, roles_used_in_context)
             matched_messages_account_latest = account_completion_manager.get_completion_messages(account_latest_ids, roles_used_in_context) 
             
-            text_info = account_completion_manager.get_formatted_text(account_matched_ids, roles_used_in_context)
+            text_info = account_completion_manager.get_transcript(account_matched_ids, roles_used_in_context)
             logging.info(f'PromptBuilder text_info: {text_info}')
 
             preset_values = [text_info, content_text]
@@ -134,17 +143,22 @@ class PromptBuilder:
         # get the relevant context if any
         context_text = ""
         if context_name != "" and context_name != "none":
-            context_mgr =ContextManager()
+            context_mgr =ContextManager(self.config)
             context = context_mgr.get_context(account_name, context_name)
-            context_text = context.context_formated_text2()
+            context_text = context.context_formated_text2("compact")
 
         agent_message_dicts = Message.get_list_of_dicts(matched_messages_agent)
         account_message_dicts = Message.get_list_of_dicts(matched_messages_account)
-        my_user_content =  Message('user', context_text + "  /n" + content_text) 
-        full_prompt = agent_message_dicts + account_message_dicts  + my_user_content.as_list_of_dicts()
 
-        #logging.info(f'returned prompt: {full_prompt}')
-        # zz = Message.get_list_of_dicts(full_prompt)
+        my_user_content =  Message('user', content_text) 
+        
+        #full_prompt = agent_message_dicts + account_message_dicts  + my_user_content.as_list_of_dicts()
+        if context_text == "":
+            full_prompt = my_user_content.as_list_of_dicts() + agent_message_dicts + account_message_dicts
+        else:
+            my_user_context = Message('user', context_text)
+            full_prompt = my_user_content.as_list_of_dicts() + agent_message_dicts + my_user_context.as_list_of_dicts() + account_message_dicts
+
         return full_prompt
 
     def get_matched_ids(self, completion_manager: CompletionManager, context_type : str, content_text : str, num_relevant_conversations : int, num_past_conversations : int):

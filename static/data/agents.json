@@ -20,7 +20,8 @@
         "name": "colin",
         "seed_conversation": [],
         "language_code": "en-US",
-        "select_type": "simpleprompt",
+        "select_type": "keyword",
+        "completion_merge_type": "simpleprompt",
         "num_past_conversations": 0,
         "num_relevant_conversations": 1,
         "max_output_size": 4000,
@@ -84,7 +85,10 @@
         "use_prompt_reduction": false,
         "temperature": 1,
         "save_reposnses": true,
-        "model": "gpt-3.5-turbo"
+        "model": "gpt-3.5-turbo",
+        "roles_used_in_context": [
+            "user", "assistant"
+        ]
     },
     {
         "name": "pedro",
@@ -104,28 +108,36 @@
         "name": "glinda",
         "seed_conversation": [],
         "language_code": "en-US",
-        "select_type": "hybrid",
-        "num_past_conversations": 2,
-        "num_relevant_conversations": 2,
+        "select_type": "keyword",
+        "completion_merge_type": "simpleprompt",
+        "num_past_conversations": 0,
+        "num_relevant_conversations": 0,
         "max_output_size": 4000,
         "write_file_threashold": 6000,
-        "use_prompt_reduction": true,
+        "use_prompt_reduction": false,
         "save_reposnses": true,
         "temperature": 0,
-        "model": "gpt-4"
+        "model": "gpt-4",
+        "roles_used_in_context": [
+            "user", "assistant"
+        ]
     },
     {
         "name": "dorothy",
         "seed_conversation": [],
         "language_code": "en-US",
         "select_type": "keyword",
-        "num_past_conversations": 1,
-        "num_relevant_conversations": 4,
+        "completion_merge_type": "simpleprompt",
+        "num_past_conversations": 0,
+        "num_relevant_conversations": 0,
         "max_output_size": 4000,
         "write_file_threashold": 6000,
         "use_prompt_reduction": false,
         "save_reposnses": true,
         "temperature": 0,
-        "model": "gpt-4"
+        "model": "gpt-4",
+        "roles_used_in_context": [
+            "user", "assistant"
+        ]
     }
 ]

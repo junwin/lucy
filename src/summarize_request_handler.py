@@ -13,7 +13,7 @@ class SummarizeRequestHandler:
         completion_store = container.get(CompletionStore)
         completion_manager = completion_store.get_completion_manager(agent_name, account_name)
         ids = completion_manager.get_Ids_with_conversation_id(conversation_id)
-        my_text = completion_manager.get_formatted_text(ids, None, "User: ", "Assistant:" ) 
+        my_text = completion_manager.get_transcript(ids, None, "User: ", "Assistant:" ) 
         handler = PresetHandler()
         response = handler.process_preset_prompt_values("summarize", [my_text])   
 
