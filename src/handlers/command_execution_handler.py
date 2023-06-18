@@ -14,9 +14,31 @@ from src.handlers.handler_utils import get_base_path
 
 
 class CommandExecutionHandler(Handler):  
+    functDef =  {
+        "name": "command_execution_handler",
+            "description": "execute a OS command in a given location",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "command": {
+                        "type": "string",
+                        "description": "the command to be executed - assumes linux bash",
+                    },
+                    "working_directory": {"type": "string", 
+                        "description": "the working directory that the command will execute in ",},
+                },
+                "required": ["command", "working_directory"],
+            },
+        }
+        
+    def get_function_calling_definition(self):
+        return self.functDef
+    
+
     def handle(self, action: dict, account_name:str = "auto") -> List[dict]:
+
         action_name = action['action_name']
-        if action_name != "action_execute_command":
+        if action_name not in ["action_execute_command", "command_execution_handler"]:
             return None
         
         logging.info(self.__class__.__name__ )
@@ -47,7 +69,7 @@ class CommandExecutionHandler(Handler):
             #command = command.replace('\', '/')
             split_command = self.split_command(command)
             #aa = subprocess.Popen('dir ', shell=True, cwd=script_path)
-            result = subprocess.run(split_command, shell=True, cwd=script_path, capture_output=True, text=True)
+            result = subprocess.run(split_command, shell=False, cwd=script_path, capture_output=True, text=True, timeout=10)
 
             #if len(result.stderr) > 0:
              #   return f"an error ocurred: {result.stderr} {result.stdout}"

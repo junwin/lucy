@@ -19,6 +19,7 @@ from src.config_manager import ConfigManager
 from src.prompt_builders.prompt_builder import PromptBuilder
 from src.message_processors.message_processor import MessageProcessor
 from src.message_processors.guided_conversation_processor import GuidedConversationProcessor
+from src.message_processors.function_calling_processor import FunctionCallingProcessor
 from src.completion.completion_store import CompletionStore
 from src.completion.completion_manager import CompletionManager
 from src.completion.completion import Completion
@@ -94,7 +95,11 @@ def ask():
 
 
     if not secondary_agent:
-        processor = MessageProcessor()
+        if(agentName == "doug"):
+            processor = FunctionCallingProcessor()
+        else:
+            processor = MessageProcessor()
+            
         secondary_agent = ""
         context_name = ""
     else:

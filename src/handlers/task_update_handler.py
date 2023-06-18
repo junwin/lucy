@@ -13,6 +13,11 @@ from src.config_manager import ConfigManager
 from src.handlers.quokka_loki import QuokkaLoki 
 
 class TaskUpdateHandler(Handler):
+
+    functDef =  {} 
+    def get_function_calling_definition(self)-> str:
+        return self.func
+
     def __init__(self, node_manager: NodeManager):
         self.node_manager = node_manager
 

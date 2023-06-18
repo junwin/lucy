@@ -17,6 +17,13 @@ class QuokkaLoki:
     def add_handler(self, handler: Handler):
         self.handlers.append(handler)
 
+    def get_function_calling_definition(self) :
+        function_definitions = []
+        for handler in self.handlers:
+            function_definitions.append(handler.get_function_calling_definition())
+
+        return function_definitions
+
     def process_request(self, request:str):
         results = []
         actions = QuokkaLoki.extract_actions(request)
@@ -31,6 +38,18 @@ class QuokkaLoki:
                     print( f"An error occurred while processing the request with {handler.__class__.__name__}: {e}")
                     return [{ "handler": handler.__class__.__name__}, {"result": f"An error occurred while processing the request with: {e} check the format of your request!."}]
 
+        return results
+    
+    def process_action_dict(self, action_dict, account_name):
+        results = []
+        for handler in self.handlers:
+            try:
+                action_result = handler.handle(action_dict, account_name)
+                if action_result != None:
+                    results.append(action_result)
+            except Exception as e:
+                print( f"An error occurred while processing the request with {handler.__class__.__name__}: {e}")
+                return [{ "handler": handler.__class__.__name__}, {"result": f"An error occurred while processing the request with: {e} check the format of your request!."}]
         return results
     
     

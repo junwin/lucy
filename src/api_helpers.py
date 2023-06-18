@@ -70,6 +70,33 @@ def get_completion(prompt:str, temperature:int=0, model:str="gpt-3.5-turbo", max
             print(f"RateLimitError encountered, retrying... (attempt {retries})")
             time.sleep(retry_wait)
 
+def get_completionWithFunctions(messages ,functions:str, temperature:int=0, model:str="gpt-3.5-turbo-0613", max_retries:int=3, retry_wait:int=1):
+    logging.info(f'get_completion start: {model}')
+    #messages = [{"role": "user", "content": prompt}]
+    #messages = json.dumps(messages)
+    logging.info(f'before send: {messages}')
+
+    retries = 0
+    while retries <= max_retries:
+        try:
+            response = openai.ChatCompletion.create(
+                model=model,
+                messages=messages,
+                functions=functions,
+                function_call = "auto", 
+                temperature=temperature,  # this is the degree of randomness of the model's output
+            )
+            logging.info(f'get_completion end: {model}')
+            response_message = response["choices"][0]["message"]
+            return response_message
+            
+        except RateLimitError as e:
+            if retries == max_retries:
+                raise e
+            retries += 1
+            print(f"RateLimitError encountered, retrying... (attempt {retries})")
+            time.sleep(retry_wait)
+
 def get_completion_from_messages(messages, model="gpt-3.5-turbo", temperature=0, max_retries=3, retry_wait=1):
     logging.info(f'get_completion_from_messages start: {model}')
     retries = 0

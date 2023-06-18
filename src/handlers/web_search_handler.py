@@ -29,10 +29,27 @@ subscription_key = config_data["subscription_key"]
 
 class WebSearchHandler(Handler):  # Concrete handler
 
-
+    functDef = {
+        "name": "web_search_handler",
+            "description": "use bing to search the web",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "the string used to query the web",
+                    },
+                },
+                "required": ["query"],
+            },
+        }
+        
+    def get_function_calling_definition(self):
+        return self.functDef
+    
     def handle(self, action: dict, account_name:str = "auto") -> List[dict]:
         action_name = action['action_name']
-        if action_name != "action_websearch":
+        if action_name not in ["action_web_search", "web_search_handler"]:
             return None
         
         print(action)
