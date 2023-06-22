@@ -20,11 +20,11 @@ from src.completion.completion_manager import CompletionManager
 from src.completion.completion_store import CompletionStore
 # from src.completion.completion import Completion
 from src.completion.message import Message
- 
+from src.prompt_builders.prompt_builder_interface import PromptBuilderInterface
 
 
 
-class PromptBuilder:
+class PromptBuilder(PromptBuilderInterface):
     """
     The PromptBuilder class is responsible for constructing prompts that will be used to generate responses in a conversational system.
     It interacts with various components of the system, such as agents, configuration settings, and completion managers, to build these prompts.

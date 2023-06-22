@@ -16,7 +16,15 @@ from src.prompt_builders.prompt_builder import PromptBuilder
 # from src.completion.completion_manager import CompletionManager
 from src.completion.completion_store import CompletionStore
 # from src.completion.completion import Completion
-# from src.completion.message import Message
+# from src.completion.message import 
+
+from src.handlers.quokka_loki import QuokkaLoki
+from src.handlers.task_update_handler import TaskUpdateHandler
+from src.handlers.file_save_handler import FileSaveHandler
+from src.handlers.command_execution_handler import CommandExecutionHandler  
+from src.handlers.user_action_required_handler import UserActionRequiredHandler
+from src.handlers.file_load_handler import FileLoadHandler
+from src.handlers.web_search_handler import WebSearchHandler
 
 
 class MessageProcessor(MessageProcessorInterface):
@@ -26,6 +34,13 @@ class MessageProcessor(MessageProcessorInterface):
         self.config = container.get(ConfigManager) 
         prompt_base_path=self.config.get('prompt_base_path')  
         self.seed_conversations = []
+        
+
+        self.handler = QuokkaLoki()
+        self.handler.add_handler(FileSaveHandler())
+        self.handler.add_handler(CommandExecutionHandler())
+        self.handler.add_handler(FileLoadHandler())
+        self.handler.add_handler(WebSearchHandler())
         
 
 
@@ -69,16 +84,10 @@ class MessageProcessor(MessageProcessorInterface):
 
         response = ask_question(conversation, model, temperature)  #string response
 
-        logging.info(f'Processing code response: {response}')
-        if 'program_language' in response and 'file_path' in response:
-            handler = container.get(SourceCodeResponseHandler)
-        else:
-            handler = container.get(FileResponseHandler)   
-
-        response = handler.handle_response(account_name, response)  # Use the handler instance
-            
-
         logging.info(f'Processing message response: {response}')
+
+        rh_repsonse = self.handler.process_request(response)
+        response_text = QuokkaLoki.handler_repsonse_formated_text(rh_repsonse)
 
         if agent['save_reposnses']:
             if message is not self.is_none_or_empty(message):
