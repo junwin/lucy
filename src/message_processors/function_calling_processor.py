@@ -23,6 +23,7 @@ from src.handlers.command_execution_handler import CommandExecutionHandler
 from src.handlers.user_action_required_handler import UserActionRequiredHandler
 from src.handlers.file_load_handler import FileLoadHandler
 from src.handlers.web_search_handler import WebSearchHandler
+from src.handlers.scrape_web_page_handler import ScrapeWebPage
 
 
 class FunctionCallingProcessor(MessageProcessorInterface):
@@ -46,6 +47,8 @@ class FunctionCallingProcessor(MessageProcessorInterface):
         # self.handler.add_handler(task_update_handler)
         web_search_handler = WebSearchHandler()
         self.handler.add_handler(web_search_handler)
+        scrape_web_page_handler = ScrapeWebPage()
+        self.handler.add_handler(scrape_web_page_handler)
 
 
 
@@ -91,6 +94,10 @@ class FunctionCallingProcessor(MessageProcessorInterface):
             )
             response_message2 = get_completionWithFunctions(completion_messages, function_calling_definition)
 
-        return response_message2["content"]
+            return response_message2["content"]
+        
+        return response_message["content"]
+    
+
     def is_none_or_empty(self, string):
         return string is None or string.strip() == ""

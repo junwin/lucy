@@ -95,7 +95,7 @@ def ask():
 
 
     if not secondary_agent:
-        if(agentName == "doug"):
+        if 'message_processor' in my_agent and my_agent['message_processor'] == 'function_calling_processor':
             processor = FunctionCallingProcessor()
         else:
             processor = MessageProcessor()

@@ -6,6 +6,7 @@
     "preset_path": "static/data/presets.json",
     "account_output_path": "static/output/",
     "code_sandbox_path": "/home",
+    "python_utils_path": "/src/utils",
     "seed_name": "seed",
     "swagger_url": "/api/docs",
     "api_url": "/static/swagger.json",
@@ -15,8 +16,8 @@
     "host": "0.0.0.0",
     "port": 5000,
     "debug": true,
-    "file_chunk_threshold": 2000,
-    "file_chunk_size": 1000,
+    "file_chunk_threshold": 4000,
+    "file_chunk_size": 4000,
     "context_base_path": "data/context",
     "credential_path": "/home/junwin/credential"
 }

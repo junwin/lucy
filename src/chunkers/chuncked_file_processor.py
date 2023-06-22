@@ -9,7 +9,7 @@ class ChunkedFileProcessor():
 
 
     def summarize_text_chunk(self, chunk: str) -> str:
-        prompt =" your task is to summarize the following text into less than 200 words: " + chunk
+        prompt =" your task is to summarize the following text into less than 400 words: " + chunk
         summary = get_completion(prompt)
         return summary
     
