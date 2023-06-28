@@ -1,6 +1,32 @@
 # Lucy
 
-This project is an implementation of the Lucy API, providing various methods to interact with the AI assistant.
+# Introduction
+"Lucy" is an innovative project designed to experiment and leverage the capabilities of OpenAI's completion API. The project aims to manage conversational behavior and automate processes using this technology.
+
+# Features
+
+1. **Agents**: These manage the behavior of the project, allowing for simple chats, guided conversations, automation, and function calling.
+   
+2. **Prompt Builder**: This feature enriches the prompts based on user requests. It factors in long-term relevance, recent trends, or a blend of both to construct a set of messages that can be utilized with the completion API.
+
+3. **Completions**: This component stores and retrieves completions and messages from chats based on agent and user accounts. It also stores system roles for an agent based on the agent name.
+
+4. **Message Processors**: They handle incoming messages and support prompt building, presets, guided conversations, function calling, and automation.
+
+5. **Handlers**: These are used by automation and function calling to support requests made by the model or agents. They handle file loading, file saving, web search, and web page loading.
+
+6. **Chunkers**: These are tools to chunk text when loading a large text file from a webpage, it processes the file in chunks.
+
+7. **Context**: This is an information storage that can be shared with different agents. It is used where multiple agents help process a user request, for example, in a guided conversation or automation.
+
+# Workflow
+
+In "Lucy", the above-mentioned features collaborate effectively to manage and automate conversational behavior. The prompt builder enriches the user request, which the completion stores and recalls as needed. Message processors handle incoming messages, and handlers enhance these capabilities further. The chunkers handle large data, and context serves as shared storage for information.
+
+# Project Link
+
+More about the project can be found at: [https://github.com/junwin/lucy](https://github.com/junwin/lucy)
+
 
 ## Lucy API Schema
 
