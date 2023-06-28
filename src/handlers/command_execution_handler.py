@@ -16,7 +16,7 @@ from src.handlers.handler_utils import get_base_path, execute_script
 
 class CommandExecutionHandler(Handler):  
     functDef =  {
-        "name": "command_execution_handler",
+        "name": "execute_command",
             "description": "execute a OS command in a given location",
             "parameters": {
                 "type": "object",
@@ -26,7 +26,7 @@ class CommandExecutionHandler(Handler):
                         "description": "the command to be executed - assumes linux bash",
                     },
                     "working_directory": {"type": "string", 
-                        "description": "the working directory that the command will execute in ",},
+                        "description": "the working directory relative to the home folder that the command will execute in ",},
                 },
                 "required": ["command", "working_directory"],
             },
@@ -39,7 +39,7 @@ class CommandExecutionHandler(Handler):
     def handle(self, action: dict, account_name:str = "auto") -> List[dict]:
 
         action_name = action['action_name']
-        if action_name not in ["action_execute_command", "command_execution_handler"]:
+        if action_name not in ["action_execute_command", "execute_command"]:
             return None
         
         logging.info(self.__class__.__name__ )

@@ -5,24 +5,22 @@ from injector import Injector
 
 from src.container_config import container
 from src.config_manager import ConfigManager  
-from src.response_handler import FileResponseHandler
-from src.source_code_response_handler import SourceCodeResponseHandler
+
 from src.agent_manager import AgentManager
 from src.message_processors.message_preProcess import MessagePreProcess
 from src.api_helpers import ask_question, get_completion
 from src.message_processors.message_processor_interface import MessageProcessorInterface
 
 from src.prompt_builders.prompt_builder import PromptBuilder
-# from src.completion.completion_manager import CompletionManager
+
 from src.completion.completion_store import CompletionStore
-# from src.completion.completion import Completion
-# from src.completion.message import 
+
 
 from src.handlers.quokka_loki import QuokkaLoki
-from src.handlers.task_update_handler import TaskUpdateHandler
+
 from src.handlers.file_save_handler import FileSaveHandler
 from src.handlers.command_execution_handler import CommandExecutionHandler  
-from src.handlers.user_action_required_handler import UserActionRequiredHandler
+
 from src.handlers.file_load_handler import FileLoadHandler
 from src.handlers.web_search_handler import WebSearchHandler
 
@@ -76,7 +74,7 @@ class MessageProcessor(MessageProcessorInterface):
  
 
         prompt_builder = PromptBuilder()
-        conversation = prompt_builder.build_prompt( message, conversationId, agent_name, account_name, context_type,6000, 20, context_name)
+        conversation = prompt_builder.build_prompt( message, conversationId, agent_name, account_name, context_type, 6000, 20, context_name)
        
        
         # coversations [ {role: user, content: message} ]

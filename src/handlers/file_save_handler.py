@@ -15,17 +15,17 @@ from src.handlers.handler_utils import get_base_path
 class FileSaveHandler(Handler):  # Concrete handler
 
     functDef = {
-        "name": "file_save_handler",
+        "name": "file_save",
             "description": "save code or text into a file",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "directory_path": {
                         "type": "string",
-                        "description": "the location of the file to be loaded",
+                        "description": "the location of the file to be saved relative to the home folder",
                     },
                     "file_name": {"type": "string", 
-                        "description": "the name of the file to be loaded",},
+                        "description": "the name of the file to be saved",},
                     "file_content": {"type": "string",
                         "description": "the content of the file to be saved",},
                 },
@@ -41,7 +41,7 @@ class FileSaveHandler(Handler):  # Concrete handler
     def handle(self, action: dict, account_name: str = "auto") -> List[dict]:
 
         action_name = action['action_name']
-        if action_name not in ["action_save_file", "file_save_handler"]:
+        if action_name not in ["action_save_file", "file_save"]:
             return None
 
 

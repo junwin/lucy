@@ -61,26 +61,30 @@ class FunctionCallingProcessor(MessageProcessorInterface):
         temperature = agent["temperature"]
         context_type = agent["select_type"]
 
+
+        prompt_builder = PromptBuilder()
+        completion_messages =  prompt_builder.build_prompt( message, conversationId, agent_name, account_name, context_type, 6000, 20, context_name)
+       
+
         function_calling_definition = self.handler.get_function_calling_definition()
 
-        completion_messages = [{"role": "user", "content": message}]
+        #completion_messages = [{"role": "user", "content": message}]
         response_message = get_completionWithFunctions(completion_messages, function_calling_definition)
 
+        #check if a function call is requested
         if response_message.get("function_call"):
             action = []
             function_name = response_message["function_call"]["name"]
-            # function_to_call = available_functions[function_name]
             function_args_text = response_message["function_call"]["arguments"]
             function_args = json.loads(function_args_text)
-            action = [{"action_name": function_name}]
-            for key, value in function_args.items():
-                action.append({key: value})
 
+            #extract the paramters and nane of the function reqested
             action_dict = dict()
             action_dict["action_name"] = function_name
             for key, value in function_args.items():
                 action_dict[key] = value
 
+            #execute the function if available
             response = self.handler.process_action_dict(action_dict, account_name)
             response_message_text = QuokkaLoki.handler_repsonse_formated_text(response)
 
@@ -92,10 +96,22 @@ class FunctionCallingProcessor(MessageProcessorInterface):
                     "content": response_message_text,
                 }
             )
-            response_message2 = get_completionWithFunctions(completion_messages, function_calling_definition)
+            #provide the response from executing the function to the model along with the previous model response
+            response_message = get_completionWithFunctions(completion_messages, function_calling_definition)
 
-            return response_message2["content"]
-        
+
+            
+
+        # this section saves the message and response to the completion store, the content can then be used
+        # in future requests
+        if agent['save_reposnses']:
+            if message is not self.is_none_or_empty(response_message["content"]):
+                completion_manager_store = container.get(CompletionStore)
+                account_completion_manager = completion_manager_store.get_completion_manager(agent_name, account_name, agent['language_code'][:2])
+                account_completion_manager.create_store_completion(conversationId, message, response_message["content"])
+                account_completion_manager.save()
+
+     
         return response_message["content"]
     
 

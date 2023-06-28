@@ -82,6 +82,7 @@ class CompletionManager:
         for completion  in self.completions:
             if completion.id in ids:    
                 completion_list.append(completion)
+        completion_list.sort(key=lambda x: x.id)
         return  completion_list
     
     def store_completion(self, completion:Completion) -> bool:
@@ -142,7 +143,7 @@ class CompletionManager:
 
 
         sorted_completion_ids = sorted(
-            completion_similarities, key=lambda x: x[1], reverse=True
+            completion_similarities, key=lambda x: x[1], reverse=False
         )
 
         zz = [id[0] for id in sorted_completion_ids[:number_to_return]]

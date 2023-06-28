@@ -18,7 +18,7 @@ from src.handlers.handler_utils import get_base_path
 class FileLoadHandler(Handler):  # Concrete handler
 
     functDef =  {
-        "name": "file_load_handler",
+        "name": "file_load",
             "description": "Load a file from a directory relative to the home and chunk if needed",
             "parameters": {
                 "type": "object",
@@ -41,7 +41,7 @@ class FileLoadHandler(Handler):  # Concrete handler
     def handle(self, action: dict, account_name:str = "auto") -> List[dict]:
         
         action_name = action['action_name']
-        if action_name not in ["action_load_file", "file_load_handler"]:
+        if action_name not in ["action_load_file", "file_load"]:
             return None
 
         
@@ -53,8 +53,6 @@ class FileLoadHandler(Handler):  # Concrete handler
   
         config = container.get(ConfigManager) 
         
-        #base_path = directory_path + "/" + 'junwin'
-
         base_path = get_base_path(config, account_name, directory_path)
 
         file_chunk_threshold = config.get('file_chunk_threshold')

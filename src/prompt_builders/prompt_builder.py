@@ -152,12 +152,12 @@ class PromptBuilder(PromptBuilderInterface):
 
         my_user_content =  Message('user', content_text) 
         
-        #full_prompt = agent_message_dicts + account_message_dicts  + my_user_content.as_list_of_dicts()
+        #Recall that for the completion API we need to put the user content at the end of the prompt
         if context_text == "":
-            full_prompt = my_user_content.as_list_of_dicts() + agent_message_dicts + account_message_dicts
+            full_prompt = agent_message_dicts + account_message_dicts + my_user_content.as_list_of_dicts()
         else:
             my_user_context = Message('user', context_text)
-            full_prompt = my_user_content.as_list_of_dicts() + agent_message_dicts + my_user_context.as_list_of_dicts() + account_message_dicts
+            full_prompt = agent_message_dicts + my_user_context.as_list_of_dicts() + account_message_dicts + my_user_content.as_list_of_dicts()
 
         return full_prompt
 
@@ -181,7 +181,7 @@ class PromptBuilder(PromptBuilderInterface):
 
         # sort the account prompts
         distinct_list = list(set(matched_accountIds))
-        sorted_list = sorted(distinct_list)
+        sorted_list = sorted(distinct_list, reverse=True)
 
         return sorted_list
 

@@ -14,9 +14,25 @@ from src.handlers.quokka_loki import QuokkaLoki
 
 class TaskUpdateHandler(Handler):
 
-    functDef =  {} 
-    def get_function_calling_definition(self)-> str:
-        return self.func
+    functDef =  {
+        "name": "scrape_web_page",
+            "description": "read the text from a webpage and  chunk if needed",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "page_url": {
+                        "type": "string",
+                        "description": "the url of the page to be scraped ",
+                    },
+                },
+                "required": ["page_url"],
+            },
+        }
+      
+    
+    def get_function_calling_definition(self):
+        return self.functDef
+
 
     def __init__(self, node_manager: NodeManager):
         self.node_manager = node_manager

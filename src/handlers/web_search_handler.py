@@ -20,10 +20,6 @@ credential_path = config.get('credential_path')
 with open(credential_path + "/bing.json", "r") as config_file:
    config_data = json.load(config_file)
 
-#openai.api_key = config_data["openai_api_key"]
-
-#with open("G:/My Drive/credential/bing.json", "r") as config_file:
- #   config_data = json.load(config_file)
 
 subscription_key = config_data["subscription_key"]
 
