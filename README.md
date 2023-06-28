@@ -28,49 +28,67 @@ In "Lucy", the above-mentioned features collaborate effectively to manage and au
 More about the project can be found at: [https://github.com/junwin/lucy](https://github.com/junwin/lucy)
 
 
-## Lucy API Schema
+# Lucy API (v1.1.0)
 
-The Lucy API schema supports the following methods:
+## Endpoints
 
-### Conversation IDs
+### `/conversationIds`
 
-- `GET /conversationIds`: Retrieves a list of conversation IDs.
-  - Required query parameters: `agentName`, `accountName`
+- `GET`: Get a list of conversation IDs
+    - Parameters: `agentName` (string, required), `accountName` (string, required)
+    - Responses: `200` (A list of conversation IDs), `400` (Bad request)
 
-- `PUT /conversationIds`: Renames a conversation ID.
-  - Required query parameters: `agentName`, `accountName`, `existingId`, `newId`
+- `PUT`: Rename a conversation ID
+    - Parameters: `agentName` (string, required), `accountName` (string, required), `existingId` (string, required), `newId` (string, required)
+    - Responses: `200` (OK), `400` (Bad request)
 
-### Compute Conversations
+### `/prompt_builder`
 
-- `POST /prompt_builder`: Computes the prompt used, given specific parameters.
-  - Required request body properties: `agentName`, `accountName`, `selectType`, `query`
-  - Additional required property in the request body: `conversationId`
+- `POST`: Get the prompt that would be used given an `agentName`, `accountName`, `selectType` and `query` text
+    - Request Body: JSON object with `agentName` (string, required), `accountName` (string, required), `selectType` (string, required), `query` (string, required), `conversationId` (string, required)
+    - Responses: `200` (A list of prompt elements), `400` (Bad request)
 
-### Ask a Question
+### `/ask`
 
-- `POST /ask`: Asks a question and returns the AI assistant's response.
-  - Required request body properties: `question`, `agentName`, `accountName`, `conversationId`
+- `POST`: Ask a question
+    - Request Body: JSON object with `question` (string, required), `agentName` (string, required), `accountName` (string, required), `conversationId` (string, required)
+    - Responses: `200` (AI assistant's response), `400` (Bad request)
 
-### Agents
+### `/agents`
 
-- `GET /agents`: Retrieves a list of agents.
+- `GET`: Get a list of agents
+    - Responses: `200` (A list of agent objects)
 
-### Prompts
+### `/completions`
 
-- `POST /completions`: Similar to `POST /computeConversations`, adds a completions to the store.
-  - Required request body properties: `agentName`, `accountName`, `selectType`, `query`
-  - Additional required property in the request body: `conversationId`
+- `POST`: Add a new prompt to the completions database
+    - Request Body: JSON object with `agentName` (string, required), `accountName` (string, required), `conversationId` (string, required)
+    - Responses: `200` (A single prompt object), `400` (Bad request)
 
-- `GET /completions`: Retrieves one or more completions.
-  - Required query parameters: `agentName`, `accountName`
-  - Optional query parameter: `conversationId`
+- `GET`: Get one or more completions
+    - Parameters: `agentName` (string, required), `accountName` (string, required), `conversationId` (string, optional)
+    - Responses: `200` (A list of completions objects)
 
-- `PUT /completions`: Updates a completions.
-  - Required query parameters: `agentName`, `accountName`, `id`
-  - Required request body properties: `id`, `prompt`
+- `PUT`: Update/replace a completion
+    - Parameters: `agentName` (string, required), `accountName` (string, required), `id` (string, required)
+    - Request Body: JSON object with `id` (string, required), `prompt` (Completion object, required)
+    - Responses: `200` (Updated prompt object), `400` (Bad request)
 
-- `DELETE /completions`: Deletes a completions.
-  - Required query parameters: `agentName`, `accountName`, `id`
+- `DELETE`: Delete a completion
+    - Parameters: `agentName` (string, required), `accountName` (string, required), `id` (string, required)
+    - Responses: `200` (Completion successfully deleted), `400` (Bad request)
+
+## Schema
+
+### Completion
+
+- `conversation`: Array of objects with `content` (string), `role` (string), `utc_timestamp` (date-time string) 
+- `conversationId`: String
+- `id`: String
+- `keywords`: Array of strings
+- `total_chars`: Integer
+- `utc_timestamp`: Date-time string
+
 
 ## Getting Started
 
