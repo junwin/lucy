@@ -30,7 +30,9 @@
         "use_prompt_reduction": false,
         "temperature": 0,
         "save_reposnses": false,
-        "model": "gpt-3.5-turbo"
+        "model": "gpt-3.5-turbo",
+        "message_processor": "message_processor"
+        
     },
     {
         "name": "doris",
@@ -44,7 +46,9 @@
         "use_prompt_reduction": false,
         "temperature": 0,
         "save_reposnses": false,
-        "model": "gpt-4"
+        "model": "gpt-4-0613",
+        "message_processor": "automation_processor",
+        "partner_agent": "colin"
     },
     {
         "name": "doug",
@@ -120,6 +124,8 @@
         "save_reposnses": true,
         "temperature": 0,
         "model": "gpt-4",
+        "message_processor": "guided_conversation_processor",
+        "partner_agent": "dorothy",
         "roles_used_in_context": [
             "user", "assistant"
         ]

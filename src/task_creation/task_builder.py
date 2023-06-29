@@ -61,19 +61,12 @@ class TaskBuilder:
  
 
     def process_yaml_spec(self, goal:str, account_name:str, conversation_id:str = 'conv1'):
-        my_spec = """- name: Load App.vue into the context
-  description: load App.vue fron the src folder relative to the input directory.
-
-- name: Edit App.vue
-  description: edit the App.vue code shown below, and modify the it to only show src/conponents/EditAssembly. Then save the code to src/App.vue relative to the output directory.
-
-- name: Implement Testing
-  description: Implement unit tests for the application using Vitest, Vite's built-in testing tool. """
+        
         self.setup_top_node(goal, account_name, conversation_id)
 
         current_node_id = self.top_node.id
 
-        results = self.quokka_loki.process_yaml_goals(my_spec, current_node_id, account_name, conversation_id, working_directory='src')
+        results = self.quokka_loki.process_yaml_goals(goal, current_node_id, account_name, conversation_id, working_directory='')
         
         print(QuokkaLoki.handler_repsonse_formated_text(results))
 

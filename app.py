@@ -20,6 +20,7 @@ from src.prompt_builders.prompt_builder import PromptBuilder
 from src.message_processors.message_processor import MessageProcessor
 from src.message_processors.guided_conversation_processor import GuidedConversationProcessor
 from src.message_processors.function_calling_processor import FunctionCallingProcessor
+from src.message_processors.automation_processor import AutomationProcessor
 from src.completion.completion_store import CompletionStore
 from src.completion.completion_manager import CompletionManager
 from src.completion.completion import Completion
@@ -93,24 +94,30 @@ def ask():
     if not select_type:
         select_type = my_agent['select_type']
 
+    #secondary_agent = ""
+    context_name = ""
+    partner_agent = ""
+    if('partner_agent' in my_agent):
+        partner_agent = my_agent['partner_agent']
+        #context_name = secondary_agent+"_"+agentName
 
-    if not secondary_agent:
-        if 'message_processor' in my_agent and my_agent['message_processor'] == 'function_calling_processor':
+
+    if 'message_processor' in my_agent and my_agent['message_processor'] == 'function_calling_processor':
             processor = FunctionCallingProcessor()
-        else:
-            processor = MessageProcessor()
-            
-        secondary_agent = ""
-        context_name = ""
+    elif 'message_processor' in my_agent and my_agent['message_processor'] == 'automation_processor':
+            context_name = agentName + "_" + partner_agent
+            processor = AutomationProcessor()
+    elif 'message_processor' in my_agent and my_agent['message_processor'] == 'guided_conversation_processor':
+            context_name = agentName + "_" + partner_agent
+            processor = GuidedConversationProcessor()
     else:
-        processor = GuidedConversationProcessor()
-        context_name = secondary_agent+"_"+agentName
+            processor = MessageProcessor()   
 
 
     processor.context_type = select_type
     # Modify the process_message method in the MessageProcessor class if needed
     #process_message(self, agent_name:str, account_name:str, message, conversationId="0"):
-    response = processor.process_message(agentName, accountName, question, conversationId, context_name, secondary_agent)
+    response = processor.process_message(agentName, accountName, question, conversationId, context_name, partner_agent)
     # processor.save_conversations()
     return jsonify({"response": response})
 

@@ -209,15 +209,13 @@ class QuokkaLoki:
 
     def process_yaml_goals(self, goal:str, current_node_id:str, account_name:str, conversation_id:str, working_directory:str):
 
-        
-
         add_tasks = ''
     
         spec = self.yaml_to_dict(goal)
         x = 0
         for item in spec:
             if x >= 0:
-                add_tasks += self.format_task(current_node_id, item["name"], item["description"], working_directory='fpe_assembly')
+                add_tasks += self.format_task(current_node_id, item["name"], item["description"], working_directory=working_directory)
             else:
                 add_tasks += self.format_task(current_node_id, item["name"], item["description"])
 

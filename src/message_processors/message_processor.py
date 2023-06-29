@@ -23,6 +23,8 @@ from src.handlers.command_execution_handler import CommandExecutionHandler
 
 from src.handlers.file_load_handler import FileLoadHandler
 from src.handlers.web_search_handler import WebSearchHandler
+from src.context.context_manager import ContextManager
+from src.context.context import Context
 
 
 class MessageProcessor(MessageProcessorInterface):
@@ -83,9 +85,18 @@ class MessageProcessor(MessageProcessorInterface):
         response = ask_question(conversation, model, temperature)  #string response
 
         logging.info(f'Processing message response: {response}')
-
+        
+        self.handler.account_name = account_name
         rh_repsonse = self.handler.process_request(response)
         response_text = QuokkaLoki.handler_repsonse_formated_text(rh_repsonse)
+        if response_text != '':
+            response = response + " response: " + response_text
+            if context_name != "" and context_name != "none":
+                context_mgr =ContextManager(self.config)
+                context = context_mgr.get_context(account_name, context_name)
+                context.update_from_results(rh_repsonse)
+                
+        
 
         if agent['save_reposnses']:
             if message is not self.is_none_or_empty(message):
