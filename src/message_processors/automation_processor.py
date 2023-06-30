@@ -71,6 +71,7 @@ class AutomationProcessor(MessageProcessorInterface):
         self.task_prompt_retry = self.presets.get_prompt('task_prompt_retry')
         self.task_prompt_work = self.presets.get_prompt('task_prompt_work')
         self.task_prompt_critic = self.presets.get_prompt('task_prompt_critic')
+        
 
     def process_message(self, agent_name: str, account_name: str, message: str, conversationId="0", context_name='', second_agent_name='') -> str:
         logging.info(f'Function Calling Processing message inbound: {message}')
@@ -91,6 +92,7 @@ class AutomationProcessor(MessageProcessorInterface):
 
         self.top_node = self.node_manager.get_nodes_conversation_id(conversationId, "top")
         self.top_node = self.top_node[0]
+        self.top_node.account_name = account_name
 
         self.task_nodes = self.node_manager.get_nodes_parent_id(self.top_node.id) 
         self.top_context = self.get_context_from_node(context_name, self.top_node)
@@ -102,6 +104,7 @@ class AutomationProcessor(MessageProcessorInterface):
 
             next_step = self.find_next_step(self.steps)
             if next_step:
+                next_step.account_name = account_name
                 self.process_step(next_step, agent_name, second_agent_name, account_name, conversationId, context_name)
             else:
                 print("No more steps to process")
@@ -109,6 +112,11 @@ class AutomationProcessor(MessageProcessorInterface):
 
             itr += 1
 
+        automation_response = ''
+        for step in self.task_nodes :
+            automation_response += step.description + ' state: ' + step.state + '\n'
+
+        return automation_response
 
 
     def process_step(self, step: HierarchicalNode, primary_agent_name:str, second_agent_name:str, account_name:str, conversationId:str, context_name:str):
@@ -143,7 +151,7 @@ class AutomationProcessor(MessageProcessorInterface):
                 #message = self.task_prompt_part['prompt'] + "  " + 'context_info:'  + context_text + " " 
                 message = "hello your task is " + self.step_context.description + "  " + 'context_info:'  + context_text + " " 
 
-            response = self.ask(message, primary_agent_name, account_name, conversationId)
+            response = self.ask(message, primary_agent_name, account_name, conversationId, context_name)
 
 
             # running a step will most likely generate actions that need to be executed
@@ -155,17 +163,19 @@ class AutomationProcessor(MessageProcessorInterface):
             prompt2 = self.task_prompt_critic['prompt'] + response 
 
 
-            critic_response = self.ask(prompt2, second_agent_name, account_name, conversationId)
+            critic_response = self.ask(prompt2, second_agent_name, account_name, conversationId,'')
             critic_response = critic_response.lower()
             if "yes" in critic_response:
                 step.state = 'completed'
                 #self.step_context.update_from_results(rh_repsonse)
                 self.step_context.description
+                self.step_context.add_action(response, ' ', 'SUCCESS')   
             else:
                 step.state = 'retry'
                 self.step_context.add_action(response, '', 'ERROR -' + critic_response)
                 self.step_context.retry_information = critic_response
 
+            self.context_mgr.post_context(self.step_context)
             print(self.step_context.get_info_text())
 
 
@@ -191,17 +201,18 @@ class AutomationProcessor(MessageProcessorInterface):
         return None
     
     
-    def get_context_from_node(self, context_name, node):
+    def get_context_from_node(self, context_name: str, node: HierarchicalNode) -> Context:
         context = Context(name=context_name, description=node.description, current_node_id=node.id, state=node.state,account_name=node.account_name, conversation_id=node.conversation_id)
         context.output_directory = node.working_directory
         context.input_directory = node.working_directory
+        context.account_name = node.account_name
         context.add_info(node.info)
         self.context_mgr.post_context(context)
 
         return context
 
 
-    def ask(self, question: str, agent_name:str , account_name:str, conversation_id:str) -> str:
+    def ask(self, question: str, agent_name:str , account_name:str, conversation_id:str, context_name) -> str:
 
         agent_manager = container.get(AgentManager)
         my_agent = agent_manager.get_agent(agent_name)
@@ -210,25 +221,18 @@ class AutomationProcessor(MessageProcessorInterface):
         if('partner_agent' in my_agent):
             partner_agent = my_agent['partner_agent']
 
-        if 'message_processor' in my_agent and my_agent['message_processor'] == 'function_calling_processor':
-            processor = FunctionCallingProcessor()
-        # we exclude the automation processor - not looking at recursion at the moment, guided conversation processor is not appropriate for this
-        #elif 'message_processor' in my_agent and my_agent['message_processor'] == 'automation_processor':
-        #    processor = AutomationProcessor()
-        #elif 'message_processor' in my_agent and my_agent['message_processor'] == 'guided_conversation_processor':
-        #    context_name = secondary_agent + "_" + agentName  + "_" + accountName
-        #    processor = GuidedConversationProcessor()
-        else:
-            processor = MessageProcessor()   
-
-
 
         if 'message_processor' in my_agent and my_agent['message_processor'] == 'function_calling_processor':
             processor = FunctionCallingProcessor()
         else:
             processor = MessageProcessor()
 
-        response = processor.process_message(agent_name, account_name, question, conversation_id)
+        # need to persist the context before and after processing the message
+        self.context_mgr.post_context(self.step_context)
+        response = processor.process_message(agent_name, account_name, question, conversation_id, context_name)
+        if context_name != '':
+            self.step_context = self.context_mgr.get_context(account_name, context_name)
+
         # processor.save_conversations()
         return response
 

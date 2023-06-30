@@ -71,3 +71,5 @@ data/completions/doug_junwin_conv.json
 data/context/conv1/doris_colin.dat
 data/context/junwin/doris_colin.dat
 data/context/junwin/glinda_dorothy.dat
+data/completions/debo_junwin_conv.json
+*.dat

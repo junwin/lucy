@@ -76,7 +76,7 @@
         "write_file_threashold": 60000,
         "use_prompt_reduction": false,
         "temperature": 0,
-        "save_reposnses": false,
+        "save_reposnses": true,
         "model": "gpt-4"
     },
     {

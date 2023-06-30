@@ -95,6 +95,7 @@ class MessageProcessor(MessageProcessorInterface):
                 context_mgr =ContextManager(self.config)
                 context = context_mgr.get_context(account_name, context_name)
                 context.update_from_results(rh_repsonse)
+                context_mgr.post_context(context)
                 
         
 

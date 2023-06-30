@@ -199,30 +199,36 @@ class QuokkaLoki:
 
         return action_dict
     
-    def yaml_to_dict(self, yaml_str:str):
+    def yaml_to_dictzz(self, yaml_str:str):
         yaml_list = yaml.safe_load(yaml_str)
         dict_list = []
         for item in yaml_list:
             dict_list.append({"name": item["name"], "description": item["description"]})
         return dict_list
+    
+    def yaml_to_dict(self, yaml_string):
+        return yaml.safe_load(yaml_string)
 
 
     def process_yaml_goals(self, goal:str, current_node_id:str, account_name:str, conversation_id:str, working_directory:str):
 
         add_tasks = ''
-    
         spec = self.yaml_to_dict(goal)
         x = 0
         for item in spec:
+            # If working_directory is specified in the item, use it, otherwise fall back to the default working_directory
+            item_working_directory = item.get("working_directory", working_directory)
+
             if x >= 0:
-                add_tasks += self.format_task(current_node_id, item["name"], item["description"], working_directory=working_directory)
+                add_tasks += self.format_task(current_node_id, item["name"], item["description"], item_working_directory)
             else:
-                add_tasks += self.format_task(current_node_id, item["name"], item["description"])
+                add_tasks += self.format_task(current_node_id, item["name"], item["description"], item_working_directory)
 
             x += 1
 
         results = self.process_request(add_tasks)
         return results
+
 
     def format_task(self, current_node_id, name:str, description:str, working_directory:str = ''):
         print(f"adding task {name}")

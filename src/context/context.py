@@ -26,7 +26,8 @@ class Context:
         self.files = dict()
         self.output_directory = 'auto/'
         self.input_directory = 'auto/'
-        self.add_environment('os:', 'Microsoft Windows 10')
+        #self.add_environment('os:', 'Microsoft Windows 10')
+        self.add_environment('os:', 'Linux')
         self.created_timestamp = datetime.datetime.utcnow()
         self.last_updated_timestamp = datetime.datetime.utcnow()
         
