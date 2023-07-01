@@ -62,7 +62,7 @@
         "use_prompt_reduction": false,
         "temperature": 0,
         "save_reposnses": true,
-        "model": "gpt-4",
+        "model": "gpt-4-0613",
         "message_processor": "function_calling_processor"
     },
     {

@@ -1,3 +1,55 @@
+
+## Message Processors
+
+Message processors are selected based on the agent the end user is interacting with when an inbound message is received. If the chosen agent configuration does not specify a message processor, the default will be used.
+
+### Default Message Processor
+
+The default processor:
+
+* Utilizes the preprocessor to apply presets and processes.
+* Employs the prompt builder to enhance the request with short and long term memory.
+* Optionally stores completion messages.
+
+### Function Calling Processor
+
+This processor:
+
+* Uses the prompt builder to augment the request with short and long term memory.
+* Retrieves function definitions from the available handlers.
+* Calls the Completions API with the inbound request and available functions.
+* Processes any requested functions.
+* Calls the Completions API again to get a response based on the inbound information.
+* Optionally stores completion messages.
+
+Associated Agent: Doug
+
+### Automation Processor
+
+This processor:
+
+* Uses a YAML set of goals as input.
+* Processes each goal individually.
+* Utilizes handlers (similar to function calling) to perform local functions.
+* Uses a 'critic' to assess the success of each operation (aka step) and recommends remedial action.
+* Uses the context to track the state, e.g., files loaded/saved, messages, etc.
+
+Associated Agents: Doris and Colin
+
+### Guided Conversation Processor
+
+This processor:
+
+* Uses an agent with a role focused on empathy, e.g., Glinda, who is friendly and empathetic.
+* Uses an agent (SME) with subject matter expertise, e.g., Dorothy, an expert in life coaching.
+* Uses the context to track the progress of the conversation.
+* Utilizes the SME to guide the conversation by injecting recommendations along with each user request.
+* Has the ability to summarize the session.
+
+Associated Agents: Glinda and Dorothy
+
+
+
 ## Presets
  /conjugate, spanish, conocer
 

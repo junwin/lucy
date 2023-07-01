@@ -68,36 +68,45 @@ class FunctionCallingProcessor(MessageProcessorInterface):
 
         function_calling_definition = self.handler.get_function_calling_definition()
 
-        #completion_messages = [{"role": "user", "content": message}]
-        response_message = get_completionWithFunctions(completion_messages, function_calling_definition)
+        max_iterations = 5
+        itr = 0
+        for i in range(max_iterations):
 
-        #check if a function call is requested
-        if response_message.get("function_call"):
-            action = []
-            function_name = response_message["function_call"]["name"]
-            function_args_text = response_message["function_call"]["arguments"]
-            function_args = json.loads(function_args_text)
+            #completion_messages = [{"role": "user", "content": message}]
+            #default is gpt-3.5-turbo-0613  you can alos use gpt-4-0613
+            response_message = get_completionWithFunctions(completion_messages, function_calling_definition, 0, model)
 
-            #extract the paramters and nane of the function reqested
-            action_dict = dict()
-            action_dict["action_name"] = function_name
-            for key, value in function_args.items():
-                action_dict[key] = value
+            #check if a function call is requested
+            if response_message.get("function_call"):
+                action = []
+                function_name = response_message["function_call"]["name"]
+                function_args_text = response_message["function_call"]["arguments"]
+                function_args = json.loads(function_args_text)
 
-            #execute the function if available
-            response = self.handler.process_action_dict(action_dict, account_name)
-            response_message_text = QuokkaLoki.handler_repsonse_formated_text(response)
+                #extract the paramters and nane of the function reqested
+                action_dict = dict()
+                action_dict["action_name"] = function_name
+                for key, value in function_args.items():
+                    action_dict[key] = value
 
-            completion_messages.append(response_message)
-            completion_messages.append(
-                {
-                    "role": "function",
-                    "name": function_name,
-                    "content": response_message_text,
-                }
-            )
-            #provide the response from executing the function to the model along with the previous model response
-            response_message = get_completionWithFunctions(completion_messages, function_calling_definition)
+                #execute the function if available
+                response = self.handler.process_action_dict(action_dict, account_name)
+                response_message_text = QuokkaLoki.handler_repsonse_formated_text(response)
+
+                completion_messages.append(response_message)
+                completion_messages.append(
+                    {
+                        "role": "function",
+                        "name": function_name,
+                        "content": response_message_text,
+                    }
+                )
+            else:
+                break
+
+
+        #provide the response from executing the function to the model along with the previous model response
+        #response_message = get_completionWithFunctions(completion_messages, function_calling_definition)
 
 
             

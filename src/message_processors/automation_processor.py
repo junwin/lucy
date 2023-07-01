@@ -129,7 +129,7 @@ class AutomationProcessor(MessageProcessorInterface):
                     self.step_context = self.get_context_from_node(context_name, step)
                 else:
                     self.step_context.description = step.description
-                    self.step_context.name = step.name
+                    self.step_context.name = context_name
                     self.step_context.state = step.state
                     self.step_context.current_node_id = step.id
                     self.step_context.info = step.info
@@ -151,25 +151,35 @@ class AutomationProcessor(MessageProcessorInterface):
                 #message = self.task_prompt_part['prompt'] + "  " + 'context_info:'  + context_text + " " 
                 message = "hello your task is " + self.step_context.description + "  " + 'context_info:'  + context_text + " " 
 
-            response = self.ask(message, primary_agent_name, account_name, conversationId, context_name)
-
+            response = self.ask(message, primary_agent_name, account_name, conversationId, '')
 
             # running a step will most likely generate actions that need to be executed
             self.step_context.actions = []  # clear actions  
             #rh_repsonse = self.handler.process_request(response)
             #response_text = QuokkaLoki.handler_repsonse_formated_text(rh_repsonse)
-   
+
+
+            self.handler.account_name = account_name
+            rh_repsonse = self.handler.process_request(response)
+            response_text = QuokkaLoki.handler_repsonse_formated_text(rh_repsonse)
+            if response_text != '':
+                response = response + " response: " + response_text
+                if context_name != "" and context_name != "none":
+                    self.step_context.update_from_results(rh_repsonse)
+            else:
+                self.step_context.add_action(step.name, '', 'Result' + response)
+     
+ 
+                
             # when any actions are executed we need to find out if they waorked as expected
-            prompt2 = self.task_prompt_critic['prompt'] + response 
-
-
-            critic_response = self.ask(prompt2, second_agent_name, account_name, conversationId,'')
+            critic_prompt = self.task_prompt_critic['prompt'] + response 
+            critic_response = self.ask(critic_prompt, second_agent_name, account_name, conversationId,'')
             critic_response = critic_response.lower()
             if "yes" in critic_response:
                 step.state = 'completed'
                 #self.step_context.update_from_results(rh_repsonse)
-                self.step_context.description
-                self.step_context.add_action(response, ' ', 'SUCCESS')   
+                #self.step_context.description
+                #self.step_context.add_action(response, ' ', 'SUCCESS')   
             else:
                 step.state = 'retry'
                 self.step_context.add_action(response, '', 'ERROR -' + critic_response)

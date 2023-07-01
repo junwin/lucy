@@ -85,17 +85,18 @@ class MessageProcessor(MessageProcessorInterface):
         response = ask_question(conversation, model, temperature)  #string response
 
         logging.info(f'Processing message response: {response}')
-        
-        self.handler.account_name = account_name
-        rh_repsonse = self.handler.process_request(response)
-        response_text = QuokkaLoki.handler_repsonse_formated_text(rh_repsonse)
-        if response_text != '':
-            response = response + " response: " + response_text
-            if context_name != "" and context_name != "none":
-                context_mgr =ContextManager(self.config)
-                context = context_mgr.get_context(account_name, context_name)
-                context.update_from_results(rh_repsonse)
-                context_mgr.post_context(context)
+        self.post_process = False   # disabled for now - see automation_processor
+        if self.post_process :
+            self.handler.account_name = account_name
+            rh_repsonse = self.handler.process_request(response)
+            response_text = QuokkaLoki.handler_repsonse_formated_text(rh_repsonse)
+            if response_text != '':
+                response = response + " response: " + response_text
+                if context_name != "" and context_name != "none":
+                    context_mgr =ContextManager(self.config)
+                    context = context_mgr.get_context(account_name, context_name)
+                    context.update_from_results(rh_repsonse)
+                    context_mgr.post_context(context)
                 
         
 
