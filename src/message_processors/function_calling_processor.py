@@ -25,6 +25,8 @@ from src.handlers.file_load_handler import FileLoadHandler
 from src.handlers.web_search_handler import WebSearchHandler
 from src.handlers.scrape_web_page_handler import ScrapeWebPage
 
+from src.message_processors.message_processor_utils import setup_action_dict, post_process_quokka_loki_action_dict, update_context_text_result
+
 
 class FunctionCallingProcessor(MessageProcessorInterface):
     def __init__(self):
@@ -65,7 +67,6 @@ class FunctionCallingProcessor(MessageProcessorInterface):
         prompt_builder = PromptBuilder()
         completion_messages =  prompt_builder.build_prompt( message, conversationId, agent_name, account_name, context_type, 6000, 20, context_name)
        
-
         function_calling_definition = self.handler.get_function_calling_definition()
 
         max_iterations = 5
@@ -78,38 +79,24 @@ class FunctionCallingProcessor(MessageProcessorInterface):
 
             #check if a function call is requested
             if response_message.get("function_call"):
-                action = []
-                function_name = response_message["function_call"]["name"]
-                function_args_text = response_message["function_call"]["arguments"]
-                function_args = json.loads(function_args_text)
+                # extract the parameters passed back from model to a dictionary
+                action_dict = setup_action_dict(response_message)
 
-                #extract the paramters and nane of the function reqested
-                action_dict = dict()
-                action_dict["action_name"] = function_name
-                for key, value in function_args.items():
-                    action_dict[key] = value
-
-                #execute the function if available
-                response = self.handler.process_action_dict(action_dict, account_name)
-                response_message_text = QuokkaLoki.handler_repsonse_formated_text(response)
+                #execute the functions
+                response_message_text = post_process_quokka_loki_action_dict(action_dict, account_name, context_name)
+                #response = response + " response: " + response_text
 
                 completion_messages.append(response_message)
                 completion_messages.append(
                     {
                         "role": "function",
-                        "name": function_name,
+                        "name": action_dict["action_name"],
                         "content": response_message_text,
                     }
                 )
             else:
+                update_context_text_result(context_name, response_message["content"], account_name) 
                 break
-
-
-        #provide the response from executing the function to the model along with the previous model response
-        #response_message = get_completionWithFunctions(completion_messages, function_calling_definition)
-
-
-            
 
         # this section saves the message and response to the completion store, the content can then be used
         # in future requests
@@ -120,7 +107,6 @@ class FunctionCallingProcessor(MessageProcessorInterface):
                 account_completion_manager.create_store_completion(conversationId, message, response_message["content"])
                 account_completion_manager.save()
 
-     
         return response_message["content"]
     
 

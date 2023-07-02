@@ -100,7 +100,7 @@
         "name": "task_prompt_critic",
         "info": "/task_prompt_critic",
         "num_mandatory_params": 0,
-        "prompt": "Did these requests complete correctly - see response ? first always answer (yes/no)  then and recomend remedial action  request: ",
+        "prompt": "Did these requests complete correctly - see response ? first always answer (yes/no)  then and recomend remedial action here is what was requested:",
         "model": "gpt-4"
     }
 }

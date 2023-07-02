@@ -56,6 +56,21 @@ Associated Agents: Glinda and Dorothy
 ## processes
 !folder_summarize, input_path="test_data\in",output_path="test_data\out",file_type=".py"
 
+## automation
+- name: load HelloWorld.vue 
+  description: load HelloWorld.vue into the context
+  working_directory: ~/src/sandbox/testabc/src/components
+
+- name: describe the code
+  description: Carefully examine the code for HelloWorld.vue describe the function and identify potential issues
+  working_directory: ~/src/sandbox/testabc/src/components
+
+- name: Save the results
+  description: Save the results of examining the code in a file called bbbb.txt
+  working_directory: ~/src/sandbox/testabc/src/components
+
+
+
 ## Example of Agent Write Code
 request keywords: ```produce_test_code```
 program language: python

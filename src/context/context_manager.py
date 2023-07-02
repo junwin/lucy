@@ -13,7 +13,7 @@ class ContextManager:
     def get_account_base_path(self, account_name):
         return f"{self.context_base_path}/{account_name}"
 
-    def get_context(self, account_name, context_name):
+    def get_context(self, account_name, context_name) :
         base_path = self.get_account_base_path(account_name)
         context_file = os.path.join(base_path, f"{context_name}.dat")
         if os.path.exists(context_file):

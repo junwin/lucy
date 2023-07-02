@@ -154,25 +154,28 @@ class AutomationProcessor(MessageProcessorInterface):
             response = self.ask(message, primary_agent_name, account_name, conversationId, '')
 
             # running a step will most likely generate actions that need to be executed
-            self.step_context.actions = []  # clear actions  
+
+            #self.step_context.actions = []  # clear actions  
+
             #rh_repsonse = self.handler.process_request(response)
             #response_text = QuokkaLoki.handler_repsonse_formated_text(rh_repsonse)
 
 
-            self.handler.account_name = account_name
-            rh_repsonse = self.handler.process_request(response)
-            response_text = QuokkaLoki.handler_repsonse_formated_text(rh_repsonse)
-            if response_text != '':
-                response = response + " response: " + response_text
-                if context_name != "" and context_name != "none":
-                    self.step_context.update_from_results(rh_repsonse)
-            else:
-                self.step_context.add_action(step.name, '', 'Result' + response)
+            #self.handler.account_name = account_name
+            ###rh_repsonse = self.handler.process_request(response)
+            # = QuokkaLoki.handler_repsonse_formated_text(rh_repsonse)
+            #if response_text != '':
+            #    response = response + " response: " + response_text
+            #    if context_name != "" and context_name != "none":
+            #        self.step_context.update_from_results(rh_repsonse)
+            #else:
+            #    self.step_context.add_action(step.name, '', 'Result' + response)
      
  
                 
             # when any actions are executed we need to find out if they waorked as expected
-            critic_prompt = self.task_prompt_critic['prompt'] + response 
+            my_request_summary = step.get_formatted_text(["name", "description"])
+            critic_prompt = self.task_prompt_critic['prompt'] + my_request_summary + " here is the response:" + response 
             critic_response = self.ask(critic_prompt, second_agent_name, account_name, conversationId,'')
             critic_response = critic_response.lower()
             if "yes" in critic_response:
@@ -236,6 +239,8 @@ class AutomationProcessor(MessageProcessorInterface):
             processor = FunctionCallingProcessor()
         else:
             processor = MessageProcessor()
+
+        processor = FunctionCallingProcessor()
 
         # need to persist the context before and after processing the message
         self.context_mgr.post_context(self.step_context)
