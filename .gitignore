@@ -74,3 +74,4 @@ data/context/junwin/glinda_dorothy.dat
 data/completions/debo_junwin_conv.json
 *.dat
 data/completions/billy_junwin_conv.json
+data/context/junwin/*

@@ -37,6 +37,7 @@ class GuidedConversationProcessor(MessageProcessorInterface):
         context = context_mgr.get_context(account_name, context_name)
         if context is None:
             context = Context(context_name, "life coaching", "", 'none', account_name, conversationId)
+            context.add_action("New Session", '', '')
             context_mgr.post_context(context)
 
 
@@ -49,7 +50,7 @@ class GuidedConversationProcessor(MessageProcessorInterface):
         #completions = primary_account_completion_manager.get_transcript(latest_completion_Ids)
         transcript =''
         if len(latest_completion_Ids) > 0:
-            transcript = primary_account_completion_manager.get_transcript(latest_completion_Ids, ['user','assisatant'], account_name, agent_name )
+            transcript = primary_account_completion_manager.get_transcript(latest_completion_Ids, ['user','assistant'], account_name, agent_name )
             context.add_transcript_item(account_name, transcript) 
             context_mgr.post_context(context)
 
@@ -95,7 +96,7 @@ class GuidedConversationProcessor(MessageProcessorInterface):
         context_mgr.post_context(context)
 
         context_text = context.context_formated_text2('compact')
-        message = account_name + " says:" + message
+        #message = account_name + " says:" + message
         response = self.message_processor.process_message(agent_name, account_name, message, conversationId, context_name)
 
         return response

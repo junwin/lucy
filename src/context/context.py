@@ -3,6 +3,7 @@ import yaml
 import os
 import pickle
 import datetime
+import logging
 from src.container_config import container
 from src.config_manager import ConfigManager
 from src.handlers.quokka_loki import QuokkaLoki
@@ -30,7 +31,38 @@ class Context:
         self.add_environment('os:', 'Linux')
         self.created_timestamp = datetime.datetime.utcnow()
         self.last_updated_timestamp = datetime.datetime.utcnow()
+
+    def to_dict(self):
+        # Convert the object's attributes to a dictionary.
+        data = self.__dict__.copy()
+
+        # Convert the datetime objects to string.
+        data['created_timestamp'] = data['created_timestamp'].isoformat()
+        data['last_updated_timestamp'] = data['last_updated_timestamp'].isoformat()
         
+        return data
+
+    @classmethod
+    def from_dict(cls, data: dict):
+        try:
+            # Convert the datetime strings back to datetime objects.
+            data['created_timestamp'] = datetime.datetime.fromisoformat(data['created_timestamp'])
+            data['last_updated_timestamp'] = datetime.datetime.fromisoformat(data['last_updated_timestamp'])
+            logging.info(f"Context.from_dict: {data}")
+            
+            # create an instance of the class without invoking the __init__ method
+            my_class = cls.__new__(cls)
+            
+            # set the instance attributes from the dictionary
+            for key, value in data.items():
+                setattr(my_class, key, value)
+            
+            return my_class
+
+        except Exception as e:
+            logging.error(f"An error occurred: {e}")
+            return None
+   
 
     def add_info(self, info_text:str):     
         self.info.append(info_text.replace('\n', ''))
@@ -44,7 +76,7 @@ class Context:
         self.environment.append(env)
 
     def add_transcript_item(self, account_name:str, item:str):
-        newItem = f"{account_name}: {item}\n"
+        newItem = f"{item}\n"
         self.transcript.insert(0, newItem)
 
 

@@ -2,6 +2,8 @@ import os
 import yaml
 import pickle
 import datetime
+import json
+from src.context.context import Context
 
 class ContextManager:
     def __init__(self, config_manager):
@@ -15,11 +17,13 @@ class ContextManager:
 
     def get_context(self, account_name, context_name) :
         base_path = self.get_account_base_path(account_name)
-        context_file = os.path.join(base_path, f"{context_name}.dat")
+        context_file = os.path.join(base_path, f"{context_name}.json")
         if os.path.exists(context_file):
-            with open(context_file, 'rb') as file:
+            with open(context_file, 'r') as file:
+                my_dict = json.load(file)
                 #context = yaml.load(file, Loader=yaml.FullLoader)
-                context= pickle.load(file)
+                #context= pickle.load(file)
+                context = Context.from_dict(my_dict)
                 return context
         else:
             return None
@@ -29,9 +33,12 @@ class ContextManager:
         context.last_updated_timestamp = datetime.datetime.utcnow()
         if not os.path.exists(base_path):
             os.makedirs(base_path)
-        context_file = os.path.join(base_path, f"{context.name}.dat")
-        with open(context_file, 'wb') as file:
-            pickle.dump(context, file)
+        context_file = os.path.join(base_path, f"{context.name}.json")
+        with open(context_file, 'w') as file:
+            #pickle.dump(context, file)
+            my_dict = context.to_dict()
+            json.dump(my_dict, file)
+            #my_json = json.dumps(my_dict)
             #yaml.dump(context, file)
             #file.write(context.context_formated_text())
 
