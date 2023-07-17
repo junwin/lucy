@@ -18,7 +18,7 @@ class CompletionStore:
     def get_manager_id(self, agent_name:str, account_name:str) -> str:
         return agent_name + "_" + account_name  
 
-    def get_completion_manager(self, agent_name, account_name, language_code="en"):
+    def get_completion_manager(self, agent_name, account_name, language_code="en") -> CompletionManager:
         manager_id = self.get_manager_id(agent_name, account_name)
         logging.info(f'CompletionStore get: {manager_id}')
 

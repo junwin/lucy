@@ -2,6 +2,9 @@
 import logging
 import re
 import yaml
+from datetime import datetime
+from dateutil.parser import parse
+import pytz
 
 from src.message_processors.message_processor_interface import MessageProcessorInterface
 from src.context.context_manager import ContextManager
@@ -28,23 +31,36 @@ class GuidedConversationProcessor(MessageProcessorInterface):
         logging.info(f'Guided conversation: Processing message inbound: {message}')
 
         primary_agent = self.agent_manager.get_agent(agent_name)
-        # model = agent["model"]
-        # temperature = agent["temperature"]
-        # context_type = agent["select_type"]
+        first_session = False
+        new_session = False
+
 
         # get the context for this conversations
         context_mgr = ContextManager(self.config)
         context = context_mgr.get_context(account_name, context_name)
         if context is None:
             context = Context(context_name, "life coaching", "", 'none', account_name, conversationId)
-            context.add_action("New Session", '', '')
+            context.add_action("First Session", '', '')
             context_mgr.post_context(context)
+            first_session = True
 
 
         completion_manager_store = container.get(CompletionStore)
         # primary account completion manager
         primary_account_completion_manager = completion_manager_store.get_completion_manager(agent_name, account_name, primary_agent['language_code'][:2])
         latest_completion_Ids = primary_account_completion_manager.find_latest_completion_Ids(1)
+
+        #get the latest completion message - we can use this to see if and when the laset session occured
+        if len(latest_completion_Ids) > 0:
+            latest_completion_message = primary_account_completion_manager.get_completion(latest_completion_Ids[0])
+            utc_timestamp = parse(latest_completion_message.utc_timestamp)
+            elapsed_time = (datetime.now(pytz.utc) - utc_timestamp).total_seconds()
+            new_session_time = self.config.get("elapsed_new_session_seconds")
+            if elapsed_time > new_session_time:
+                context.add_action("New Session", '', '')
+                new_session = True
+                first_session = False
+
 
         # get the latest completion messages as text
         #completions = primary_account_completion_manager.get_transcript(latest_completion_Ids)
@@ -55,13 +71,15 @@ class GuidedConversationProcessor(MessageProcessorInterface):
             context_mgr.post_context(context)
 
 
-        #context_text = context.context_formated_text2('compact')
-        context_text = ""
 
-        #critic_message = context_text + completions + message
-        #critic_message = message + context_text 
-        #critic_message = message 
-        critic_message = f" Latest response from user: {account_name} is {message} \n"
+        context_text = ""
+        critic_message = ""
+        if(first_session):
+            critic_message = f" First session for user please welcome the user: : {account_name} is {message} \n"
+        elif(new_session):
+            critic_message = f" New session for user please review the context carefully : {account_name} is {message} \n"
+        else:
+            critic_message = f" Latest response from user: {account_name} is {message} \n"
 
 
         #if len(latest_completion_Ids) > 0:
