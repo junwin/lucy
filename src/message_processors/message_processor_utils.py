@@ -51,12 +51,21 @@ def update_context_text_result(context_name:str, result_text:str, account_name:s
             context.add_action("last step result", result_text, "step result")
             context_mgr.post_context(context)
 
+
 def setup_action_dict(response_message) -> dict:
     function_name = response_message["function_call"]["name"]
     function_args_text = response_message["function_call"]["arguments"]
-    function_args = json.loads(function_args_text)
+    
+    try:
+        # Attempt to parse the JSON arguments
+        function_args = json.loads(function_args_text)
+    except json.JSONDecodeError as e:
+        # Log the error and the problematic JSON text
+        logging.error(f"Failed to parse JSON: {e} - JSON text: {function_args_text}")
+        # Default to an empty dictionary if parsing fails
+        function_args = {}
 
-    #extract the paramters and nane of the function reqested
+    # Extract the parameters and name of the function requested
     action_dict = dict()
     action_dict["action_name"] = function_name
     for key, value in function_args.items():

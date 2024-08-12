@@ -11,7 +11,7 @@
         "use_prompt_reduction": true,
         "temperature": 0,
         "save_reposnses": true,
-        "model": "gpt-4-0613",
+        "model": "gpt-4o",
         "message_processor": "function_calling_processor",
         "roles_used_in_context": [
             "user", "assistant"
@@ -30,7 +30,7 @@
         "use_prompt_reduction": false,
         "temperature": 0,
         "save_reposnses": false,
-        "model": "gpt-3.5-turbo",
+        "model": "gpt-4o-mini",
         "message_processor": "message_processor"
         
     },
@@ -46,7 +46,7 @@
         "use_prompt_reduction": false,
         "temperature": 0,
         "save_reposnses": false,
-        "model": "gpt-4-0613",
+        "model": "gpt-4o",
         "message_processor": "automation_processor",
         "partner_agent": "colin"
     },
@@ -62,7 +62,7 @@
         "use_prompt_reduction": false,
         "temperature": 0,
         "save_reposnses": true,
-        "model": "gpt-4-0613",
+        "model": "gpt-4o",
         "message_processor": "automation_processor",
         "partner_agent": "colin"
     },
@@ -78,7 +78,7 @@
         "use_prompt_reduction": false,
         "temperature": 0,
         "save_reposnses": true,
-        "model": "gpt-4-0613",
+        "model": "gpt-4o",
         "message_processor": "function_calling_processor"
     },
     {
@@ -93,21 +93,21 @@
         "use_prompt_reduction": false,
         "temperature": 0,
         "save_reposnses": true,
-        "model": "gpt-4"
+        "model": "gpt-4o"
     },
     {
         "name": "maria",
         "seed_conversation": [],
         "language_code": "es-US",
         "select_type": "latest",
-        "num_past_conversations": 4,
-        "num_relevant_conversations": 4,
+        "num_past_conversations": 6,
+        "num_relevant_conversations": 2,
         "max_output_size": 1000,
         "write_file_threashold": 6000,
         "use_prompt_reduction": false,
         "temperature": 1,
         "save_reposnses": true,
-        "model": "gpt-3.5-turbo",
+        "model": "gpt-4o",
         "roles_used_in_context": [
             "user", "assistant"
         ]
@@ -124,7 +124,7 @@
         "use_prompt_reduction": false,
         "temperature": 0,
         "save_reposnses": true,
-        "model": "gpt-3.5-turbo"
+        "model": "gpt-4o-mini"
     },
     {
         "name": "glinda",
@@ -139,7 +139,7 @@
         "use_prompt_reduction": false,
         "save_reposnses": true,
         "temperature": 0,
-        "model": "gpt-4",
+        "model": "gpt-4o",
         "message_processor": "guided_conversation_processor",
         "partner_agent": "dorothy",
         "roles_used_in_context": [
@@ -159,7 +159,7 @@
         "use_prompt_reduction": false,
         "save_reposnses": true,
         "temperature": 0,
-        "model": "gpt-4",
+        "model": "gpt-4o",
         "roles_used_in_context": [
             "user", "assistant"
         ]
