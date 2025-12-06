@@ -11,7 +11,7 @@
         "use_prompt_reduction": true,
         "temperature": 0,
         "save_reposnses": true,
-        "model": "gpt-4o",
+        "model": "gpt-5.1",
         "message_processor": "function_calling_processor",
         "roles_used_in_context": [
             "user", "assistant"

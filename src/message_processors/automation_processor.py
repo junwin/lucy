@@ -180,7 +180,7 @@ class AutomationProcessor(MessageProcessorInterface):
             critic_response = critic_response.lower()
             if "yes" in critic_response:
                 step.state = 'completed'
-                #self.step_context.update_from_results(rh_repsonse)
+                # self.step_context.update_from_results(rh_repsonse)
                 #self.step_context.description
                 #self.step_context.add_action(response, ' ', 'SUCCESS')   
             else:
