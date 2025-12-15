@@ -13,6 +13,7 @@ dist
 dist-ssr
 coverage
 *.local
+/data/
 
 /cypress/videos/
 /cypress/screenshots/
@@ -76,3 +77,4 @@ data/completions/debo_junwin_conv.json
 data/completions/billy_junwin_conv.json
 data/context/junwin/*
 data/context/junwin/glinda_dorothy.json
+data/context/test22/glinda_dorothy.json

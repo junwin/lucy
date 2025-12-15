@@ -3,6 +3,7 @@ from typing import List,  Tuple
 import re
 from src.handlers.handler import Handler
 import yaml
+import logging
 
 action_start_delimiter = '<action_'
 action_end_delimiter = '</action'
@@ -13,7 +14,6 @@ class QuokkaLoki:
         self.handlers = []
         self.account_name = account_name
 
-
     def add_handler(self, handler: Handler):
         self.handlers.append(handler)
 
@@ -21,6 +21,7 @@ class QuokkaLoki:
         function_definitions = []
         for handler in self.handlers:
             function_definitions.append(handler.get_function_calling_definition())
+
 
         return function_definitions
 

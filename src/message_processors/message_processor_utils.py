@@ -1,5 +1,6 @@
 import logging
 import json
+from typing import Any, Dict
 from src.context.context import Context
 from src.context.context_manager import ContextManager
 from src.completion.completion_store import CompletionStore
@@ -52,24 +53,72 @@ def update_context_text_result(context_name:str, result_text:str, account_name:s
             context_mgr.post_context(context)
 
 
-def setup_action_dict(response_message) -> dict:
-    function_name = response_message["function_call"]["name"]
-    function_args_text = response_message["function_call"]["arguments"]
-    
-    try:
-        # Attempt to parse the JSON arguments
-        function_args = json.loads(function_args_text)
-    except json.JSONDecodeError as e:
-        # Log the error and the problematic JSON text
-        logging.error(f"Failed to parse JSON: {e} - JSON text: {function_args_text}")
-        # Default to an empty dictionary if parsing fails
+
+def setup_action_dict(response_message: Dict[str, Any]) -> Dict[str, Any]:
+    fc = response_message.get("function_call") or {}
+    function_name = fc.get("name") or ""
+    raw_args = fc.get("arguments")
+
+    function_args: Dict[str, Any] = {}
+
+    # 1) If args are already a dict, just use them
+    if isinstance(raw_args, dict):
+        function_args = raw_args
+
+    # 2) If args are None/empty, keep {}
+    elif raw_args is None:
         function_args = {}
 
-    # Extract the parameters and name of the function requested
-    action_dict = dict()
-    action_dict["action_name"] = function_name
-    for key, value in function_args.items():
-        action_dict[key] = value
+    # 3) If args are a string, try to parse robustly
+    elif isinstance(raw_args, str):
+        args_text = raw_args.strip()
+
+        # Strip common code fences
+        if args_text.startswith("```"):
+            args_text = args_text.strip("`")
+            # If it started with ```json, remove the leading "json"
+            args_text = args_text.lstrip().removeprefix("json").strip()
+
+        if args_text == "":
+            function_args = {}
+        else:
+            try:
+                function_args = json.loads(args_text)
+            except json.JSONDecodeError as e:
+                # Try a minimal salvage: replace single quotes with double quotes
+                # (only safe-ish for simple cases)
+                try_text = args_text.replace("'", '"')
+                try:
+                    function_args = json.loads(try_text)
+                    logging.warning(
+                        "Parsed tool args after single-quote normalization for %s",
+                        function_name,
+                    )
+                except json.JSONDecodeError:
+                    preview = (args_text[:200] + "…") if len(args_text) > 200 else args_text
+                    logging.error(
+                        "Failed to parse tool args for %s: %s; args preview=%r",
+                        function_name,
+                        str(e),
+                        preview,
+                    )
+                    function_args = {}
+    else:
+        # unexpected type
+        logging.warning(
+            "Unexpected type for tool args for %s: %s",
+            function_name,
+            type(raw_args).__name__,
+        )
+        function_args = {}
+
+    action_dict: Dict[str, Any] = {"action_name": function_name}
+
+    if isinstance(function_args, dict):
+        action_dict.update(function_args)
+    else:
+        # If the model returns a list/primitive (rare), keep it under a standard key
+        action_dict["arguments"] = function_args
 
     return action_dict
 

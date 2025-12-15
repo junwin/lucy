@@ -8,6 +8,10 @@ import json
 from typing import Set
 import logging
 from injector import Injector
+from datetime import datetime
+from src.storage.base import Storage
+from src.storage.json_file_storage import JsonFileStorage
+from src.storage.models import ChatMessage
 
 from src.response_handler import FileResponseHandler
 
@@ -54,6 +58,7 @@ prompt_base_path = config.get("prompt_base_path", "data/prompts")
 agents_path = config.get("agents_path", "static/data/agents.json")
 preset_path = config.get("preset_path", "static/data/presets.json")
 
+storage = container.get(Storage) 
 
 
 # Configure logging
@@ -73,53 +78,55 @@ agent_manager.load_agents()
 
 @app.route('/ask', methods=['POST'])
 def ask():
-    question = request.json.get('question', '')
-    agentName = request.json.get('agentName', '')
-    agentName = agentName.lower()
-    accountName = request.json.get('accountName', '')
-    accountName = accountName.lower()
-    select_type = request.json.get('selectType', '')
-    conversationId = request.json.get('conversationId', '')
-    secondary_agent = request.json.get('secondaryAgent', '')    
+    payload = request.get_json() or {}
+
+    question = payload.get('question', '')
+    agentName = (payload.get('agentName', '') or '').lower()
+    accountName = (payload.get('accountName', '') or '').lower()
+    select_type = payload.get('selectType', '')
+    conversationId = payload.get('conversationId', '')
+    secondary_agent = (payload.get('secondaryAgent', '') or '').lower()
 
     if not question or not agentName or not accountName:
-        return jsonify({"error": "Missing question, agentName, accountName, or conversationId"}), 400
+        return jsonify({"error": "Missing question, agentName, or accountName"}), 400
 
     if not agent_manager.is_valid(agentName):
         return jsonify({"error": "Invalid agentName"}), 400
 
     my_agent = agent_manager.get_agent(agentName)
-    
-    file_path = get_complete_path(prompt_base_path, agentName, accountName)
+
     if not select_type:
-        select_type = my_agent['select_type']
+        select_type = my_agent.get('select_type', '')
 
-    #secondary_agent = ""
+    partner_agent = (my_agent.get('partner_agent') or '').lower()
     context_name = ""
-    partner_agent = ""
-    if('partner_agent' in my_agent):
-        partner_agent = my_agent['partner_agent']
-        #context_name = secondary_agent+"_"+agentName
 
+    mp = my_agent.get('message_processor', '')
 
-    if 'message_processor' in my_agent and my_agent['message_processor'] == 'function_calling_processor':
-            processor = FunctionCallingProcessor()
-    elif 'message_processor' in my_agent and my_agent['message_processor'] == 'automation_processor':
-            context_name = agentName + "_" + partner_agent
-            processor = AutomationProcessor()
-    elif 'message_processor' in my_agent and my_agent['message_processor'] == 'guided_conversation_processor':
-            context_name = agentName + "_" + partner_agent
-            processor = GuidedConversationProcessor()
+    if mp == 'function_calling_processor':
+        processor = FunctionCallingProcessor()
+    elif mp == 'automation_processor':
+        context_name = f"{agentName}_{partner_agent}"
+        processor = AutomationProcessor()
+    elif mp == 'guided_conversation_processor':
+        context_name = f"{agentName}_{partner_agent}"
+        processor = GuidedConversationProcessor()
     else:
-            processor = MessageProcessor()   
-
+        processor = MessageProcessor()
 
     processor.context_type = select_type
-    # Modify the process_message method in the MessageProcessor class if needed
-    #process_message(self, agent_name:str, account_name:str, message, conversationId="0"):
-    response = processor.process_message(agentName, accountName, question, conversationId, context_name, partner_agent)
-    # processor.save_conversations()
+
+    response = processor.process_message(
+        agentName,
+        accountName,
+        question,
+        conversationId,
+        context_name,
+        partner_agent
+    )
+
     return jsonify({"response": response})
+
 
 
 @app.route('/agents', methods=['GET'])
@@ -137,44 +144,165 @@ def get_agents():
 
 @app.route('/prompt_builder', methods=['POST'])
 def build_prompt():
+    payload = request.get_json() or {}
 
-    question = request.json.get('query', '')
-    agentName = request.json.get('agentName', '')
-    agentName = agentName.lower()
-    accountName = request.json.get('accountName', '')
-    accountName = accountName.lower()
-    select_type = request.json.get('selectType', '')
-    conversationId = request.json.get('conversationId', '')
+    question = payload.get('query', '')
+    agentName = (payload.get('agentName', '') or '').lower()
+    accountName = (payload.get('accountName', '') or '').lower()
+    select_type = payload.get('selectType', '')
+    conversationId = payload.get('conversationId', '')
+    context_name = payload.get('contextName', '') or ""
+
+    # NEW: allow optional list of extra system messages
+    extra_system_messages = payload.get('extraSystemMessages') or []
+    if not isinstance(extra_system_messages, list):
+        extra_system_messages = [str(extra_system_messages)]
 
     if not question or not agentName or not accountName:
-        return jsonify({"error": "Missing question, agentName, accountName, or conversationId"}), 400
+        return jsonify({"error": "Missing query, agentName, or accountName"}), 400
 
     if not agent_manager.is_valid(agentName):
         return jsonify({"error": "Invalid agentName"}), 400
 
     my_agent = agent_manager.get_agent(agentName)
-
-
     if not select_type:
-        select_type = my_agent['select_type']
-
-    #agents = agent_manager.get_available_agents()
+        select_type = my_agent.get('select_type', 'hybrid')
 
     prompt_builder = PromptBuilder()
 
-
-    #processor = get_message_processor(prompt_base_path, agentName, accountName, agents, processors)
-    #build_prompt(self, content_text:str, conversationId:str, agent, context_type="none", seed_name="seed", seed_paramters=[], max_prompt_chars=6000, max_prompt_conversations=20):
-
-    prompt_builder.context_type = select_type
-
-    #def build_prompt(self, content_text:str, conversationId:str, agent_name, account_name, context_type="none", max_prompt_chars=6000, max_prompt_conversations=20):
-
-    prompt = prompt_builder.build_prompt( question, conversationId, agentName, accountName, select_type)
-
-    
+    prompt = prompt_builder.build_prompt(
+        content_text=question,
+        conversationId=conversationId,
+        agent_name=agentName,
+        account_name=accountName,
+        context_type=select_type,
+        max_prompt_chars=payload.get('maxPromptChars', 6000),
+        max_prompt_conversations=payload.get('maxPromptConversations', 20),
+        context_name=context_name,
+        extra_system_messages=extra_system_messages,
+    )
 
     return jsonify(prompt)
+
+
+
+@app.route('/chats', methods=['POST'])
+def post_chat():
+    agentName = (request.json.get('agentName', '') or '').lower()
+    accountName = (request.json.get('accountName', '') or '').lower()
+    friendly_name = request.json.get('friendlyName')
+    tags = request.json.get('tags')
+
+    if not agentName or not accountName:
+        return jsonify({"error": "Missing agentName or accountName"}), 400
+    if not agent_manager.is_valid(agentName):
+        return jsonify({"error": "Invalid agentName"}), 400
+
+    session = storage.create_chat_session(
+        account_name=accountName,
+        agent_name=agentName,
+        friendly_name=friendly_name,
+        tags=tags,
+    )
+
+    return jsonify({
+        "id": session.id,
+        "account_name": session.account_name,
+        "agent_name": session.agent_name,
+        "friendly_name": session.friendly_name,
+        "created_at": session.created_at.isoformat(),
+        "updated_at": session.updated_at.isoformat(),
+        "tags": session.tags,
+        "summary": session.summary,
+        "importance_score": session.importance_score,
+        "include_in_context": session.include_in_context,
+        "metadata": session.metadata,
+        "messages": [],
+    })
+
+
+@app.route('/chats', methods=['GET'])
+def get_chats():
+    agentName = (request.args.get('agentName', '') or '').lower()
+    accountName = (request.args.get('accountName', '') or '').lower()
+    limit = int(request.args.get('limit', '50'))
+
+    if not accountName:
+        return jsonify({"error": "Missing accountName"}), 400
+    if agentName and not agent_manager.is_valid(agentName):
+        return jsonify({"error": "Invalid agentName"}), 400
+
+    sessions = storage.list_chat_sessions(
+        account_name=accountName,
+        agent_name=agentName or None,
+        limit=limit,
+        before=None,
+    )
+
+    return jsonify([
+        {
+            "id": s.id,
+            "account_name": s.account_name,
+            "agent_name": s.agent_name,
+            "friendly_name": s.friendly_name,
+            "created_at": s.created_at.isoformat(),
+            "updated_at": s.updated_at.isoformat(),
+            "tags": s.tags,
+            "summary": s.summary,
+            "importance_score": s.importance_score,
+            "include_in_context": s.include_in_context,
+            "metadata": s.metadata,
+            "message_count": len(s.messages),
+        }
+        for s in sessions
+    ])
+@app.route('/chats/<session_id>', methods=['GET'])
+def get_chat(session_id: str):
+    session = storage.get_chat_session(session_id)
+    if not session:
+        return jsonify({"error": "Chat not found"}), 404
+
+    return jsonify({
+        "id": session.id,
+        "account_name": session.account_name,
+        "agent_name": session.agent_name,
+        "friendly_name": session.friendly_name,
+        "created_at": session.created_at.isoformat(),
+        "updated_at": session.updated_at.isoformat(),
+        "tags": session.tags,
+        "summary": session.summary,
+        "importance_score": session.importance_score,
+        "include_in_context": session.include_in_context,
+        "metadata": session.metadata,
+        "messages": [
+            {
+                "role": m.role,
+                "content": m.content,
+                "utc_timestamp": m.utc_timestamp.isoformat() if m.utc_timestamp else None,
+                "metadata": m.metadata,
+            }
+            for m in session.messages
+        ],
+    })
+
+@app.route('/chats/<session_id>/messages', methods=['POST'])
+def post_chat_message(session_id: str):
+    data = request.get_json() or {}
+    role = data.get("role")
+    content = data.get("content")
+    metadata = data.get("metadata") or {}
+
+    if not role or content is None:
+        return jsonify({"error": "Missing role or content"}), 400
+
+    msg = ChatMessage(role=role, content=content, metadata=metadata)
+
+    try:
+        storage.append_chat_message(session_id, msg)
+    except FileNotFoundError as e:
+        return jsonify({"error": str(e)}), 404
+
+    return jsonify({"status": "ok"})
 
 
 @app.route('/completions', methods=['POST'])
