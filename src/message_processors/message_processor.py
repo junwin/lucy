@@ -18,7 +18,7 @@ from src.completion.completion_store import CompletionStore
 
 from src.handlers.quokka_loki import QuokkaLoki
 
-from src.handlers.file_save_handler import FileSaveHandler
+#from src.handlers.file_save_handler import FileSaveHandler
 from src.handlers.command_execution_handler import CommandExecutionHandler  
 
 from src.handlers.file_load_handler import FileLoadHandler
@@ -37,7 +37,7 @@ class MessageProcessor(MessageProcessorInterface):
         
 
         self.handler = QuokkaLoki()
-        self.handler.add_handler(FileSaveHandler())
+        #self.handler.add_handler(FileSaveHandler())
         self.handler.add_handler(CommandExecutionHandler())
         self.handler.add_handler(FileLoadHandler())
         self.handler.add_handler(WebSearchHandler())

@@ -13,6 +13,11 @@ from src.node_manager import NodeManager
 from src.storage.base import Storage
 from src.storage.json_file_storage import JsonFileStorage
 
+from src.handlers.handler_registry import HandlerRegistry
+from src.handlers.registry_bootstrap import build_registry
+
+
+
 config = ConfigManager("config.json")
 
 
@@ -45,6 +50,13 @@ class StorageModule(Module):
         """
         base_path = config.get("chat_base_path") or config.get("completion_base_path")
         return JsonFileStorage(base_path)
+
+
+class HandlerRegistryModule(Module):
+    @provider
+    @singleton
+    def provide_handler_registry(self) -> HandlerRegistry:
+        return build_registry()
 
 
 class CompletionStoreModule(Module):
@@ -86,6 +98,7 @@ def configure_container():
             StorageModule(),
             CompletionStoreModule(),
             NodeManagerModule(),
+            HandlerRegistryModule()
         ]
     )
     return container

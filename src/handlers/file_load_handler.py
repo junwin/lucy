@@ -2,7 +2,7 @@ import os
 import re
 import json
 import logging
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Tuple, Union, List
 
 from src.handlers.handler import Handler
 from src.container_config import container
@@ -22,7 +22,7 @@ class FileLoadHandler(Handler):
 
     functDef = {
         "name": "file_load",
-        "description": "Load a file from a directory relative to the home and chunk if needed",
+        "description": "Load a file from a directory relative to the allowed base folder and chunk if needed",
         "parameters": {
             "type": "object",
             "properties": {
@@ -60,7 +60,12 @@ class FileLoadHandler(Handler):
 
         if not directory_path or not file_name:
             return json.dumps(
-                {"error": "directory_path and file_name are required", "action": action},
+                {
+                    "ok": False,
+                    "error": "directory_path and file_name are required",
+                    "handler": self.__class__.__name__,
+                    "action": action,
+                },
                 ensure_ascii=False,
             )
 
@@ -75,7 +80,14 @@ class FileLoadHandler(Handler):
         except Exception as e:
             logging.exception("file_load failed")
             return json.dumps(
-                {"error": str(e), "base_path": base_path, "file_name": file_name},
+                {
+                    "ok": False,
+                    "error": str(e),
+                    "handler": self.__class__.__name__,
+                    "directory_path": directory_path,
+                    "file_name": file_name,
+                    "base_path": base_path,
+                },
                 ensure_ascii=False,
             )
 
@@ -83,20 +95,43 @@ class FileLoadHandler(Handler):
         file_chunk_size = int(config.get("file_chunk_size"))
 
         chunked = False
+        result: Union[str, Dict[str, Any]] = content
+
         if content is not None and len(content) > file_chunk_threshold:
             chunk_processor = ChunkedFileProcessor()
             chunker = TextChunker()
-            content = chunk_processor.process_text_data(content, chunker, file_chunk_size)
+
+            chunked_content = chunk_processor.process_text_data(content, chunker, file_chunk_size)
             chunked = True
+
+            # Make a stable schema for chunked results.
+            # We don’t assume the exact type returned by ChunkedFileProcessor; normalize it.
+            chunks: List[str]
+            if isinstance(chunked_content, list):
+                chunks = [str(x) for x in chunked_content]
+            elif isinstance(chunked_content, dict) and "chunks" in chunked_content:
+                chunks = [str(x) for x in (chunked_content.get("chunks") or [])]
+            else:
+                # Fallback: store as a single “chunk” string
+                chunks = [str(chunked_content)]
+
+            result = {
+                "chunks": chunks,
+                "chunk_count": len(chunks),
+                "chunk_size": file_chunk_size,
+            }
 
         payload = {
             "ok": True,
             "handler": self.__class__.__name__,
+            "tool": "file_load",
             "file_name": file_name,
             "directory_path": directory_path,
             "resolved_path": full_path,
             "chunked": chunked,
-            "result": content,
+            "content_type": "text/plain",
+            "encoding": "utf-8",
+            "result": result,
         }
 
         # IMPORTANT: tool message content must be a string
@@ -120,7 +155,7 @@ class FileLoadHandler(Handler):
 
         return message
 
-    def _read_file_safe(self, base_path: str, file_name: str) -> tuple[str, str]:
+    def _read_file_safe(self, base_path: str, file_name: str) -> Tuple[str, str]:
         """
         Reads file_name inside base_path safely.
         Prevents path traversal via file_name like ../../etc/passwd

@@ -21,7 +21,7 @@ from src.prompt_builders.prompt_builder import PromptBuilder
 from src.completion.completion_store import CompletionStore
 from src.handlers.quokka_loki import QuokkaLoki
 from src.handlers.task_update_handler import TaskUpdateHandler
-from src.handlers.file_save_handler import FileSaveHandler
+#from src.handlers.file_save_handler import FileSaveHandler
 from src.handlers.command_execution_handler import CommandExecutionHandler
 from src.handlers.user_action_required_handler import UserActionRequiredHandler
 from src.handlers.file_load_handler import FileLoadHandler
@@ -57,7 +57,7 @@ class AutomationProcessor(MessageProcessorInterface):
         user_action_required_handler = UserActionRequiredHandler()
         file_load_handler = FileLoadHandler()
         self.handler = QuokkaLoki()
-        self.handler.add_handler(file_save_handler)
+        # self.handler.add_handler(file_save_handler)
         self.handler.add_handler(command_execution_handler)
         #self.handler.add_handler(user_action_required_handler)
         self.handler.add_handler(file_load_handler)

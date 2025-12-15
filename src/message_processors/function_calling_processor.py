@@ -1,39 +1,47 @@
+# /home/junwin/src/repos/lucy/src/message_processors/function_calling_processor.py
+
+import json
 import logging
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
 
 from src.container_config import container
 from src.agent_manager import AgentManager
 from src.config_manager import ConfigManager
 from src.prompt_builders.prompt_builder import PromptBuilder
 from src.completion.completion_store import CompletionStore
-from src.handlers.quokka_loki import QuokkaLoki
-from src.handlers.file_save_handler import FileSaveHandler
-from src.handlers.command_execution_handler import CommandExecutionHandler
-from src.handlers.user_action_required_handler import UserActionRequiredHandler
-from src.handlers.file_load_handler import FileLoadHandler
-from src.handlers.web_search_handler import WebSearchHandler
-from src.handlers.scrape_web_page_handler import ScrapeWebPage
 from src.message_processors.message_processor_interface import MessageProcessorInterface
-from src.api_helpers import get_completion_with_tools
-from src.message_processors.message_processor_utils import (
-    setup_action_dict,
-    post_process_quokka_loki_action_dict,
-    update_context_text_result,
-)
+from src.api_helpers import openai_call, ToolResult
+
+from src.handlers.handler_registry import HandlerRegistry
 
 
 class FunctionCallingProcessor(MessageProcessorInterface):
     def __init__(self):
         self.config = container.get(ConfigManager)
-        self.handler = QuokkaLoki()
+        self.registry = container.get(HandlerRegistry)
 
-        # Register handlers (tools)
-        self.handler.add_handler(FileSaveHandler())
-        self.handler.add_handler(CommandExecutionHandler())
-        # self.handler.add_handler(UserActionRequiredHandler())  # intentionally disabled
-        self.handler.add_handler(FileLoadHandler())
-        self.handler.add_handler(WebSearchHandler())
-        self.handler.add_handler(ScrapeWebPage())
+    def _safe_json_loads(self, s: str) -> Dict[str, Any]:
+        if not s:
+            return {}
+        try:
+            return json.loads(s)
+        except Exception:
+            logging.warning("Tool arguments were not valid JSON; using empty dict. args=%r", (s or "")[:500])
+            return {}
+
+    def _tool_result_to_text(self, tool_result: Any) -> str:
+        """
+        Tool message content MUST be a string.
+        Handlers return a dict; we serialize here (single responsibility).
+        """
+        if tool_result is None:
+            return json.dumps({"ok": False, "error": "Tool returned None"}, ensure_ascii=False)
+        if isinstance(tool_result, str):
+            return tool_result
+        try:
+            return json.dumps(tool_result, ensure_ascii=False)
+        except Exception as e:
+            return json.dumps({"ok": False, "error": f"Tool result not JSON serializable: {e}"}, ensure_ascii=False)
 
     def process_message(
         self,
@@ -49,7 +57,6 @@ class FunctionCallingProcessor(MessageProcessorInterface):
         extra_system_messages:
           Optional list of strings to be injected as additional system messages
           (after the agent's primary system prompt, before history/context).
-          Used by guided-conversation style processors to inject SME guidance.
         """
         logging.info("Function Calling Processing message inbound: %s", message)
 
@@ -73,28 +80,55 @@ class FunctionCallingProcessor(MessageProcessorInterface):
             extra_system_messages=extra_system_messages or [],
         )
 
-        function_defs = self.handler.get_function_calling_definition()
+        # Tools list now comes from the registry (no Quokka)
+        function_defs = self.registry.tools()
 
         max_iterations = 5
         response_text = ""
 
+        store_this_call = bool(agent.get("save_reposnses", False))
+
         for _ in range(max_iterations):
-            response_message = get_completion_with_tools(
+            result = openai_call(
                 messages=completion_messages,
                 functions=function_defs,
                 temperature=temperature,
                 model=model,
+                store=store_this_call,
+                conversation_id=conversationId,
+                session_id=context_name or None,
             )
 
             # Tool call?
-            if response_message.get("function_call"):
-                action_dict = setup_action_dict(response_message)
-                tool_result_text = post_process_quokka_loki_action_dict(
-                    action_dict, account_name, context_name
-                )
+            if isinstance(result, ToolResult) and result.tool_calls:
+                if len(result.tool_calls) > 1:
+                    logging.warning("Model returned %d tool_calls; only first will be used.", len(result.tool_calls))
 
-                tool_call_id = response_message.get("tool_call_id", "tool_call_1")
+                tc0 = result.tool_calls[0]
+                tool_call_id = tc0.get("id") or "tool_call_1"
+                tool_name = tc0.get("name") or ""
+                tool_args_raw = tc0.get("arguments") or "{}"
+                tool_args = self._safe_json_loads(tool_args_raw)
 
+                # Execute via registry (no Quokka)
+                try:
+                    handler = self.registry.create(tool_name, config=self.config)
+                except KeyError:
+                    tool_result_text = self._tool_result_to_text(
+                        {"ok": False, "tool": tool_name, "error": f"Unknown tool: {tool_name}"}
+                    )
+                else:
+                    try:
+                        tool_result = handler.execute(tool_args, account_name=account_name)
+                        tool_result_text = self._tool_result_to_text(tool_result)
+                    except Exception as e:
+                        logging.exception("Tool execution failed: %s", tool_name)
+                        tool_result_text = self._tool_result_to_text(
+                            {"ok": False, "tool": tool_name, "error": f"{type(e).__name__}: {e}"}
+                        )
+
+
+                # Append tool call message (assistant)
                 completion_messages.append(
                     {
                         "role": "assistant",
@@ -104,14 +138,15 @@ class FunctionCallingProcessor(MessageProcessorInterface):
                                 "id": tool_call_id,
                                 "type": "function",
                                 "function": {
-                                    "name": action_dict["action_name"],
-                                    "arguments": response_message["function_call"].get("arguments", "{}"),
+                                    "name": tool_name,
+                                    "arguments": tool_args_raw,
                                 },
                             }
                         ],
                     }
                 )
 
+                # Append tool result message (tool)
                 completion_messages.append(
                     {
                         "role": "tool",
@@ -123,8 +158,14 @@ class FunctionCallingProcessor(MessageProcessorInterface):
                 continue
 
             # Final answer
-            response_text = response_message.get("content", "") or ""
-            update_context_text_result(context_name, response_text, account_name)
+            response_text = (getattr(result, "content", "") or "").strip()
+
+            # Keep this call if you still want context text updates; otherwise remove.
+            # (I didn’t import update_context_text_result since you said “get rid of quokka”.)
+            # If you still want it:
+            # from src.message_processors.message_processor_utils import update_context_text_result
+            # update_context_text_result(context_name, response_text, account_name)
+
             break
 
         # Save conversation (legacy completion store) if enabled
@@ -133,9 +174,7 @@ class FunctionCallingProcessor(MessageProcessorInterface):
             account_completion_manager = completion_manager_store.get_completion_manager(
                 agent_name, account_name, agent.get("language_code", "en")[:2]
             )
-            account_completion_manager.create_store_completion(
-                conversationId, message, response_text
-            )
+            account_completion_manager.create_store_completion(conversationId, message, response_text)
             account_completion_manager.save()
 
         return response_text
