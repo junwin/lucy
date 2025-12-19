@@ -11,6 +11,8 @@ from pathlib import Path
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
+from flask import sessions
+
 from .base import Storage
 from .models import (
     ChatMessage,
@@ -146,10 +148,21 @@ class JsonFileStorage(Storage):
         # Update index
         index_path = chat_dir / "index.json"
         index = self._load_json(index_path) or {}
-        index[chat_id] = session.friendly_name
+        index[chat_id] = {
+            "friendly_name": session.friendly_name,
+            "agent_name": session.agent_name,
+            "account_name": session.account_name,
+            "updated_at": session.updated_at.isoformat(),
+            "include_in_context": session.include_in_context,
+        }
         self._atomic_write(index_path, index)
 
         return session
+
+    def find_chat_sessions_by_friendly_name(self, account_name: str, agent_name: str, friendly_name: str, limit: int = 20) -> List[ChatSession]:
+        sessions = self.list_chat_sessions(account_name=account_name, agent_name=agent_name, limit=500)
+        matches = [s for s in sessions if (s.friendly_name or "").lower() == friendly_name.lower()]
+        return matches[:limit]
 
     # ----------------------------------------------------------------------
 
@@ -287,7 +300,20 @@ class JsonFileStorage(Storage):
                 self.base_path / "chats" / session.account_name / "index.json"
             )
             index = self._load_json(index_path) or {}
-            index[session_id] = friendly_name
+            # Preserve existing structure if present, otherwise create new
+            existing = index.get(session_id)
+            if isinstance(existing, dict):
+                existing["friendly_name"] = friendly_name
+                existing["updated_at"] = data["updated_at"]
+                index[session_id] = existing
+            else:
+                index[session_id] = {
+                    "friendly_name": friendly_name,
+                    "agent_name": session.agent_name,
+                    "account_name": session.account_name,
+                    "updated_at": data["updated_at"],
+                    "include_in_context": data.get("include_in_context", True),
+                }
             self._atomic_write(index_path, index)
 
     # ----------------------------------------------------------------------

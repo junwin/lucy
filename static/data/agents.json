@@ -8,7 +8,7 @@
         "num_relevant_conversations": 4,
         "max_output_size": 5000,
         "write_file_threashold": 60000,
-        "use_prompt_reduction": true,
+        "use_prompt_reduction": false,
         "temperature": 0,
         "save_reposnses": true,
         "model": "gpt-5.1",

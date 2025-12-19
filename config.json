@@ -7,7 +7,7 @@
     "preset_path": "static/data/presets.json",
     "account_output_path": "static/output/",
     "code_sandbox_path": "/home",
-    "python_utils_path": "/src/utils",
+    "python_utils_path": "src/utils",
     "seed_name": "seed",
     "swagger_url": "/api/docs",
     "api_url": "/static/swagger.json",

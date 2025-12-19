@@ -8,12 +8,14 @@ from src.container_config import container
 from src.agent_manager import AgentManager
 from src.config_manager import ConfigManager
 from src.prompt_builders.prompt_builder import PromptBuilder
-from src.completion.completion_store import CompletionStore
+#from src.completion.completion_store import CompletionStore
 from src.message_processors.message_processor_interface import MessageProcessorInterface
 from src.api_helpers import openai_call, ToolResult
 
 from src.handlers.handler_registry import HandlerRegistry
-
+from src.storage.base import Storage
+from src.storage.models import ChatMessage
+from tests.test_completions_manager import storage
 
 class FunctionCallingProcessor(MessageProcessorInterface):
     def __init__(self):
@@ -169,12 +171,26 @@ class FunctionCallingProcessor(MessageProcessorInterface):
             break
 
         # Save conversation (legacy completion store) if enabled
+        # Save conversation (new JSON chat storage) if enabled
         if agent.get("save_reposnses", False) and response_text.strip():
-            completion_manager_store = container.get(CompletionStore)
-            account_completion_manager = completion_manager_store.get_completion_manager(
-                agent_name, account_name, agent.get("language_code", "en")[:2]
+            storage = container.get(Storage)
+            # Persist user request
+            storage.append_chat_message(
+                conversationId,
+                ChatMessage(
+                    role="user",
+                    content=message,
+                    metadata={"agent": agent_name},
+                ),
             )
-            account_completion_manager.create_store_completion(conversationId, message, response_text)
-            account_completion_manager.save()
+
+            storage.append_chat_message(
+                conversationId,
+                ChatMessage(
+                    role="assistant",
+                    content=response_text,
+                    metadata={"agent": agent_name},
+                ),
+            )
 
         return response_text
