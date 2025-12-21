@@ -6,7 +6,7 @@ import datetime
 import logging
 from src.container_config import container
 from src.config_manager import ConfigManager
-from src.handlers.quokka_loki import QuokkaLoki
+
 
 class Context:
     
