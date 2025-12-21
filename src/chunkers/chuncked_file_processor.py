@@ -3,14 +3,15 @@ import logging
 import json
 import nltk
 from src.chunkers.text_chunker import TextChunker
-from src.api_helpers import get_completion
+#from src.api_helpers import get_completion
 
 class ChunkedFileProcessor():  
 
 
     def summarize_text_chunk(self, chunk: str) -> str:
         prompt =" your task is to summarize the following text into less than 400 words: " + chunk
-        summary = get_completion(prompt)
+        summary = "This is a placeholder summary."
+        # summary = get_completion(prompt)
         return summary
     
     def process_file_chunks(self, file_path, chunker: TextChunker, chunk_size) -> str:

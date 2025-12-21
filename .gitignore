@@ -14,6 +14,11 @@ dist-ssr
 coverage
 *.local
 /data/
+# Python virtual environments
+venv/
+env/
+ENV/
+.venv/
 
 /cypress/videos/
 /cypress/screenshots/

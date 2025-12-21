@@ -21,10 +21,7 @@ from src.container_config import container
 from src.config_manager import ConfigManager
 
 from src.prompt_builders.prompt_builder import PromptBuilder
-from src.message_processors.message_processor import MessageProcessor
-from src.message_processors.guided_conversation_processor import GuidedConversationProcessor
 from src.message_processors.function_calling_processor import FunctionCallingProcessor
-from src.message_processors.automation_processor import AutomationProcessor
 from src.completion.completion_store import CompletionStore
 from src.completion.completion_manager import CompletionManager
 from src.completion.completion import Completion
@@ -101,18 +98,8 @@ def ask():
     partner_agent = (my_agent.get('partner_agent') or '').lower()
     context_name = ""
 
-    mp = my_agent.get('message_processor', '')
-
-    if mp == 'function_calling_processor':
-        processor = FunctionCallingProcessor()
-    elif mp == 'automation_processor':
-        context_name = f"{agentName}_{partner_agent}"
-        processor = AutomationProcessor()
-    elif mp == 'guided_conversation_processor':
-        context_name = f"{agentName}_{partner_agent}"
-        processor = GuidedConversationProcessor()
-    else:
-        processor = MessageProcessor()
+    # Always use FunctionCallingProcessor (same interface as previous processors)
+    processor = FunctionCallingProcessor()
 
     processor.context_type = select_type
 
