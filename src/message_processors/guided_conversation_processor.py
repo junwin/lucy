@@ -1,126 +1,223 @@
+# FILE: src/message_processors/guided_conversation_processor.py
 
 import logging
-import re
-import yaml
 from datetime import datetime
 from dateutil.parser import parse
 import pytz
+import yaml
 
 from src.message_processors.message_processor_interface import MessageProcessorInterface
 from src.context.context_manager import ContextManager
 from src.context.context import Context
 from src.message_processors.message_processor import MessageProcessor
+from src.message_processors.function_calling_processor import FunctionCallingProcessor
+
 from src.completion.completion_store import CompletionStore
-from src.completion.completion_manager import CompletionManager
-from src.completion.completion import Completion
 from src.container_config import container
 from src.agent_manager import AgentManager
 from src.config_manager import ConfigManager
 
 
 class GuidedConversationProcessor(MessageProcessorInterface):
+    """
+    Orchestrates a guided conversation between:
+      - primary agent (empathetic / BA / etc.) e.g. Glinda, Debo
+      - SME agent (coach / engineer / etc.) e.g. Dorothy, Colin
+
+    Shared context lives in:
+      data/context/<account>/<context_name>.json
+    where context_name is typically "<primary>_<sme>" passed in by app.py.
+    """
+
     def __init__(self):
-        # self.name = name
         self.agent_manager = container.get(AgentManager)
         self.config = container.get(ConfigManager)
-        prompt_base_path = self.config.get('prompt_base_path')
-        self.seed_conversations = []
-        self.message_processor = MessageProcessor()
 
-    def process_message(self, agent_name: str, account_name: str, message, conversationId="0", context_name='', second_agent_name='') -> str:
-        logging.info(f'Guided conversation: Processing message inbound: {message}')
+        # SME calls: keep it simple (no tool loop)
+        self.simple_processor = MessageProcessor()
 
-        primary_agent = self.agent_manager.get_agent(agent_name)
+        # Primary calls: allow tools/function calls
+        self.primary_processor = FunctionCallingProcessor()
+
+    def process_message(
+        self,
+        agent_name: str,
+        account_name: str,
+        message: str,
+        conversationId: str = "0",
+        context_name: str = "",
+        second_agent_name: str = "",
+        extra_system_messages=None,
+    ) -> str:
+        logging.info(
+            "GuidedConversation: inbound agent=%s sme=%s msg=%s",
+            agent_name,
+            second_agent_name,
+            (message or "")[:200],
+        )
+
+        if not context_name or context_name in ("none", "new"):
+            context_name = f"{agent_name}_{second_agent_name}".strip("_")
+
+        # --- Load/create shared context ---
+        context_mgr = ContextManager(self.config)
+        context = context_mgr.get_context(account_name, context_name)
+
         first_session = False
         new_session = False
 
-
-        # get the context for this conversations
-        context_mgr = ContextManager(self.config)
-        context = context_mgr.get_context(account_name, context_name)
         if context is None:
-            context = Context(context_name, "life coaching", "", 'none', account_name, conversationId)
-            context.add_action("First Session", '', '')
+            context = Context(
+                name=context_name,
+                description="guided conversation",
+                current_node_id="",
+                state="none",
+                account_name=account_name,
+                conversation_id=conversationId,
+            )
+            context.add_action("First Session", "", "")
             context_mgr.post_context(context)
             first_session = True
 
+        # --- Determine whether this is a "new session" based on last completion timestamp ---
+        primary_agent = self.agent_manager.get_agent(agent_name)
 
-        completion_manager_store = container.get(CompletionStore)
-        # primary account completion manager
-        primary_account_completion_manager = completion_manager_store.get_completion_manager(agent_name, account_name, primary_agent['language_code'][:2])
-        latest_completion_Ids = primary_account_completion_manager.find_latest_completion_Ids(1)
+        completion_store = container.get(CompletionStore)
+        cm = completion_store.get_completion_manager(
+            agent_name, account_name, primary_agent.get("language_code", "en")[:2]
+        )
+        latest_ids = cm.find_latest_completion_Ids(1)
 
-        #get the latest completion message - we can use this to see if and when the laset session occured
-        if len(latest_completion_Ids) > 0:
-            latest_completion_message = primary_account_completion_manager.get_completion(latest_completion_Ids[0])
-            utc_timestamp = parse(latest_completion_message.utc_timestamp)
-            elapsed_time = (datetime.now(pytz.utc) - utc_timestamp).total_seconds()
-            new_session_time = self.config.get("elapsed_new_session_seconds")
-            if elapsed_time > new_session_time:
-                context.add_action("New Session", '', '')
-                new_session = True
-                first_session = False
+        if latest_ids:
+            latest = cm.get_completion(latest_ids[0])
+            try:
+                utc_ts = parse(latest.utc_timestamp)
+                elapsed = (datetime.now(pytz.utc) - utc_ts).total_seconds()
+                new_session_time = self.config.get("elapsed_new_session_seconds")
+                if new_session_time and elapsed > float(new_session_time):
+                    context.add_action("New Session", "", "")
+                    new_session = True
+                    first_session = False
+            except Exception:
+                # If timestamp parsing fails, don't break the flow.
+                pass
 
+        # --- Add transcript to context (if available) ---
+        if latest_ids:
+            try:
+                transcript = cm.get_transcript(
+                    latest_ids,
+                    ["user", "assistant"],
+                    account_name,
+                    agent_name,
+                )
+                if transcript:
+                    context.add_transcript_item(account_name, transcript)
+                    context_mgr.post_context(context)
+            except Exception as ex:
+                logging.warning("GuidedConversation: transcript load failed: %s", ex)
 
-        # get the latest completion messages as text
-        #completions = primary_account_completion_manager.get_transcript(latest_completion_Ids)
-        transcript =''
-        if len(latest_completion_Ids) > 0:
-            transcript = primary_account_completion_manager.get_transcript(latest_completion_Ids, ['user','assistant'], account_name, agent_name )
-            context.add_transcript_item(account_name, transcript) 
+        # --- Build SME request message ---
+        if first_session:
+            sme_input = "First session.\n" f"User({account_name}) says: {message}\n"
+        elif new_session:
+            sme_input = "New session. Review context carefully.\n" f"User({account_name}) says: {message}\n"
+        else:
+            sme_input = "Latest user message.\n" f"User({account_name}) says: {message}\n"
+
+        # --- SME analysis (Dorothy / Colin) ---
+        sme_response = self.simple_processor.process_message(
+            second_agent_name,
+            account_name,
+            sme_input,
+            conversationId,
+            context_name,
+        )
+
+        # --- Parse SME output ---
+        # Expected: ONE fenced ```yaml block containing:
+        #   conversation_state: {Background:..., ...}
+        #   recommendations: [...]
+        parsed = self._extract_single_yaml_payload(sme_response)
+
+        if parsed:
+            conv_state = parsed.get("conversation_state")
+            recs = parsed.get("recommendations")
+
+            if conv_state:
+                context.conversation_state = self._to_fenced_yaml(conv_state)
+            if recs is not None:
+                # store as YAML too (keeps structure; primary agent can render it however)
+                context.recomendations = self._to_fenced_yaml({"recommendations": recs})
+
+            context_mgr.post_context(context)
+        else:
+            # Fall back: store raw SME response (better than losing it)
+            context.recomendations = (sme_response or "").strip()
             context_mgr.post_context(context)
 
+        # --- Guidance block to inject into primary agent system ---
+        guidance_block = context.context_formated_text2("compact").strip()
+        guidance_system = (
+            "Guidance from your SME partner and shared conversation state "
+            f"(context: {context_name}). Follow it.\n\n{guidance_block}"
+        )
 
+        # Merge any upstream extra system messages (rare, but supported)
+        extra_sys = []
+        if extra_system_messages:
+            extra_sys.extend(extra_system_messages)
+        extra_sys.append(guidance_system)
 
-        context_text = ""
-        critic_message = ""
-        if(first_session):
-            critic_message = f" First session for user please welcome the user: : {account_name} is {message} \n"
-        elif(new_session):
-            critic_message = f" New session for user please review the context carefully : {account_name} is {message} \n"
-        else:
-            critic_message = f" Latest response from user: {account_name} is {message} \n"
+        # --- Primary agent response via FunctionCallingProcessor ---
+        # IMPORTANT: pass context_name="" so FunctionCallingProcessor does NOT reload the shared context again.
+        primary_response = self.primary_processor.process_message(
+            agent_name=agent_name,
+            account_name=account_name,
+            message=message,
+            conversationId=conversationId,
+            context_name="",  # prevent double context injection
+            second_agent_name="",
+            extra_system_messages=extra_sys,
+        )
 
+        return primary_response
 
-        #if len(latest_completion_Ids) > 0:
-        #    /context.transcript = context.transcript + " "  + transcript
-         #   context_mgr.post_context(context)
-      
+    # ------------------------------------------------------------------
+    # Helpers
+    # ------------------------------------------------------------------
 
-        logging.info(f'Guided conversation: Processing message critic message: {critic_message}') 
+    def _extract_single_yaml_payload(self, text: str):
+        """
+        Extract the first fenced code block (```yaml ... ```) and parse it.
+        Returns dict or None.
+        """
+        if not text:
+            return None
 
-        # process the messages and context in secondary agent
-        response = self.message_processor.process_message(second_agent_name, account_name, critic_message, conversationId, context_name)
-        logging.info(f'Guided conversation: agent: {second_agent_name} response: {response}')
+        start = text.find("```")
+        if start == -1:
+            return None
 
+        end = text.find("```", start + 3)
+        if end == -1:
+            return None
 
-        recommendations_start = response.find('Recommendations:')
-        recommendations_end = response.find("'''", recommendations_start+18)
-        if recommendations_end == -1 and recommendations_start != -1:
-            recommendations_end = len(response)
+        block = text[start + 3 : end].strip()
+        # allow ```yaml or ```YAML
+        if block.lower().startswith("yaml"):
+            block = block[4:].strip()
 
-        yaml_start = response.find('```')
-        yaml_end = response.find('```', yaml_start+3)
+        try:
+            data = yaml.safe_load(block)
+            return data if isinstance(data, dict) else None
+        except Exception as ex:
+            logging.warning("GuidedConversation: YAML parse failed: %s", ex)
+            return None
 
-        recommendations = response[recommendations_start:recommendations_end].strip()
-        yaml_section = response[yaml_start:yaml_end].strip()
-
-        if len(recommendations) > 0:
-            context.recomendations = recommendations.strip()
-        
-        if len(yaml_section) > 0:
-            context.conversation_state = yaml_section.strip()
-
-        context_mgr.post_context(context)
-
-        context_text = context.context_formated_text2('compact')
-        #message = account_name + " says:" + message
-        response = self.message_processor.process_message(agent_name, account_name, message, conversationId, context_name)
-
-        return response
-
-        
-        
-
-        
- 
+    def _to_fenced_yaml(self, obj) -> str:
+        try:
+            dumped = yaml.safe_dump(obj, sort_keys=False, allow_unicode=True).rstrip()
+        except Exception:
+            dumped = str(obj).rstrip()
+        return f"```yaml\n{dumped}\n```"

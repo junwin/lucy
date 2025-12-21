@@ -6,46 +6,72 @@ import logging
 from subprocess import check_output
 
 
-def get_base_path(config, account_name:str, relative_path: str = '')-> str:
-    relative_path = relative_path.strip()
-    relative_path = relative_path.replace('~', '')   # we allways use the the config to determine the base path
-    config_base_path = config.get('code_sandbox_path')
-    account_base_path = config_base_path + '/' + account_name
+import os
 
-    if relative_path.startswith(account_base_path):
-        relative_path = relative_path[len(account_base_path):]
+def get_base_path(config, account_name: str, relative_path: str = "") -> str:
+    relative_path = (relative_path or "").strip()
 
-    base_path = account_base_path +  '/' + relative_path + '/'
-    base_path = base_path.replace('//', '/')
-    return base_path
+    # treat "~" or "~/" as "no extra path"
+    if relative_path == "~" or relative_path.startswith("~/") or relative_path.startswith("~\\"):
+        relative_path = relative_path[1:]  # drop the "~"
+        relative_path = relative_path.lstrip("/\\")  # drop following slash if present
+
+    # normalize windows-style slashes to current OS style
+    relative_path = relative_path.replace("\\", os.path.sep).replace("/", os.path.sep)
+
+    config_base = config.get("code_sandbox_path")
+    if not config_base:
+        raise ValueError("code_sandbox_path is not configured")
+
+    account_root = os.path.realpath(os.path.join(config_base, account_name))
+
+    # Disallow absolute paths in the *user supplied* part.
+    # (If callers pass an absolute path under account_root, we can optionally support it below.)
+    if os.path.isabs(relative_path):
+        # If you want to allow absolute paths only when already under account_root, do:
+        abs_candidate = os.path.realpath(relative_path)
+        if os.path.commonpath([account_root, abs_candidate]) != account_root:
+            raise ValueError("relative_path must be relative to the account sandbox")
+        resolved = abs_candidate
+    else:
+        resolved = os.path.realpath(os.path.join(account_root, relative_path))
+
+    # Enforce containment
+    if os.path.commonpath([account_root, resolved]) != account_root:
+        raise ValueError("Path traversal outside allowed base path")
+
+    return resolved  # no forced trailing slash
 
 
-
-
-def execute_script(command: str, script_path: str)-> str:
-    # https://docs.python.org/3/library/subprocess.html
-    if not os.path.exists(script_path):
-        result = f"path does not exist {script_path}"
-        return result
+def execute_script(command: str, working_dir: str) -> str:
+    if not os.path.isdir(working_dir):
+        return f"working dir does not exist: {working_dir}"
 
     try:
-        #command = command.replace('\', '/')
-        split_command = shlex.split(command)
-        #aa = subprocess.Popen('dir ', shell=True, cwd=script_path)
-        result = subprocess.run(split_command, shell=False, cwd=script_path, capture_output=True, text=True, timeout=30)
+        # Split command in an OS-appropriate way
+        args = shlex.split(command, posix=(os.name != "nt"))
 
-        #if len(result.stderr) > 0:
-            #   return f"an error ocurred: {result.stderr} {result.stdout}"
-        
-        if(result.returncode != 0):
-            return f"an error ocurred: {result.returncode} {result.stdout}"
-        else:
-            if len(result.stdout) == 0:
-                return "success"
-    
-        return str(result.stdout)
+        result = subprocess.run(
+            args,
+            shell=False,
+            cwd=working_dir,
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
 
+        if result.returncode != 0:
+            return (
+                f"error {result.returncode}\n"
+                f"STDOUT:\n{result.stdout}\n"
+                f"STDERR:\n{result.stderr}"
+            )
+
+        return result.stdout.strip() or "success"
+
+    except subprocess.TimeoutExpired:
+        logging.exception("execute_script timeout")
+        return "error: command timed out"
     except Exception as e:
-        print(f"Error occurred while executing script - possibly a sytax error or file not found: {e}")
-        return f"Error occurred while executing script - possibly a sytax error or file not found: {e}"
-           
+        logging.exception("execute_script failed")
+        return f"error: {e}"

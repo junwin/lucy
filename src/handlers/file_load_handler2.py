@@ -1,15 +1,19 @@
+# /home/junwin/src/repos/lucy/src/handlers/file_load_handler2.py
+
 import os
 import json
 import logging
-from typing import Any, Dict, Tuple
+from typing import Any, Dict, Tuple, Union, List
 
 from src.config_manager import ConfigManager
+from src.chunkers.chuncked_file_processor import ChunkedFileProcessor
+from src.chunkers.text_chunker import TextChunker
 from src.handlers.handler_utils import get_base_path
 from src.handlers.handler_v2 import HandlerV2
 
 
-class FileSaveHandler2(HandlerV2):
-    NAME = "file_save"
+class FileLoadHandler2(HandlerV2):
+    NAME = "file_load"
 
     def __init__(self, config: ConfigManager):
         self.config = config
@@ -24,7 +28,7 @@ class FileSaveHandler2(HandlerV2):
             "type": "function",
             "function": {
                 "name": cls.NAME,
-                "description": "Save code or text into a file under the allowed base folder",
+                "description": "Load a file from a directory relative to the allowed base folder and chunk if needed",
                 "parameters": {
                     "type": "object",
                     "properties": {
@@ -34,19 +38,10 @@ class FileSaveHandler2(HandlerV2):
                         },
                         "file_name": {
                             "type": "string",
-                            "description": "Name of the file to be saved",
-                        },
-                        "file_content": {
-                            "type": "string",
-                            "description": "Content to write to the file",
-                        },
-                        "overwrite": {
-                            "type": "boolean",
-                            "description": "If false, fail when the target file already exists",
-                            "default": True,
+                            "description": "Name of the file to be loaded",
                         },
                     },
-                    "required": ["directory_path", "file_name", "file_content"],
+                    "required": ["directory_path", "file_name"],
                     "additionalProperties": False,
                 },
             },
@@ -54,7 +49,6 @@ class FileSaveHandler2(HandlerV2):
 
     @classmethod
     def result_schema(cls) -> Dict[str, Any]:
-        # Mirrors FileLoadHandler2: require ok + tool; allow additionalProperties
         return {
             "type": "object",
             "properties": {
@@ -63,9 +57,24 @@ class FileSaveHandler2(HandlerV2):
                 "file_name": {"type": "string"},
                 "directory_path": {"type": "string"},
                 "resolved_path": {"type": "string"},
+                "chunked": {"type": "boolean"},
                 "content_type": {"type": "string"},
                 "encoding": {"type": "string"},
-                "result": {"type": "string"},
+                "result": {
+                    "oneOf": [
+                        {"type": "string"},
+                        {
+                            "type": "object",
+                            "properties": {
+                                "chunks": {"type": "array", "items": {"type": "string"}},
+                                "chunk_count": {"type": "integer"},
+                                "chunk_size": {"type": "integer"},
+                            },
+                            "required": ["chunks", "chunk_count", "chunk_size"],
+                            "additionalProperties": False,
+                        },
+                    ]
+                },
                 "error": {"type": "string"},
             },
             "required": ["ok", "tool"],
@@ -75,33 +84,22 @@ class FileSaveHandler2(HandlerV2):
     def execute(self, args: Dict[str, Any], *, account_name: str = "auto") -> Dict[str, Any]:
         directory_path = (args.get("directory_path") or "").strip()
         file_name = (args.get("file_name") or "").strip()
-        file_content = args.get("file_content")
-        overwrite = args.get("overwrite", True)
 
-        if not directory_path or not file_name or file_content is None:
+        if not directory_path or not file_name:
             return {
                 "ok": False,
                 "tool": self.NAME,
-                "error": "directory_path, file_name and file_content are required",
+                "error": "directory_path and file_name are required",
                 "args": {"directory_path": directory_path, "file_name": file_name},
-            }
-
-        if not isinstance(file_content, str):
-            return {
-                "ok": False,
-                "tool": self.NAME,
-                "error": "file_content must be a string",
-                "directory_path": directory_path,
-                "file_name": file_name,
             }
 
         # Resolve to allowed base path
         base_path = get_base_path(self.config, account_name, directory_path)
 
         try:
-            full_path = self._write_file_safe(base_path, file_name, file_content, overwrite=bool(overwrite))
+            content, full_path = self._read_file_safe(base_path, file_name)
         except Exception as e:
-            logging.exception("file_save failed")
+            logging.exception("file_load failed")
             return {
                 "ok": False,
                 "tool": self.NAME,
@@ -111,45 +109,54 @@ class FileSaveHandler2(HandlerV2):
                 "base_path": base_path,
             }
 
+        file_chunk_threshold = int(self.config.get("file_chunk_threshold"))
+        file_chunk_size = int(self.config.get("file_chunk_size"))
+
+        chunked = False
+        result: Union[str, Dict[str, Any]] = content
+
+        if content is not None and len(content) > file_chunk_threshold:
+            chunk_processor = ChunkedFileProcessor()
+            chunker = TextChunker()
+
+            chunked_content = chunk_processor.process_text_data(content, chunker, file_chunk_size)
+            chunked = True
+
+            chunks: List[str]
+            if isinstance(chunked_content, list):
+                chunks = [str(x) for x in chunked_content]
+            elif isinstance(chunked_content, dict) and "chunks" in chunked_content:
+                chunks = [str(x) for x in (chunked_content.get("chunks") or [])]
+            else:
+                chunks = [str(chunked_content)]
+
+            result = {"chunks": chunks, "chunk_count": len(chunks), "chunk_size": file_chunk_size}
+
         return {
             "ok": True,
             "tool": self.NAME,
             "file_name": file_name,
             "directory_path": directory_path,
             "resolved_path": full_path,
+            "chunked": chunked,
             "content_type": "text/plain",
             "encoding": "utf-8",
-            "result": f"success file saved at {full_path}",
+            "result": result,
         }
 
     def execute_as_tool_content(self, args: Dict[str, Any], *, account_name: str = "auto") -> str:
         return json.dumps(self.execute(args, account_name=account_name), ensure_ascii=False)
 
-    def _write_file_safe(self, base_path: str, file_name: str, content: str, overwrite: bool = True) -> str:
-        """
-        Writes file_name inside base_path safely.
-        Mirrors FileLoadHandler2 path rules.
-        """
+    def _read_file_safe(self, base_path: str, file_name: str) -> Tuple[str, str]:
         base_abs = os.path.abspath(base_path)
 
-        # Mirror FileLoadHandler2: file_name must be a bare filename (no separators)
         if os.path.sep in file_name or (os.path.altsep and os.path.altsep in file_name):
             raise ValueError("file_name must not contain path separators")
 
         full_path = os.path.abspath(os.path.join(base_abs, file_name))
 
-        # Ensure full path is within base path
         if not (full_path == base_abs or full_path.startswith(base_abs + os.path.sep)):
             raise ValueError("File access outside allowed base path")
 
-        # Ensure directory exists
-        os.makedirs(base_abs, exist_ok=True)
-
-        # Overwrite protection
-        if not overwrite and os.path.exists(full_path):
-            raise FileExistsError("Target file already exists and overwrite=false")
-
-        with open(full_path, "w", encoding="utf-8") as f:
-            f.write(content)
-
-        return full_path
+        with open(full_path, "r", encoding="utf-8") as f:
+            return f.read(), full_path

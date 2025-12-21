@@ -1,6 +1,5 @@
 import logging
 import argparse
-from src.message_processors.message_processor import MessageProcessor
 from src.message_processors.function_calling_processor import FunctionCallingProcessor
 from injector import Injector
 from src.container_config import container
@@ -40,10 +39,7 @@ def ask(question: str, agentName: str, accountName: str) -> str:
     my_agent = agent_manager.get_agent(agentName)
     select_type = my_agent['select_type']
 
-    if 'message_processor' in my_agent and my_agent['message_processor'] == 'function_calling_processor':
-        processor = FunctionCallingProcessor()
-    else:
-        processor = MessageProcessor()
+    processor = FunctionCallingProcessor()
 
     processor.context_type = select_type
     response = processor.process_message(agentName, accountName, question, conversationId)

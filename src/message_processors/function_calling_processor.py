@@ -1,107 +1,159 @@
-import logging
-import re
 import json
-from injector import Injector
+import logging
+from typing import List, Optional, Dict, Any
 
 from src.container_config import container
-from src.config_manager import ConfigManager
-from src.response_handler import FileResponseHandler
-from src.source_code_response_handler import SourceCodeResponseHandler
 from src.agent_manager import AgentManager
-from src.message_processors.message_preProcess import MessagePreProcess
-from src.api_helpers import ask_question, get_completion, get_completionWithFunctions
-from src.message_processors.message_processor_interface import MessageProcessorInterface
-
+from src.config_manager import ConfigManager
 from src.prompt_builders.prompt_builder import PromptBuilder
-# from src.completion.completion_manager import CompletionManager
-from src.completion.completion_store import CompletionStore
-from src.handlers.quokka_loki import QuokkaLoki
-from src.handlers.task_update_handler import TaskUpdateHandler
-from src.handlers.file_save_handler import FileSaveHandler
-from src.handlers.command_execution_handler import CommandExecutionHandler
-from src.handlers.user_action_required_handler import UserActionRequiredHandler
-from src.handlers.file_load_handler import FileLoadHandler
-from src.handlers.web_search_handler import WebSearchHandler
-from src.handlers.scrape_web_page_handler import ScrapeWebPage
-
-from src.message_processors.message_processor_utils import setup_action_dict, post_process_quokka_loki_action_dict, update_context_text_result
+from src.message_processors.message_processor_interface import MessageProcessorInterface
+from src.api_helpers import openai_call, ToolResult
+from src.handlers.handler_registry import HandlerRegistry
+from src.storage.base import Storage
+from src.storage.models import ChatMessage
 
 
 class FunctionCallingProcessor(MessageProcessorInterface):
     def __init__(self):
-        # self.name = name
-        agent_manager = container.get(AgentManager)
         self.config = container.get(ConfigManager)
-        prompt_base_path = self.config.get('prompt_base_path')
-        self.seed_conversations = []
-        self.handler = QuokkaLoki()
-        # self.node_manager = container.get(NodeManager)
-        # task_update_handler = TaskUpdateHandler(self.node_manager)
-        file_save_handler = FileSaveHandler()
-        command_execution_handler = CommandExecutionHandler()
-        user_action_required_handler = UserActionRequiredHandler()
-        file_load_handler = FileLoadHandler()
-        self.handler.add_handler(file_save_handler)
-        self.handler.add_handler(command_execution_handler)
-        # self.handler.add_handler(user_action_required_handler)
-        self.handler.add_handler(file_load_handler)
-        # self.handler.add_handler(task_update_handler)
-        web_search_handler = WebSearchHandler()
-        self.handler.add_handler(web_search_handler)
-        scrape_web_page_handler = ScrapeWebPage()
-        self.handler.add_handler(scrape_web_page_handler)
+        self.registry = container.get(HandlerRegistry)
 
+    def _safe_json_loads(self, s: str) -> Dict[str, Any]:
+        if not s:
+            return {}
+        try:
+            return json.loads(s)
+        except Exception:
+            logging.warning(
+                "Tool arguments were not valid JSON; using empty dict. args=%r",
+                (s or "")[:500],
+            )
+            return {}
 
+    def _tool_result_to_text(self, tool_result: Any) -> str:
+        """Tool message content MUST be a string. Handlers return a dict; we serialize here."""
+        if tool_result is None:
+            return json.dumps(
+                {"ok": False, "error": "Tool returned None"},
+                ensure_ascii=False,
+            )
+        if isinstance(tool_result, str):
+            return tool_result
+        try:
+            return json.dumps(tool_result, ensure_ascii=False)
+        except Exception as e:
+            return json.dumps(
+                {
+                    "ok": False,
+                    "error": f"Tool result not JSON serializable: {e}",
+                },
+                ensure_ascii=False,
+            )
 
-    def process_message(self, agent_name: str, account_name: str, message: str, conversationId="0", context_name='', second_agent_name='') -> str:
-        logging.info(f'Function Calling Processing message inbound: {message}')
-        response_text = ""
+    def process_message(
+        self,
+        agent_name: str,
+        account_name: str,
+        message: str,
+        conversationId: str = "0",
+        context_name: str = "",
+        second_agent_name: str = "",
+        extra_system_messages: Optional[List[str]] = None,
+    ) -> str:
+        """Process a message using function calling.
+
+        extra_system_messages:
+            Optional list of strings to be injected as additional system messages
+            (after the agent's primary system prompt, before history/context).
+        """
+        logging.info("FunctionCallingProcessor inbound message: %s", message)
+
         agent_manager = container.get(AgentManager)
         agent = agent_manager.get_agent(agent_name)
-        model = agent["model"]
-        temperature = agent["temperature"]
-        context_type = agent["select_type"]
+
+        model = agent.get("model")
+        temperature = agent.get("temperature", 0)
+        context_type = agent.get("select_type", "hybrid")
 
         prompt_builder = PromptBuilder()
         completion_messages = prompt_builder.build_prompt(
-            message,
-            conversationId,
-            agent_name,
-            account_name,
-            context_type,
-            6000,
-            20,
-            context_name,
+            content_text=message,
+            conversationId=conversationId,
+            agent_name=agent_name,
+            account_name=account_name,
+            context_type=context_type,
+            max_prompt_chars=6000,
+            max_prompt_conversations=20,
+            context_name=context_name,
+            extra_system_messages=extra_system_messages or [],
         )
 
-        function_calling_definition = self.handler.get_function_calling_definition()
+        # Tools list comes from the registry
+        function_defs = self.registry.tools()
 
         max_iterations = 5
-        response_message = {"content": ""}  # fallback default
+        response_text = ""
+
+        # Note: key name is "save_reposnses" in config; keep as-is for compatibility.
+        store_this_call = bool(agent.get("save_reposnses", False))
 
         for _ in range(max_iterations):
-            # Call OpenAI with tools
-            response_message = get_completionWithFunctions(
-                completion_messages,
-                function_calling_definition,
-                temperature,
-                model,
+            result = openai_call(
+                messages=completion_messages,
+                functions=function_defs,
+                temperature=temperature,
+                model=model,
+                store=store_this_call,
+                conversation_id=conversationId,
+                session_id=context_name or None,
             )
 
-            # Did the model request a function/tool?
-            if response_message.get("function_call"):
-                # Extract params
-                action_dict = setup_action_dict(response_message)
+            # Tool call?
+            if isinstance(result, ToolResult) and result.tool_calls:
+                if len(result.tool_calls) > 1:
+                    logging.warning(
+                        "Model returned %d tool_calls; only first will be used.",
+                        len(result.tool_calls),
+                    )
 
-                # Execute our local handler(s)
-                tool_result_text = post_process_quokka_loki_action_dict(
-                    action_dict, account_name, context_name
-                )
+                tc0 = result.tool_calls[0]
+                tool_call_id = tc0.get("id") or "tool_call_1"
+                tool_name = tc0.get("name") or ""
+                tool_args_raw = tc0.get("arguments") or "{}"
+                tool_args = self._safe_json_loads(tool_args_raw)
 
-                # Wire up tool calling messages in the new format
-                tool_call_id = response_message.get("tool_call_id", "tool_call_1")
+                # Execute via registry
+                try:
+                    handler = self.registry.create(tool_name, config=self.config)
+                except KeyError:
+                    tool_result_text = self._tool_result_to_text(
+                        {
+                            "ok": False,
+                            "tool": tool_name,
+                            "error": f"Unknown tool: {tool_name}",
+                        }
+                    )
+                else:
+                    try:
+                        tool_result = handler.execute(
+                            tool_args,
+                            account_name=account_name,
+                        )
+                        tool_result_text = self._tool_result_to_text(tool_result)
+                    except Exception as e:
+                        logging.exception(
+                            "Tool execution failed: %s",
+                            tool_name,
+                        )
+                        tool_result_text = self._tool_result_to_text(
+                            {
+                                "ok": False,
+                                "tool": tool_name,
+                                "error": f"{type(e).__name__}: {e}",
+                            }
+                        )
 
-                # 1) assistant message with tool_calls
+                # Append tool call message (assistant)
                 completion_messages.append(
                     {
                         "role": "assistant",
@@ -111,15 +163,15 @@ class FunctionCallingProcessor(MessageProcessorInterface):
                                 "id": tool_call_id,
                                 "type": "function",
                                 "function": {
-                                    "name": action_dict["action_name"],
-                                    "arguments": response_message["function_call"]["arguments"],
+                                    "name": tool_name,
+                                    "arguments": tool_args_raw,
                                 },
                             }
                         ],
                     }
                 )
 
-                # 2) tool message with the result
+                # Append tool result message (tool)
                 completion_messages.append(
                     {
                         "role": "tool",
@@ -128,30 +180,34 @@ class FunctionCallingProcessor(MessageProcessorInterface):
                     }
                 )
 
-                # Loop again so the model can see the tool result
                 continue
 
-            else:
-                # No more tool calls – we have the final assistant answer
-                response_text = response_message.get("content", "")
-                update_context_text_result(context_name, response_text, account_name)
-                break
+            # Final answer
+            response_text = (getattr(result, "content", "") or "").strip()
+            break
 
-        # Save conversation to completion store if configured
-        if agent.get('save_reposnses', False):
-            if not self.is_none_or_empty(response_text):
-                completion_manager_store = container.get(CompletionStore)
-                account_completion_manager = completion_manager_store.get_completion_manager(
-                    agent_name, account_name, agent['language_code'][:2]
-                )
-                account_completion_manager.create_store_completion(
-                    conversationId, message, response_text
-                )
-                account_completion_manager.save()
+        # Save conversation in Storage if enabled
+        if agent.get("save_reposnses", False) and response_text.strip():
+            storage = container.get(Storage)
+
+            # Persist user request
+            storage.append_chat_message(
+                conversationId,
+                ChatMessage(
+                    role="user",
+                    content=message,
+                    metadata={"agent": agent_name},
+                ),
+            )
+
+            # Persist assistant response
+            storage.append_chat_message(
+                conversationId,
+                ChatMessage(
+                    role="assistant",
+                    content=response_text,
+                    metadata={"agent": agent_name},
+                ),
+            )
 
         return response_text
-
-    
- 
-    def is_none_or_empty(self, string):
-        return string is None or string.strip() == ""
