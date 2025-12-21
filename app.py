@@ -1,14 +1,9 @@
-from flask import Flask, request, jsonify, send_from_directory
+from flask import Flask, request, jsonify
 from flask_swagger_ui import get_swaggerui_blueprint
-from flask_swagger import swagger
 
 from flask_cors import CORS
 import ssl
-import json
-from typing import Set
 import logging
-from injector import Injector
-from datetime import datetime
 from src.storage.base import Storage
 from src.storage.json_file_storage import JsonFileStorage
 from src.storage.models import ChatMessage
@@ -22,11 +17,6 @@ from src.config_manager import ConfigManager
 
 from src.prompt_builders.prompt_builder import PromptBuilder
 from src.message_processors.function_calling_processor import FunctionCallingProcessor
-from src.completion.completion_store import CompletionStore
-from src.completion.completion_manager import CompletionManager
-from src.completion.completion import Completion
-
-
 
 
 app = Flask(__name__)
@@ -44,8 +34,6 @@ swaggerui_blueprint = get_swaggerui_blueprint(
 app.register_blueprint(swaggerui_blueprint, url_prefix=config.get("swagger_url", "/api/docs"))
 
 
-
-
 # Set up Swagger UI
 SWAGGER_URL = '/api/docs'
 API_URL = '/static/swagger.json'
@@ -55,15 +43,12 @@ prompt_base_path = config.get("prompt_base_path", "data/prompts")
 agents_path = config.get("agents_path", "static/data/agents.json")
 preset_path = config.get("preset_path", "static/data/presets.json")
 
-storage = container.get(Storage) 
+storage = container.get(Storage)
 
 
 # Configure logging
 logging.basicConfig(filename='logs/my_log_file.log', level=logging.INFO,
                     format='%(asctime)s - %(levelname)s - %(message)s')
-
-
-
 
 
 handler = FileResponseHandler(config.get("account_output_path"), 1000)
@@ -115,18 +100,15 @@ def ask():
     return jsonify({"response": response})
 
 
-
 @app.route('/agents', methods=['GET'])
 def get_agents():
-    try: 
+    try:
         my_list = agent_manager.get_available_agents()
-        zz = jsonify(my_list)
         return jsonify(my_list)
     except Exception as e:
-            # log the exception or print the error message
-            print(f"An error occurred: {e}")
+        # log the exception or print the error message
+        print(f"An error occurred: {e}")
     return []
-   
 
 
 @app.route('/prompt_builder', methods=['POST'])
@@ -170,7 +152,6 @@ def build_prompt():
     )
 
     return jsonify(prompt)
-
 
 
 @app.route('/chats', methods=['POST'])
@@ -243,6 +224,8 @@ def get_chats():
         }
         for s in sessions
     ])
+
+
 @app.route('/chats/<session_id>', methods=['GET'])
 def get_chat(session_id: str):
     session = storage.get_chat_session(session_id)
@@ -272,6 +255,7 @@ def get_chat(session_id: str):
         ],
     })
 
+
 @app.route('/chats/<session_id>/messages', methods=['POST'])
 def post_chat_message(session_id: str):
     data = request.get_json() or {}
@@ -294,158 +278,57 @@ def post_chat_message(session_id: str):
 
 @app.route('/completions', methods=['POST'])
 def post_completions():
-    agentName = request.json.get('agentName', '').lower()
-    accountName = request.json.get('accountName', '').lower()
-    conversationId = request.json.get('conversationId', '')
-    prompt = request.get_json()
-
-    if not agentName or not accountName or not conversationId:
-        return jsonify({"error": "Missing agentName, accountName, conversationId"}), 400
-
-    if not agent_manager.is_valid(agentName):
-        return jsonify({"error": "Invalid agentName"}), 400
-
-    agent = agent_manager.get_agent(agentName)
-    completion_manager = get_completion_manager(agentName, accountName)
-    completion = Completion.from_dict(prompt) 
-    success = completion_manager.store_completion(completion)
-
-    # add the new prompt to the prompt manager check the bool success to see if it was added
-
-
-    if not success:
-        return jsonify({"error": "Failed to store the new prompt"}), 400
-
-    # Save the new prompt
-    completion_manager.save()
-
-    # Return the newly created prompt
-    return jsonify(prompt)
+    return jsonify({
+        "error": "This endpoint is no longer supported; use /chats instead.",
+        "deprecated": True,
+        "replacement": "/chats"
+    }), 410
 
 
 @app.route('/completions', methods=['PUT'])
 def put_completions():
-    agentName = request.args.get('agentName', '').lower()
-    accountName = request.args.get('accountName', '').lower()
-    prompt_id = request.args.get('id', '')
-    data = request.get_json()
-
-    # json_string = request.get_data(as_text=True)
-    # data2 = json.loads(json_string)
-
-    if not agentName or not accountName or not prompt_id or not data:
-        return jsonify({"error": "Missing agentName, accountName, or data"}), 400
-
-    if not agent_manager.is_valid(agentName):
-        return jsonify({"error": "Invalid agentName"}), 400
-
-    agent = agent_manager.get_agent(agentName)
-    completion_manager = get_completion_manager(agentName, accountName)
-    completion = Completion.from_dict(data) 
-    success = completion_manager.update_completion(prompt_id, completion)
-
-    if success:
-        completion_manager.save()
-        return jsonify(data)
-
-    return jsonify({"status": "fail", "message": "Prompt failed to update"})
+    return jsonify({
+        "error": "This endpoint is no longer supported; use /chats instead.",
+        "deprecated": True,
+        "replacement": "/chats"
+    }), 410
 
 
 @app.route('/completions', methods=['DELETE'])
 def delete_completions():
-    agentName = request.args.get('agentName', '').lower()
-    accountName = request.args.get('accountName', '').lower()
-    prompt_id = request.args.get('id', '')
-
-    if not agentName or not accountName or not prompt_id:
-        return jsonify({"error": "Missing agentName, accountName, or id"}), 400
-
-    if not agent_manager.is_valid(agentName):
-        return jsonify({"error": "Invalid agentName"}), 400
-
-    agent = agent_manager.get_agent(agentName)
-    completion_manager = get_completion_manager(agentName, accountName)
-    success = completion_manager.delete_completion(prompt_id)
-
-
-    if success:
-        completion_manager.save()
-        return jsonify({"status": "success", "message": "Prompt successfully deleted"})
-
-    return jsonify({"status": "fail", "message": "Prompt failed to deleted"})
+    return jsonify({
+        "error": "This endpoint is no longer supported; use /chats instead.",
+        "deprecated": True,
+        "replacement": "/chats"
+    }), 410
 
 
 @app.route('/completions', methods=['GET'])
 def get_completions():
-    agentName = request.args.get('agentName', '').lower()
-    accountName = request.args.get('accountName', '').lower()
-    conversationId = request.args.get('conversationId', '')
-
-    if not agentName or not accountName or not conversationId:
-        return jsonify({"error": "Missing agentName, accountName, or conversationId"}), 400
-
-    if not agent_manager.is_valid(agentName):
-        return jsonify({"error": "Invalid agentName"}), 400
-
-    agent = agent_manager.get_agent(agentName)
-    completion_manager = get_completion_manager(agentName, accountName)
-
-    ids = completion_manager.get_Ids_with_conversation_id(conversationId) 
-    prompts = completion_manager.get_completion_byId(ids)
-    my_completions = []
-    for completion in prompts:  
-        my_completions.append(completion.as_dict())
-
-
-    return jsonify(my_completions)
-
-
+    return jsonify({
+        "error": "This endpoint is no longer supported; use /chats instead.",
+        "deprecated": True,
+        "replacement": "/chats"
+    }), 410
 
 
 @app.route('/conversationIds', methods=['GET'])
 def get_conversation_ids():
-    agentName = request.args.get('agentName', '').lower()
-    accountName = request.args.get('accountName', '').lower()
-    conversationId = request.args.get('conversationId', '')
-
-    if not agentName or not accountName:
-        return jsonify({"error": "Missing agentName, accountName"}), 400
-
-    if not agent_manager.is_valid(agentName):
-        return jsonify({"error": "Invalid agentName"}), 400
-
-    agent = agent_manager.get_agent(agentName)
-
-    completion_manager = get_completion_manager(agentName, accountName)
-    # prompt_manager.load()
-    conversation_ids = completion_manager.get_distinct_conversation_ids()
-    return jsonify(conversation_ids)
+    return jsonify({
+        "error": "This endpoint is no longer supported; use /chats instead.",
+        "deprecated": True,
+        "replacement": "/chats"
+    }), 410
 
 
 @app.route('/conversationIds', methods=['PUT'])
 def change_conversation_id():
-    agentName = request.args.get('agentName', '').lower()
-    accountName = request.args.get('accountName', '').lower()
-    existingId = request.args.get('existingId', '')
-    newId = request.args.get('newId', '')
+    return jsonify({
+        "error": "This endpoint is no longer supported; use /chats instead.",
+        "deprecated": True,
+        "replacement": "/chats"
+    }), 410
 
-    if not agentName or not accountName or not existingId or not newId:
-        return jsonify({"error": "Missing agentName, accountName, existingId, or newId"}), 400
-    
-    if not agent_manager.is_valid(agentName):
-        return jsonify({"error": "Invalid agentName"}), 400
-
-    agent = agent_manager.get_agent(agentName)
-
-    completion_manager = get_completion_manager(agentName, accountName)
-    completion_manager.change_conversation_id(existingId, newId)
-    completion_manager.save()
-    return jsonify({"message": "Conversation ID changed successfully"})
-
-def get_completion_manager(agent_name, account_name):
-    completion_store = container.get(CompletionStore)
-    completion_manager = completion_store.get_completion_manager(agent_name, account_name)
-    return completion_manager
 
 def get_complete_path(base_path, agent_name, account_name):
     full_path = base_path + '/' + agent_name + '_' + account_name
@@ -455,7 +338,6 @@ def get_complete_path(base_path, agent_name, account_name):
 def get_processor_name(agent_name, account_name):
     processor_name = agent_name + '_' + account_name
     return processor_name
-
 
 
 if __name__ == "__main__":
