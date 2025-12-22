@@ -21,5 +21,6 @@
     "file_chunk_size": 16000,
     "context_base_path": "data/context",
     "credential_path": "/home/junwin/credential",
-    "elapsed_new_session_seconds": 600
+    "elapsed_new_session_seconds": 600,
+    "max_tool_result_chars": 20000
 }

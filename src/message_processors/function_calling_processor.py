@@ -13,6 +13,10 @@ from src.storage.base import Storage
 from src.storage.models import ChatMessage
 
 
+class ToolResultTooLargeError(Exception):
+    """Raised when a tool result exceeds the configured max_tool_result_chars."""
+
+
 class FunctionCallingProcessor(MessageProcessorInterface):
     def __init__(self):
         self.config = container.get(ConfigManager)
@@ -31,24 +35,45 @@ class FunctionCallingProcessor(MessageProcessorInterface):
             return {}
 
     def _tool_result_to_text(self, tool_result: Any) -> str:
-        """Tool message content MUST be a string. Handlers return a dict; we serialize here."""
+        """Tool message content MUST be a string. Handlers return a dict; we serialize here.
+
+        Also enforces a maximum size based on config["max_tool_result_chars"].
+        """
+        # Serialize first
         if tool_result is None:
-            return json.dumps(
+            s = json.dumps(
                 {"ok": False, "error": "Tool returned None"},
                 ensure_ascii=False,
             )
-        if isinstance(tool_result, str):
-            return tool_result
-        try:
-            return json.dumps(tool_result, ensure_ascii=False)
-        except Exception as e:
-            return json.dumps(
-                {
-                    "ok": False,
-                    "error": f"Tool result not JSON serializable: {e}",
-                },
-                ensure_ascii=False,
+        elif isinstance(tool_result, str):
+            s = tool_result
+        else:
+            try:
+                s = json.dumps(tool_result, ensure_ascii=False)
+            except Exception as e:
+                s = json.dumps(
+                    {
+                        "ok": False,
+                        "error": f"Tool result not JSON serializable: {e}",
+                    },
+                    ensure_ascii=False,
+                )
+
+        # Enforce size limit from config (fallback to 20000 if missing)
+        max_chars = int(self.config.get("max_tool_result_chars", 20000))
+        if len(s) > max_chars:
+            # Log a small sample of the oversized output for debugging
+            logging.error(
+                "Tool result too large: %d chars (limit %d). Sample: %r",
+                len(s),
+                max_chars,
+                s[:1000],
             )
+            raise ToolResultTooLargeError(
+                f"Tool result too large: {len(s)} chars (limit {max_chars})"
+            )
+
+        return s
 
     def process_message(
         self,
@@ -140,6 +165,18 @@ class FunctionCallingProcessor(MessageProcessorInterface):
                             account_name=account_name,
                         )
                         tool_result_text = self._tool_result_to_text(tool_result)
+                    except ToolResultTooLargeError as e:
+                        logging.exception(
+                            "Tool result exceeded size limit: %s", tool_name
+                        )
+                        # Send a small structured error back to the model
+                        tool_result_text = self._tool_result_to_text(
+                            {
+                                "ok": False,
+                                "tool": tool_name,
+                                "error": str(e),
+                            }
+                        )
                     except Exception as e:
                         logging.exception(
                             "Tool execution failed: %s",
