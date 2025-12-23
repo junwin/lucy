@@ -135,87 +135,94 @@ class FunctionCallingProcessor(MessageProcessorInterface):
 
             # Tool call?
             if isinstance(result, ToolResult) and result.tool_calls:
-                if len(result.tool_calls) > 1:
+                tool_call_count = len(result.tool_calls)
+                if tool_call_count > 1:
+                    logging.info(
+                        "Model returned %d tool_calls; executing all sequentially.",
+                        tool_call_count,
+                    )
+                if tool_call_count > 10:
                     logging.warning(
-                        "Model returned %d tool_calls; only first will be used.",
-                        len(result.tool_calls),
+                        "Model returned %d tool_calls in a single response; this may indicate unexpected behavior.",
+                        tool_call_count,
                     )
 
-                tc0 = result.tool_calls[0]
-                tool_call_id = tc0.get("id") or "tool_call_1"
-                tool_name = tc0.get("name") or ""
-                tool_args_raw = tc0.get("arguments") or "{}"
-                tool_args = self._safe_json_loads(tool_args_raw)
+                # Process each tool call in order
+                for idx, tc in enumerate(result.tool_calls):
+                    tool_call_id = tc.get("id") or f"tool_call_{idx+1}"
+                    tool_name = tc.get("name") or ""
+                    tool_args_raw = tc.get("arguments") or "{}"
+                    tool_args = self._safe_json_loads(tool_args_raw)
 
-                # Execute via registry
-                try:
-                    handler = self.registry.create(tool_name, config=self.config)
-                except KeyError:
-                    tool_result_text = self._tool_result_to_text(
+                    # Execute via registry
+                    try:
+                        handler = self.registry.create(tool_name, config=self.config)
+                    except KeyError:
+                        tool_result_text = self._tool_result_to_text(
+                            {
+                                "ok": False,
+                                "tool": tool_name,
+                                "error": f"Unknown tool: {tool_name}",
+                            }
+                        )
+                    else:
+                        try:
+                            tool_result = handler.execute(
+                                tool_args,
+                                account_name=account_name,
+                            )
+                            tool_result_text = self._tool_result_to_text(tool_result)
+                        except ToolResultTooLargeError as e:
+                            logging.exception(
+                                "Tool result exceeded size limit: %s", tool_name
+                            )
+                            # Send a small structured error back to the model
+                            tool_result_text = self._tool_result_to_text(
+                                {
+                                    "ok": False,
+                                    "tool": tool_name,
+                                    "error": str(e),
+                                }
+                            )
+                        except Exception as e:
+                            logging.exception(
+                                "Tool execution failed: %s",
+                                tool_name,
+                            )
+                            tool_result_text = self._tool_result_to_text(
+                                {
+                                    "ok": False,
+                                    "tool": tool_name,
+                                    "error": f"{type(e).__name__}: {e}",
+                                }
+                            )
+
+                    # Append tool call message (assistant)
+                    completion_messages.append(
                         {
-                            "ok": False,
-                            "tool": tool_name,
-                            "error": f"Unknown tool: {tool_name}",
+                            "role": "assistant",
+                            "content": None,
+                            "tool_calls": [
+                                {
+                                    "id": tool_call_id,
+                                    "type": "function",
+                                    "function": {
+                                        "name": tool_name,
+                                        "arguments": tool_args_raw,
+                                    },
+                                }
+                            ],
                         }
                     )
-                else:
-                    try:
-                        tool_result = handler.execute(
-                            tool_args,
-                            account_name=account_name,
-                        )
-                        tool_result_text = self._tool_result_to_text(tool_result)
-                    except ToolResultTooLargeError as e:
-                        logging.exception(
-                            "Tool result exceeded size limit: %s", tool_name
-                        )
-                        # Send a small structured error back to the model
-                        tool_result_text = self._tool_result_to_text(
-                            {
-                                "ok": False,
-                                "tool": tool_name,
-                                "error": str(e),
-                            }
-                        )
-                    except Exception as e:
-                        logging.exception(
-                            "Tool execution failed: %s",
-                            tool_name,
-                        )
-                        tool_result_text = self._tool_result_to_text(
-                            {
-                                "ok": False,
-                                "tool": tool_name,
-                                "error": f"{type(e).__name__}: {e}",
-                            }
-                        )
 
-                # Append tool call message (assistant)
-                completion_messages.append(
-                    {
-                        "role": "assistant",
-                        "content": None,
-                        "tool_calls": [
-                            {
-                                "id": tool_call_id,
-                                "type": "function",
-                                "function": {
-                                    "name": tool_name,
-                                    "arguments": tool_args_raw,
-                                },
-                            }
-                        ],
-                    }
-                )
-
-                # Append tool result message (tool)
-                completion_messages.append(
-                    {
-                        "role": "tool",
-                        "tool_call_id": tool_call_id,
-                        "content": tool_result_text,
-                    }
-                )
+                    # Append tool result message (tool)
+                    completion_messages.append(
+                        {
+                            "role": "tool",
+                            "tool_call_id": tool_call_id,
+                            "content": tool_result_text,
+                        }
+                    )
 
                 continue
 

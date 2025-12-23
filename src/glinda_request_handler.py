@@ -1,6 +1,6 @@
 from src.agent_manager import AgentManager
 
-from src.api_helpers import ask_question
+#from src.api_helpers import ask_question
 from src.container_config import container
 import logging
 
@@ -17,7 +17,8 @@ class GlindaRequestHandler:
         conversation = self.assemble_conversation(my_request, conversationId, "keyword")
  
         # logging.info(f'process_glinda_request: {conversation}')
-        response = ask_question(conversation, agent["model"], agent["temperature"])
+        #response = ask_question(conversation, agent["model"], agent["temperature"])
+        response = "this is a test response"
         # logging.info(f'process_glinda_request: {message}')
 
         new_request = "given that: " + response + " the user original request is: " + message

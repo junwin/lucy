@@ -301,6 +301,21 @@ def post_chat_message(session_id: str):
     return jsonify({"status": "ok"})
 
 
+# New stubs for future chat management
+@app.route("/chats/<session_id>", methods=["DELETE"])
+def delete_chat(session_id: str):
+    """Delete a chat session (stub)."""
+    # TODO: implement deletion in storage
+    return jsonify({"error": "Not implemented"}), 501
+
+
+@app.route("/chats/<session_id>", methods=["PATCH"])
+def update_chat(session_id: str):
+    """Update chat metadata such as friendly_name or tags (stub)."""
+    # TODO: implement update in storage
+    return jsonify({"error": "Not implemented"}), 501
+
+
 # NOTE:
 # /completions and /conversationIds endpoints removed (they are gone).
 # The OpenAPI file was updated accordingly.

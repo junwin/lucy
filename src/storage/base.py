@@ -75,6 +75,16 @@ class Storage(ABC):
         pass
 
     @abstractmethod
+    def delete_chat_session(self, session_id: str) -> None:
+        """Delete a chat session and all its messages.
+
+        Should be idempotent: deleting a non-existent session is allowed
+        and should not raise, unless the implementation wants to signal
+        that explicitly.
+        """
+        pass
+
+    @abstractmethod
     def get_user_profile(self, account_name: str) -> Optional[UserProfile]:
         """Return stored user profile if it exists."""
         pass

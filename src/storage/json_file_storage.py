@@ -351,6 +351,44 @@ class JsonFileStorage(Storage):
 
     # ----------------------------------------------------------------------
 
+    def delete_chat_session(self, session_id: str) -> None:
+        """Delete a chat session and remove it from the per-account index.
+
+        This is best-effort and idempotent: if the session or files are
+        already gone, it will just return.
+        """
+        # First, locate the session to get account_name
+        session = self.get_chat_session(session_id)
+        if not session:
+            # Nothing to do
+            return
+
+        account_name = session.account_name
+        chat_dir = self.base_path / "chats" / account_name
+        chat_path = chat_dir / f"{session_id}.json"
+
+        # Remove the chat file if it exists
+        try:
+            if chat_path.exists():
+                chat_path.unlink()
+        except Exception as e:
+            logging.error("Failed to delete chat file %s: %s", chat_path, e)
+
+        # Update index.json
+        index_path = chat_dir / "index.json"
+        index = self._load_json(index_path) or {}
+
+        if session_id in index:
+            index.pop(session_id, None)
+            try:
+                # If index becomes empty, you can either keep an empty file
+                # or delete it. We'll keep an empty file for now.
+                self._atomic_write(index_path, index)
+            except Exception as e:
+                logging.error("Failed to update chat index %s: %s", index_path, e)
+
+    # ----------------------------------------------------------------------
+
     def _chat_dict_to_session(self, data: Dict[str, Any]) -> ChatSession:
         """Convert stored JSON dict → ChatSession dataclass."""
 

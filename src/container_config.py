@@ -7,7 +7,7 @@ from src.config_manager import ConfigManager
 from src.agent_manager import AgentManager
 from src.response_handler import FileResponseHandler
 from src.source_code_response_handler import SourceCodeResponseHandler
-from src.completion.completion_store import CompletionStore
+
 from src.node_manager import NodeManager
 
 from src.storage.base import Storage
@@ -59,13 +59,6 @@ class HandlerRegistryModule(Module):
         return build_registry()
 
 
-class CompletionStoreModule(Module):
-    @provider
-    @singleton
-    @inject
-    def provide_completion_store(self, storage: Storage) -> CompletionStore:
-        return CompletionStore(storage)
-
 
 class NodeManagerModule(Module):
     @provider
@@ -96,7 +89,6 @@ def configure_container():
             SourceCodeResponseHandlerModule(),
             ConfigManagerModule(),
             StorageModule(),
-            CompletionStoreModule(),
             NodeManagerModule(),
             HandlerRegistryModule()
         ]

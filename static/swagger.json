@@ -342,6 +342,57 @@
             "description": "Chat not found"
           }
         }
+      },
+      "delete": {
+        "summary": "Delete a chat session (stub)",
+        "parameters": [
+          {
+            "name": "session_id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "501": {
+            "description": "Not implemented"
+          }
+        }
+      },
+      "patch": {
+        "summary": "Update chat metadata such as friendly_name or tags (stub)",
+        "parameters": [
+          {
+            "name": "session_id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "friendlyName": { "type": "string" },
+                  "tags": {
+                    "type": "array",
+                    "items": { "type": "string" }
+                  },
+                  "include_in_context": { "type": "boolean" },
+                  "metadata": { "type": "object" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "501": {
+            "description": "Not implemented"
+          }
+        }
       }
     },
 
