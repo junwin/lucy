@@ -2,80 +2,9 @@
   "openapi": "3.0.0",
   "info": {
     "title": "Lucy API",
-    "version": "1.1.0"
+    "version": "1.2.0"
   },
   "paths": {
-    "/conversationIds": {
-      "get": {
-        "summary": "Get a list of conversation IDs",
-        "parameters": [
-          {
-            "name": "agentName",
-            "in": "query",
-            "required": true,
-            "schema": { "type": "string" }
-          },
-          {
-            "name": "accountName",
-            "in": "query",
-            "required": true,
-            "schema": { "type": "string" }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "A list of conversation IDs",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "array",
-                  "items": { "type": "string" }
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Bad request (missing agentName or accountName)"
-          }
-        }
-      },
-      "put": {
-        "summary": "Rename conversationId",
-        "parameters": [
-          {
-            "name": "agentName",
-            "in": "query",
-            "required": true,
-            "schema": { "type": "string" }
-          },
-          {
-            "name": "accountName",
-            "in": "query",
-            "required": true,
-            "schema": { "type": "string" }
-          },
-          {
-            "name": "existingId",
-            "in": "query",
-            "required": true,
-            "schema": { "type": "string" }
-          },
-          {
-            "name": "newId",
-            "in": "query",
-            "required": true,
-            "schema": { "type": "string" }
-          }
-        ],
-        "responses": {
-          "200": { "description": "OK" },
-          "400": {
-            "description": "Bad request (missing existingId or newId)"
-          }
-        }
-      }
-    },
-
     "/prompt_builder": {
       "post": {
         "summary": "Get the prompt that would be used given an agentName, accountName, selectType and query text",
@@ -211,6 +140,257 @@
                 }
               }
             }
+          }
+        }
+      }
+    },
+
+    "/chats": {
+      "post": {
+        "summary": "Create a new chat session",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "agentName": { "type": "string" },
+                  "accountName": { "type": "string" },
+                  "friendlyName": { "type": "string" },
+                  "tags": {
+                    "type": "array",
+                    "items": { "type": "string" }
+                  }
+                },
+                "required": ["agentName", "accountName"]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The created chat session",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "id": { "type": "string" },
+                    "account_name": { "type": "string" },
+                    "agent_name": { "type": "string" },
+                    "friendly_name": { "type": "string" },
+                    "created_at": { "type": "string", "format": "date-time" },
+                    "updated_at": { "type": "string", "format": "date-time" },
+                    "tags": {
+                      "type": "array",
+                      "items": { "type": "string" }
+                    },
+                    "summary": { "type": "string" },
+                    "importance_score": { "type": "number" },
+                    "include_in_context": { "type": "boolean" },
+                    "metadata": { "type": "object" },
+                    "messages": {
+                      "type": "array",
+                      "items": { "type": "object" }
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "account_name",
+                    "agent_name",
+                    "created_at",
+                    "updated_at"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request (missing agentName or accountName)"
+          }
+        }
+      },
+      "get": {
+        "summary": "List chat sessions",
+        "parameters": [
+          {
+            "name": "agentName",
+            "in": "query",
+            "required": false,
+            "schema": { "type": "string" }
+          },
+          {
+            "name": "accountName",
+            "in": "query",
+            "required": true,
+            "schema": { "type": "string" }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": { "type": "integer", "default": 50 }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "A list of chat sessions",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "id": { "type": "string" },
+                      "account_name": { "type": "string" },
+                      "agent_name": { "type": "string" },
+                      "friendly_name": { "type": "string" },
+                      "created_at": { "type": "string", "format": "date-time" },
+                      "updated_at": { "type": "string", "format": "date-time" },
+                      "tags": {
+                        "type": "array",
+                        "items": { "type": "string" }
+                      },
+                      "summary": { "type": "string" },
+                      "importance_score": { "type": "number" },
+                      "include_in_context": { "type": "boolean" },
+                      "metadata": { "type": "object" },
+                      "message_count": { "type": "integer" }
+                    },
+                    "required": [
+                      "id",
+                      "account_name",
+                      "agent_name",
+                      "created_at",
+                      "updated_at",
+                      "message_count"
+                    ]
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request (missing accountName)"
+          }
+        }
+      }
+    },
+
+    "/chats/{session_id}": {
+      "get": {
+        "summary": "Get a single chat session with messages",
+        "parameters": [
+          {
+            "name": "session_id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The chat session",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "id": { "type": "string" },
+                    "account_name": { "type": "string" },
+                    "agent_name": { "type": "string" },
+                    "friendly_name": { "type": "string" },
+                    "created_at": { "type": "string", "format": "date-time" },
+                    "updated_at": { "type": "string", "format": "date-time" },
+                    "tags": {
+                      "type": "array",
+                      "items": { "type": "string" }
+                    },
+                    "summary": { "type": "string" },
+                    "importance_score": { "type": "number" },
+                    "include_in_context": { "type": "boolean" },
+                    "metadata": { "type": "object" },
+                    "messages": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "role": { "type": "string" },
+                          "content": { "type": "string" },
+                          "utc_timestamp": { "type": "string", "format": "date-time" },
+                          "metadata": { "type": "object" }
+                        },
+                        "required": ["role", "content"]
+                      }
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "account_name",
+                    "agent_name",
+                    "created_at",
+                    "updated_at",
+                    "messages"
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Chat not found"
+          }
+        }
+      }
+    },
+
+    "/chats/{session_id}/messages": {
+      "post": {
+        "summary": "Append a message to a chat session",
+        "parameters": [
+          {
+            "name": "session_id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "role": { "type": "string" },
+                  "content": { "type": "string" },
+                  "metadata": { "type": "object" }
+                },
+                "required": ["role", "content"]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Message appended",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "status": { "type": "string" }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request (missing role or content)"
+          },
+          "404": {
+            "description": "Chat not found"
           }
         }
       }
