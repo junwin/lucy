@@ -13,17 +13,13 @@
             "name": "agentName",
             "in": "query",
             "required": true,
-            "schema": {
-              "type": "string"
-            }
+            "schema": { "type": "string" }
           },
           {
             "name": "accountName",
             "in": "query",
             "required": true,
-            "schema": {
-              "type": "string"
-            }
+            "schema": { "type": "string" }
           }
         ],
         "responses": {
@@ -33,9 +29,7 @@
               "application/json": {
                 "schema": {
                   "type": "array",
-                  "items": {
-                    "type": "string"
-                  }
+                  "items": { "type": "string" }
                 }
               }
             }
@@ -46,51 +40,42 @@
         }
       },
       "put": {
-        "description": "Rename conversationId",
+        "summary": "Rename conversationId",
         "parameters": [
           {
             "name": "agentName",
             "in": "query",
             "required": true,
-            "schema": {
-              "type": "string"
-            }
+            "schema": { "type": "string" }
           },
           {
             "name": "accountName",
             "in": "query",
             "required": true,
-            "schema": {
-              "type": "string"
-            }
+            "schema": { "type": "string" }
           },
           {
             "name": "existingId",
             "in": "query",
             "required": true,
-            "schema": {
-              "type": "string"
-            }
+            "schema": { "type": "string" }
           },
           {
             "name": "newId",
             "in": "query",
             "required": true,
-            "schema": {
-              "type": "string"
-            }
+            "schema": { "type": "string" }
           }
         ],
         "responses": {
-          "200": {
-            "description": "OK"
-          },
+          "200": { "description": "OK" },
           "400": {
             "description": "Bad request (missing existingId or newId)"
           }
         }
       }
     },
+
     "/prompt_builder": {
       "post": {
         "summary": "Get the prompt that would be used given an agentName, accountName, selectType and query text",
@@ -101,28 +86,17 @@
               "schema": {
                 "type": "object",
                 "properties": {
-                  "agentName": {
-                    "type": "string"
-                  },
-                  "accountName": {
-                    "type": "string"
-                  },
-                  "selectType": {
-                    "type": "string"
-                  },
-                  "query": {
-                    "type": "string"
-                  },
-                  "conversationId": {
-                    "type": "string"
-                  }
+                  "agentName": { "type": "string" },
+                  "accountName": { "type": "string" },
+                  "selectType": { "type": "string" },
+                  "query": { "type": "string" },
+                  "conversationId": { "type": "string" }
                 },
                 "required": [
                   "agentName",
                   "accountName",
                   "selectType",
-                  "query",
-                  "conversationid"
+                  "query"
                 ]
               }
             }
@@ -138,17 +112,10 @@
                   "items": {
                     "type": "object",
                     "properties": {
-                      "role": {
-                        "type": "string"
-                      },
-                      "content": {
-                        "type": "string"
-                      }
+                      "role": { "type": "string" },
+                      "content": { "type": "string" }
                     },
-                    "required": [
-                      "role",
-                      "content"
-                    ]
+                    "required": ["role", "content"]
                   }
                 }
               }
@@ -160,6 +127,7 @@
         }
       }
     },
+
     "/ask": {
       "post": {
         "summary": "Ask a question",
@@ -170,24 +138,15 @@
               "schema": {
                 "type": "object",
                 "properties": {
-                  "question": {
-                    "type": "string"
-                  },
-                  "agentName": {
-                    "type": "string"
-                  },
-                  "accountName": {
-                    "type": "string"
-                  },
-                  "conversationId": {
-                    "type": "string"
-                  }
+                  "question": { "type": "string" },
+                  "agentName": { "type": "string" },
+                  "accountName": { "type": "string" },
+                  "conversationId": { "type": "string" }
                 },
                 "required": [
                   "question",
                   "agentName",
-                  "accountName",
-                  "conversationId"
+                  "accountName"
                 ]
               }
             }
@@ -201,9 +160,7 @@
                 "schema": {
                   "type": "object",
                   "properties": {
-                    "response": {
-                      "type": "string"
-                    }
+                    "response": { "type": "string" }
                   }
                 }
               }
@@ -215,6 +172,7 @@
         }
       }
     },
+
     "/agents": {
       "get": {
         "summary": "Get a list of agents",
@@ -228,33 +186,20 @@
                   "items": {
                     "type": "object",
                     "properties": {
-                      "agentName": {
-                        "type": "string"
-                      },
+                      "agentName": { "type": "string" },
                       "seed_conversation": {
                         "type": "array",
                         "items": {
                           "type": "object",
                           "properties": {
-                            "role": {
-                              "type": "string"
-                            },
-                            "content": {
-                              "type": "string"
-                            }
+                            "role": { "type": "string" },
+                            "content": { "type": "string" }
                           },
-                          "required": [
-                            "role",
-                            "content"
-                          ]
+                          "required": ["role", "content"]
                         }
                       },
-                      "language_code": {
-                        "type": "string"
-                      },
-                      "select_type": {
-                        "type": "string"
-                      }
+                      "language_code": { "type": "string" },
+                      "select_type": { "type": "string" }
                     },
                     "required": [
                       "agentName",
@@ -268,273 +213,6 @@
             }
           }
         }
-      }
-    },
-    "/completions": {
-      "post": {
-        "summary": "Add a new prompt to the completions database",
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "type": "object",
-                "properties": {
-                  "agentName": {
-                    "type": "string"
-                  },
-                  "accountName": {
-                    "type": "string"
-                  },
-                  "conversationId": {
-                    "type": "string"
-                  }
-                },
-                "required": [
-                  "agentName",
-                  "accountName",
-                  "conversationid"
-                ]
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "A single prompt object",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Completion"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Bad request (missing agentName, accountName)"
-          }
-        }
-      },
-      "get": {
-        "summary": "Get one or more completions",
-        "parameters": [
-          {
-            "name": "agentName",
-            "in": "query",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "accountName",
-            "in": "query",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "conversationId",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "A list of completions objects",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "array",
-                  "items": {
-                    "$ref": "#/components/schemas/Completion"
-                  }
-                }
-              }
-            }
-          }
-        }
-      },
-      "put": {
-        "summary": "Update/replace a completion",
-        "parameters": [
-          {
-            "name": "agentName",
-            "in": "query",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "accountName",
-            "in": "query",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "id",
-            "in": "query",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "type": "object",
-                "properties": {
-                  "id": {
-                    "type": "string"
-                  },
-                  "prompt": {
-                    "$ref": "#/components/schemas/Completion"
-                  }
-                },
-                "required": [
-                  "id",
-                  "prompt"
-                ]
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "Updated prompt object",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Completion"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Bad request (missing accountName or Completion object)"
-          }
-        }
-      },
-      "delete": {
-        "summary": "Delete a completion",
-        "parameters": [
-          {
-            "name": "agentName",
-            "in": "query",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "accountName",
-            "in": "query",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "id",
-            "in": "query",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "completion successfully deleted",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "status": {
-                      "type": "string"
-                    },
-                    "message": {
-                      "type": "string"
-                    }
-                  }
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Bad request (missing accountName or id)"
-          }
-        }
-      }
-    }
-  },
-  "components": {
-    "schemas": {
-      "Completion": {
-        "type": "object",
-        "properties": {
-          "conversation": {
-            "type": "array",
-            "items": {
-              "type": "object",
-              "properties": {
-                "content": {
-                  "type": "string"
-                },
-                "role": {
-                  "type": "string"
-                },
-                "utc_timestamp": {
-                  "type": "string",
-                  "format": "date-time"
-                }
-              },
-              "required": [
-                "content",
-                "role",
-                "utc_timestamp"
-              ]
-            }
-          },
-          "conversationId": {
-            "type": "string"
-          },
-          "id": {
-            "type": "string"
-          },
-          "keywords": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            }
-          },
-          "total_chars": {
-            "type": "integer"
-          },
-          "utc_timestamp": {
-            "type": "string",
-            "format": "date-time"
-          }
-        },
-        "required": [
-          "conversation",
-          "conversationId",
-          "id",
-          "keywords",
-          "total_chars",
-          "utc_timestamp"
-        ]
       }
     }
   }
