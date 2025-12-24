@@ -8,7 +8,6 @@ import os
 from src.storage.base import Storage
 from src.storage.models import ChatMessage
 
-from src.response_handler import FileResponseHandler
 from src.agent_manager import AgentManager
 from src.container_config import container
 from src.config_manager import ConfigManager
@@ -69,7 +68,6 @@ logging.basicConfig(
     format="%(asctime)s - %(levelname)s - %(message)s",
 )
 
-handler = FileResponseHandler(config.get("account_output_path"), 1000)
 
 # Get the AgentManager instance
 agent_manager = container.get(AgentManager)
@@ -304,16 +302,91 @@ def post_chat_message(session_id: str):
 # New stubs for future chat management
 @app.route("/chats/<session_id>", methods=["DELETE"])
 def delete_chat(session_id: str):
-    """Delete a chat session (stub)."""
-    # TODO: implement deletion in storage
-    return jsonify({"error": "Not implemented"}), 501
+    """Delete a chat session."""
+    try:
+        session = storage.get_chat_session(session_id)
+        if not session:
+            return jsonify({"error": "Chat not found"}), 404
+
+        storage.delete_chat_session(session_id)
+        return jsonify({"ok": True}), 200
+    except Exception as e:
+        logging.exception("Failed to delete chat %s", session_id)
+        return jsonify({"ok": False, "error": str(e)}), 500
 
 
 @app.route("/chats/<session_id>", methods=["PATCH"])
 def update_chat(session_id: str):
-    """Update chat metadata such as friendly_name or tags (stub)."""
-    # TODO: implement update in storage
-    return jsonify({"error": "Not implemented"}), 501
+    """Update chat metadata such as friendly_name or tags."""
+    payload = request.get_json(silent=True) or {}
+
+    # Map JSON field names to storage method args
+    friendly_name = payload.get("friendlyName")
+    tags = payload.get("tags")
+    include_in_context = payload.get("include_in_context")
+    metadata = payload.get("metadata")
+
+    try:
+        session = storage.get_chat_session(session_id)
+        if not session:
+            return jsonify({"error": "Chat not found"}), 404
+
+        storage.update_chat_session(
+            session_id,
+            friendly_name=friendly_name,
+            tags=tags,
+            include_in_context=include_in_context,
+            metadata=metadata,
+        )
+        return jsonify({"ok": True}), 200
+    except Exception as e:
+        logging.exception("Failed to update chat %s", session_id)
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@app.route("/documents/search", methods=["GET"])
+def search_documents():
+    """Search documents (e.g., Obsidian notes) using simple keyword matching."""
+    account_name = (request.args.get("accountName", "") or "").lower()
+    query = request.args.get("q", "") or ""
+    kind = request.args.get("kind") or None
+    limit = int(request.args.get("limit", "10"))
+
+    if not account_name:
+        return jsonify({"error": "Missing accountName"}), 400
+    if not query.strip():
+        return jsonify({"error": "Missing q (query)"}), 400
+
+    try:
+        # We currently only have the implementation on JsonFileStorage,
+        # but this can be promoted to the Storage interface later.
+        if not hasattr(storage, "search_documents_poor_man"):
+            return jsonify({"error": "Document search not supported by this storage backend"}), 501
+
+        results = storage.search_documents_poor_man(
+            account_name=account_name,
+            query=query,
+            kind=kind,
+            limit=limit,
+        )
+
+        return jsonify(
+            [
+                {
+                    "id": d.id,
+                    "account_name": d.account_name,
+                    "path": d.path,
+                    "kind": d.kind,
+                    "title": d.title,
+                    "tags": d.tags,
+                    "metadata": d.metadata,
+                }
+                for d in results
+            ]
+        )
+    except Exception as e:
+        logging.exception("Error in /documents/search")
+        return jsonify({"error": str(e)}), 500
 
 
 # NOTE:

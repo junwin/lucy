@@ -589,6 +589,60 @@ class JsonFileStorage(Storage):
         )
 
     # ----------------------------------------------------------------------
+    # SIMPLE DOCUMENT SEARCH ("poor man's embedding")
+    # ----------------------------------------------------------------------
+
+    def search_documents_poor_man(
+        self,
+        account_name: str,
+        query: str,
+        kind: Optional[str] = None,
+        tag: Optional[str] = None,
+        limit: int = 10,
+    ) -> List[DocumentRef]:
+        """Simple keyword-based search over documents for an account.
+
+        This is intentionally "quick and dirty": it scores documents based on
+        how many times the query terms appear in title, tags, and metadata.
+        """
+
+        # Reuse existing listing logic to get candidate docs
+        docs = self.list_documents(
+            account_name=account_name,
+            kind=kind,
+            tag=tag,
+            limit=1000,  # upper bound of candidates to score
+        )
+
+        # Tokenize query into lowercase terms
+        terms = [t for t in query.lower().split() if t.strip()]
+        if not terms:
+            return docs[:limit]
+
+        scored: List[Tuple[DocumentRef, int]] = []
+
+        for doc in docs:
+            # Build a simple text blob from title, tags, and metadata values
+            title_text = (doc.title or "").lower()
+            tags_text = " ".join(doc.tags).lower()
+            metadata_text = " ".join(
+                str(v).lower() for v in (doc.metadata or {}).values()
+            )
+
+            blob = " ".join([title_text, tags_text, metadata_text])
+
+            # Score = sum of term occurrences
+            score = sum(blob.count(term) for term in terms)
+
+            if score > 0:
+                scored.append((doc, score))
+
+        # Sort by score descending
+        scored.sort(key=lambda x: x[1], reverse=True)
+
+        return [doc for doc, _ in scored[:limit]]
+
+    # ----------------------------------------------------------------------
     # EMBEDDINGS
     # ----------------------------------------------------------------------
 
