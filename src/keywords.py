@@ -30,14 +30,19 @@ class Keywords:
     """
     def __init__(self, language_code="en"):
         self.language_code = language_code
-        if language_code == "es":
-            self.nlp = spacy.load("es_core_news_sm")
-        else:
-            self.nlp = spacy.load("en_core_web_sm")
         try:
-            nltk.data.find("tokenizers/punkt")
-        except LookupError:
-            nltk.download("punkt")
+       
+            if language_code == "es":
+                self.nlp = spacy.load("es_core_news_sm")
+            else:
+                self.nlp = spacy.load("en_core_web_sm")
+            try:
+                nltk.data.find("tokenizers/punkt")
+            except LookupError:
+                nltk.download("punkt")
+                
+        except Exception:
+            return False
 
 
     def extract_from_content(self, content: str, top_n: int = 10) -> List[str]:

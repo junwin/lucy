@@ -10,7 +10,8 @@ import logging
 from pathlib import Path
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
-
+from src.keywords import Keywords
+ 
 from flask import sessions
 
 from .base import Storage
@@ -614,8 +615,12 @@ class JsonFileStorage(Storage):
             limit=1000,  # upper bound of candidates to score
         )
 
+        myKwUtil = Keywords()
+
+        terms = myKwUtil.extract_keywords(query, top_n=10)   
+
         # Tokenize query into lowercase terms
-        terms = [t for t in query.lower().split() if t.strip()]
+        # terms = [t for t in query.lower().split() if t.strip()]
         if not terms:
             return docs[:limit]
 
@@ -630,9 +635,12 @@ class JsonFileStorage(Storage):
             )
 
             blob = " ".join([title_text, tags_text, metadata_text])
+            blob = myKwUtil.extract_keywords(blob, top_n=50)    
 
             # Score = sum of term occurrences
-            score = sum(blob.count(term) for term in terms)
+            #score = sum(blob.count(term) for term in terms)
+            score = len(set(blob) & set(terms))
+
 
             if score > 0:
                 scored.append((doc, score))
