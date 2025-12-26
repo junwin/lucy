@@ -1,11 +1,23 @@
 import json
 import datetime
 import time
-from typing import List, Dict, Set
+from typing import List, Dict
 
 class HierarchicalNode:
     incrementing_id = 0
-    def __init__(self, name: str, conversation_id: str, description: str = "",  info: str = "", parent_id: str = "", children: List[str] = None, state: str = "none", node_type: str = "node", working_directory: str = ""):
+
+    def __init__(
+        self,
+        name: str,
+        conversation_id: str,
+        description: str = "",
+        info: str = "",
+        parent_id: str = "",
+        children: List[str] = None,
+        state: str = "none",
+        node_type: str = "node",
+        working_directory: str = "",
+    ):
         self.name = name
         self.description = description
         self.conversation_id = conversation_id
@@ -17,54 +29,65 @@ class HierarchicalNode:
         self.children = children if children else []
         self.tags: List[str] = []
         self.state: str = state
-        self.node_type: str = "node"
+        self.node_type: str = node_type
         self.working_directory: str = working_directory
 
-    @classmethod
     def as_dict(self) -> Dict[str, any]:
         return {
             "id": self.id,
             "name": self.name,
-            "description": self.description, 
+            "description": self.description,
             "conversation_id": self.conversation_id,
             "account_name": self.account_name,
             "info": self.info,
             "parent_id": self.parent_id,
             "utc_timestamp": self.utc_timestamp,
-            "id": self.id,
             "tags": self.tags,
             "children": self.children,
             "state": self.state,
             "node_type": self.node_type,
-            "working_directory": self.working_directory
+            "working_directory": self.working_directory,
         }
 
     @classmethod
     def from_dict(cls, node_dict: Dict[str, any]) -> 'HierarchicalNode':
         node = cls(
             name=node_dict["name"],
-            description=node_dict["description"],
+            description=node_dict.get("description", ""),
             conversation_id=node_dict["conversation_id"],
             info=node_dict.get("info", ""),
             parent_id=node_dict.get("parent_id", ""),
-            children=node_dict.get("children", [])
+            children=node_dict.get("children", []),
+            state=node_dict.get("state", "none"),
+            node_type=node_dict.get("node_type", "node"),
+            working_directory=node_dict.get("working_directory", ""),
         )
         node.account_name = node_dict.get("account_name", "conv1")
-        node.utc_timestamp = node_dict.get("utc_timestamp", datetime.datetime.utcnow().isoformat() + "Z")
+        node.utc_timestamp = node_dict.get(
+            "utc_timestamp",
+            datetime.datetime.utcnow().isoformat() + "Z",
+        )
         node.id = node_dict.get("id", str(time.time()))
         node.tags = node_dict.get("tags", [])
-        node.state = node_dict.get("state", "none")
-        node.node_type = node_dict.get("node_type", "node") 
-        node.working_directory = node_dict.get("working_directory", "")
         return node
-    
 
     @classmethod
-    def new_node_minimal(cls, name: str, conversation_id: str, description: str = "", state: str = "none"):    
-        return cls(name, conversation_id, description, state=state)
+    def new_node_minimal(
+        cls,
+        name: str,
+        conversation_id: str,
+        description: str = "",
+        state: str = "none",
+    ):
+        return cls(
+            name=name,
+            conversation_id=conversation_id,
+            description=description,
+            state=state,
+        )
 
     def get_id(self) -> str:
-        id =  str(time.time()) + str(HierarchicalNode.incrementing_id)
+        id = str(time.time()) + str(HierarchicalNode.incrementing_id)
         HierarchicalNode.incrementing_id += 1
         return id
 
@@ -78,25 +101,34 @@ class HierarchicalNode:
     def __repr__(self):
         return f"HierarchicalNode(name={self.name}, children={self.children})"
 
-
-    
     def get_node_field_names(self) -> List[str]:
-        return ["name", "description", "conversation_id", "info", "parent_id", "utc_timestamp", "id", "tags", "children", "state"]
-    
+        return [
+            "name",
+            "description",
+            "conversation_id",
+            "info",
+            "parent_id",
+            "utc_timestamp",
+            "id",
+            "tags",
+            "children",
+            "state",
+            "node_type",
+            "working_directory",
+        ]
+
     def check_string_elements_present(self, list1, list2):
         for element in list1:
             if element not in list2:
-                return False     
+                return False
         return True
-    
+
     def get_formatted_text(self, fields: List[str]) -> str:
         if not self.check_string_elements_present(fields, self.get_node_field_names()):
             return "Invalid fields provided"
-        
+
         response = ""
         for element in fields:
             response += element + ": " + str(getattr(self, element)) + "\n"
 
         return response
-
-        
