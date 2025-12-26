@@ -3,8 +3,6 @@ import logging
 from typing import Any, Dict
 
 from src.config_manager import ConfigManager
-from src.chunkers.chuncked_file_processor import ChunkedFileProcessor
-from src.chunkers.text_chunker import TextChunker
 from src.handlers.handler_utils import get_base_path, execute_script
 from src.handlers.handler_v2 import HandlerV2
 
@@ -25,7 +23,7 @@ class ScrapeWebPageHandler2(HandlerV2):
             "type": "function",
             "function": {
                 "name": cls.NAME,
-                "description": "Read the text from a webpage and chunk if needed",
+                "description": "Read the text from a webpage",
                 "parameters": {
                     "type": "object",
                     "properties": {
@@ -48,22 +46,7 @@ class ScrapeWebPageHandler2(HandlerV2):
                 "ok": {"type": "boolean"},
                 "tool": {"type": "string"},
                 "page_url": {"type": "string"},
-                "chunked": {"type": "boolean"},
-                "result": {
-                    "oneOf": [
-                        {"type": "string"},
-                        {
-                            "type": "object",
-                            "properties": {
-                                "chunks": {"type": "array", "items": {"type": "string"}},
-                                "chunk_count": {"type": "integer"},
-                                "chunk_size": {"type": "integer"},
-                            },
-                            "required": ["chunks", "chunk_count", "chunk_size"],
-                            "additionalProperties": False,
-                        },
-                    ]
-                },
+                "result": {"type": "string"},
                 "error": {"type": "string"},
             },
             "required": ["ok", "tool"],
@@ -101,34 +84,11 @@ class ScrapeWebPageHandler2(HandlerV2):
                 "base_path": base_path,
             }
 
-        file_chunk_threshold = int(self.config.get("file_chunk_threshold"))
-        file_chunk_size = int(self.config.get("file_chunk_size"))
-
-        chunked = False
-        result: Any = result_text
-
-        if result_text is not None and len(result_text) > file_chunk_threshold:
-            chunk_processor = ChunkedFileProcessor()
-            chunker = TextChunker()
-
-            chunked_content = chunk_processor.process_text_data(result_text, chunker, file_chunk_size)
-            chunked = True
-
-            if isinstance(chunked_content, list):
-                chunks = [str(x) for x in chunked_content]
-            elif isinstance(chunked_content, dict) and "chunks" in chunked_content:
-                chunks = [str(x) for x in (chunked_content.get("chunks") or [])]
-            else:
-                chunks = [str(chunked_content)]
-
-            result = {"chunks": chunks, "chunk_count": len(chunks), "chunk_size": file_chunk_size}
-
         return {
             "ok": True,
             "tool": self.NAME,
             "page_url": page_url,
-            "chunked": chunked,
-            "result": result,
+            "result": result_text,
         }
 
     def execute_as_tool_content(self, args: Dict[str, Any], *, account_name: str = "auto") -> str:

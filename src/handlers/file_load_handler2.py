@@ -3,11 +3,9 @@
 import os
 import json
 import logging
-from typing import Any, Dict, Tuple, Union, List
+from typing import Any, Dict, Tuple, Union
 
 from src.config_manager import ConfigManager
-from src.chunkers.chuncked_file_processor import ChunkedFileProcessor
-from src.chunkers.text_chunker import TextChunker
 from src.handlers.handler_utils import get_base_path
 from src.handlers.handler_v2 import HandlerV2
 
@@ -57,24 +55,9 @@ class FileLoadHandler2(HandlerV2):
                 "file_name": {"type": "string"},
                 "directory_path": {"type": "string"},
                 "resolved_path": {"type": "string"},
-                "chunked": {"type": "boolean"},
                 "content_type": {"type": "string"},
                 "encoding": {"type": "string"},
-                "result": {
-                    "oneOf": [
-                        {"type": "string"},
-                        {
-                            "type": "object",
-                            "properties": {
-                                "chunks": {"type": "array", "items": {"type": "string"}},
-                                "chunk_count": {"type": "integer"},
-                                "chunk_size": {"type": "integer"},
-                            },
-                            "required": ["chunks", "chunk_count", "chunk_size"],
-                            "additionalProperties": False,
-                        },
-                    ]
-                },
+                "result": {"type": "string"},
                 "error": {"type": "string"},
             },
             "required": ["ok", "tool"],
@@ -109,39 +92,15 @@ class FileLoadHandler2(HandlerV2):
                 "base_path": base_path,
             }
 
-        file_chunk_threshold = int(self.config.get("file_chunk_threshold"))
-        file_chunk_size = int(self.config.get("file_chunk_size"))
-
-        chunked = False
-        result: Union[str, Dict[str, Any]] = content
-
-        if content is not None and len(content) > file_chunk_threshold:
-            chunk_processor = ChunkedFileProcessor()
-            chunker = TextChunker()
-
-            chunked_content = chunk_processor.process_text_data(content, chunker, file_chunk_size)
-            chunked = True
-
-            chunks: List[str]
-            if isinstance(chunked_content, list):
-                chunks = [str(x) for x in chunked_content]
-            elif isinstance(chunked_content, dict) and "chunks" in chunked_content:
-                chunks = [str(x) for x in (chunked_content.get("chunks") or [])]
-            else:
-                chunks = [str(chunked_content)]
-
-            result = {"chunks": chunks, "chunk_count": len(chunks), "chunk_size": file_chunk_size}
-
         return {
             "ok": True,
             "tool": self.NAME,
             "file_name": file_name,
             "directory_path": directory_path,
             "resolved_path": full_path,
-            "chunked": chunked,
             "content_type": "text/plain",
             "encoding": "utf-8",
-            "result": result,
+            "result": content,
         }
 
     def execute_as_tool_content(self, args: Dict[str, Any], *, account_name: str = "auto") -> str:

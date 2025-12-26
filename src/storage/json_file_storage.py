@@ -10,7 +10,8 @@ import logging
 from pathlib import Path
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
-
+from src.keywords import Keywords
+ 
 from flask import sessions
 
 from .base import Storage
@@ -351,6 +352,44 @@ class JsonFileStorage(Storage):
 
     # ----------------------------------------------------------------------
 
+    def delete_chat_session(self, session_id: str) -> None:
+        """Delete a chat session and remove it from the per-account index.
+
+        This is best-effort and idempotent: if the session or files are
+        already gone, it will just return.
+        """
+        # First, locate the session to get account_name
+        session = self.get_chat_session(session_id)
+        if not session:
+            # Nothing to do
+            return
+
+        account_name = session.account_name
+        chat_dir = self.base_path / "chats" / account_name
+        chat_path = chat_dir / f"{session_id}.json"
+
+        # Remove the chat file if it exists
+        try:
+            if chat_path.exists():
+                chat_path.unlink()
+        except Exception as e:
+            logging.error("Failed to delete chat file %s: %s", chat_path, e)
+
+        # Update index.json
+        index_path = chat_dir / "index.json"
+        index = self._load_json(index_path) or {}
+
+        if session_id in index:
+            index.pop(session_id, None)
+            try:
+                # If index becomes empty, you can either keep an empty file
+                # or delete it. We'll keep an empty file for now.
+                self._atomic_write(index_path, index)
+            except Exception as e:
+                logging.error("Failed to update chat index %s: %s", index_path, e)
+
+    # ----------------------------------------------------------------------
+
     def _chat_dict_to_session(self, data: Dict[str, Any]) -> ChatSession:
         """Convert stored JSON dict → ChatSession dataclass."""
 
@@ -549,6 +588,67 @@ class JsonFileStorage(Storage):
             tags=data.get("tags", []),
             metadata=data.get("metadata", {}),
         )
+
+    # ----------------------------------------------------------------------
+    # SIMPLE DOCUMENT SEARCH ("poor man's embedding")
+    # ----------------------------------------------------------------------
+
+    def search_documents_poor_man(
+        self,
+        account_name: str,
+        query: str,
+        kind: Optional[str] = None,
+        tag: Optional[str] = None,
+        limit: int = 10,
+    ) -> List[DocumentRef]:
+        """Simple keyword-based search over documents for an account.
+
+        This is intentionally "quick and dirty": it scores documents based on
+        how many times the query terms appear in title, tags, and metadata.
+        """
+
+        # Reuse existing listing logic to get candidate docs
+        docs = self.list_documents(
+            account_name=account_name,
+            kind=kind,
+            tag=tag,
+            limit=1000,  # upper bound of candidates to score
+        )
+
+        myKwUtil = Keywords()
+
+        terms = myKwUtil.extract_keywords(query, top_n=10)   
+
+        # Tokenize query into lowercase terms
+        # terms = [t for t in query.lower().split() if t.strip()]
+        if not terms:
+            return docs[:limit]
+
+        scored: List[Tuple[DocumentRef, int]] = []
+
+        for doc in docs:
+            # Build a simple text blob from title, tags, and metadata values
+            title_text = (doc.title or "").lower()
+            tags_text = " ".join(doc.tags).lower()
+            metadata_text = " ".join(
+                str(v).lower() for v in (doc.metadata or {}).values()
+            )
+
+            blob = " ".join([title_text, tags_text, metadata_text])
+            blob = myKwUtil.extract_keywords(blob, top_n=50)    
+
+            # Score = sum of term occurrences
+            #score = sum(blob.count(term) for term in terms)
+            score = len(set(blob) & set(terms))
+
+
+            if score > 0:
+                scored.append((doc, score))
+
+        # Sort by score descending
+        scored.sort(key=lambda x: x[1], reverse=True)
+
+        return [doc for doc, _ in scored[:limit]]
 
     # ----------------------------------------------------------------------
     # EMBEDDINGS

@@ -5,9 +5,8 @@ from injector import Module, provider, singleton, inject
 
 from src.config_manager import ConfigManager
 from src.agent_manager import AgentManager
-from src.response_handler import FileResponseHandler
-from src.source_code_response_handler import SourceCodeResponseHandler
-from src.completion.completion_store import CompletionStore
+
+
 from src.node_manager import NodeManager
 
 from src.storage.base import Storage
@@ -59,13 +58,6 @@ class HandlerRegistryModule(Module):
         return build_registry()
 
 
-class CompletionStoreModule(Module):
-    @provider
-    @singleton
-    @inject
-    def provide_completion_store(self, storage: Storage) -> CompletionStore:
-        return CompletionStore(storage)
-
 
 class NodeManagerModule(Module):
     @provider
@@ -74,29 +66,13 @@ class NodeManagerModule(Module):
         return NodeManager()
 
 
-class FileResponseHandlerModule(Module):
-    @provider
-    @singleton
-    def provide_file_response_handler(self) -> FileResponseHandler:
-        return FileResponseHandler(config.get("account_output_path"), 5000)
-
-
-class SourceCodeResponseHandlerModule(Module):
-    @provider
-    @singleton
-    def provide_source_code_response_handler(self) -> SourceCodeResponseHandler:
-        return SourceCodeResponseHandler(config.get("account_output_path"), 5000)
-
 
 def configure_container():
     container = Injector(
         [
             AgentManagerModule(),
-            FileResponseHandlerModule(),
-            SourceCodeResponseHandlerModule(),
             ConfigManagerModule(),
             StorageModule(),
-            CompletionStoreModule(),
             NodeManagerModule(),
             HandlerRegistryModule()
         ]

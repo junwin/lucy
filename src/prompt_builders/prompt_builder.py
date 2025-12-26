@@ -10,6 +10,7 @@ from src.agent_manager import AgentManager
 from src.context.context_manager import ContextManager
 from src.storage.base import Storage
 from src.prompt_builders.prompt_builder_interface import PromptBuilderInterface
+from src.utils.document_context import get_document_context
 
 DEFAULT_PROMPT_BUDGET_TOKENS = 12000
 
@@ -84,12 +85,56 @@ class PromptBuilder(PromptBuilderInterface):
         )
         messages.extend(history_messages)
 
-        # 3) context
+        # 3) explicit named context (legacy context manager)
         context_text = self._get_context_text(account_name=account_name, context_name=context_name)
         if context_text:
             messages.append({"role": "system", "content": f"Additional context for this conversation:\n{context_text}"})
 
-        # 4) user query last
+        # 4) document-based context (e.g., Obsidian notes) when requested
+        if context_type in ("documents", "hybrid"):
+            try:
+                doc_contexts = get_document_context(
+                    storage=self.storage,
+                    account_name=account_name,
+                    query=content_text,
+                    kind="obsidian_note",
+                    limit=3,
+                    max_chars=2000,
+                )
+                if doc_contexts:
+                    doc_lines: List[str] = [
+                        "The following Obsidian notes may be relevant to the user's question:",
+                    ]
+                    for idx, ctx in enumerate(doc_contexts, start=1):
+                        title = ctx.get("title") or "(untitled)"
+                        tags = ctx.get("tags") or []
+                        snippet = ctx.get("snippet") or ""
+                        truncated = ctx.get("truncated") or False
+                        tag_str = ", ".join(tags)
+                        header = f"{idx}. Title: {title}"
+                        if tag_str:
+                            header += f" | Tags: {tag_str}"
+                        doc_lines.append(header)
+                        doc_lines.append(snippet)
+                        if truncated:
+                            doc_lines.append("[Note: content truncated]")
+                        doc_lines.append("")  # blank line between docs
+
+                    messages.append(
+                        {
+                            "role": "system",
+                            "content": "\n".join(doc_lines).strip(),
+                        }
+                    )
+            except Exception as ex:
+                logging.warning(
+                    "PromptBuilder: failed to load document context for %s/%s: %s",
+                    account_name,
+                    agent_name,
+                    ex,
+                )
+
+        # 5) user query last
         messages.append({"role": "user", "content": content_text})
 
         # Ensure the current query isn't dropped by other caps

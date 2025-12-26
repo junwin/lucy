@@ -9,8 +9,8 @@ from src.config_manager import ConfigManager
 
 
 class Context:
-    
-    def __init__(self, name:str, description:str, current_node_id:str,state:str = 'none', account_name:str = 'auto', conversation_id:str = 'conv1'):
+
+    def __init__(self, name: str, description: str, current_node_id: str, state: str = 'none', account_name: str = 'auto', conversation_id: str = 'conv1'):
         self.account_name = account_name
         self.conversation_id = conversation_id
         self.name = name
@@ -27,7 +27,7 @@ class Context:
         self.files = dict()
         self.output_directory = 'auto/'
         self.input_directory = 'auto/'
-        #self.add_environment('os:', 'Microsoft Windows 10')
+        # self.add_environment('os:', 'Microsoft Windows 10')
         self.add_environment('os:', 'Linux')
         self.created_timestamp = datetime.datetime.utcnow()
         self.last_updated_timestamp = datetime.datetime.utcnow()
@@ -39,7 +39,7 @@ class Context:
         # Convert the datetime objects to string.
         data['created_timestamp'] = data['created_timestamp'].isoformat()
         data['last_updated_timestamp'] = data['last_updated_timestamp'].isoformat()
-        
+
         return data
 
     @classmethod
@@ -49,86 +49,61 @@ class Context:
             data['created_timestamp'] = datetime.datetime.fromisoformat(data['created_timestamp'])
             data['last_updated_timestamp'] = datetime.datetime.fromisoformat(data['last_updated_timestamp'])
             logging.info(f"Context.from_dict: {data}")
-            
+
             # create an instance of the class without invoking the __init__ method
             my_class = cls.__new__(cls)
-            
+
             # set the instance attributes from the dictionary
             for key, value in data.items():
                 setattr(my_class, key, value)
-            
+
             return my_class
 
         except Exception as e:
             logging.error(f"An error occurred: {e}")
             return None
-   
 
-    def add_info(self, info_text:str):     
+    def add_info(self, info_text: str):
         self.info.append(info_text.replace('\n', ''))
 
-    def add_action(self, request:str, response:str, interpretation:str):
-        action = {"request:":request, "response:":response, "interpretation:":interpretation}
+    def add_action(self, request: str, response: str, interpretation: str):
+        action = {"request:": request, "response:": response, "interpretation:": interpretation}
         self.actions.append(action)
 
-    def add_environment(self, name:str, value:str):
-        env = {name:value}
+    def add_environment(self, name: str, value: str):
+        env = {name: value}
         self.environment.append(env)
 
-    def add_transcript_item(self, account_name:str, item:str):
+    def add_transcript_item(self, account_name: str, item: str):
         newItem = f"{item}\n"
         self.transcript.insert(0, newItem)
 
-
-    def add_replace_file(self, file_name:str, content:str):
+    def add_replace_file(self, file_name: str, content: str):
         self.files[file_name] = content
 
-    def get_file_content(self, file_name:str):
-        return self.files[file_name]    
-        
+    def get_file_content(self, file_name: str):
+        return self.files[file_name]
 
-    def get_info_text(self) -> str: 
-        my_text =  self.context_formated_text()   
+    def get_info_text(self) -> str:
+        my_text = self.context_formated_text()
         return my_text
-    
+
     def context_formated_text(self) -> str:
-        #response_text = yaml.dump(self, default_flow_style=False)
+        # response_text = yaml.dump(self, default_flow_style=False)
         response_text = self.context_formated_text2()
 
         return response_text
-    
-    def update_from_results(self, handler_response:list):
-        # intended to update from QuokkaLoki results list
-        for response in handler_response:
-            #handler_name = QuokkaLoki.get_field_value(response, 'handler')
-            #response_text += handler_name + '\n'
-            if response == None:
-                continue
-            result = QuokkaLoki.get_field_value(response, 'result')
-            for item in response:
-                for key, value in item.items():
-                    if key == 'action_name':
-                        if value == 'action_load_file':
-                            file_name = item['file_name']
-                            file_content = result
-                            self.add_replace_file(file_name, file_content)
-                        if value == 'action_save_file':
-                            file_name = item['file_name']
-                            file_content = item['file_content']
-                            self.add_replace_file(file_name, file_content)
-                        if value == 'action_execute_command':                            
-                            command = item['command']
-                            self.add_action(command, result, '')
-                        if value == 'action_websearch':
-                            query = item['query']
-                            self.add_action(f"web seach: {query} ", result, '')  
 
+    # Legacy method depended on QuokkaLoki; removed to simplify the design.
+    # If you need to update context from tool results, prefer explicit calls to
+    # add_action/add_replace_file in your tool-handling code.
+    # def update_from_results(self, handler_response:list):
+    #     raise NotImplementedError("update_from_results is legacy and not supported anymore.")
 
-    
-    def context_formated_text2(self, detail_level:str="full") -> str:
+    def context_formated_text2(self, detail_level: str = "full") -> str:
 
         response_text = 'Context: ' + '\n'
-        response_text += 'name: ' + self.name + '\n' 
+        response_text += 'name: ' + self.name + '\n'
         response_text += 'description: ' + self.description + '\n'
 
         if len(self.transcript) > 0:
@@ -142,11 +117,9 @@ class Context:
                 response_text += 'conversation state: ' + self.conversation_state + '\n'
             return response_text
 
-        
         if self.retry_information != '':
             response_text += 'retry_information: ' + self.retry_information + '\n'
 
- 
         response_text += 'state: ' + self.state + '\n'
         response_text += 'current_node_id: ' + self.current_node_id + '\n'
         response_text += 'output_directory: ' + self.output_directory + '\n'
@@ -158,11 +131,11 @@ class Context:
 
         response_text += 'actions: ' + '\n'
         for action in self.actions:
-            response_text += '  - ' + 'request:' +  action['request:'] + '\n'
+            response_text += '  - ' + 'request:' + action['request:'] + '\n'
             my_action_response = action['response:']
             my_response_text = self.format_action_reponse(my_action_response)
-            response_text += '    ' + 'response:' +  my_response_text + '\n'
-            response_text += '    ' + 'interpretation:' +  action['interpretation:'] + '\n'
+            response_text += '    ' + 'response:' + my_response_text + '\n'
+            response_text += '    ' + 'interpretation:' + action['interpretation:'] + '\n'
 
         response_text += 'environment: ' + '\n'
         for env in self.environment:
@@ -174,11 +147,9 @@ class Context:
             response_text += f"  - file_name: {key}\n"
             response_text += f"``` {value} ```\n\n"
 
-
-
         return response_text
-    
-    def format_action_reponse(self, response)-> str:
+
+    def format_action_reponse(self, response) -> str:
 
         if type(response) == dict:
             return yaml.dump(response, default_flow_style=False)
@@ -190,5 +161,3 @@ class Context:
             return my_text
         else:
             return response
-        
-
