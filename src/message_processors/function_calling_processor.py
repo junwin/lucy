@@ -1,7 +1,7 @@
 from injector import inject
 import logging
 from typing import Optional, Dict, Any
-
+import json
 from src.config_manager import ConfigManager
 #from src.prompt_builders.prompt_builder import PromptBuilder
 from src.message_processors.message_processor_interface import MessageProcessorInterface
@@ -26,7 +26,59 @@ class FunctionCallingProcessor(MessageProcessorInterface):
         self.context_type = ""
         self.prompt_builder = prompt_builder
 
-    # keep _safe_json_loads and _tool_result_to_text as-is
+    def _safe_json_loads(self, s: str) -> Dict[str, Any]:
+        if not s:
+            return {}
+        try:
+            return json.loads(s)
+        except Exception:
+            logging.warning(
+                "Tool arguments were not valid JSON; using empty dict. args=%r",
+                (s or "")[:500],
+            )
+            return {}
+
+
+    def _tool_result_to_text(self, tool_result: Any) -> str:
+        """Tool message content MUST be a string. Handlers return a dict; we serialize here.
+
+        Also enforces a maximum size based on config["max_tool_result_chars"].
+        """
+        # Serialize first
+        if tool_result is None:
+            s = json.dumps(
+                {"ok": False, "error": "Tool returned None"},
+                ensure_ascii=False,
+            )
+        elif isinstance(tool_result, str):
+            s = tool_result
+        else:
+            try:
+                s = json.dumps(tool_result, ensure_ascii=False)
+            except Exception as e:
+                s = json.dumps(
+                    {
+                        "ok": False,
+                        "error": f"Tool result not JSON serializable: {e}",
+                    },
+                    ensure_ascii=False,
+                )
+
+        # Enforce size limit from config (fallback to 20000 if missing)
+        max_chars = int(self.config.get("max_tool_result_chars", 20000))
+        if len(s) > max_chars:
+            # Log a small sample of the oversized output for debugging
+            logging.error(
+                "Tool result too large: %d chars (limit %d). Sample: %r",
+                len(s),
+                max_chars,
+                s[:1000],
+            )
+            raise ToolResultTooLargeError(
+                f"Tool result too large: {len(s)} chars (limit {max_chars})"
+            )
+
+        return s
 
     def process_message(
         self,
