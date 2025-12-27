@@ -4,7 +4,6 @@ import os
 import pickle
 import datetime
 import logging
-from src.container_config import container
 from src.config_manager import ConfigManager
 
 

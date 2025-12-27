@@ -1,6 +1,26 @@
-class PromptBuilderInterface:  # Abstract handler
+# src/prompt_builders/prompt_builder_interface.py
 
-    def build_prompt(self, content_text:str, conversationId:str, agent_name, account_name, context_type="none", max_prompt_chars=6000, max_prompt_conversations=20, context_name=''):
-        pass
-    
+from abc import ABC, abstractmethod
+from typing import Any, Dict, List, Optional
 
+
+ChatMessageDict = Dict[str, Any]
+
+
+class PromptBuilderInterface(ABC):
+    @abstractmethod
+    def build_prompt(
+        self,
+        *,
+        content_text: str,
+        conversation_id: str,
+        agent_name: str,
+        account_name: str,
+        context_type: str = "none",
+        max_prompt_chars: int = 6000,
+        max_prompt_conversations: int = 20,
+        context_name: str = "",
+        extra_system_messages: Optional[List[str]] = None,
+    ) -> List[ChatMessageDict]:
+        """Builds an OpenAI-compatible messages array."""
+        raise NotImplementedError

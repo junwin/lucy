@@ -13,6 +13,7 @@ from src.container_config import container
 from src.config_manager import ConfigManager
 from src.prompt_builders.prompt_builder import PromptBuilder
 from src.message_processors.function_calling_processor import FunctionCallingProcessor
+from src.message_processors.processor_factory import ProcessorFactory
 
 
 app = Flask(__name__)
@@ -86,7 +87,7 @@ def ask():
     accountName = (payload.get("accountName", "") or "").lower()
     select_type = payload.get("selectType", "")
     conversationId = payload.get("conversationId", "")
-    secondary_agent = (payload.get("secondaryAgent", "") or "").lower()
+    secondary_agent = (payload.get("partnerAgentName", "") or "").lower()
 
     if not question or not agentName or not accountName:
         return jsonify({"error": "Missing question, agentName, or accountName"}), 400
@@ -94,26 +95,44 @@ def ask():
     if not agent_manager.is_valid(agentName):
         return jsonify({"error": "Invalid agentName"}), 400
 
-    my_agent = agent_manager.get_agent(agentName)
+    primary_agent = agent_manager.get_agent(agentName)
+
+    # account object (minimum)
+    account = {"accountId": accountName}
 
     if not select_type:
-        select_type = my_agent.get("select_type", "")
+        select_type = primary_agent.get("select_type", "")
 
-    partner_agent = (my_agent.get("partner_agent") or "").lower()
+    # secondary agent dict (optional)
+    partner_agent_obj = None
+    partner_agent_name = (primary_agent.get("partner_agent") or "").lower()
+    if partner_agent_name:
+        partner_agent_obj = agent_manager.get_agent(partner_agent_name) 
+
     context_name = ""
 
-    # Always use FunctionCallingProcessor (same interface as previous processors)
-    processor = FunctionCallingProcessor()
+    processor_name = (primary_agent.get("message_processor") or "").strip()
+    if not processor_name:
+        return jsonify({"error": "Agent is missing 'message_processor'"}), 500
+
+    factory = container.get(ProcessorFactory)
+    processor = factory.get(processor_name)
+
+     # If the processor supports context_type, set it (safe, low-ceremony)
+    if hasattr(processor, "context_type"):
+        processor.context_type = select_type
+
+
     processor.context_type = select_type
 
     response = processor.process_message(
-        agentName,
-        accountName,
-        question,
-        conversationId,
-        context_name,
-        partner_agent,
-    )
+    primary_agent=primary_agent,
+    secondary_agent=partner_agent_obj,
+    account=account,
+    message=question,
+    conversation_id=conversationId,
+    context_name=context_name,
+)
 
     return jsonify({"response": response})
 

@@ -14,6 +14,11 @@ from src.storage.json_file_storage import JsonFileStorage
 
 from src.handlers.handler_registry import HandlerRegistry
 from src.handlers.registry_bootstrap import build_registry
+from src.message_processors.processor_factory import ProcessorFactory
+from src.prompt_builders.prompt_builder_interface import PromptBuilderInterface
+from src.prompt_builders.prompt_builder import PromptBuilder
+from src.context.context_manager import ContextManager
+
 
 
 
@@ -64,7 +69,28 @@ class NodeManagerModule(Module):
     @singleton
     def provide_node_manager(self) -> NodeManager:
         return NodeManager()
+    
 
+
+class ContextManagerModule(Module):
+    @provider
+    @singleton
+    def provide_context_manager(self, config: ConfigManager) -> ContextManager:
+        return ContextManager(config)
+
+
+class PromptBuilderModule(Module):
+    @provider
+    @singleton
+    def provide_prompt_builder(self, pb: PromptBuilder) -> PromptBuilderInterface:
+        return pb
+
+
+class ProcessorFactoryModule(Module):
+    @provider
+    @singleton
+    def provide_processor_factory(self, injector: Injector) -> ProcessorFactory:
+        return ProcessorFactory(injector)
 
 
 def configure_container():
@@ -74,7 +100,10 @@ def configure_container():
             ConfigManagerModule(),
             StorageModule(),
             NodeManagerModule(),
-            HandlerRegistryModule()
+            HandlerRegistryModule(),
+            ProcessorFactoryModule(),
+            PromptBuilderModule(),
+            ContextManagerModule(),
         ]
     )
     return container
