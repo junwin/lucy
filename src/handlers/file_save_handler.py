@@ -1,7 +1,7 @@
 import os
 import json
 import logging
-from typing import Any, Dict, Tuple
+from typing import Any, Dict
 
 from src.config_manager import ConfigManager
 from src.handlers.handler_utils import get_base_path
@@ -30,7 +30,10 @@ class FileSaveHandler2(HandlerV2):
                     "properties": {
                         "directory_path": {
                             "type": "string",
-                            "description": "Location of the file relative to the allowed base folder",
+                            "description": (
+                                "Location of the file relative to the allowed base folder. "
+                                "Must be a relative path (no leading / and no .. segments)."
+                            ),
                         },
                         "file_name": {
                             "type": "string",
@@ -78,6 +81,7 @@ class FileSaveHandler2(HandlerV2):
         file_content = args.get("file_content")
         overwrite = args.get("overwrite", True)
 
+        # Basic presence check
         if not directory_path or not file_name or file_content is None:
             return {
                 "ok": False,
@@ -95,11 +99,44 @@ class FileSaveHandler2(HandlerV2):
                 "file_name": file_name,
             }
 
+        # Enforce that directory_path is relative and safe
+        if os.path.isabs(directory_path):
+            return {
+                "ok": False,
+                "tool": self.NAME,
+                "error": "directory_path must be relative, not absolute",
+                "directory_path": directory_path,
+            }
+
+        norm_dir = os.path.normpath(directory_path)
+        if norm_dir.startswith("..") or os.path.isabs(norm_dir):
+            return {
+                "ok": False,
+                "tool": self.NAME,
+                "error": "directory_path must not escape the allowed base folder",
+                "directory_path": directory_path,
+                "normalized_directory_path": norm_dir,
+            }
+
+        logging.info(
+            "file_save: account=%s directory_path=%s file_name=%s overwrite=%s",
+            account_name,
+            directory_path,
+            file_name,
+            overwrite,
+        )
+
         # Resolve to allowed base path
-        base_path = get_base_path(self.config, account_name, directory_path)
+        base_path = get_base_path(self.config, account_name, norm_dir)
+        logging.info("file_save: resolved base_path=%s", base_path)
 
         try:
-            full_path = self._write_file_safe(base_path, file_name, file_content, overwrite=bool(overwrite))
+            full_path = self._write_file_safe(
+                base_path,
+                file_name,
+                file_content,
+                overwrite=bool(overwrite),
+            )
         except Exception as e:
             logging.exception("file_save failed")
             return {
@@ -107,6 +144,7 @@ class FileSaveHandler2(HandlerV2):
                 "tool": self.NAME,
                 "error": str(e),
                 "directory_path": directory_path,
+                "normalized_directory_path": norm_dir,
                 "file_name": file_name,
                 "base_path": base_path,
             }
@@ -126,13 +164,10 @@ class FileSaveHandler2(HandlerV2):
         return json.dumps(self.execute(args, account_name=account_name), ensure_ascii=False)
 
     def _write_file_safe(self, base_path: str, file_name: str, content: str, overwrite: bool = True) -> str:
-        """
-        Writes file_name inside base_path safely.
-        Mirrors FileLoadHandler2 path rules.
-        """
+        """Writes file_name inside base_path safely. Mirrors FileLoadHandler2 path rules."""
         base_abs = os.path.abspath(base_path)
 
-        # Mirror FileLoadHandler2: file_name must be a bare filename (no separators)
+        # file_name must be a bare filename (no path separators)
         if os.path.sep in file_name or (os.path.altsep and os.path.altsep in file_name):
             raise ValueError("file_name must not contain path separators")
 
