@@ -37,9 +37,8 @@ class NodeManager:
         self.nodes[node.id] = node
 
     def update_node(self, node_id: str, updated_node: HierarchicalNode) -> None:
-        existing_node = self.get_node(node_id)
-        if existing_node:
-            # For now, do not auto-delete orphans; keep behavior simple and safe.
+        """Update an existing node in the manager without removing its children."""
+        if node_id in self.nodes:
             self.nodes[node_id] = updated_node
 
     def delete_node(self, node_id: str) -> None:

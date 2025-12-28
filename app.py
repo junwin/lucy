@@ -132,6 +132,7 @@ def ask():
     message=question,
     conversation_id=conversationId,
     context_name=context_name,
+    processor_factory=factory,
 )
 
     return jsonify({"response": response})

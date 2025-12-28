@@ -18,13 +18,18 @@ class HierarchicalNode:
         node_type: str = "node",
         working_directory: str = "",
     ):
+        if not isinstance(name, str):
+            raise TypeError("name must be a string")
+        if not isinstance(conversation_id, str):
+            raise TypeError("conversation_id must be a string")
+
         self.name = name
         self.description = description
         self.conversation_id = conversation_id
         self.account_name = 'conv1'
         self.info = info
         self.parent_id = parent_id
-        self.utc_timestamp = datetime.datetime.utcnow().isoformat() + "Z"
+        self.utc_timestamp = datetime.datetime.now(datetime.UTC).isoformat().replace("+00:00", "Z")
         self.id = self.get_id()
         self.children = children if children else []
         self.tags: List[str] = []
@@ -51,6 +56,9 @@ class HierarchicalNode:
 
     @classmethod
     def from_dict(cls, node_dict: Dict[str, any]) -> 'HierarchicalNode':
+        if not isinstance(node_dict, dict):
+            raise TypeError("node_dict must be a dictionary")
+
         node = cls(
             name=node_dict["name"],
             description=node_dict.get("description", ""),
@@ -65,7 +73,7 @@ class HierarchicalNode:
         node.account_name = node_dict.get("account_name", "conv1")
         node.utc_timestamp = node_dict.get(
             "utc_timestamp",
-            datetime.datetime.utcnow().isoformat() + "Z",
+            datetime.datetime.now(datetime.UTC).isoformat().replace("+00:00", "Z"),
         )
         node.id = node_dict.get("id", str(time.time()))
         node.tags = node_dict.get("tags", [])
@@ -92,9 +100,13 @@ class HierarchicalNode:
         return id
 
     def add_child(self, child_id: str):
+        if not isinstance(child_id, str):
+            raise TypeError("child_id must be a string")
         self.children.append(child_id)
 
     def remove_child(self, child_id: str):
+        if not isinstance(child_id, str):
+            raise TypeError("child_id must be a string")
         if child_id in self.children:
             self.children.remove(child_id)
 

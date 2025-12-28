@@ -15,6 +15,7 @@ class MessageProcessorInterface(ABC):
         conversation_id: str = "0",
         context_name: str = "",
         secondary_agent: Optional[AgentDict] = None,
+        processor_factory: Optional[Any] = None,
     ) -> str:
         pass
 
