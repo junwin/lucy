@@ -1,7 +1,20 @@
-# src/storage/models.py
+"""
+Module for defining data models used in the storage layer, including chat messages, user profiles, agent profiles, and context states.
+
+This module contains the following data classes:
+
+- ChatMessage: Represents a single message in a chat.
+- ChatSession: Represents a complete chat session with all its messages.
+- UserProfile: Represents a user account profile and preferences.
+- AgentProfile: Represents agent configuration and behavior settings.
+- ContextState: Represents shared state for a conversation.
+- DocumentRef: Represents a reference to a document.
+- EmbeddingRecord: Represents a vector embedding with metadata.
+"""
+
 from __future__ import annotations
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 
@@ -18,7 +31,7 @@ class ChatMessage:
     def __post_init__(self):
         """Ensure timestamp is set."""
         if self.utc_timestamp is None:
-            self.utc_timestamp = datetime.utcnow()
+            self.utc_timestamp = datetime.now(timezone.utc)
 
 
 @dataclass
@@ -74,7 +87,7 @@ class ContextState:
     def __post_init__(self):
         """Ensure timestamp is set."""
         if self.updated_at is None:
-            self.updated_at = datetime.utcnow()
+            self.updated_at = datetime.now(timezone.utc)
 
 
 # ---- Documents (Obsidian, static text, etc.) ----
@@ -103,4 +116,4 @@ class EmbeddingRecord:
     source_type: str
     source_id: str
     source_metadata: Dict[str, Any] = field(default_factory=dict)
-    created_at: datetime = field(default_factory=datetime.utcnow)
+    created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))

@@ -257,43 +257,7 @@ class FunctionCallingProcessor(MessageProcessorInterface):
                 msg_parts.append(f"\n\nFocus file: {file_path}")
             task_message = "".join(msg_parts)
 
-            # Decide which agent to use
-            if task_agent_name == supervisor_agent.get("name"):
-                # Run with the current processor (supervisor)
-                try:
-                    task_response = self.process_message(
-                        primary_agent=supervisor_agent,
-                        account=account,
-                        message=task_message,
-                        conversation_id=conversation_id,
-                        context_name=context_name,
-                        secondary_agent=worker_agent,
-                        processor_factory=processor_factory,
-                    )
-                    results.append(
-                        {
-                            "id": task_id,
-                            "ok": True,
-                            "agent": task_agent_name,
-                            "response": task_response,
-                        }
-                    )
-                except Exception as e:
-                    logging.exception(
-                        "_execute_simple_tasklist: error executing supervisor task id=%s",
-                        task_id,
-                    )
-                    results.append(
-                        {
-                            "id": task_id,
-                            "ok": False,
-                            "agent": task_agent_name,
-                            "error": f"{type(e).__name__}: {e}",
-                        }
-                    )
-                    break
-
-            elif worker_agent and task_agent_name == worker_agent.get("name"):
+            if worker_agent and task_agent_name == worker_agent.get("name"):
                 # Run with worker agent via a new FunctionCallingProcessor
                 try:
                     # worker_processor = processor_factory.create_function_calling_processor()

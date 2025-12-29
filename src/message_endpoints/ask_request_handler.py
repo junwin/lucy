@@ -79,7 +79,7 @@ class AskRequestHandler:
         if partner_agent_name:
             partner_agent_obj = self.agent_manager.get_agent(partner_agent_name)
 
-        context_name = ""
+        context_name = "lucyproject"
 
         processor_name = (primary_agent.get("message_processor") or "").strip()
         if not processor_name:

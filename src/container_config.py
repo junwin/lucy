@@ -7,7 +7,6 @@ from src.config_manager import ConfigManager
 from src.agent_manager import AgentManager
 
 
-from src.node_manager import NodeManager
 
 from src.storage.base import Storage
 from src.storage.json_file_storage import JsonFileStorage
@@ -61,11 +60,7 @@ class HandlerRegistryModule(Module):
         return build_registry()
 
 
-class NodeManagerModule(Module):
-    @provider
-    @singleton
-    def provide_node_manager(self) -> NodeManager:
-        return NodeManager()
+
 
 
 class ContextManagerModule(Module):
@@ -113,7 +108,6 @@ def configure_container():
             AgentManagerModule(),
             ConfigManagerModule(),
             StorageModule(),
-            NodeManagerModule(),
             HandlerRegistryModule(),
             ProcessorFactoryModule(),
             PromptBuilderModule(),

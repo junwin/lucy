@@ -6,8 +6,7 @@ from src.config_manager import ConfigManager
 from src.handlers.handler_utils import get_base_path, execute_script
 from src.handlers.handler_v2 import HandlerV2
 
-# Configure logging
-logging.basicConfig(level=logging.INFO)
+# Define a module-level logger
 logger = logging.getLogger(__name__)
 
 class ScrapeWebPageHandler2(HandlerV2):

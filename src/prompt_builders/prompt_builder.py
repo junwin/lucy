@@ -6,7 +6,6 @@ from injector import inject
 
 from src.config_manager import ConfigManager
 from src.agent_manager import AgentManager
-from src.context.context_manager import ContextManager
 from src.storage.base import Storage
 from src.prompt_builders.prompt_builder_interface import PromptBuilderInterface
 from src.utils.document_context import get_document_context
@@ -47,12 +46,10 @@ class PromptBuilder(PromptBuilderInterface):
         agent_manager: AgentManager,
         config: ConfigManager,
         storage: Storage,
-        context_manager: ContextManager,
     ):
         self.agent_manager = agent_manager
         self.config = config
         self.storage = storage
-        self.context_manager = context_manager
 
     def build_prompt(
         self,
@@ -97,7 +94,7 @@ class PromptBuilder(PromptBuilderInterface):
         )
         messages.extend(history_messages)
 
-        # --- Named context ---
+        # --- Named context (from storage) ---
         context_text = self._get_context_text(account_name=account_name, context_name=context_name)
         if context_text:
             messages.append(
@@ -215,10 +212,16 @@ class PromptBuilder(PromptBuilderInterface):
         return [{"role": m.role, "content": m.content} for m in msgs]
 
     def _get_context_text(self, account_name: str, context_name: str) -> str:
+        """Load context text from storage.
+
+        For now this is a simple, read-only lookup that expects a ContextState
+        whose data dict may contain a "text" field with free-form content.
+        """
         if not context_name or context_name == "none":
             return ""
+
         try:
-            ctx = self.context_manager.get_context(account_name, context_name)
+            ctx = self.storage.get_context(account_name, context_name)
         except Exception as ex:
             logging.warning(
                 "PromptBuilder: failed to load context %s for %s: %s",
@@ -227,6 +230,7 @@ class PromptBuilder(PromptBuilderInterface):
                 ex,
             )
             return ""
+
         if ctx is None:
             logging.warning(
                 "PromptBuilder: context %s not found for account=%s",
@@ -234,7 +238,14 @@ class PromptBuilder(PromptBuilderInterface):
                 account_name,
             )
             return ""
-        return ctx.context_formated_text2("compact")
+
+        data = getattr(ctx, "data", None)
+        if isinstance(data, dict):
+            text = data.get("text")
+            if isinstance(text, str):
+                return text
+
+        return ""
 
     def _ensure_current_query(self, messages: List[Dict[str, str]], current_query: str) -> List[Dict[str, str]]:
         if not messages:

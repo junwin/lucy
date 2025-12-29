@@ -43,7 +43,7 @@
         "save_reposnses": false,
         "model": "gpt-4o-mini",
         "message_processor": "function_calling_processor",
-        "max_function_call_iterations": 10,
+        "max_function_call_iterations": 20,
         "prompt_budget_tokens": 8000,
         "source_budgets": {
             "agent": 0.4,
