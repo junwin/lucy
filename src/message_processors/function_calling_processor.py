@@ -33,6 +33,10 @@ class FunctionCallingProcessor(MessageProcessorInterface):
         self.context_type = ""
         self.prompt_builder = prompt_builder
 
+    # ------------------------------------------------------------------
+    # Internal helpers
+    # ------------------------------------------------------------------
+
     def _safe_json_loads(self, s: str) -> Dict[str, Any]:
         if not s:
             return {}
@@ -121,6 +125,249 @@ class FunctionCallingProcessor(MessageProcessorInterface):
                 conversation_id,
             )
 
+    # ------------------------------------------------------------------
+    # Simple tasklist execution (sequential tasks, no map yet)
+    # ------------------------------------------------------------------
+
+    def _execute_simple_tasklist(
+        self,
+        tasklist: Dict[str, Any],
+        *,
+        supervisor_agent: AgentDict,
+        worker_agent: Optional[AgentDict],
+        account: AccountDict,
+        conversation_id: str,
+        context_name: str,
+        processor_factory: Any,
+        delegation_depth: int,
+    ) -> Dict[str, Any]:
+        """Execute a simple sequential tasklist.
+
+        Expected tasklist shape (minimal):
+        {
+          "kind": "tasklist",
+          "description": "...",
+          "tasks": [
+            {
+              "id": "task-1",
+              "type": "task",
+              "title": "...",
+              "agent": "lucy" | "colin",
+              "instruction": "...",
+              "file": "...",          # optional
+              "params": { ... }        # optional
+            },
+            ...
+          ]
+        }
+
+        - No dependency graph yet: tasks are executed in order.
+        - If task.agent == supervisor_agent["name"], we run it with the current
+          processor (self).
+        - If task.agent == worker_agent["name"], we create a new
+          FunctionCallingProcessor via processor_factory and run it.
+        - Results are collected into a list and returned as a dict suitable for
+          use as a tool result.
+        """
+
+        max_depth = int(supervisor_agent.get("max_delegation_depth", 1))
+        if delegation_depth >= max_depth:
+            logging.warning(
+                "_execute_simple_tasklist: delegation depth %d >= max %d for agent=%s "
+                "session_id=%s; refusing to delegate further.",
+                delegation_depth,
+                max_depth,
+                supervisor_agent.get("name"),
+                conversation_id,
+            )
+            return {
+                "ok": False,
+                "error": "Max delegation depth exceeded while executing the tasklist.",
+            }
+
+        tasks = tasklist.get("tasks") or []
+        if not isinstance(tasks, list):
+            return {"ok": False, "error": "tasklist.tasks must be a list."}
+
+        results = []
+        tasklist_description = tasklist.get("description") or ""
+
+        logging.info(
+            "_execute_simple_tasklist: start supervisor=%s worker=%s session_id=%s "
+            "tasks=%d depth=%d/%d description=%r",
+            supervisor_agent.get("name"),
+            (worker_agent or {}).get("name") if worker_agent else None,
+            conversation_id,
+            len(tasks),
+            delegation_depth,
+            max_depth,
+            tasklist_description[:120],
+        )
+
+        for idx, task in enumerate(tasks, start=1):
+            task_id = task.get("id") or f"task-{idx}"
+            task_type = task.get("type", "task")
+            task_agent_name = worker_agent.get("name")
+            task_title = task.get("title") or ""
+            instruction = task.get("instruction") or ""
+            file_path = task.get("file") or ""
+
+            logging.info(
+                "_execute_simple_tasklist: task %d/%d id=%s type=%s agent=%s title=%r",
+                idx,
+                len(tasks),
+                task_id,
+                task_type,
+                task_agent_name,
+                task_title[:80],
+            )
+
+            if task_type != "task":
+                logging.warning(
+                    "_execute_simple_tasklist: unsupported task type=%s in id=%s; skipping.",
+                    task_type,
+                    task_id,
+                )
+                results.append(
+                    {
+                        "id": task_id,
+                        "ok": False,
+                        "error": f"Unsupported task type: {task_type}",
+                    }
+                )
+                continue
+
+            if not instruction:
+                logging.warning(
+                    "_execute_simple_tasklist: task id=%s has no instruction; skipping.",
+                    task_id,
+                )
+                results.append(
+                    {
+                        "id": task_id,
+                        "ok": False,
+                        "error": "Task has no instruction to execute.",
+                    }
+                )
+                continue
+
+            # Build the message for the agent
+            msg_parts = [instruction]
+            if file_path:
+                msg_parts.append(f"\n\nFocus file: {file_path}")
+            task_message = "".join(msg_parts)
+
+            # Decide which agent to use
+            if task_agent_name == supervisor_agent.get("name"):
+                # Run with the current processor (supervisor)
+                try:
+                    task_response = self.process_message(
+                        primary_agent=supervisor_agent,
+                        account=account,
+                        message=task_message,
+                        conversation_id=conversation_id,
+                        context_name=context_name,
+                        secondary_agent=worker_agent,
+                        processor_factory=processor_factory,
+                    )
+                    results.append(
+                        {
+                            "id": task_id,
+                            "ok": True,
+                            "agent": task_agent_name,
+                            "response": task_response,
+                        }
+                    )
+                except Exception as e:
+                    logging.exception(
+                        "_execute_simple_tasklist: error executing supervisor task id=%s",
+                        task_id,
+                    )
+                    results.append(
+                        {
+                            "id": task_id,
+                            "ok": False,
+                            "agent": task_agent_name,
+                            "error": f"{type(e).__name__}: {e}",
+                        }
+                    )
+                    break
+
+            elif worker_agent and task_agent_name == worker_agent.get("name"):
+                # Run with worker agent via a new FunctionCallingProcessor
+                try:
+                    # worker_processor = processor_factory.create_function_calling_processor()
+                    #task_response = worker_processor.process_message(
+                    task_response =self.process_message(
+                        primary_agent=worker_agent,
+                        account=account,
+                        message=task_message,
+                        conversation_id=conversation_id,
+                        context_name=context_name,
+                        secondary_agent=None,
+                        processor_factory=processor_factory,
+                    )
+                    results.append(
+                        {
+                            "id": task_id,
+                            "ok": True,
+                            "agent": task_agent_name,
+                            "response": task_response,
+                        }
+                    )
+                except Exception as e:
+                    logging.exception(
+                        "_execute_simple_tasklist: error executing worker task id=%s",
+                        task_id,
+                    )
+                    results.append(
+                        {
+                            "id": task_id,
+                            "ok": False,
+                            "agent": task_agent_name,
+                            "error": f"{type(e).__name__}: {e}",
+                        }
+                    )
+                    break
+
+            else:
+                logging.warning(
+                    "_execute_simple_tasklist: unknown agent=%s for task id=%s; skipping.",
+                    task_agent_name,
+                    task_id,
+                )
+                results.append(
+                    {
+                        "id": task_id,
+                        "ok": False,
+                        "agent": task_agent_name,
+                        "error": f"Unknown agent: {task_agent_name}",
+                    }
+                )
+                continue
+
+        summary = {
+            "ok": all(r.get("ok") for r in results) if results else False,
+            "description": tasklist_description,
+            "tasks": results,
+        }
+
+        logging.info(
+            "_execute_simple_tasklist: completed supervisor=%s worker=%s session_id=%s "
+            "tasks=%d ok=%s",
+            supervisor_agent.get("name"),
+            (worker_agent or {}).get("name") if worker_agent else None,
+            conversation_id,
+            len(results),
+            summary["ok"],
+        )
+
+        return summary
+
+    # ------------------------------------------------------------------
+    # Public API
+    # ------------------------------------------------------------------
+
     def process_message(
         self,
         *,
@@ -186,6 +433,9 @@ class FunctionCallingProcessor(MessageProcessorInterface):
 
             store_this_call = bool(primary_agent.get("save_reposnses", False))
 
+            # Delegation depth for tasklist execution (default 0 if not provided)
+            delegation_depth = int(primary_agent.get("delegation_depth", 0))
+
             for iteration in range(1, max_iterations + 1):
                 result = openai_call(
                     messages=completion_messages,
@@ -217,6 +467,36 @@ class FunctionCallingProcessor(MessageProcessorInterface):
                         try:
                             handler = self.registry.create(tool_name, config=self.config)
                             tool_result = handler.execute(tool_args, account_name=account_id)
+
+                            # If this is a plan_tasks result, and we have a secondary agent,
+                            # execute the tasklist using the simple tasklist executor.
+                            if (
+                                tool_name == "plan_tasks"
+                                and isinstance(tool_result, Dict)
+                                and tool_result.get("ok")
+                                and tool_result.get("kind") == "tasklist"
+                                and secondary_agent is not None
+                                and processor_factory is not None
+                            ):
+                                logging.info(
+                                    "FunctionCallingProcessor: executing tasklist from plan_tasks "
+                                    "using supervisor=%s worker=%s session_id=%s",
+                                    agent_name,
+                                    secondary_agent.get("name"),
+                                    conversation_id,
+                                )
+                                tasklist_summary = self._execute_simple_tasklist(
+                                    tasklist=tool_result,
+                                    supervisor_agent=primary_agent,
+                                    worker_agent=secondary_agent,
+                                    account=account,
+                                    conversation_id=conversation_id,
+                                    context_name=context_name,
+                                    processor_factory=processor_factory,
+                                    delegation_depth=delegation_depth,
+                                )
+                                tool_result = tasklist_summary
+
                             tool_result_text = self._tool_result_to_text(tool_result)
                         except ToolResultTooLargeError as e:
                             tool_result_text = self._tool_result_to_text(
