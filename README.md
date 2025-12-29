@@ -141,7 +141,26 @@ These are wired into the message processors and agents.
 
 ### Context
 
-Context is shared information that can be used by one or more agents when building prompts (e.g. documents, notes, or other long‑lived data). See `docs/storage.md` and `docs/architecture_overview.md` for more detail.
+Context is shared information that can be used by one or more agents when building prompts (e.g. documents, notes, or other long‑lived data). Context is stored via the storage layer (for example, JSON-backed `ContextState` records) and can be injected into prompts by the `PromptBuilder`.
+
+A simple project-level context for this repo lives at:
+
+- `data/contexts/junwin/lucyproject.json`
+
+When the `lucyproject` context is selected for account `junwin`, its `data["text"]` is added as additional system context for the conversation.
+
+---
+
+## Request flow and logging
+
+Very short request flow for `/ask`:
+
+1. HTTP request hits `POST /ask`.
+2. `FunctionCallingProcessor` starts for the selected agent and session.
+3. `PromptBuilder` builds the prompt (history, agent config, optional storage-based context).
+4. The model is called; if it requests tools, `FunctionCallingProcessor` executes them and then returns the final reply.
+
+Logging is initialized once in `app.py` and used throughout the app.
 
 ---
 

@@ -1,21 +1,15 @@
-
 from typing import List, Dict, Set
 from collections import Counter
 from nltk.stem import SnowballStemmer
 from nltk.tokenize import word_tokenize
 import nltk
-
 import spacy
 from nltk.corpus import wordnet as wn
 from sklearn.metrics.pairwise import cosine_similarity
 from sklearn.feature_extraction.text import TfidfVectorizer
 from datetime import datetime
 from spacy.lang.en import STOP_WORDS
-import re  
-
-
-nltk.download('wordnet')
-nltk.download('punkt')
+import re
 
 class Keywords:
     """
@@ -30,24 +24,24 @@ class Keywords:
     """
     def __init__(self, language_code="en"):
         self.language_code = language_code
+        self.nlp = None
+        self._initialize_nlp_model()
+
+    def _initialize_nlp_model(self):
         try:
-       
-            if language_code == "es":
+            if self.language_code == "es":
                 self.nlp = spacy.load("es_core_news_sm")
             else:
                 self.nlp = spacy.load("en_core_web_sm")
-            try:
-                nltk.data.find("tokenizers/punkt")
-            except LookupError:
-                nltk.download("punkt")
-                
-        except Exception:
-            return False
-
+            # Check for NLTK data
+            nltk.data.find("tokenizers/punkt")
+        except LookupError:
+            raise RuntimeError("NLTK data not found. Please run nltk.download('punkt') manually.")
+        except Exception as e:
+            raise RuntimeError(f"Failed to load spaCy model: {e}")
 
     def extract_from_content(self, content: str, top_n: int = 10) -> List[str]:
         return self.extract_keywords(content, top_n)
-
 
     def extract_keywords(self, content: str, top_n: int = 10) -> List[str]:
         if 'request keywords:' in content:
@@ -78,7 +72,6 @@ class Keywords:
         similarity = self.compare_semantic_similarity(t1, t2 )
         return round(similarity, 6)
     
-
     def compare_semantic_similarity(self, text1: str, text2: str) -> float:
         vectorizer = TfidfVectorizer()
         tfidf_matrix = vectorizer.fit_transform([text1, text2])
@@ -96,7 +89,6 @@ class Keywords:
         else:
             raise ValueError("Invalid operator. Please use 'and' or 'or'.")
 
-        
     def concatenate_keywords(self, keyword_list: List[str]) -> str:
         concatenated_keywords = " ".join(keyword_list)
         return concatenated_keywords
