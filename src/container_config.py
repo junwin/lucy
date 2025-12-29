@@ -18,8 +18,7 @@ from src.message_processors.processor_factory import ProcessorFactory
 from src.prompt_builders.prompt_builder_interface import PromptBuilderInterface
 from src.prompt_builders.prompt_builder import PromptBuilder
 from src.context.context_manager import ContextManager
-
-
+from src.message_endpoints.ask_request_handler import AskRequestHandler
 
 
 config = ConfigManager("config.json")
@@ -43,8 +42,7 @@ class StorageModule(Module):
     @provider
     @singleton
     def provide_storage(self) -> Storage:
-        """
-        Provide the Storage implementation used across the app.
+        """Provide the Storage implementation used across the app.
 
         Primary config key:
           - chat_base_path
@@ -63,13 +61,11 @@ class HandlerRegistryModule(Module):
         return build_registry()
 
 
-
 class NodeManagerModule(Module):
     @provider
     @singleton
     def provide_node_manager(self) -> NodeManager:
         return NodeManager()
-    
 
 
 class ContextManagerModule(Module):
@@ -93,6 +89,24 @@ class ProcessorFactoryModule(Module):
         return ProcessorFactory(injector)
 
 
+class EndpointHandlersModule(Module):
+    @provider
+    @singleton
+    def provide_ask_request_handler(
+        self,
+        agent_manager: AgentManager,
+        config: ConfigManager,
+        storage: Storage,
+        processor_factory: ProcessorFactory,
+    ) -> AskRequestHandler:
+        return AskRequestHandler(
+            agent_manager=agent_manager,
+            config=config,
+            storage=storage,
+            processor_factory=processor_factory,
+        )
+
+
 def configure_container():
     container = Injector(
         [
@@ -104,6 +118,7 @@ def configure_container():
             ProcessorFactoryModule(),
             PromptBuilderModule(),
             ContextManagerModule(),
+            EndpointHandlersModule(),
         ]
     )
     return container

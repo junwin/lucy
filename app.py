@@ -12,8 +12,8 @@ from src.agent_manager import AgentManager
 from src.container_config import container
 from src.config_manager import ConfigManager
 from src.prompt_builders.prompt_builder import PromptBuilder
-from src.message_processors.function_calling_processor import FunctionCallingProcessor
 from src.message_processors.processor_factory import ProcessorFactory
+from src.message_endpoints.ask_request_handler import AskRequestHandler
 
 
 app = Flask(__name__)
@@ -80,62 +80,15 @@ agent_manager.load_agents()
 # -----------------------------------------------------------------------------
 @app.route("/ask", methods=["POST"])
 def ask():
+    """Main chat/agent interaction endpoint.
+
+    This route is intentionally thin: it parses the JSON payload and delegates
+    all business logic to AskRequestHandler, which is resolved via DI.
+    """
     payload = request.get_json() or {}
-
-    question = payload.get("question", "")
-    agentName = (payload.get("agentName", "") or "").lower()
-    accountName = (payload.get("accountName", "") or "").lower()
-    select_type = payload.get("selectType", "")
-    conversationId = payload.get("conversationId", "")
-    secondary_agent = (payload.get("partnerAgentName", "") or "").lower()
-
-    if not question or not agentName or not accountName:
-        return jsonify({"error": "Missing question, agentName, or accountName"}), 400
-
-    if not agent_manager.is_valid(agentName):
-        return jsonify({"error": "Invalid agentName"}), 400
-
-    primary_agent = agent_manager.get_agent(agentName)
-
-    # account object (minimum)
-    account = {"accountId": accountName}
-
-    if not select_type:
-        select_type = primary_agent.get("select_type", "")
-
-    # secondary agent dict (optional)
-    partner_agent_obj = None
-    partner_agent_name = (primary_agent.get("partner_agent") or "").lower()
-    if partner_agent_name:
-        partner_agent_obj = agent_manager.get_agent(partner_agent_name) 
-
-    context_name = ""
-
-    processor_name = (primary_agent.get("message_processor") or "").strip()
-    if not processor_name:
-        return jsonify({"error": "Agent is missing 'message_processor'"}), 500
-
-    factory = container.get(ProcessorFactory)
-    processor = factory.get(processor_name)
-
-     # If the processor supports context_type, set it (safe, low-ceremony)
-    if hasattr(processor, "context_type"):
-        processor.context_type = select_type
-
-
-    processor.context_type = select_type
-
-    response = processor.process_message(
-    primary_agent=primary_agent,
-    secondary_agent=partner_agent_obj,
-    account=account,
-    message=question,
-    conversation_id=conversationId,
-    context_name=context_name,
-    processor_factory=factory,
-)
-
-    return jsonify({"response": response})
+    handler = container.get(AskRequestHandler)
+    status, body = handler.handle(payload)
+    return jsonify(body), status
 
 
 @app.route("/agents", methods=["GET"])

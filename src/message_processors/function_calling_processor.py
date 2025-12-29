@@ -105,8 +105,17 @@ class FunctionCallingProcessor(MessageProcessorInterface):
         temperature = primary_agent.get("temperature", 0)
         context_type = primary_agent.get("select_type", "hybrid")
 
+        # Per-agent max function call iterations (fallback to 10)
+        max_iterations = int(primary_agent.get("max_function_call_iterations", 10))
+        if max_iterations <= 0:
+            logging.warning(
+                "max_function_call_iterations for agent '%s' is %d; using 1 instead",
+                agent_name,
+                max_iterations,
+            )
+            max_iterations = 1
+
         # Build prompt
-        # prompt_builder = PromptBuilder()
         completion_messages = self.prompt_builder.build_prompt(
             content_text=message,
             conversation_id=conversation_id,
@@ -121,12 +130,11 @@ class FunctionCallingProcessor(MessageProcessorInterface):
 
         function_defs = self.registry.tools()
 
-        max_iterations = 5
         response_text = ""
 
         store_this_call = bool(primary_agent.get("save_reposnses", False))
 
-        for _ in range(max_iterations):
+        for iteration in range(1, max_iterations + 1):
             result = openai_call(
                 messages=completion_messages,
                 functions=function_defs,
@@ -174,8 +182,26 @@ class FunctionCallingProcessor(MessageProcessorInterface):
                     completion_messages.append(
                         {"role": "tool", "tool_call_id": tool_call_id, "content": tool_result_text}
                     )
+
+                # If we've hit the max iterations after processing tool calls, stop
+                if iteration >= max_iterations:
+                    logging.error(
+                        "FunctionCallingProcessor: exceeded max_function_call_iterations=%d for agent '%s' in conversation_id=%s",
+                        max_iterations,
+                        agent_name,
+                        conversation_id,
+                    )
+                    response_text = (
+                        "I ran into an internal limit while trying to call tools multiple times. "
+                        "I may not have completed all requested actions. Please try rephrasing or "
+                        "splitting your request into smaller steps."
+                    )
+                    break
+
+                # Otherwise, continue the loop to let the model see tool results
                 continue
 
+            # No tool calls: we have a normal assistant response
             response_text = (getattr(result, "content", "") or "").strip()
             break
 

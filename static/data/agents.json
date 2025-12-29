@@ -13,6 +13,7 @@
         "save_reposnses": true,
         "model": "gpt-5.1",
         "message_processor": "function_calling_processor",
+        "max_function_call_iterations": 10,
         "roles_used_in_context": [
             "user",
             "assistant"
@@ -40,7 +41,8 @@
         "temperature": 0,
         "save_reposnses": false,
         "model": "gpt-4o-mini",
-        "message_processor": "message_processor",
+        "message_processor": "function_calling_processor",
+        "max_function_call_iterations": 10,
         "prompt_budget_tokens": 8000,
         "source_budgets": {
             "agent": 0.4,
@@ -62,6 +64,7 @@
         "save_reposnses": true,
         "model": "gpt-5.1",
         "message_processor": "automation_processor",
+        "max_function_call_iterations": 10,
         "partner_agent": "billy",
         "prompt_budget_tokens": 12000,
         "source_budgets": {
@@ -84,6 +87,7 @@
         "save_reposnses": true,
         "model": "gpt-4o-mini",
         "message_processor": "automation_processor",
+        "max_function_call_iterations": 10,
         "partner_agent": "colin",
         "prompt_budget_tokens": 12000,
         "source_budgets": {
