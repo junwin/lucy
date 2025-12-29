@@ -67,11 +67,18 @@ class PromptBuilder(PromptBuilderInterface):
         context_name: str = "",
         extra_system_messages: Optional[List[str]] = None,
     ) -> List[Dict[str, str]]:
+        """Build the full prompt (list of messages) for a model call.
+
+        Logging and error handling goals:
+        - Log how many history messages and document snippets are included.
+        - Log when no chat session is found for the given conversation_id.
+        - Fail soft on context/document errors (warn and continue).
+        """
         logging.info("PromptBuilder.build_prompt: context_type=%s", context_type)
 
         agent = self.agent_manager.get_agent(agent_name)
         _budget_info = get_prompt_budget_for_agent(agent)
-        # source_budgets = _budget_info["source_budgets"]  # (unused in your snippet; keep when you start enforcing budgets)
+        # source_budgets = _budget_info["source_budgets"]  # reserved for future use
 
         system_message = self._build_agent_system_message(agent_name, agent)
 
@@ -81,6 +88,7 @@ class PromptBuilder(PromptBuilderInterface):
             if extra and extra.strip():
                 messages.append({"role": "system", "content": extra.strip()})
 
+        # --- Chat history ---
         history_messages = self._get_chat_history_messages(
             conversation_id=conversation_id,
             account_name=account_name,
@@ -89,10 +97,18 @@ class PromptBuilder(PromptBuilderInterface):
         )
         messages.extend(history_messages)
 
+        # --- Named context ---
         context_text = self._get_context_text(account_name=account_name, context_name=context_name)
         if context_text:
-            messages.append({"role": "system", "content": f"Additional context for this conversation:\n{context_text}"})
+            messages.append(
+                {
+                    "role": "system",
+                    "content": f"Additional context for this conversation:\n{context_text}",
+                }
+            )
 
+        # --- External documents ---
+        doc_contexts: List[Dict[str, Any]] = []
         if context_type in ("documents", "hybrid"):
             try:
                 doc_contexts = get_document_context(
@@ -131,13 +147,27 @@ class PromptBuilder(PromptBuilderInterface):
                     ex,
                 )
 
+        # --- Current user message ---
         messages.append({"role": "user", "content": content_text})
         messages = self._ensure_current_query(messages, content_text)
         # messages = self._cap_prompt_by_chars_preserving_last_user(messages, max_prompt_chars)
 
+        # --- Summary logging ---
+        logging.info(
+            "PromptBuilder.build_prompt: agent=%s account=%s session_id=%s "
+            "context_type=%s context_name=%s history_messages=%d docs_used=%d",
+            agent_name,
+            account_name,
+            conversation_id,
+            context_type,
+            context_name,
+            len(history_messages),
+            len(doc_contexts),
+        )
+
         return messages
 
-    # --- helper methods unchanged, except conversation_id name ---
+    # --- helper methods ---
 
     def _build_agent_system_message(self, agent_name: str, agent: Dict[str, Any]) -> str:
         parts: List[str] = []
@@ -159,8 +189,26 @@ class PromptBuilder(PromptBuilderInterface):
         if not conversation_id or conversation_id in ("none", "new"):
             return []
 
-        session = self.storage.get_chat_session(conversation_id)
+        try:
+            session = self.storage.get_chat_session(conversation_id)
+        except Exception as ex:
+            logging.warning(
+                "PromptBuilder: error loading chat session %s for account=%s agent=%s: %s",
+                conversation_id,
+                account_name,
+                agent_name,
+                ex,
+            )
+            return []
+
         if not session:
+            logging.warning(
+                "PromptBuilder: no chat session found for session_id=%s account=%s agent=%s; "
+                "building prompt without history",
+                conversation_id,
+                account_name,
+                agent_name,
+            )
             return []
 
         msgs = session.messages[-max_messages_per_session:]
@@ -172,9 +220,19 @@ class PromptBuilder(PromptBuilderInterface):
         try:
             ctx = self.context_manager.get_context(account_name, context_name)
         except Exception as ex:
-            logging.warning("PromptBuilder: failed to load context %s for %s: %s", context_name, account_name, ex)
+            logging.warning(
+                "PromptBuilder: failed to load context %s for %s: %s",
+                context_name,
+                account_name,
+                ex,
+            )
             return ""
         if ctx is None:
+            logging.warning(
+                "PromptBuilder: context %s not found for account=%s",
+                context_name,
+                account_name,
+            )
             return ""
         return ctx.context_formated_text2("compact")
 

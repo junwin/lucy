@@ -2,8 +2,9 @@ from injector import inject
 import logging
 from typing import Optional, Dict, Any
 import json
+import sys
+
 from src.config_manager import ConfigManager
-#from src.prompt_builders.prompt_builder import PromptBuilder
 from src.message_processors.message_processor_interface import MessageProcessorInterface
 from src.prompt_builders.prompt_builder_interface import PromptBuilderInterface
 from src.message_processors.types import AgentDict, AccountDict
@@ -19,7 +20,13 @@ class ToolResultTooLargeError(Exception):
 
 class FunctionCallingProcessor(MessageProcessorInterface):
     @inject
-    def __init__(self, config: ConfigManager, registry: HandlerRegistry, storage: Storage, prompt_builder: PromptBuilderInterface,):
+    def __init__(
+        self,
+        config: ConfigManager,
+        registry: HandlerRegistry,
+        storage: Storage,
+        prompt_builder: PromptBuilderInterface,
+    ):
         self.config = config
         self.registry = registry
         self.storage = storage
@@ -37,7 +44,6 @@ class FunctionCallingProcessor(MessageProcessorInterface):
                 (s or "")[:500],
             )
             return {}
-
 
     def _tool_result_to_text(self, tool_result: Any) -> str:
         """Tool message content MUST be a string. Handlers return a dict; we serialize here.
@@ -80,6 +86,41 @@ class FunctionCallingProcessor(MessageProcessorInterface):
 
         return s
 
+    def _store_error_conversation(
+        self,
+        *,
+        conversation_id: str,
+        agent_name: str,
+        user_message: str,
+        error_message: str,
+    ) -> None:
+        """Append the inbound user message and an assistant error message to storage.
+
+        This is best-effort: any storage error is logged but does not raise further.
+        """
+        try:
+            self.storage.append_chat_message(
+                conversation_id,
+                ChatMessage(
+                    role="user",
+                    content=user_message,
+                    metadata={"agent": agent_name},
+                ),
+            )
+            self.storage.append_chat_message(
+                conversation_id,
+                ChatMessage(
+                    role="assistant",
+                    content=error_message,
+                    metadata={"agent": agent_name, "error": True},
+                ),
+            )
+        except Exception:
+            logging.exception(
+                "FunctionCallingProcessor: failed to store error conversation for session_id=%s",
+                conversation_id,
+            )
+
     def process_message(
         self,
         *,
@@ -115,104 +156,186 @@ class FunctionCallingProcessor(MessageProcessorInterface):
             )
             max_iterations = 1
 
-        # Build prompt
-        completion_messages = self.prompt_builder.build_prompt(
-            content_text=message,
-            conversation_id=conversation_id,
-            agent_name=agent_name,
-            account_name=account_id,
-            context_type=context_type,
-            max_prompt_chars=6000,
-            max_prompt_conversations=20,
-            context_name=context_name,
-            extra_system_messages=[],  # wire this back later if you want
+        logging.info(
+            "FunctionCallingProcessor: start account=%s agent=%s session_id=%s "
+            "context_type=%s max_iterations=%d",
+            account_id,
+            agent_name,
+            conversation_id,
+            context_type,
+            max_iterations,
         )
 
-        function_defs = self.registry.tools()
-
-        response_text = ""
-
-        store_this_call = bool(primary_agent.get("save_reposnses", False))
-
-        for iteration in range(1, max_iterations + 1):
-            result = openai_call(
-                messages=completion_messages,
-                functions=function_defs,
-                temperature=temperature,
-                model=model,
-                store=store_this_call,
+        try:
+            # Build prompt
+            completion_messages = self.prompt_builder.build_prompt(
+                content_text=message,
                 conversation_id=conversation_id,
-                session_id=context_name or None,
+                agent_name=agent_name,
+                account_name=account_id,
+                context_type=context_type,
+                max_prompt_chars=6000,
+                max_prompt_conversations=20,
+                context_name=context_name,
+                extra_system_messages=[],  # wire this back later if you want
             )
 
-            if isinstance(result, ToolResult) and result.tool_calls:
-                for idx, tc in enumerate(result.tool_calls):
-                    tool_call_id = tc.get("id") or f"tool_call_{idx+1}"
-                    tool_name = tc.get("name") or ""
-                    tool_args_raw = tc.get("arguments") or "{}"
-                    tool_args = self._safe_json_loads(tool_args_raw)
+            function_defs = self.registry.tools()
 
-                    try:
-                        handler = self.registry.create(tool_name, config=self.config)
-                        tool_result = handler.execute(tool_args, account_name=account_id)
-                        tool_result_text = self._tool_result_to_text(tool_result)
-                    except ToolResultTooLargeError as e:
-                        tool_result_text = self._tool_result_to_text(
-                            {"ok": False, "tool": tool_name, "error": str(e)}
-                        )
-                    except Exception as e:
-                        logging.exception("Tool execution failed: %s", tool_name)
-                        tool_result_text = self._tool_result_to_text(
-                            {"ok": False, "tool": tool_name, "error": f"{type(e).__name__}: {e}"}
-                        )
+            response_text = ""
 
-                    completion_messages.append(
-                        {
-                            "role": "assistant",
-                            "content": None,
-                            "tool_calls": [
-                                {
-                                    "id": tool_call_id,
-                                    "type": "function",
-                                    "function": {"name": tool_name, "arguments": tool_args_raw},
-                                }
-                            ],
-                        }
-                    )
-                    completion_messages.append(
-                        {"role": "tool", "tool_call_id": tool_call_id, "content": tool_result_text}
-                    )
+            store_this_call = bool(primary_agent.get("save_reposnses", False))
 
-                # If we've hit the max iterations after processing tool calls, stop
-                if iteration >= max_iterations:
-                    logging.error(
-                        "FunctionCallingProcessor: exceeded max_function_call_iterations=%d for agent '%s' in conversation_id=%s",
+            for iteration in range(1, max_iterations + 1):
+                result = openai_call(
+                    messages=completion_messages,
+                    functions=function_defs,
+                    temperature=temperature,
+                    model=model,
+                    store=store_this_call,
+                    conversation_id=conversation_id,
+                    session_id=context_name or None,
+                )
+
+                if isinstance(result, ToolResult) and result.tool_calls:
+                    logging.info(
+                        "FunctionCallingProcessor: tool_call iteration=%d/%d agent=%s "
+                        "session_id=%s tool_count=%d",
+                        iteration,
                         max_iterations,
                         agent_name,
                         conversation_id,
+                        len(result.tool_calls),
                     )
-                    response_text = (
-                        "I ran into an internal limit while trying to call tools multiple times. "
-                        "I may not have completed all requested actions. Please try rephrasing or "
-                        "splitting your request into smaller steps."
-                    )
-                    break
 
-                # Otherwise, continue the loop to let the model see tool results
-                continue
+                    for idx, tc in enumerate(result.tool_calls):
+                        tool_call_id = tc.get("id") or f"tool_call_{idx+1}"
+                        tool_name = tc.get("name") or ""
+                        tool_args_raw = tc.get("arguments") or "{}"
+                        tool_args = self._safe_json_loads(tool_args_raw)
 
-            # No tool calls: we have a normal assistant response
-            response_text = (getattr(result, "content", "") or "").strip()
-            break
+                        try:
+                            handler = self.registry.create(tool_name, config=self.config)
+                            tool_result = handler.execute(tool_args, account_name=account_id)
+                            tool_result_text = self._tool_result_to_text(tool_result)
+                        except ToolResultTooLargeError as e:
+                            tool_result_text = self._tool_result_to_text(
+                                {"ok": False, "tool": tool_name, "error": str(e)}
+                            )
+                        except Exception as e:
+                            logging.exception("Tool execution failed: %s", tool_name)
+                            tool_result_text = self._tool_result_to_text(
+                                {
+                                    "ok": False,
+                                    "tool": tool_name,
+                                    "error": f"{type(e).__name__}: {e}",
+                                }
+                            )
 
-        if store_this_call and response_text:
-            self.storage.append_chat_message(
+                        completion_messages.append(
+                            {
+                                "role": "assistant",
+                                "content": None,
+                                "tool_calls": [
+                                    {
+                                        "id": tool_call_id,
+                                        "type": "function",
+                                        "function": {
+                                            "name": tool_name,
+                                            "arguments": tool_args_raw,
+                                        },
+                                    }
+                                ],
+                            }
+                        )
+                        completion_messages.append(
+                            {
+                                "role": "tool",
+                                "tool_call_id": tool_call_id,
+                                "content": tool_result_text,
+                            }
+                        )
+
+                    # If we've hit the max iterations after processing tool calls, stop
+                    if iteration >= max_iterations:
+                        logging.error(
+                            "FunctionCallingProcessor: exceeded max_function_call_iterations=%d "
+                            "for agent '%s' in conversation_id=%s",
+                            max_iterations,
+                            agent_name,
+                            conversation_id,
+                        )
+                        response_text = (
+                            "I ran into an internal limit while trying to call tools multiple times. "
+                            "I may not have completed all requested actions. Please try rephrasing or "
+                            "splitting your request into smaller steps."
+                        )
+                        break
+
+                    # Otherwise, continue the loop to let the model see tool results
+                    continue
+
+                # No tool calls: we have a normal assistant response
+                response_text = (getattr(result, "content", "") or "").strip()
+                break
+
+            if store_this_call and response_text:
+                self.storage.append_chat_message(
+                    conversation_id,
+                    ChatMessage(
+                        role="user",
+                        content=message,
+                        metadata={"agent": agent_name},
+                    ),
+                )
+                self.storage.append_chat_message(
+                    conversation_id,
+                    ChatMessage(
+                        role="assistant",
+                        content=response_text,
+                        metadata={"agent": agent_name},
+                    ),
+                )
+
+            logging.info(
+                "FunctionCallingProcessor: completed agent=%s session_id=%s "
+                "iterations=%d response_preview=%r",
+                agent_name,
                 conversation_id,
-                ChatMessage(role="user", content=message, metadata={"agent": agent_name}),
-            )
-            self.storage.append_chat_message(
-                conversation_id,
-                ChatMessage(role="assistant", content=response_text, metadata={"agent": agent_name}),
+                iteration,
+                (response_text or "")[:80],
             )
 
-        return response_text
+            return response_text
+
+        except Exception as e:
+            # Log full stack trace with context
+            logging.exception(
+                "FunctionCallingProcessor: unhandled error agent=%s session_id=%s",
+                agent_name,
+                conversation_id,
+            )
+
+            # Build a user-facing error message
+            error_message = (
+                "I ran into an internal error while processing your request. "
+                "The issue has been logged and the process will now exit."
+            )
+
+            # Best-effort: store the inbound message and error as a conversation
+            self._store_error_conversation(
+                conversation_id=conversation_id,
+                agent_name=agent_name,
+                user_message=message,
+                error_message=error_message + f" (Details: {type(e).__name__})",
+            )
+
+            # Exit the process as requested
+            try:
+                sys.exit(1)
+            except SystemExit:
+                # Re-raise to ensure the caller does not continue
+                raise
+
+            # Fallback return (should not be reached, but keeps type checkers happy)
+            return error_message
