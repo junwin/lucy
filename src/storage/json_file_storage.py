@@ -432,6 +432,7 @@ class JsonFileStorage(Storage):
             account_name=data["account_name"],
             full_name=data.get("full_name"),
             preferences=data.get("preferences", {}),
+            active=data.get("active", True),
         )
 
     def upsert_user_profile(self, profile: UserProfile) -> None:

@@ -62,6 +62,7 @@ class UserProfile:
     account_name: str
     full_name: Optional[str] = None
     preferences: Dict[str, Any] = field(default_factory=dict)
+    active: bool = True
 
 
 @dataclass

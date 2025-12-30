@@ -6,7 +6,7 @@ import logging
 import os
 
 from src.storage.base import Storage
-from src.storage.models import ChatMessage
+from src.storage.models import ChatMessage, UserProfile
 
 from src.agent_manager import AgentManager
 from src.container_config import container
@@ -86,6 +86,19 @@ def ask():
     all business logic to AskRequestHandler, which is resolved via DI.
     """
     payload = request.get_json() or {}
+    account_name = payload.get("accountName")
+
+    if not account_name:
+        return jsonify({"error": "accountName is required"}), 400
+
+    user_profile = storage.get_user_profile(account_name)
+
+    if user_profile is None:
+        return jsonify({"error": f"Unknown account '{account_name}'"}), 403
+
+    if not user_profile.active:
+        return jsonify({"error": f"Account '{account_name}' is inactive"}), 403
+
     handler = container.get(AskRequestHandler)
     status, body = handler.handle(payload)
     return jsonify(body), status
@@ -213,7 +226,7 @@ def get_chats():
                 "importance_score": s.importance_score,
                 "include_in_context": s.include_in_context,
                 "metadata": s.metadata,
-                "message_count": len(s.messages),
+                "messages": [],
             }
             for s in sessions
         ]

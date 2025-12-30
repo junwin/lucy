@@ -16,7 +16,7 @@ from src.handlers.registry_bootstrap import build_registry
 from src.message_processors.processor_factory import ProcessorFactory
 from src.prompt_builders.prompt_builder_interface import PromptBuilderInterface
 from src.prompt_builders.prompt_builder import PromptBuilder
-from src.context.context_manager import ContextManager
+
 from src.message_endpoints.ask_request_handler import AskRequestHandler
 
 
@@ -63,13 +63,6 @@ class HandlerRegistryModule(Module):
 
 
 
-class ContextManagerModule(Module):
-    @provider
-    @singleton
-    def provide_context_manager(self, config: ConfigManager) -> ContextManager:
-        return ContextManager(config)
-
-
 class PromptBuilderModule(Module):
     @provider
     @singleton
@@ -111,7 +104,6 @@ def configure_container():
             HandlerRegistryModule(),
             ProcessorFactoryModule(),
             PromptBuilderModule(),
-            ContextManagerModule(),
             EndpointHandlersModule(),
         ]
     )
