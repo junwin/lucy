@@ -1,168 +1,297 @@
 # Lucy
 
-# Introduction
-"Lucy" is an innovative project designed to experiment and leverage the capabilities of OpenAI's completion API. The project aims to manage conversational behavior and automate processes using this technology.
+Lucy is a small, experimental assistant built on top of OpenAI’s APIs. It focuses on:
 
-# Features
+- **Agents** with different behaviors (simple chat, tools/function calling, automation).
+- **Storage-backed conversations** (sessions, messages, context).
+- **A simple HTTP API and CLI** so you can exercise the system without the web UI.
 
-1. **Agents**: These manage the behavior of the project, allowing for simple chats, guided conversations, automation, and function calling.
-   
-2. **Prompt Builder**: This feature enriches the prompts based on user requests. It factors in long-term relevance, recent trends, or a blend of both to construct a set of messages that can be utilized with the completion API.
+For a high-level view of the architecture, see:
 
-3. **Completions**: This component stores and retrieves completions and messages from chats based on agent and user accounts. It also stores system roles for an agent based on the agent name.
+- `docs/architecture_overview.md`
+- `docs/storage.md`
+- `docs/ask_request_handler.md`
 
-4. **Message Processors**: They handle incoming messages and support prompt building, presets, guided conversations, function calling, and automation.
+---
 
-5. **Handlers**: These are used by automation and function calling to support requests made by the model or agents. They handle file loading, file saving, web search, and web page loading.
+## Quick start
 
-6. **Chunkers**: These are tools to chunk text when loading a large text file from a webpage, it processes the file in chunks.
+### 1. Run Lucy (CLI mode)
 
-7. **Context**: This is an information storage that can be shared with different agents. It is used where multiple agents help process a user request, for example, in a guided conversation or automation.
+From the project root:
 
-# Workflow
+```bash
+cd src/repos/lucy
+python main.py --agentName lucy --accountName junwin
+```
 
-In "Lucy", the above-mentioned features collaborate effectively to manage and automate conversational behavior. The prompt builder enriches the user request, which the completion stores and recalls as needed. Message processors handle incoming messages, and handlers enhance these capabilities further. The chunkers handle large data, and context serves as shared storage for information.
+Type a message at the prompt, for example:
 
-# Project Link
+```text
+>> What can you do?
+```
 
-More about the project can be found at: [https://github.com/junwin/lucy](https://github.com/junwin/lucy)
+Lucy will:
 
+- Create a new chat session in storage (with a friendly name like `cli-YYYY-MM-DD`).
+- Call the OpenAI API via the configured message processor.
+- Store the conversation so you can inspect it later.
 
-# Lucy API (v1.1.0)
+### 2. Call the HTTP `/ask` endpoint directly (optional)
 
-## Endpoints
+If you have the HTTP server running (see `docs/architecture_overview.md` for details), you can send a request with `curl`:
 
-### `/conversationIds`
+```bash
+curl -X POST http://localhost:5000/ask \
+  -H "Content-Type: application/json" \
+  -d '{
+    "question": "What is the first sentence in The Wind in the Willows?",
+    "agentName": "lucy",
+    "accountName": "junwin"
+  }'
+```
 
-- `GET`: Get a list of conversation IDs
-    - Parameters: `agentName` (string, required), `accountName` (string, required)
-    - Responses: `200` (A list of conversation IDs), `400` (Bad request)
+Example response:
 
-- `PUT`: Rename a conversation ID
-    - Parameters: `agentName` (string, required), `accountName` (string, required), `existingId` (string, required), `newId` (string, required)
-    - Responses: `200` (OK), `400` (Bad request)
+```json
+{
+  "ok": true,
+  "answer": "The Mole had been working very hard all the morning, spring-cleaning his little home.",
+  "conversation_id": "c0a8012e-1234-5678-9abc-def012345678"
+}
+```
 
-### `/prompt_builder`
+On the first call, omit `conversationId` and (optionally) include a `friendly_name`:
 
-- `POST`: Get the prompt that would be used given an `agentName`, `accountName`, `selectType` and `query` text
-    - Request Body: JSON object with `agentName` (string, required), `accountName` (string, required), `selectType` (string, required), `query` (string, required), `conversationId` (string, required)
-    - Responses: `200` (A list of prompt elements), `400` (Bad request)
+```bash
+curl -X POST http://localhost:5000/ask \
+  -H "Content-Type: application/json" \
+  -d '{
+    "question": "Start a new session for me.",
+    "agentName": "lucy",
+    "accountName": "junwin",
+    "friendly_name": "my-first-session"
+  }'
+```
+
+On subsequent calls, reuse the returned `conversation_id` so messages are appended to the same session:
+
+```bash
+curl -X POST http://localhost:5000/ask \
+  -H "Content-Type: application/json" \
+  -d '{
+    "question": "Continue our previous chat.",
+    "agentName": "lucy",
+    "accountName": "junwin",
+    "conversationId": "c0a8012e-1234-5678-9abc-def012345678"
+  }'
+```
+
+---
+
+## Core concepts
+
+### Agents
+
+Agents define how Lucy behaves:
+
+- System prompt / role
+- Capabilities (plain chat, tools, function calling, automation)
+- Optional context usage
+
+Agents are configured and then used by the message processors to handle user input.
+
+### Storage and conversations
+
+Lucy persists conversations and related data via the storage layer (see `docs/storage.md`).
+
+Key ideas:
+
+- **ChatSession**
+  - Identified by a UUID `id` (this is the canonical `conversation_id`).
+  - Has a `friendly_name` (e.g. `cli-2025-12-28`) that is human-readable.
+  - Scoped by `account_name` and `agent_name`.
+
+- **ChatMessage**
+  - Stored under a session.
+  - Includes `role` (user/assistant/system), `content`, and timestamps.
+
+The `/ask` endpoint and the CLI always work with a real `ChatSession` in storage. If a client does not provide a `conversation_id`, a new session is created.
+
+### Message processors
+
+Message processors take an incoming message and:
+
+- Build a prompt (using the prompt builder and stored history).
+- Call the OpenAI API.
+- Optionally use tools / function calling.
+- Append messages to the current `ChatSession` via storage.
+
+The main processor in use is the **FunctionCallingProcessor**.
+
+### Handlers and tools
+
+Handlers are small units of functionality that can be invoked by agents via tools/function calling, for example:
+
+- File loading / saving
+- Web search
+- Web page loading
+
+These are wired into the message processors and agents.
+
+### Context
+
+Context is shared information that can be used by one or more agents when building prompts (e.g. documents, notes, or other long‑lived data). Context is stored via the storage layer (for example, JSON-backed `ContextState` records) and can be injected into prompts by the `PromptBuilder`.
+
+A simple project-level context for this repo lives at:
+
+- `data/contexts/junwin/lucyproject.json`
+
+When the `lucyproject` context is selected for account `junwin`, its `data["text"]` is added as additional system context for the conversation.
+
+---
+
+## Request flow and logging
+
+Very short request flow for `/ask`:
+
+1. HTTP request hits `POST /ask`.
+2. `FunctionCallingProcessor` starts for the selected agent and session.
+3. `PromptBuilder` builds the prompt (history, agent config, optional storage-based context).
+4. The model is called; if it requests tools, `FunctionCallingProcessor` executes them and then returns the final reply.
+
+Logging is initialized once in `app.py` and used throughout the app.
+
+---
+
+## HTTP API (current)
+
+Lucy exposes a small HTTP API. The main endpoint you will use is `/ask`.
 
 ### `/ask`
 
-- `POST`: Ask a question
-    - Request Body: JSON object with `question` (string, required), `agentName` (string, required), `accountName` (string, required), `conversationId` (string, required)
-    - Responses: `200` (AI assistant's response), `400` (Bad request)
+`POST /ask`
 
-### `/agents`
+Ask a question or send a message to an agent.
 
-- `GET`: Get a list of agents
-    - Responses: `200` (A list of agent objects)
+**Request body (JSON)**
 
-### `/completions`
-
-- `POST`: Add a new prompt to the completions database
-    - Request Body: JSON object with `agentName` (string, required), `accountName` (string, required), `conversationId` (string, required)
-    - Responses: `200` (A single prompt object), `400` (Bad request)
-
-- `GET`: Get one or more completions
-    - Parameters: `agentName` (string, required), `accountName` (string, required), `conversationId` (string, optional)
-    - Responses: `200` (A list of completions objects)
-
-- `PUT`: Update/replace a completion
-    - Parameters: `agentName` (string, required), `accountName` (string, required), `id` (string, required)
-    - Request Body: JSON object with `id` (string, required), `prompt` (Completion object, required)
-    - Responses: `200` (Updated prompt object), `400` (Bad request)
-
-- `DELETE`: Delete a completion
-    - Parameters: `agentName` (string, required), `accountName` (string, required), `id` (string, required)
-    - Responses: `200` (Completion successfully deleted), `400` (Bad request)
-
-## Schema
-
-### Completion
-
-- `conversation`: Array of objects with `content` (string), `role` (string), `utc_timestamp` (date-time string) 
-- `conversationId`: String
-- `id`: String
-- `keywords`: Array of strings
-- `total_chars`: Integer
-- `utc_timestamp`: Date-time string
-
-
-## Getting Started
-
-### Install Dependencies
-
-
-
-python3 -m venv venv
-source venv/bin/activate  # On Windows, use `venv\Scripts\activate`
-
-pip install -r requirements.txt
-
-python -m spacy download en_core_web_sm
-python -m spacy download es_core_news_sm
-
-or
-
-python3 -m spacy download en_core_web_sm
-python3 -m spacy download es_core_news_sm
-
-### Virtual Environment
-
-To activate the virtual environment:
-
-
-
-venv\Scripts\activate  # On Unix-based systems, use `source venv/bin/activate`  source venv/bin/activate
-
-
-### Running the Flask App
-
-
-
-python app.py
-
-You can access the Swagger UI at https://localhost:5000/api/docs or when debugging http://localhost:5000/api/docs.
-
-The web service will start listening on http://localhost:5000. You can send a POST request to http://localhost:5000/ask with a JSON payload containing the question:
-
-Request body:
-
-json
-
+```json
 {
-  "question": "What is the first sentence in the wind in the willows",
+  "question": "What is the first sentence in the wind in the willows?",
   "agentName": "lucy",
   "accountName": "junwin",
-  "conversationId": "1"
+  "conversationId": "<optional>",
+  "friendly_name": "<optional human label for a new session>",
+  "selectType": "<optional context selector>"
 }
+```
 
-The web service will return the response in the following format:
+Notes:
 
-json
+- If `conversationId` is omitted, the server will create a new `ChatSession`.
+- If `friendly_name` is provided on that first call, it will be stored as the session’s `friendly_name`.
+- The response includes the canonical `conversation_id` (a UUID) that you should reuse on subsequent calls.
 
+**Response (JSON)**
+
+```json
 {
-  "response": "The first sentence in \"The Wind in the Willows\" by Kenneth Grahame is: \"The Mole had been working very hard all the morning, spring-cleaning his little home.\""
+  "ok": true,
+  "answer": "...assistant reply...",
+  "conversation_id": "<uuid>"
 }
+```
 
-### Setting up HTTPS in Flask using mkcert
+Other endpoints (for listing agents, sessions, etc.) are documented in the code and in the docs under `docs/`. The older `/completions` API described in previous versions has been superseded by the storage-backed chat sessions.
 
-To enable HTTPS in your Flask application, you can generate a self-signed certificate using mkcert. Follow the steps below to get started:
+---
 
-    Install mkcert by following the instructions in the official documentation: https://github.com/FiloSottile/mkcert#installation.
-    Once you have installed mkcert, generate a certificate for your desired domain name(s) by running the following command: mkcert example.com (replace example.com with your own domain name if desired).
-    This will generate two files: a .pem file and a -key.pem file. These files are your SSL certificate and private key, respectively.
-    In your Flask application code, add the following lines to enable HTTPS using the generated certificate and key:
+## CLI usage
 
+Lucy includes a simple CLI that talks to the same `/ask` logic. This is useful for exercising the system without the web client.
 
+From the project root:
 
-import ssl
+```bash
+cd src/repos/lucy
+python main.py --agentName lucy --accountName junwin
+```
 
-if __name__ == "__main__":
-    context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
-    context.load_cert_chain('example.com.pem', 'example.com-key.pem')
-    app.run(host='0.0.0.0', port=5000, ssl_context=context, debug=True)
+Behavior:
 
-That's it! You should now be able to access your Flask application using HTTPS. Note that because you are using a self-signed certificate, your browser may display a security warning when you try to access it. This is normal and you can safely ignore it - just be sure not to enter any sensitive information on the site until you have verified that the certificate's fingerprint matches the expected value.
+- On start, the CLI creates (or reuses) a **friendly name** like `cli-YYYY-MM-DD`.
+- On the first message, it calls `/ask` without a `conversationId` but with that `friendly_name`.
+- The server creates a new `ChatSession` and returns its UUID.
+- On subsequent messages, the CLI reuses that `conversation_id` so all messages go into the same session.
+
+This is the recommended way to quickly test agents, storage, and message processing.
+
+---
+
+## Getting started (development)
+
+### 1. Create and activate a virtual environment
+
+```bash
+python3 -m venv venv
+source venv/bin/activate  # On Windows: venv\\Scripts\\activate
+```
+
+### 2. Install dependencies
+
+```bash
+pip install -r requirements.txt
+
+# Optional: language models used by some components
+python -m spacy download en_core_web_sm
+python -m spacy download es_core_news_sm
+```
+
+### 3. Run the app
+
+The current entry point is `main.py`, which wires up the storage, agents, and message processors, and can expose HTTP endpoints and/or the CLI.
+
+For local CLI testing:
+
+```bash
+python main.py --agentName lucy --accountName junwin
+```
+
+If you are running the HTTP server variant (Flask or similar), follow the instructions in `docs/architecture_overview.md` or the relevant server module. Older instructions that referenced `app.py` and Swagger UI may not match the current setup.
+
+---
+
+## HTTPS (optional)
+
+If you run a Flask-based HTTP server and want HTTPS locally, you can still use `mkcert` to generate a self‑signed certificate. The general pattern is:
+
+1. Install `mkcert` (see https://github.com/FiloSottile/mkcert#installation).
+2. Generate a certificate:
+
+   ```bash
+   mkcert localhost
+   ```
+
+3. In your server code, configure SSL:
+
+   ```python
+   import ssl
+
+   if __name__ == "__main__":
+       context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+       context.load_cert_chain('localhost.pem', 'localhost-key.pem')
+       app.run(host='0.0.0.0', port=5000, ssl_context=context, debug=True)
+   ```
+
+This is optional and only needed if you expose an HTTPS endpoint locally.
+
+---
+
+## More documentation
+
+- `docs/architecture_overview.md` – high-level architecture and components.
+- `docs/storage.md` – storage model, chat sessions, messages, and context.
+- `docs/ask_request_handler.md` – `/ask` request/response flow and session handling.
+
+These docs are the best place to start if you are modifying or extending Lucy.

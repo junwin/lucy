@@ -1,17 +1,17 @@
 # ==============================================================================
 # FILE 2: tests/storage/test_storage_chats.py
-# ==============================================================================
+# ============================================================================== 
 
 import pytest
-from datetime import datetime
+from datetime import datetime, timezone
 from src.storage.models import ChatMessage, ChatSession
 
 
 class TestChatOperations:
-    """Test chat session CRUD operations."""
+    """Test chat session CRUD operations."""  
     
     def test_create_chat_session(self, storage):
-        """Test creating a new chat session."""
+        """Test creating a new chat session.""" 
         session = storage.create_chat_session(
             account_name="junwin",
             agent_name="lucy",
@@ -29,7 +29,7 @@ class TestChatOperations:
         assert len(session.messages) == 0
     
     def test_get_chat_session(self, storage):
-        """Test retrieving a chat session by ID."""
+        """Test retrieving a chat session by ID.""" 
         created = storage.create_chat_session(
             account_name="junwin",
             agent_name="lucy",
@@ -44,12 +44,12 @@ class TestChatOperations:
         assert retrieved.friendly_name == "Retrieve test"
     
     def test_get_nonexistent_session(self, storage):
-        """Test retrieving a session that doesn't exist."""
+        """Test retrieving a session that doesn't exist.""" 
         result = storage.get_chat_session("nonexistent-id-12345")
         assert result is None
     
     def test_append_chat_message(self, storage):
-        """Test adding messages to a chat session."""
+        """Test adding messages to a chat session.""" 
         session = storage.create_chat_session(
             account_name="junwin",
             agent_name="lucy",
@@ -58,14 +58,14 @@ class TestChatOperations:
         msg1 = ChatMessage(
             role="user",
             content="Hello Lucy",
-            utc_timestamp=datetime.utcnow(),
+            utc_timestamp=datetime.now(timezone.utc),  # Updated to timezone-aware
         )
         storage.append_chat_message(session.id, msg1)
         
         msg2 = ChatMessage(
             role="assistant",
             content="Hello! How can I help?",
-            utc_timestamp=datetime.utcnow(),
+            utc_timestamp=datetime.now(timezone.utc),  # Updated to timezone-aware
         )
         storage.append_chat_message(session.id, msg2)
         
@@ -77,7 +77,7 @@ class TestChatOperations:
         assert retrieved.messages[1].content == "Hello! How can I help?"
     
     def test_list_chat_sessions(self, storage):
-        """Test listing chat sessions for an account."""
+        """Test listing chat sessions for an account.""" 
         storage.create_chat_session("junwin", "lucy", "Chat 1")
         storage.create_chat_session("junwin", "lucy", "Chat 2")
         storage.create_chat_session("junwin", "glinda", "Chat 3")
@@ -97,7 +97,7 @@ class TestChatOperations:
         assert len(alice_sessions) == 1
     
     def test_list_chat_sessions_with_limit(self, storage):
-        """Test pagination limit on chat listing."""
+        """Test pagination limit on chat listing.""" 
         for i in range(10):
             storage.create_chat_session("junwin", "lucy", f"Chat {i}")
         
@@ -105,7 +105,7 @@ class TestChatOperations:
         assert len(sessions) == 5
     
     def test_rename_chat_session(self, storage):
-        """Test renaming a chat session."""
+        """Test renaming a chat session.""" 
         session = storage.create_chat_session(
             "junwin", 
             "lucy", 
@@ -118,14 +118,14 @@ class TestChatOperations:
         assert retrieved.friendly_name == "New name"
     
     def test_message_ordering(self, storage):
-        """Test that messages maintain their order."""
+        """Test that messages maintain their order.""" 
         session = storage.create_chat_session("junwin", "lucy")
         
         for i in range(5):
             msg = ChatMessage(
                 role="user" if i % 2 == 0 else "assistant",
                 content=f"Message {i}",
-                utc_timestamp=datetime.utcnow(),
+                utc_timestamp=datetime.now(timezone.utc),  # Updated to timezone-aware
             )
             storage.append_chat_message(session.id, msg)
         
@@ -134,24 +134,23 @@ class TestChatOperations:
             assert msg.content == f"Message {i}"
     
     def test_append_message_to_nonexistent_session(self, storage):
-        """Test appending message to non-existent session."""
+        """Test appending message to non-existent session.""" 
         msg = ChatMessage(role="user", content="test")
         
         with pytest.raises(Exception):
             storage.append_chat_message("nonexistent-session", msg)
     
     def test_unicode_content(self, storage):
-        """Test storing unicode and emoji content."""
+        """Test storing unicode and emoji content.""" 
         session = storage.create_chat_session("junwin", "lucy")
         
         msg = ChatMessage(
             role="user",
             content="Hello 世界 🌍 café naïve",
-            utc_timestamp=datetime.utcnow(),
+            utc_timestamp=datetime.now(timezone.utc),  # Updated to timezone-aware
         )
         
         storage.append_chat_message(session.id, msg)
         
         retrieved = storage.get_chat_session(session.id)
         assert retrieved.messages[0].content == "Hello 世界 🌍 café naïve"
-

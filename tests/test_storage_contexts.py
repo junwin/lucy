@@ -3,7 +3,7 @@
 # ==============================================================================
 
 import pytest
-from datetime import datetime
+from datetime import datetime, timezone
 from src.storage.models import ContextState
 
 
@@ -20,7 +20,7 @@ class TestContexts:
                 "facts": ["retired 2023", "moved to Evanston"],
                 "mood": "reflective",
             },
-            updated_at=datetime.utcnow(),
+            updated_at=datetime.now(timezone.utc),
         )
         
         storage.save_context(context)
@@ -37,13 +37,13 @@ class TestContexts:
             id="ctx_001",
             account_name="junwin",
             data={"count": 1},
-            updated_at=datetime.utcnow(),
+            updated_at=datetime.now(timezone.utc),
         )
         storage.save_context(context)
         
         context.data["count"] = 2
         context.data["new_field"] = "value"
-        context.updated_at = datetime.utcnow()
+        context.updated_at = datetime.now(timezone.utc)
         storage.save_context(context)
         
         retrieved = storage.get_context("junwin", "ctx_001")

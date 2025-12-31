@@ -1,13 +1,11 @@
-# Replacement for src/prompt_builders/prompt_builder.py
-# Adds support for extra_system_messages (list[str]) and ensures the current user query isn't dropped.
+# src/prompt_builders/prompt_builder.py
 
 import logging
 from typing import Any, Dict, List, Optional
+from injector import inject
 
-from src.container_config import container
 from src.config_manager import ConfigManager
-from src.agent_manager import AgentManager
-from src.context.context_manager import ContextManager
+from src.agent import AgentManager, Agent
 from src.storage.base import Storage
 from src.prompt_builders.prompt_builder_interface import PromptBuilderInterface
 from src.utils.document_context import get_document_context
@@ -15,9 +13,9 @@ from src.utils.document_context import get_document_context
 DEFAULT_PROMPT_BUDGET_TOKENS = 12000
 
 DEFAULT_SOURCE_BUDGETS = {
-    "agent": 0.4,      # system / persona
-    "account": 0.4,    # chat history
-    "context": 0.2,    # explicit context_text
+    "agent": 0.4,
+    "account": 0.4,
+    "context": 0.2,
 }
 
 
@@ -27,70 +25,71 @@ def estimate_tokens_from_text(text: str) -> int:
     return max(1, len(text) // 4)
 
 
-def get_prompt_budget_for_agent(agent: Dict[str, Any]) -> Dict[str, Any]:
-    prompt_budget_tokens = int(agent.get("prompt_budget_tokens", DEFAULT_PROMPT_BUDGET_TOKENS))
-
-    source_fracs = agent.get("source_budgets", {}) or {}
-    merged_fracs = {**DEFAULT_SOURCE_BUDGETS, **source_fracs}
-
-    total_frac = sum(merged_fracs.values()) or 1.0
-    normalized_fracs = {k: v / total_frac for k, v in merged_fracs.items()}
-
-    source_budgets = {name: int(prompt_budget_tokens * frac) for name, frac in normalized_fracs.items()}
-
-    return {"prompt_budget_tokens": prompt_budget_tokens, "source_budgets": source_budgets}
-
-
 class PromptBuilder(PromptBuilderInterface):
-    def __init__(self):
-        self.agent_manager: AgentManager = container.get(AgentManager)
-        self.config: ConfigManager = container.get(ConfigManager)
-        self.storage: Storage = container.get(Storage)
-        self.context_manager = ContextManager(self.config)
+    @inject
+    def __init__(
+        self,
+        agent_manager: AgentManager,
+        config: ConfigManager,
+        storage: Storage,
+    ):
+        self.agent_manager = agent_manager
+        self.config = config
+        self.storage = storage
 
     def build_prompt(
         self,
+        *,
         content_text: str,
-        conversationId: str,
+        conversation_id: str,
         agent_name: str,
         account_name: str,
         context_type: str = "none",
         max_prompt_chars: int = 6000,
-        max_prompt_conversations: int = 20,
         context_name: str = "",
         extra_system_messages: Optional[List[str]] = None,
     ) -> List[Dict[str, str]]:
+        """Build the full prompt (list of messages) for a model call.
+
+        Logging and error handling goals:
+        - Log how many history messages and document snippets are included.
+        - Log when no chat session is found for the given conversation_id.
+        - Fail soft on context/document errors (warn and continue).
+        """
         logging.info("PromptBuilder.build_prompt: context_type=%s", context_type)
 
-        agent = self.agent_manager.get_agent(agent_name)
-        budget_info = get_prompt_budget_for_agent(agent)
-        source_budgets = budget_info["source_budgets"]
+        agent: Optional[Agent] = self.agent_manager.get_agent(agent_name)
 
-        # 1) primary system prompt
         system_message = self._build_agent_system_message(agent_name, agent)
 
         messages: List[Dict[str, str]] = [{"role": "system", "content": system_message}]
 
-        # 1b) extra system messages (e.g., SME guidance)
         for extra in (extra_system_messages or []):
             if extra and extra.strip():
                 messages.append({"role": "system", "content": extra.strip()})
 
-        # 2) history
+        # --- Chat history ---
+        max_prompt_conversations = agent.max_prompt_conversations if agent else 0
         history_messages = self._get_chat_history_messages(
-            conversationId=conversationId,
+            conversation_id=conversation_id,
             account_name=account_name,
             agent_name=agent_name,
             max_conversations=max_prompt_conversations,
         )
         messages.extend(history_messages)
 
-        # 3) explicit named context (legacy context manager)
+        # --- Named context (from storage) ---
         context_text = self._get_context_text(account_name=account_name, context_name=context_name)
         if context_text:
-            messages.append({"role": "system", "content": f"Additional context for this conversation:\n{context_text}"})
+            messages.append(
+                {
+                    "role": "system",
+                    "content": f"Additional context for this conversation:\n{context_text}",
+                }
+            )
 
-        # 4) document-based context (e.g., Obsidian notes) when requested
+        # --- External documents ---
+        doc_contexts: List[Dict[str, Any]] = []
         if context_type in ("documents", "hybrid"):
             try:
                 doc_contexts = get_document_context(
@@ -118,14 +117,9 @@ class PromptBuilder(PromptBuilderInterface):
                         doc_lines.append(snippet)
                         if truncated:
                             doc_lines.append("[Note: content truncated]")
-                        doc_lines.append("")  # blank line between docs
+                        doc_lines.append("")
 
-                    messages.append(
-                        {
-                            "role": "system",
-                            "content": "\n".join(doc_lines).strip(),
-                        }
-                    )
+                    messages.append({"role": "system", "content": "\n".join(doc_lines).strip()})
             except Exception as ex:
                 logging.warning(
                     "PromptBuilder: failed to load document context for %s/%s: %s",
@@ -134,55 +128,118 @@ class PromptBuilder(PromptBuilderInterface):
                     ex,
                 )
 
-        # 5) user query last
+        # --- Current user message ---
         messages.append({"role": "user", "content": content_text})
-
-        # Ensure the current query isn't dropped by other caps
         messages = self._ensure_current_query(messages, content_text)
-
-        # Hard cap chars, but never remove the final user query
         # messages = self._cap_prompt_by_chars_preserving_last_user(messages, max_prompt_chars)
+
+        # --- Summary logging ---
+        logging.info(
+            "PromptBuilder.build_prompt: agent=%s account=%s session_id=%s "
+            "context_type=%s context_name=%s history_messages=%d docs_used=%d",
+            agent_name,
+            account_name,
+            conversation_id,
+            context_type,
+            context_name,
+            len(history_messages),
+            len(doc_contexts),
+        )
 
         return messages
 
-    def _build_agent_system_message(self, agent_name: str, agent: Dict[str, Any]) -> str:
+    # --- helper methods ---
+
+    def _build_agent_system_message(self, agent_name: str, agent: Optional[Agent]) -> str:
+        """Combine system_prompt, persona, and style_prompt into one system message."""
+        if agent is None:
+            return f"You are {agent_name}, a helpful assistant."
+
         parts: List[str] = []
-        parts.append(agent.get("system_prompt", f"You are {agent_name}, a helpful assistant."))
-        if agent.get("persona"):
-            parts.append(agent["persona"])
-        if agent.get("style_prompt"):
-            parts.append(agent["style_prompt"])
+        if agent.system_prompt:
+            parts.append(agent.system_prompt)
+        else:
+            parts.append(f"You are {agent_name}, a helpful assistant.")
+
+        if agent.persona:
+            parts.append(agent.persona)
+        if agent.style_prompt:
+            parts.append(agent.style_prompt)
+
         return "\n\n".join(parts)
 
     def _get_chat_history_messages(
         self,
-        conversationId: str,
+        conversation_id: str,
         account_name: str,
         agent_name: str,
         max_conversations: int,
-        max_messages_per_session: int = 50,
     ) -> List[Dict[str, str]]:
-        if not conversationId or conversationId in ("none", "new"):
+        if not conversation_id or conversation_id in ("none", "new"):
+            return []
+        if max_conversations <= 0:
             return []
 
-        session = self.storage.get_chat_session(conversationId)
+        try:
+            session = self.storage.get_chat_session(conversation_id)
+        except Exception as ex:
+            logging.warning(
+                "PromptBuilder: error loading chat session %s for account=%s agent=%s: %s",
+                conversation_id,
+                account_name,
+                agent_name,
+                ex,
+            )
+            return []
+
         if not session:
+            logging.warning(
+                "PromptBuilder: no chat session found for session_id=%s account=%s agent=%s; "
+                "building prompt without history",
+                conversation_id,
+                account_name,
+                agent_name,
+            )
             return []
 
-        msgs = session.messages[-max_messages_per_session:]
+        msgs = session.messages[-max_conversations:]
         return [{"role": m.role, "content": m.content} for m in msgs]
 
     def _get_context_text(self, account_name: str, context_name: str) -> str:
+        """Load context text from storage.
+
+        For now this is a simple, read-only lookup that expects a ContextState
+        whose data dict may contain a "text" field with free-form content.
+        """
         if not context_name or context_name == "none":
             return ""
+
         try:
-            ctx = self.context_manager.get_context(account_name, context_name)
+            ctx = self.storage.get_context(account_name, context_name)
         except Exception as ex:
-            logging.warning("PromptBuilder: failed to load context %s for %s: %s", context_name, account_name, ex)
+            logging.warning(
+                "PromptBuilder: failed to load context %s for %s: %s",
+                context_name,
+                account_name,
+                ex,
+            )
             return ""
+
         if ctx is None:
+            logging.warning(
+                "PromptBuilder: context %s not found for account=%s",
+                context_name,
+                account_name,
+            )
             return ""
-        return ctx.context_formated_text2("compact")
+
+        data = getattr(ctx, "data", None)
+        if isinstance(data, dict):
+            text = data.get("text")
+            if isinstance(text, str):
+                return text
+
+        return ""
 
     def _ensure_current_query(self, messages: List[Dict[str, str]], current_query: str) -> List[Dict[str, str]]:
         if not messages:
@@ -191,33 +248,3 @@ class PromptBuilder(PromptBuilderInterface):
         if last.get("role") == "user" and (last.get("content") or "") == current_query:
             return messages
         return messages + [{"role": "user", "content": current_query}]
-
-    def _cap_prompt_by_chars_preserving_last_user(self, messages: List[Dict[str, str]], max_chars: int) -> List[Dict[str, str]]:
-        if max_chars <= 0 or not messages:
-            return messages
-
-        last_msg = messages[-1]
-        prefix = messages[:-1]
-
-        total = 0
-        capped_prefix: List[Dict[str, str]] = []
-        for msg in prefix:
-            content = msg.get("content", "")
-            length = len(content)
-            if total + length <= max_chars:
-                capped_prefix.append(msg)
-                total += length
-            else:
-                remaining = max_chars - total
-                if remaining > 0:
-                    capped_prefix.append({"role": msg["role"], "content": content[:remaining]})
-                    total += remaining
-                break
-
-        remaining_for_last = max_chars - total
-        last_content = last_msg.get("content", "") or ""
-        if remaining_for_last <= 0:
-            return [{"role": last_msg["role"], "content": last_content[:max_chars]}]
-
-        capped_last = {"role": last_msg["role"], "content": last_content[:remaining_for_last]}
-        return capped_prefix + [capped_last]

@@ -63,7 +63,8 @@ def _safe_json(obj: Any, limit: int = MAX_JSON) -> str:
 
 
 def _redact_messages(messages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    """
+    """Redact/truncate message content for debug logging.
+
     If you later add secrets into message metadata, redact here.
     For now: truncate content unless DEBUG_FULL.
     """
@@ -80,12 +81,17 @@ def _redact_messages(messages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
 
 
 def _log_request(label: str, payload: Dict[str, Any]) -> None:
+    """Debug log the outbound OpenAI request payload (redacted)."""
     if not DEBUG:
         return
     logging.debug("[OPENAI REQ] %s payload:\n%s", label, _safe_json(payload))
 
 
 def _log_response(label: str, resp: Any) -> None:
+    """Debug log a summarized OpenAI response.
+
+    Includes id, model, created, usage, and a brief view of the first choice.
+    """
     if not DEBUG:
         return
 
@@ -134,6 +140,10 @@ def _log_response(label: str, resp: Any) -> None:
 
 
 def _log_messages_brief(messages: List[Dict[str, Any]], label: str) -> None:
+    """Info-level log of message count and last message preview.
+
+    This is the main high-level trace for each OpenAI call.
+    """
     n = len(messages or [])
     last = messages[-1] if n else {}
     preview = (last.get("content") or "")
@@ -144,19 +154,22 @@ def _log_messages_brief(messages: List[Dict[str, Any]], label: str) -> None:
 
 
 def _sleep_backoff(attempt: int, base: float, cap: float) -> None:
+    """Exponential backoff with jitter for retryable OpenAI errors."""
     delay = min(cap, base * (2 ** attempt))
     delay = delay * (0.6 + random.random() * 0.8)  # jitter 0.6–1.4x
+    logging.warning("openai_call: backing off for %.2fs (attempt=%d)", delay, attempt + 1)
     time.sleep(delay)
 
 
 def _normalize_tools(functions: Optional[List[Dict[str, Any]]]) -> List[Dict[str, Any]]:
-    """
+    """Normalize tool definitions for the OpenAI chat.completions API.
+
     Accepts either:
       A) list of function defs: {"name":..., "description":..., "parameters":...}
       B) list of tools entries: {"type":"function","function":{...}}
-    Returns a clean tools=[] list suitable for chat.completions.create(tools=...).
 
-    Logs exactly what was accepted/skipped.
+    Returns a clean tools=[] list suitable for chat.completions.create(tools=...).
+    Logs what was accepted/skipped.
     """
     tools: List[Dict[str, Any]] = []
     if not functions:
@@ -244,11 +257,7 @@ class TextResult:
 # Schema helpers
 # -----------------------------------------------------------------------------
 def _extract_text_and_tool_calls(resp: Any) -> Tuple[str, List[Dict[str, Any]]]:
-    """
-    Normalize SDK response into:
-      - text content (may be empty)
-      - tool_calls list (normalized dicts)
-    """
+    """Normalize SDK response into text content + tool_calls list."""
     msg = resp.choices[0].message
     text = msg.content or ""
 
@@ -319,8 +328,9 @@ def openai_call(
     backoff_base: float = 0.5,
     backoff_cap: float = 8.0,
 ) -> Union[TextResult, ToolResult, SchemaResult]:
-    """
-    Single entry point:
+    """Single entry point for OpenAI chat.completions.
+
+    Behavior:
       - If schema is provided => SchemaResult (parsed JSON + validation errors + raw fallback)
       - Else if functions/tools provided => ToolResult (tool_calls + content)
       - Else => TextResult
@@ -392,6 +402,7 @@ def openai_call(
             return TextResult(role="assistant", content=text)
 
         except BadRequestError as e:
+            # 400s are not retryable; log details and re-raise so callers can decide.
             logging.error("[OPENAI 400] %s", str(e))
             body = getattr(e, "body", None)
             if body:
@@ -401,16 +412,30 @@ def openai_call(
             raise
 
         except (RateLimitError, APIError, APITimeoutError, APIConnectionError) as e:
+            # Retryable errors with exponential backoff.
             if attempt == max_attempts - 1:
+                logging.error(
+                    "openai_call: exhausted retries after %d attempts due to %s: %s",
+                    max_attempts,
+                    type(e).__name__,
+                    e,
+                )
                 raise
             logging.warning(
-                "OpenAI error (%s). Retrying attempt %d/%d",
+                "OpenAI error (%s) on attempt %d/%d; will retry.",
                 type(e).__name__,
-                attempt + 2,
+                attempt + 1,
                 max_attempts,
             )
             _sleep_backoff(attempt, backoff_base, backoff_cap)
 
+        except Exception as e:
+            # Unexpected client/SDK error: log and re-raise so the processor/handler
+            # can convert this into a user-visible error and/or exit.
+            logging.exception("openai_call: unexpected error: %s", e)
+            raise
+
+    # We should never reach here because we either return or raise in the loop.
     raise RuntimeError("openai_call: exhausted retries unexpectedly.")
 
 

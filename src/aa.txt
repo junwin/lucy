@@ -1,0 +1,38 @@
+I want to produce a set of markdown files 1 per each modules below, for each module 
+
+Each .md file will be named src.<module name>.md   e.g. src.handlers.md
+Each .md file will have:
+- a short description of the module
+- list of python files - with thier path and key class names
+- tags list -- all implimented class names found in the source .py files , module name, src.<module name> 
+
+Add the tags to the top of the document with obsidian style format e.g ``` 
+---
+tags:
+  - visual
+---
+ ```
+
+
+Write the .md file here  `src/repos/lucy/docs/minidoc`
+
+
+Module list  
+src/prompt_builders
+src/storage
+src/tasklists
+utils
+
+agent_manager.py
+api_helpers.py
+config_manager.py
+container_config.py
+keywords.py
+obsidian_index_cli.py
+
+
+
+
+
+
+

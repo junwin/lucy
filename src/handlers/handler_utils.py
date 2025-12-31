@@ -1,4 +1,3 @@
-
 import os
 import shlex
 import subprocess
@@ -6,12 +5,20 @@ import logging
 from subprocess import check_output
 
 
-import os
-
 def get_base_path(config, account_name: str, relative_path: str = "") -> str:
+    """Resolve a path inside the per-account sandbox.
+
+    Rules:
+    - `relative_path` must be *relative* (no leading slash, no drive letter).
+    - `..` segments are not allowed to escape the account root.
+    - `~` or `~/` are treated as "no extra path" (for convenience), but still
+      resolved inside the account sandbox.
+    - Both forward and backslashes are normalized to the current OS separator.
+    """
+
     relative_path = (relative_path or "").strip()
 
-    # treat "~" or "~/" as "no extra path"
+    # treat "~" or "~/" as "no extra path" (but still under the sandbox)
     if relative_path == "~" or relative_path.startswith("~/") or relative_path.startswith("~\\"):
         relative_path = relative_path[1:]  # drop the "~"
         relative_path = relative_path.lstrip("/\\")  # drop following slash if present
@@ -25,18 +32,20 @@ def get_base_path(config, account_name: str, relative_path: str = "") -> str:
 
     account_root = os.path.realpath(os.path.join(config_base, account_name))
 
-    # Disallow absolute paths in the *user supplied* part.
-    # (If callers pass an absolute path under account_root, we can optionally support it below.)
+    # Disallow absolute paths in the user-supplied part entirely.
     if os.path.isabs(relative_path):
-        # If you want to allow absolute paths only when already under account_root, do:
-        abs_candidate = os.path.realpath(relative_path)
-        if os.path.commonpath([account_root, abs_candidate]) != account_root:
-            raise ValueError("relative_path must be relative to the account sandbox")
-        resolved = abs_candidate
-    else:
-        resolved = os.path.realpath(os.path.join(account_root, relative_path))
+        raise ValueError("relative_path must be relative to the account sandbox, not absolute")
 
-    # Enforce containment
+    # Normalize and build the final path
+    norm_rel = os.path.normpath(relative_path) if relative_path else ""
+
+    # Reject attempts to escape via leading ".."
+    if norm_rel.startswith(".."):
+        raise ValueError("relative_path must not escape the account sandbox")
+
+    resolved = os.path.realpath(os.path.join(account_root, norm_rel))
+
+    # Enforce containment: resolved must be inside account_root
     if os.path.commonpath([account_root, resolved]) != account_root:
         raise ValueError("Path traversal outside allowed base path")
 

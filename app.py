@@ -6,13 +6,14 @@ import logging
 import os
 
 from src.storage.base import Storage
-from src.storage.models import ChatMessage
+from src.storage.models import ChatMessage, UserProfile
 
-from src.agent_manager import AgentManager
+from src.agent import AgentManager
 from src.container_config import container
 from src.config_manager import ConfigManager
 from src.prompt_builders.prompt_builder import PromptBuilder
-from src.message_processors.function_calling_processor import FunctionCallingProcessor
+from src.message_processors.processor_factory import ProcessorFactory
+from src.message_endpoints.ask_request_handler import AskRequestHandler
 
 
 app = Flask(__name__)
@@ -71,7 +72,6 @@ logging.basicConfig(
 
 # Get the AgentManager instance
 agent_manager = container.get(AgentManager)
-agent_manager.load_agents()
 
 
 # -----------------------------------------------------------------------------
@@ -79,50 +79,35 @@ agent_manager.load_agents()
 # -----------------------------------------------------------------------------
 @app.route("/ask", methods=["POST"])
 def ask():
+    """Main chat/agent interaction endpoint.
+
+    This route is intentionally thin: it parses the JSON payload and delegates
+    all business logic to AskRequestHandler, which is resolved via DI.
+    """
     payload = request.get_json() or {}
+    account_name = payload.get("accountName")
 
-    question = payload.get("question", "")
-    agentName = (payload.get("agentName", "") or "").lower()
-    accountName = (payload.get("accountName", "") or "").lower()
-    select_type = payload.get("selectType", "")
-    conversationId = payload.get("conversationId", "")
-    secondary_agent = (payload.get("secondaryAgent", "") or "").lower()
+    if not account_name:
+        return jsonify({"error": "accountName is required"}), 400
 
-    if not question or not agentName or not accountName:
-        return jsonify({"error": "Missing question, agentName, or accountName"}), 400
+    user_profile = storage.get_user_profile(account_name)
 
-    if not agent_manager.is_valid(agentName):
-        return jsonify({"error": "Invalid agentName"}), 400
+    if user_profile is None:
+        return jsonify({"error": f"Unknown account '{account_name}'"}), 403
 
-    my_agent = agent_manager.get_agent(agentName)
+    if not user_profile.active:
+        return jsonify({"error": f"Account '{account_name}' is inactive"}), 403
 
-    if not select_type:
-        select_type = my_agent.get("select_type", "")
-
-    partner_agent = (my_agent.get("partner_agent") or "").lower()
-    context_name = ""
-
-    # Always use FunctionCallingProcessor (same interface as previous processors)
-    processor = FunctionCallingProcessor()
-    processor.context_type = select_type
-
-    response = processor.process_message(
-        agentName,
-        accountName,
-        question,
-        conversationId,
-        context_name,
-        partner_agent,
-    )
-
-    return jsonify({"response": response})
+    handler = container.get(AskRequestHandler)
+    status, body = handler.handle(payload)
+    return jsonify(body), status
 
 
 @app.route("/agents", methods=["GET"])
 def get_agents():
     try:
-        my_list = agent_manager.get_available_agents()
-        return jsonify(my_list)
+        agents = agent_manager.get_available_agents()
+        return jsonify([a.to_dict() for a in agents])
     except Exception as e:
         logging.exception("Error in /agents")
         return jsonify({"error": str(e)}), 500
@@ -135,7 +120,8 @@ def build_prompt():
     question = payload.get("query", "")
     agentName = (payload.get("agentName", "") or "").lower()
     accountName = (payload.get("accountName", "") or "").lower()
-    select_type = payload.get("selectType", "")
+    # keep request field name for now, but map to context_type
+    context_type = payload.get("selectType", "") or payload.get("contextType", "")
     conversationId = payload.get("conversationId", "")
     context_name = payload.get("contextName", "") or ""
 
@@ -151,19 +137,19 @@ def build_prompt():
         return jsonify({"error": "Invalid agentName"}), 400
 
     my_agent = agent_manager.get_agent(agentName)
-    if not select_type:
-        select_type = my_agent.get("select_type", "hybrid")
+    if not context_type:
+        # default from agent config
+        context_type = my_agent.context_type if my_agent else "hybrid"
 
     prompt_builder = PromptBuilder()
 
     prompt = prompt_builder.build_prompt(
         content_text=question,
-        conversationId=conversationId,
+        conversation_id=conversationId,
         agent_name=agentName,
         account_name=accountName,
-        context_type=select_type,
+        context_type=context_type,
         max_prompt_chars=payload.get("maxPromptChars", 6000),
-        max_prompt_conversations=payload.get("maxPromptConversations", 20),
         context_name=context_name,
         extra_system_messages=extra_system_messages,
     )
@@ -240,7 +226,7 @@ def get_chats():
                 "importance_score": s.importance_score,
                 "include_in_context": s.include_in_context,
                 "metadata": s.metadata,
-                "message_count": len(s.messages),
+                "messages": [],
             }
             for s in sessions
         ]
