@@ -2,9 +2,14 @@
 tags:
   - Agent
   - src.agent
+  - src.agentmanager
+  - agent module
 ---
+Agent Module 
+the relative path to Agent class is: `src/repos/lucy/src/agent/agent.py`
+the relative path to the AgentManager class class is: `src/repos/lucy/src/agent/agent_manager.py`
 
-
+Agent Attributes
 language_code - used in keywords to process text
 select_type aka context_type  - determins how to select data for the contex (hybrid, document, history, keyword)
 max_prompt_conversations  aka  max_prompt_conversations  -- number of past conversations used when send a new request
