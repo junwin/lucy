@@ -8,7 +8,7 @@ import os
 from src.storage.base import Storage
 from src.storage.models import ChatMessage, UserProfile
 
-from src.agent_manager import AgentManager
+from src.agent import AgentManager
 from src.container_config import container
 from src.config_manager import ConfigManager
 from src.prompt_builders.prompt_builder import PromptBuilder
@@ -72,7 +72,6 @@ logging.basicConfig(
 
 # Get the AgentManager instance
 agent_manager = container.get(AgentManager)
-agent_manager.load_agents()
 
 
 # -----------------------------------------------------------------------------
@@ -107,8 +106,8 @@ def ask():
 @app.route("/agents", methods=["GET"])
 def get_agents():
     try:
-        my_list = agent_manager.get_available_agents()
-        return jsonify(my_list)
+        agents = agent_manager.get_available_agents()
+        return jsonify([a.to_dict() for a in agents])
     except Exception as e:
         logging.exception("Error in /agents")
         return jsonify({"error": str(e)}), 500
@@ -121,7 +120,8 @@ def build_prompt():
     question = payload.get("query", "")
     agentName = (payload.get("agentName", "") or "").lower()
     accountName = (payload.get("accountName", "") or "").lower()
-    select_type = payload.get("selectType", "")
+    # keep request field name for now, but map to context_type
+    context_type = payload.get("selectType", "") or payload.get("contextType", "")
     conversationId = payload.get("conversationId", "")
     context_name = payload.get("contextName", "") or ""
 
@@ -137,19 +137,19 @@ def build_prompt():
         return jsonify({"error": "Invalid agentName"}), 400
 
     my_agent = agent_manager.get_agent(agentName)
-    if not select_type:
-        select_type = my_agent.get("select_type", "hybrid")
+    if not context_type:
+        # default from agent config
+        context_type = my_agent.context_type if my_agent else "hybrid"
 
     prompt_builder = PromptBuilder()
 
     prompt = prompt_builder.build_prompt(
         content_text=question,
-        conversationId=conversationId,
+        conversation_id=conversationId,
         agent_name=agentName,
         account_name=accountName,
-        context_type=select_type,
+        context_type=context_type,
         max_prompt_chars=payload.get("maxPromptChars", 6000),
-        max_prompt_conversations=payload.get("maxPromptConversations", 20),
         context_name=context_name,
         extra_system_messages=extra_system_messages,
     )

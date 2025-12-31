@@ -1,7 +1,7 @@
 import logging
-from typing import Any, Dict, Tuple
+from typing import Any, Dict, Tuple, Optional
 
-from src.agent_manager import AgentManager
+from src.agent import AgentManager, Agent
 from src.config_manager import ConfigManager
 from src.storage.base import Storage
 from src.message_processors.processor_factory import ProcessorFactory
@@ -37,28 +37,29 @@ class AskRequestHandler:
           - question: str (required)
           - agentName: str (required)
           - accountName: str (required)
-          - selectType: Optional[str]
+          - selectType: Optional[str]  (legacy)
+          - contextType: Optional[str] (preferred)
           - conversationId: Optional[str]
           - partnerAgentName: Optional[str]
         """
-        # NOTE: no try/except here to match original behavior as closely as possible.
+        # NOTE: no outer try/except here to mirror original behavior.
 
         question = payload.get("question", "")
         agentName = (payload.get("agentName", "") or "").lower()
         accountName = (payload.get("accountName", "") or "").lower()
-        select_type = payload.get("selectType", "")
+        # accept both legacy selectType and new contextType
+        context_type = payload.get("selectType", "") or payload.get("contextType", "")
         conversationId = payload.get("conversationId", "")
-        secondary_agent = (payload.get("partnerAgentName", "") or "").lower()
+        secondary_agent_override = (payload.get("partnerAgentName", "") or "").lower()
 
-        # Optional: log the incoming request at info level
         self.logger.info(
-            "/ask: accountName=%s agentName=%s selectType=%s "
+            "/ask: accountName=%s agentName=%s context_type=%s "
             "conversationId=%s partnerAgentName=%s",
             accountName,
             agentName,
-            select_type,
+            context_type,
             conversationId,
-            secondary_agent,
+            secondary_agent_override,
         )
 
         if not question or not agentName or not accountName:
@@ -67,32 +68,35 @@ class AskRequestHandler:
         if not self.agent_manager.is_valid(agentName):
             return 400, {"error": "Invalid agentName"}
 
-        primary_agent = self.agent_manager.get_agent(agentName)
+        primary_agent: Optional[Agent] = self.agent_manager.get_agent(agentName)
+        if primary_agent is None:
+            return 500, {"error": "Agent configuration not found"}
 
         # account object (minimum)
         account = {"accountId": accountName}
 
-        if not select_type:
-            select_type = primary_agent.get("select_type", "")
+        # default context_type from agent if not provided
+        if not context_type:
+            context_type = primary_agent.context_type or "hybrid"
 
-        # secondary agent dict (optional)
-        partner_agent_obj = None
-        partner_agent_name = (primary_agent.get("partner_agent") or "").lower()
+        # secondary agent (optional)
+        partner_agent_obj: Optional[Agent] = None
+        partner_agent_name = secondary_agent_override or (primary_agent.partner_agent or "").lower()
         if partner_agent_name:
             partner_agent_obj = self.agent_manager.get_agent(partner_agent_name)
 
+        # TODO: make this configurable later; keep legacy behavior for now
         context_name = "lucyproject"
 
-        processor_name = (primary_agent.get("message_processor") or "").strip()
+        processor_name = (primary_agent.message_processor or "").strip()
         if not processor_name:
             return 500, {"error": "Agent is missing 'message_processor'"}
 
-        # Use the injected factory instead of container.get(ProcessorFactory)
         processor = self.processor_factory.get(processor_name)
 
         # If the processor supports context_type, set it (safe, low-ceremony)
         if hasattr(processor, "context_type"):
-            processor.context_type = select_type
+            processor.context_type = context_type
 
         try:
             response = processor.process_message(

@@ -14,8 +14,8 @@
         "seed_conversation": [],
         "language_code": "en-US",
         "select_type": "latest",
-        "num_past_conversations": 3,
-        "num_relevant_conversations":0,
+        "max_prompt_conversations": 3,
+        "max_prompt_documents":0,
         "max_output_size": 4000,
         "write_file_threshold": 60000,
         "use_prompt_reduction": false,
@@ -35,8 +35,8 @@
 - `seed_conversation` - Deprecated.
 - `language_code` - ISO language code, mainly used when text-to-speech and speech-to-text is implemented.
 - `select_type` - Determines how previous messages are used to build a prompt. Possible options are "latest", "semantic", "keyword", "keyword_match_all", "hybrid".
-- `num_past_conversations` - For "latest" and "hybrid", this determines how many previous conversations are included.
-- `num_relevant_conversations` - For "hybrid", "keyword", and "semantic", this determines how many conversations to include.
+- `max_prompt_conversations` - For "latest" and "hybrid", this determines how many previous conversations are included.
+- `max_prompt_documents` - For "hybrid", "keyword", and "semantic", this determines how many conversations to include.
 - `write_file_threshold` - Deprecated.
 - `max_output_size` - Deprecated.
 - `use_prompt_reduction` - If set to true, a separate call to the API is made to assess how relevant the prompt is to the request, reducing the prompt to useful content only.

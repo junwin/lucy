@@ -6,11 +6,11 @@ import json
 from src.config_manager import ConfigManager
 from src.message_processors.message_processor_interface import MessageProcessorInterface
 from src.prompt_builders.prompt_builder_interface import PromptBuilderInterface
-from src.message_processors.types import AgentDict, AccountDict
 from src.api_helpers import openai_call, ToolResult
 from src.handlers.handler_registry import HandlerRegistry
 from src.storage.base import Storage
 from src.storage.models import ChatMessage
+from src.agent import Agent
 
 
 class ToolResultTooLargeError(Exception):
@@ -101,9 +101,9 @@ class FunctionCallingProcessor(MessageProcessorInterface):
         self,
         tasklist: Dict[str, Any],
         *,
-        supervisor_agent: AgentDict,
-        worker_agent: Optional[AgentDict],
-        account: AccountDict,
+        supervisor_agent: Agent,
+        worker_agent: Optional[Agent],
+        account: Dict[str, Any],
         conversation_id: str,
         context_name: str,
         processor_factory: Any,
@@ -130,22 +130,20 @@ class FunctionCallingProcessor(MessageProcessorInterface):
         }
 
         - No dependency graph yet: tasks are executed in order.
-        - If task.agent == supervisor_agent["name"], we run it with the current
-          processor (self).
-        - If task.agent == worker_agent["name"], we create a new
-          FunctionCallingProcessor via processor_factory and run it.
+        - If task.agent == worker_agent.name, we run it with the worker agent.
         - Results are collected into a list and returned as a dict suitable for
           use as a tool result.
         """
 
-        max_depth = int(supervisor_agent.get("max_delegation_depth", 1))
+        # For now, delegation depth is controlled by a config value on the supervisor
+        max_depth = int(getattr(supervisor_agent, "max_delegation_depth", 1))
         if delegation_depth >= max_depth:
             logging.warning(
                 "_execute_simple_tasklist: delegation depth %d >= max %d for agent=%s "
                 "session_id=%s; refusing to delegate further.",
                 delegation_depth,
                 max_depth,
-                supervisor_agent.get("name"),
+                supervisor_agent.name,
                 conversation_id,
             )
             return {
@@ -163,8 +161,8 @@ class FunctionCallingProcessor(MessageProcessorInterface):
         logging.info(
             "_execute_simple_tasklist: start supervisor=%s worker=%s session_id=%s "
             "tasks=%d depth=%d/%d description=%r",
-            supervisor_agent.get("name"),
-            (worker_agent or {}).get("name") if worker_agent else None,
+            supervisor_agent.name,
+            worker_agent.name if worker_agent else None,
             conversation_id,
             len(tasks),
             delegation_depth,
@@ -175,7 +173,7 @@ class FunctionCallingProcessor(MessageProcessorInterface):
         for idx, task in enumerate(tasks, start=1):
             task_id = task.get("id") or f"task-{idx}"
             task_type = task.get("type", "task")
-            task_agent_name = worker_agent.get("name")
+            task_agent_name = task.get("agent") or (worker_agent.name if worker_agent else "")
             task_title = task.get("title") or ""
             instruction = task.get("instruction") or ""
             file_path = task.get("file") or ""
@@ -225,8 +223,8 @@ class FunctionCallingProcessor(MessageProcessorInterface):
                 msg_parts.append(f"\n\nFocus file: {file_path}")
             task_message = "".join(msg_parts)
 
-            if worker_agent and task_agent_name == worker_agent.get("name"):
-                # Run with worker agent via a new FunctionCallingProcessor
+            if worker_agent and task_agent_name == worker_agent.name:
+                # Run with worker agent via this processor (or a new one via factory if needed)
                 try:
                     task_response = self.process_message(
                         primary_agent=worker_agent,
@@ -285,8 +283,8 @@ class FunctionCallingProcessor(MessageProcessorInterface):
         logging.info(
             "_execute_simple_tasklist: completed supervisor=%s worker=%s session_id=%s "
             "tasks=%d ok=%s",
-            supervisor_agent.get("name"),
-            (worker_agent or {}).get("name") if worker_agent else None,
+            supervisor_agent.name,
+            worker_agent.name if worker_agent else None,
             conversation_id,
             len(results),
             summary["ok"],
@@ -301,12 +299,12 @@ class FunctionCallingProcessor(MessageProcessorInterface):
     def process_message(
         self,
         *,
-        primary_agent: AgentDict,
-        account: AccountDict,
+        primary_agent: Agent,
+        account: Dict[str, Any],
         message: str,
         conversation_id: str = "0",
         context_name: str = "",
-        secondary_agent: Optional[AgentDict] = None,
+        secondary_agent: Optional[Agent] = None,
         processor_factory: Optional[Any] = None,
     ) -> str:
         logging.info("FunctionCallingProcessor inbound message: %s", message)
@@ -318,14 +316,13 @@ class FunctionCallingProcessor(MessageProcessorInterface):
         if not account_id:
             return "[FunctionCallingProcessor] Missing account.accountId."
 
-        agent_name = (primary_agent.get("name") or "").strip() or "unknown"
-        model = primary_agent.get("model")
-        temperature = primary_agent.get("temperature", 0)
-        context_type = primary_agent.get("select_type", "hybrid")
-        max_prompt_conversations = int(primary_agent.get("num_past_conversations", 0))
+        agent_name = primary_agent.name or "unknown"
+        model = primary_agent.model
+        temperature = primary_agent.temperature
+        context_type = primary_agent.context_type or "hybrid"
 
         # Per-agent max function call iterations (fallback to 10)
-        max_iterations = int(primary_agent.get("max_function_call_iterations", 10))
+        max_iterations = int(primary_agent.max_function_call_iterations or 10)
         if max_iterations <= 0:
             logging.warning(
                 "max_function_call_iterations for agent '%s' is %d; using 1 instead",
@@ -345,7 +342,7 @@ class FunctionCallingProcessor(MessageProcessorInterface):
         )
 
         try:
-            # Build prompt
+            # Build prompt (PromptBuilder now uses agent.max_prompt_conversations internally)
             completion_messages = self.prompt_builder.build_prompt(
                 content_text=message,
                 conversation_id=conversation_id,
@@ -353,7 +350,6 @@ class FunctionCallingProcessor(MessageProcessorInterface):
                 account_name=account_id,
                 context_type=context_type,
                 max_prompt_chars=6000,
-                max_prompt_conversations=max_prompt_conversations,
                 context_name=context_name,
                 extra_system_messages=[],  # wire this back later if you want
             )
@@ -362,10 +358,10 @@ class FunctionCallingProcessor(MessageProcessorInterface):
 
             response_text = ""
 
-            store_this_call = bool(primary_agent.get("save_reposnses", False))
+            store_this_call = bool(primary_agent.save_responses)
 
             # Delegation depth for tasklist execution (default 0 if not provided)
-            delegation_depth = int(primary_agent.get("delegation_depth", 0))
+            delegation_depth = int(getattr(primary_agent, "delegation_depth", 0))
 
             for iteration in range(1, max_iterations + 1):
                 result = openai_call(
@@ -426,7 +422,7 @@ class FunctionCallingProcessor(MessageProcessorInterface):
                                     "FunctionCallingProcessor: executing tasklist from plan_tasks "
                                     "using supervisor=%s worker=%s session_id=%s",
                                     agent_name,
-                                    secondary_agent.get("name"),
+                                    secondary_agent.name,
                                     conversation_id,
                                 )
                                 tasklist_summary = self._execute_simple_tasklist(

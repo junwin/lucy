@@ -5,7 +5,7 @@ from typing import Any, Dict, List, Optional
 from injector import inject
 
 from src.config_manager import ConfigManager
-from src.agent_manager import AgentManager
+from src.agent import AgentManager, Agent
 from src.storage.base import Storage
 from src.prompt_builders.prompt_builder_interface import PromptBuilderInterface
 from src.utils.document_context import get_document_context
@@ -23,20 +23,6 @@ def estimate_tokens_from_text(text: str) -> int:
     if not text:
         return 0
     return max(1, len(text) // 4)
-
-
-def get_prompt_budget_for_agent(agent: Dict[str, Any]) -> Dict[str, Any]:
-    prompt_budget_tokens = int(agent.get("prompt_budget_tokens", DEFAULT_PROMPT_BUDGET_TOKENS))
-
-    source_fracs = agent.get("source_budgets", {}) or {}
-    merged_fracs = {**DEFAULT_SOURCE_BUDGETS, **source_fracs}
-
-    total_frac = sum(merged_fracs.values()) or 1.0
-    normalized_fracs = {k: v / total_frac for k, v in merged_fracs.items()}
-
-    source_budgets = {name: int(prompt_budget_tokens * frac) for name, frac in normalized_fracs.items()}
-
-    return {"prompt_budget_tokens": prompt_budget_tokens, "source_budgets": source_budgets}
 
 
 class PromptBuilder(PromptBuilderInterface):
@@ -60,7 +46,6 @@ class PromptBuilder(PromptBuilderInterface):
         account_name: str,
         context_type: str = "none",
         max_prompt_chars: int = 6000,
-        max_prompt_conversations: int = 20,
         context_name: str = "",
         extra_system_messages: Optional[List[str]] = None,
     ) -> List[Dict[str, str]]:
@@ -73,9 +58,7 @@ class PromptBuilder(PromptBuilderInterface):
         """
         logging.info("PromptBuilder.build_prompt: context_type=%s", context_type)
 
-        agent = self.agent_manager.get_agent(agent_name)
-        _budget_info = get_prompt_budget_for_agent(agent)
-        # source_budgets = _budget_info["source_budgets"]  # reserved for future use
+        agent: Optional[Agent] = self.agent_manager.get_agent(agent_name)
 
         system_message = self._build_agent_system_message(agent_name, agent)
 
@@ -86,6 +69,7 @@ class PromptBuilder(PromptBuilderInterface):
                 messages.append({"role": "system", "content": extra.strip()})
 
         # --- Chat history ---
+        max_prompt_conversations = agent.max_prompt_conversations if agent else 0
         history_messages = self._get_chat_history_messages(
             conversation_id=conversation_id,
             account_name=account_name,
@@ -166,13 +150,22 @@ class PromptBuilder(PromptBuilderInterface):
 
     # --- helper methods ---
 
-    def _build_agent_system_message(self, agent_name: str, agent: Dict[str, Any]) -> str:
+    def _build_agent_system_message(self, agent_name: str, agent: Optional[Agent]) -> str:
+        """Combine system_prompt, persona, and style_prompt into one system message."""
+        if agent is None:
+            return f"You are {agent_name}, a helpful assistant."
+
         parts: List[str] = []
-        parts.append(agent.get("system_prompt", f"You are {agent_name}, a helpful assistant."))
-        if agent.get("persona"):
-            parts.append(agent["persona"])
-        if agent.get("style_prompt"):
-            parts.append(agent["style_prompt"])
+        if agent.system_prompt:
+            parts.append(agent.system_prompt)
+        else:
+            parts.append(f"You are {agent_name}, a helpful assistant.")
+
+        if agent.persona:
+            parts.append(agent.persona)
+        if agent.style_prompt:
+            parts.append(agent.style_prompt)
+
         return "\n\n".join(parts)
 
     def _get_chat_history_messages(
@@ -181,7 +174,6 @@ class PromptBuilder(PromptBuilderInterface):
         account_name: str,
         agent_name: str,
         max_conversations: int,
-        max_messages_per_session: int = 50,
     ) -> List[Dict[str, str]]:
         if not conversation_id or conversation_id in ("none", "new"):
             return []
@@ -210,7 +202,7 @@ class PromptBuilder(PromptBuilderInterface):
             )
             return []
 
-        msgs = session.messages[-max_messages_per_session:]
+        msgs = session.messages[-max_conversations:]
         return [{"role": m.role, "content": m.content} for m in msgs]
 
     def _get_context_text(self, account_name: str, context_name: str) -> str:

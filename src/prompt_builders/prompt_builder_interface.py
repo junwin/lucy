@@ -18,7 +18,6 @@ class PromptBuilderInterface(ABC):
         account_name: str,
         context_type: str = "none",
         max_prompt_chars: int = 6000,
-        max_prompt_conversations: int = 20,
         context_name: str = "",
         extra_system_messages: Optional[List[str]] = None,
     ) -> List[ChatMessageDict]:

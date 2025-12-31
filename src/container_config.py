@@ -4,8 +4,7 @@ from injector import Injector
 from injector import Module, provider, singleton, inject
 
 from src.config_manager import ConfigManager
-from src.agent_manager import AgentManager
-
+from src.agent import AgentManager
 
 
 from src.storage.base import Storage
@@ -58,9 +57,6 @@ class HandlerRegistryModule(Module):
     @singleton
     def provide_handler_registry(self) -> HandlerRegistry:
         return build_registry()
-
-
-
 
 
 class PromptBuilderModule(Module):
