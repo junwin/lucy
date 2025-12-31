@@ -5,6 +5,8 @@ from src.agent_manager import AgentManager
 from src.config_manager import ConfigManager
 from src.storage.base import Storage
 from src.message_processors.processor_factory import ProcessorFactory
+from src.message_processors.function_calling_processor import ToolHandlerError
+from src.storage.models import ChatMessage
 
 
 class AskRequestHandler:
@@ -92,14 +94,26 @@ class AskRequestHandler:
         if hasattr(processor, "context_type"):
             processor.context_type = select_type
 
-        response = processor.process_message(
-            primary_agent=primary_agent,
-            secondary_agent=partner_agent_obj,
-            account=account,
-            message=question,
-            conversation_id=conversationId,
-            context_name=context_name,
-            processor_factory=self.processor_factory,
-        )
+        try:
+            response = processor.process_message(
+                primary_agent=primary_agent,
+                secondary_agent=partner_agent_obj,
+                account=account,
+                message=question,
+                conversation_id=conversationId,
+                context_name=context_name,
+                processor_factory=self.processor_factory,
+            )
+            return 200, {"response": response}
 
-        return 200, {"response": response}
+        except ToolHandlerError as e:
+            error_message = f"Tool execution failed: {str(e)}"
+            self.storage.append_chat_message(
+                conversationId,
+                ChatMessage(
+                    role="assistant",
+                    content=error_message,
+                    metadata={"error": True},
+                ),
+            )
+            return 500, {"error": error_message}

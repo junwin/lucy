@@ -185,6 +185,8 @@ class PromptBuilder(PromptBuilderInterface):
     ) -> List[Dict[str, str]]:
         if not conversation_id or conversation_id in ("none", "new"):
             return []
+        if max_conversations <= 0:
+            return []
 
         try:
             session = self.storage.get_chat_session(conversation_id)

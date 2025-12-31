@@ -24,7 +24,7 @@ def main() -> None:
     )
     parser.add_argument(
         "--vault-path",
-        default="/home/junwin/obsidian/test/books",
+        default="/home/junwin/src/repos/lucy/docs/minidoc",
         help=(
             "Path to the Obsidian vault or folder to index "
             "(default: /home/junwin/obsidian/test/books)"

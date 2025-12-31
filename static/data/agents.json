@@ -3,7 +3,7 @@
         "name": "lucy",
         "seed_conversation": [],
         "language_code": "en-US",
-        "select_type": "none",
+        "select_type": "hybrid",
         "num_past_conversations": 6,
         "num_relevant_conversations": 4,
         "max_output_size": 5000,
@@ -32,10 +32,10 @@
         "name": "colin",
         "seed_conversation": [],
         "language_code": "en-US",
-        "select_type": "keyword",
+        "select_type": "hybrid",
         "completion_merge_type": "simpleprompt",
         "num_past_conversations": 0,
-        "num_relevant_conversations": 1,
+        "num_relevant_conversations": 2,
         "max_output_size": 4000,
         "write_file_threashold": 60000,
         "use_prompt_reduction": false,
@@ -49,7 +49,8 @@
             "agent": 0.4,
             "account": 0.4,
             "context": 0.2
-        }
+        },
+         "system_prompt": "You are colin, an AI assistant who specialises in Development always reads the full prompt.  Use the information in the prompt and background context when answering questions.\n\nIf available, check out the provided context. The provided context contains all relevant information to understand and execute the current task. It includes general information such as the task's name and description, any related input or output directories. Additionally, the context provides information about the environment in which the task is being executed."
     },
     {
         "name": "doris",

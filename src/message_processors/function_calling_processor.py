@@ -2,7 +2,6 @@ from injector import inject
 import logging
 from typing import Optional, Dict, Any
 import json
-import sys
 
 from src.config_manager import ConfigManager
 from src.message_processors.message_processor_interface import MessageProcessorInterface
@@ -16,6 +15,10 @@ from src.storage.models import ChatMessage
 
 class ToolResultTooLargeError(Exception):
     """Raised when a tool result exceeds the configured max_tool_result_chars."""
+
+
+class ToolHandlerError(Exception):
+    """Raised when a tool handler fails during execution."""
 
 
 class FunctionCallingProcessor(MessageProcessorInterface):
@@ -89,41 +92,6 @@ class FunctionCallingProcessor(MessageProcessorInterface):
             )
 
         return s
-
-    def _store_error_conversation(
-        self,
-        *,
-        conversation_id: str,
-        agent_name: str,
-        user_message: str,
-        error_message: str,
-    ) -> None:
-        """Append the inbound user message and an assistant error message to storage.
-
-        This is best-effort: any storage error is logged but does not raise further.
-        """
-        try:
-            self.storage.append_chat_message(
-                conversation_id,
-                ChatMessage(
-                    role="user",
-                    content=user_message,
-                    metadata={"agent": agent_name},
-                ),
-            )
-            self.storage.append_chat_message(
-                conversation_id,
-                ChatMessage(
-                    role="assistant",
-                    content=error_message,
-                    metadata={"agent": agent_name, "error": True},
-                ),
-            )
-        except Exception:
-            logging.exception(
-                "FunctionCallingProcessor: failed to store error conversation for session_id=%s",
-                conversation_id,
-            )
 
     # ------------------------------------------------------------------
     # Simple tasklist execution (sequential tasks, no map yet)
@@ -260,9 +228,7 @@ class FunctionCallingProcessor(MessageProcessorInterface):
             if worker_agent and task_agent_name == worker_agent.get("name"):
                 # Run with worker agent via a new FunctionCallingProcessor
                 try:
-                    # worker_processor = processor_factory.create_function_calling_processor()
-                    #task_response = worker_processor.process_message(
-                    task_response =self.process_message(
+                    task_response = self.process_message(
                         primary_agent=worker_agent,
                         account=account,
                         message=task_message,
@@ -279,7 +245,7 @@ class FunctionCallingProcessor(MessageProcessorInterface):
                             "response": task_response,
                         }
                     )
-                except Exception as e:
+                except ToolHandlerError as e:
                     logging.exception(
                         "_execute_simple_tasklist: error executing worker task id=%s",
                         task_id,
@@ -356,6 +322,7 @@ class FunctionCallingProcessor(MessageProcessorInterface):
         model = primary_agent.get("model")
         temperature = primary_agent.get("temperature", 0)
         context_type = primary_agent.get("select_type", "hybrid")
+        max_prompt_conversations = int(primary_agent.get("num_past_conversations", 0))
 
         # Per-agent max function call iterations (fallback to 10)
         max_iterations = int(primary_agent.get("max_function_call_iterations", 10))
@@ -386,7 +353,7 @@ class FunctionCallingProcessor(MessageProcessorInterface):
                 account_name=account_id,
                 context_type=context_type,
                 max_prompt_chars=6000,
-                max_prompt_conversations=20,
+                max_prompt_conversations=max_prompt_conversations,
                 context_name=context_name,
                 extra_system_messages=[],  # wire this back later if you want
             )
@@ -432,6 +399,19 @@ class FunctionCallingProcessor(MessageProcessorInterface):
                             handler = self.registry.create(tool_name, config=self.config)
                             tool_result = handler.execute(tool_args, account_name=account_id)
 
+                            # If the handler reports failure via ok=False, treat as a
+                            # terminal tool error for this request.
+                            if isinstance(tool_result, dict) and tool_result.get("ok") is False:
+                                error_text = tool_result.get("error") or "Unknown tool error"
+                                logging.error(
+                                    "FunctionCallingProcessor: tool '%s' reported failure: %s",
+                                    tool_name,
+                                    error_text,
+                                )
+                                raise ToolHandlerError(
+                                    f"Tool '{tool_name}' failed: {error_text}"
+                                )
+
                             # If this is a plan_tasks result, and we have a secondary agent,
                             # execute the tasklist using the simple tasklist executor.
                             if (
@@ -468,13 +448,7 @@ class FunctionCallingProcessor(MessageProcessorInterface):
                             )
                         except Exception as e:
                             logging.exception("Tool execution failed: %s", tool_name)
-                            tool_result_text = self._tool_result_to_text(
-                                {
-                                    "ok": False,
-                                    "tool": tool_name,
-                                    "error": f"{type(e).__name__}: {e}",
-                                }
-                            )
+                            raise ToolHandlerError(f"{type(e).__name__}: {e}")
 
                         completion_messages.append(
                             {
@@ -552,6 +526,9 @@ class FunctionCallingProcessor(MessageProcessorInterface):
 
             return response_text
 
+        except ToolHandlerError:
+            # Let ToolHandlerError propagate to the caller (e.g. AskRequestHandler)
+            raise
         except Exception as e:
             # Log full stack trace with context
             logging.exception(
@@ -563,23 +540,32 @@ class FunctionCallingProcessor(MessageProcessorInterface):
             # Build a user-facing error message
             error_message = (
                 "I ran into an internal error while processing your request. "
-                "The issue has been logged and the process will now exit."
+                "The issue has been logged."
             )
 
             # Best-effort: store the inbound message and error as a conversation
-            self._store_error_conversation(
-                conversation_id=conversation_id,
-                agent_name=agent_name,
-                user_message=message,
-                error_message=error_message + f" (Details: {type(e).__name__})",
-            )
-
-            # Exit the process as requested
             try:
-                sys.exit(1)
-            except SystemExit:
-                # Re-raise to ensure the caller does not continue
-                raise
+                self.storage.append_chat_message(
+                    conversation_id,
+                    ChatMessage(
+                        role="user",
+                        content=message,
+                        metadata={"agent": agent_name},
+                    ),
+                )
+                self.storage.append_chat_message(
+                    conversation_id,
+                    ChatMessage(
+                        role="assistant",
+                        content=error_message + f" (Details: {type(e).__name__})",
+                        metadata={"agent": agent_name, "error": True},
+                    ),
+                )
+            except Exception:
+                logging.exception(
+                    "FunctionCallingProcessor: failed to store error conversation for session_id=%s",
+                    conversation_id,
+                )
 
-            # Fallback return (should not be reached, but keeps type checkers happy)
-            return error_message
+            # Re-raise so the HTTP layer can return an error response
+            raise
