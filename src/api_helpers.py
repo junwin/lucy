@@ -42,7 +42,6 @@ with open(os.path.join(credential_path, "oaicred.json"), "r", encoding="utf-8") 
 client = OpenAI(api_key=config_data["openai_api_key"])
 
 
-
 # -----------------------------------------------------------------------------
 # Helpers: safe-ish logging/dumping
 # -----------------------------------------------------------------------------
@@ -73,7 +72,6 @@ def _redact_messages(messages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         mm = dict(m)
         if "content" in mm and isinstance(mm["content"], str) and not DEBUG_FULL:
             mm["content"] = _truncate(mm["content"])
-        # tool call arguments can be enormous; truncate unless DEBUG_FULL
         if "tool_calls" in mm and not DEBUG_FULL:
             mm["tool_calls"] = "<tool_calls truncated>"
         out.append(mm)
@@ -87,11 +85,24 @@ def _log_request(label: str, payload: Dict[str, Any]) -> None:
     logging.debug("[OPENAI REQ] %s payload:\n%s", label, _safe_json(payload))
 
 
-def _log_response(label: str, resp: Any) -> None:
-    """Debug log a summarized OpenAI response.
+def _extract_usage_dict(usage_obj: Any) -> Any:
+    if usage_obj is None:
+        return None
+    if hasattr(usage_obj, "to_dict"):
+        try:
+            return usage_obj.to_dict()
+        except Exception:
+            return repr(usage_obj)
+    if hasattr(usage_obj, "__dict__"):
+        try:
+            return dict(usage_obj.__dict__)
+        except Exception:
+            return repr(usage_obj)
+    return usage_obj
 
-    Includes id, model, created, usage, and a brief view of the first choice.
-    """
+
+def _log_response(label: str, resp: Any) -> None:
+    """Debug log a summarized OpenAI response (Responses API)."""
     if not DEBUG:
         return
 
@@ -99,38 +110,32 @@ def _log_response(label: str, resp: Any) -> None:
     try:
         info["id"] = getattr(resp, "id", None)
         info["model"] = getattr(resp, "model", None)
-        info["created"] = getattr(resp, "created", None)
+        info["created_at"] = getattr(resp, "created_at", None)
+        info["status"] = getattr(resp, "status", None)
 
-        usage = getattr(resp, "usage", None)
-        if usage is not None:
-            if hasattr(usage, "to_dict"):
-                info["usage"] = usage.to_dict()
-            elif hasattr(usage, "__dict__"):
-                info["usage"] = dict(usage.__dict__)
-            else:
-                info["usage"] = usage
+        info["usage"] = _extract_usage_dict(getattr(resp, "usage", None))
 
-        choices = getattr(resp, "choices", None)
-        if choices:
-            info["choices_count"] = len(choices)
-            msg = choices[0].message
-            info["first_choice_role"] = getattr(msg, "role", None)
-            info["first_choice_content_preview"] = _truncate(getattr(msg, "content", "") or "")
+        # output_text is the simplest “final text” surface
+        info["output_text_preview"] = _truncate(getattr(resp, "output_text", "") or "")
 
-            tcs = getattr(msg, "tool_calls", None)
-            if tcs:
-                info["first_choice_tool_calls_count"] = len(tcs)
-                info["first_choice_tool_calls"] = [
+        # tool calls live inside resp.output as items with type=="function_call"
+        out_items = getattr(resp, "output", None) or []
+        info["output_items_count"] = len(out_items)
+
+        tool_calls: List[Dict[str, Any]] = []
+        for item in out_items:
+            if getattr(item, "type", None) == "function_call":
+                tool_calls.append(
                     {
-                        "id": getattr(tc, "id", None),
-                        "type": getattr(tc, "type", None),
-                        "function_name": getattr(getattr(tc, "function", None), "name", None),
-                        "arguments_preview": _truncate(getattr(getattr(tc, "function", None), "arguments", "") or ""),
+                        "call_id": getattr(item, "call_id", None),
+                        "name": getattr(item, "name", None),
+                        "arguments_preview": _truncate(getattr(item, "arguments", "") or ""),
                     }
-                    for tc in tcs
-                ]
-            else:
-                info["first_choice_tool_calls_count"] = 0
+                )
+
+        info["tool_calls_count"] = len(tool_calls)
+        if tool_calls:
+            info["tool_calls"] = tool_calls
 
     except Exception as e:
         info["parse_error"] = f"{type(e).__name__}: {e}"
@@ -140,10 +145,7 @@ def _log_response(label: str, resp: Any) -> None:
 
 
 def _log_messages_brief(messages: List[Dict[str, Any]], label: str) -> None:
-    """Info-level log of message count and last message preview.
-
-    This is the main high-level trace for each OpenAI call.
-    """
+    """Info-level log of message count and last message preview."""
     n = len(messages or [])
     last = messages[-1] if n else {}
     preview = (last.get("content") or "")
@@ -161,15 +163,18 @@ def _sleep_backoff(attempt: int, base: float, cap: float) -> None:
     time.sleep(delay)
 
 
+# -----------------------------------------------------------------------------
+# Tools normalization (Responses API)
+# -----------------------------------------------------------------------------
 def _normalize_tools(functions: Optional[List[Dict[str, Any]]]) -> List[Dict[str, Any]]:
-    """Normalize tool definitions for the OpenAI chat.completions API.
+    """Normalize tool definitions for the Responses API.
 
     Accepts either:
       A) list of function defs: {"name":..., "description":..., "parameters":...}
-      B) list of tools entries: {"type":"function","function":{...}}
+      B) list of chat.completions tools: {"type":"function","function":{...}}
+      C) already-responses tools: {"type":"function","name":..., "description":..., "parameters":...}
 
-    Returns a clean tools=[] list suitable for chat.completions.create(tools=...).
-    Logs what was accepted/skipped.
+    Returns tools suitable for client.responses.create(tools=...).
     """
     tools: List[Dict[str, Any]] = []
     if not functions:
@@ -183,11 +188,32 @@ def _normalize_tools(functions: Optional[List[Dict[str, Any]]]) -> List[Dict[str
                 logging.debug("[TOOLS] Skipping tool %d: empty/null", i)
             continue
 
+        # B) chat.completions-style tool entry
         if isinstance(item, dict) and item.get("type") == "function" and isinstance(item.get("function"), dict):
             fn_def = item["function"]
         else:
             fn_def = item
 
+        # C) already Responses-style
+        if isinstance(fn_def, dict) and fn_def.get("type") == "function" and fn_def.get("name"):
+            name = fn_def.get("name")
+            parameters = fn_def.get("parameters") or {"type": "object", "properties": {}}
+            if not isinstance(parameters, dict):
+                parameters = {"type": "object", "properties": {}}
+
+            tools.append(
+                {
+                    "type": "function",
+                    "name": name,
+                    "description": fn_def.get("description", "") or "",
+                    "parameters": parameters,
+                }
+            )
+            if DEBUG:
+                logging.debug("[TOOLS] Accepted Responses-style tool %d name=%s", i, name)
+            continue
+
+        # A) plain function def
         if not isinstance(fn_def, dict):
             logging.warning("[TOOLS] Skipping tool %d: not a dict (%r)", i, type(fn_def).__name__)
             continue
@@ -195,7 +221,7 @@ def _normalize_tools(functions: Optional[List[Dict[str, Any]]]) -> List[Dict[str
         name = fn_def.get("name")
         if not name:
             logging.warning(
-                "[TOOLS] Skipping tool %d: missing required function.name. keys=%s item=%s",
+                "[TOOLS] Skipping tool %d: missing required function name. keys=%s item=%s",
                 i,
                 list(fn_def.keys()),
                 _safe_json(fn_def),
@@ -206,15 +232,14 @@ def _normalize_tools(functions: Optional[List[Dict[str, Any]]]) -> List[Dict[str
         if not isinstance(parameters, dict):
             parameters = {"type": "object", "properties": {}}
 
-        tool_obj = {
-            "type": "function",
-            "function": {
+        tools.append(
+            {
+                "type": "function",
                 "name": name,
                 "description": fn_def.get("description", "") or "",
                 "parameters": parameters,
-            },
-        }
-        tools.append(tool_obj)
+            }
+        )
 
         if DEBUG:
             logging.debug("[TOOLS] Accepted tool %d name=%s", i, name)
@@ -238,42 +263,49 @@ class SchemaResult:
     errors: List[str]
     schema_name: Optional[str] = None
     schema_version: Optional[str] = None
+    response_id: Optional[str] = None
 
 
 @dataclass
 class ToolResult:
     role: str
     content: str
-    tool_calls: List[Dict[str, Any]]  # normalized list of dicts
+    tool_calls: List[Dict[str, Any]]
+    response_id: Optional[str] = None
 
 
 @dataclass
 class TextResult:
     role: str
     content: str
+    response_id: Optional[str] = None
 
 
 # -----------------------------------------------------------------------------
 # Schema helpers
 # -----------------------------------------------------------------------------
 def _extract_text_and_tool_calls(resp: Any) -> Tuple[str, List[Dict[str, Any]]]:
-    """Normalize SDK response into text content + tool_calls list."""
-    msg = resp.choices[0].message
-    text = msg.content or ""
+    """Normalize Responses API response into text content + tool_calls list."""
+    text = getattr(resp, "output_text", "") or ""
 
     calls: List[Dict[str, Any]] = []
-    tcs = getattr(msg, "tool_calls", None) or []
-    for tc in tcs:
-        fn = getattr(tc, "function", None)
-        calls.append(
-            {
-                "id": getattr(tc, "id", None),
-                "type": getattr(tc, "type", None),
-                "name": getattr(fn, "name", None),
-                "arguments": getattr(fn, "arguments", None) or "{}",
-            }
-        )
+    for item in getattr(resp, "output", []) or []:
+        if getattr(item, "type", None) == "function_call":
+            calls.append(
+                {
+                    # IMPORTANT: this must be the Responses call_id
+                    "id": getattr(item, "call_id", None),
+                    "type": "function_call",
+                    "name": getattr(item, "name", None),
+                    "arguments": getattr(item, "arguments", None) or "{}",
+                }
+            )
+
+    if DEBUG:
+        logging.debug("[TOOLS] extracted tool call_ids=%s", [c.get("id") for c in calls])
+
     return text, calls
+
 
 
 def _try_parse_json(text: str) -> Tuple[Optional[Dict[str, Any]], List[str]]:
@@ -324,21 +356,13 @@ def openai_call(
     store: bool = False,
     conversation_id: Optional[str] = None,
     session_id: Optional[str] = None,
+    previous_response_id: Optional[str] = None,
     max_attempts: int = 4,
     backoff_base: float = 0.5,
     backoff_cap: float = 8.0,
 ) -> Union[TextResult, ToolResult, SchemaResult]:
-    """Single entry point for OpenAI chat.completions.
+    """Single entry point for OpenAI Responses API."""
 
-    Behavior:
-      - If schema is provided => SchemaResult (parsed JSON + validation errors + raw fallback)
-      - Else if functions/tools provided => ToolResult (tool_calls + content)
-      - Else => TextResult
-
-    NOTE: 'store' is accepted here to standardize the call signature. chat.completions
-    may not support store in your SDK; you can persist locally or later migrate the
-    internal call to the Responses API without changing callers.
-    """
     tools = _normalize_tools(functions) if functions else []
 
     _log_messages_brief(messages, f"openai_call({model})")
@@ -346,32 +370,64 @@ def openai_call(
         "model": model,
         "temperature": temperature,
         "store": store,
-        "conversation_id": conversation_id,
-        "session_id": session_id,
-        "messages": _redact_messages(messages) if DEBUG else None,
+        "previous_response_id": previous_response_id,
+        "metadata": {
+            "conversation_id": conversation_id,
+            "session_id": session_id,
+            "schema_name": schema_name,
+            "schema_version": schema_version,
+        },
+        "messages_count": len(messages or []),
+        "messages_preview": _redact_messages(messages) if DEBUG else None,
         "tools": tools if (DEBUG and tools) else None,
         "tool_choice": "auto" if tools else None,
-        "schema_name": schema_name,
-        "schema_version": schema_version,
         "schema_enabled": bool(schema),
     }
     _log_request("openai_call", payload)
 
+    metadata: Optional[Dict[str, Any]] = None
+    if conversation_id or session_id or schema_name or schema_version:
+        metadata = {
+            "conversation_id": conversation_id,
+            "session_id": session_id,
+            "schema_name": schema_name,
+            "schema_version": schema_version,
+        }
+
+    text_cfg: Optional[Dict[str, Any]] = None
+    if schema is not None:
+        text_cfg = {
+            "format": {
+                "type": "json_schema",
+                "strict": True,
+                "schema": schema,
+            }
+        }
+
     for attempt in range(max_attempts):
         try:
-            resp = client.chat.completions.create(
+            resp = client.responses.create(
                 model=model,
-                messages=messages,
+                input=messages,
                 temperature=temperature,
                 tools=tools if tools else None,
                 tool_choice="auto" if tools else None,
+                store=store,
+                metadata=metadata,
+                previous_response_id=previous_response_id,
+                text=text_cfg,
             )
 
             _log_response(f"openai_call attempt={attempt+1}", resp)
 
+            # ✅ THIS is the id you must propagate back to the processor
+            resp_id = getattr(resp, "id", None)
+
             text, tool_calls = _extract_text_and_tool_calls(resp)
 
+            # -------------------------
             # Schema path
+            # -------------------------
             if schema is not None:
                 data, parse_errors = _try_parse_json(text)
                 errors = list(parse_errors)
@@ -379,9 +435,7 @@ def openai_call(
                 if data is not None:
                     errors.extend(_validate_schema(data, schema))
 
-                ok = (data is not None) and not any(
-                    ("parse error" in e.lower()) or ("validation error" in e.lower()) for e in errors
-                )
+                ok = (data is not None) and not any("error" in e.lower() for e in errors)
 
                 result = SchemaResult(
                     ok=ok,
@@ -390,29 +444,41 @@ def openai_call(
                     errors=errors,
                     schema_name=schema_name,
                     schema_version=schema_version,
+                    response_id=resp_id,  # ✅ propagate
                 )
                 _log_schema_status(result)
                 return result
 
+            # -------------------------
             # Tools path
+            # -------------------------
             if tools:
-                return ToolResult(role="assistant", content=text, tool_calls=tool_calls)
+                return ToolResult(
+                    role="assistant",
+                    content=text,
+                    tool_calls=tool_calls,
+                    response_id=resp_id,  # ✅ propagate (THIS FIXES YOUR None)
+                )
 
+            # -------------------------
             # Text path
-            return TextResult(role="assistant", content=text)
+            # -------------------------
+            return TextResult(
+                role="assistant",
+                content=text,
+                response_id=resp_id,  # ✅ propagate (also helpful)
+            )
 
         except BadRequestError as e:
-            # 400s are not retryable; log details and re-raise so callers can decide.
             logging.error("[OPENAI 400] %s", str(e))
             body = getattr(e, "body", None)
             if body:
                 logging.error("[OPENAI 400 BODY]\n%s", _safe_json(body))
             if tools:
-                logging.error("[TOOLS NAMES] %s", [t.get("function", {}).get("name") for t in tools])
+                logging.error("[TOOLS NAMES] %s", [t.get("name") for t in tools])
             raise
 
         except (RateLimitError, APIError, APITimeoutError, APIConnectionError) as e:
-            # Retryable errors with exponential backoff.
             if attempt == max_attempts - 1:
                 logging.error(
                     "openai_call: exhausted retries after %d attempts due to %s: %s",
@@ -430,12 +496,7 @@ def openai_call(
             _sleep_backoff(attempt, backoff_base, backoff_cap)
 
         except Exception as e:
-            # Unexpected client/SDK error: log and re-raise so the processor/handler
-            # can convert this into a user-visible error and/or exit.
             logging.exception("openai_call: unexpected error: %s", e)
             raise
 
-    # We should never reach here because we either return or raise in the loop.
     raise RuntimeError("openai_call: exhausted retries unexpectedly.")
-
-

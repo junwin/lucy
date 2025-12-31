@@ -1,7 +1,8 @@
 from abc import ABC, abstractmethod
 from typing import Optional, Dict, Any
 
-from src.message_processors.types import AgentDict, AccountDict
+from src.message_processors.types import AccountDict
+from src.agent.agent import Agent
 
 
 class MessageProcessorInterface(ABC):
@@ -9,12 +10,12 @@ class MessageProcessorInterface(ABC):
     def process_message(
         self,
         *,
-        primary_agent: AgentDict,
+        primary_agent: Agent,
         account: AccountDict,
         message: str,
         conversation_id: str = "0",
         context_name: str = "",
-        secondary_agent: Optional[AgentDict] = None,
+        secondary_agent: Optional[Agent] = None,
         processor_factory: Optional[Any] = None,
     ) -> str:
         pass
