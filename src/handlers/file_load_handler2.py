@@ -71,7 +71,6 @@ class FileLoadHandler2(HandlerV2):
         directory_path = (args.get("directory_path") or "").strip()
         file_name = (args.get("file_name") or "").strip()
 
-        # Basic presence check
         if not directory_path or not file_name:
             return {
                 "ok": False,
@@ -80,7 +79,6 @@ class FileLoadHandler2(HandlerV2):
                 "args": {"directory_path": directory_path, "file_name": file_name},
             }
 
-        # Enforce that directory_path is relative and safe
         if os.path.isabs(directory_path):
             return {
                 "ok": False,
@@ -89,7 +87,6 @@ class FileLoadHandler2(HandlerV2):
                 "directory_path": directory_path,
             }
 
-        # Normalize and reject .. segments
         norm_dir = os.path.normpath(directory_path)
         if norm_dir.startswith("..") or os.path.isabs(norm_dir):
             return {
@@ -107,7 +104,6 @@ class FileLoadHandler2(HandlerV2):
             file_name,
         )
 
-        # Resolve to allowed base path
         base_path = get_base_path(self.config, account_name, norm_dir)
         logging.info("file_load: resolved base_path=%s", base_path)
 
@@ -136,19 +132,23 @@ class FileLoadHandler2(HandlerV2):
             "result": content,
         }
 
-    def execute_as_tool_content(self, args: Dict[str, Any], *, account_name: str = "auto") -> str:
-        return json.dumps(self.execute(args, account_name=account_name), ensure_ascii=False)
+    # New contract: tool processors call execute_raw
+    def execute_raw(self, arguments_raw: str, *, account_name: str = "auto", call_id: str = "") -> str:
+        try:
+            args = json.loads(arguments_raw or "{}")
+        except Exception:
+            args = {}
+        result = self.execute(args if isinstance(args, dict) else {}, account_name=account_name)
+        return json.dumps(result, ensure_ascii=False)
 
     def _read_file_safe(self, base_path: str, file_name: str) -> Tuple[str, str]:
         base_abs = os.path.abspath(base_path)
 
-        # file_name must be a bare filename (no path separators)
         if os.path.sep in file_name or (os.path.altsep and os.path.altsep in file_name):
             raise ValueError("file_name must not contain path separators")
 
         full_path = os.path.abspath(os.path.join(base_abs, file_name))
 
-        # Ensure full path is within base path
         if not (full_path == base_abs or full_path.startswith(base_abs + os.path.sep)):
             raise ValueError("File access outside allowed base path")
 

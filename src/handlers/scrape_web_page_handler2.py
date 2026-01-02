@@ -6,8 +6,8 @@ from src.config_manager import ConfigManager
 from src.handlers.handler_utils import get_base_path, execute_script
 from src.handlers.handler_v2 import HandlerV2
 
-# Define a module-level logger
 logger = logging.getLogger(__name__)
+
 
 class ScrapeWebPageHandler2(HandlerV2):
     NAME = "scrape_web_page"
@@ -33,10 +33,7 @@ class ScrapeWebPageHandler2(HandlerV2):
                         "description": "The URL of the page to be scraped",
                     },
                 },
-                # STRICT MODE: ALL PROPERTIES MUST BE REQUIRED
-                "required": [
-                    "page_url",
-                ],
+                "required": ["page_url"],
                 "additionalProperties": False,
             },
             "strict": True,
@@ -87,7 +84,7 @@ class ScrapeWebPageHandler2(HandlerV2):
                 "tool": self.NAME,
                 "error": str(e),
                 "page_url": page_url,
-                "python_utils_path": python_utils_path,                "name": cls.name(),
+                "python_utils_path": python_utils_path,
                 "base_path": base_path,
             }
 
@@ -98,5 +95,10 @@ class ScrapeWebPageHandler2(HandlerV2):
             "result": result_text,
         }
 
-    def execute_as_tool_content(self, args: Dict[str, Any], *, account_name: str = "auto") -> str:
-        return json.dumps(self.execute(args, account_name=account_name), ensure_ascii=False)
+    def execute_raw(self, arguments_raw: str, *, account_name: str = "auto", call_id: str = "") -> str:
+        try:
+            args = json.loads(arguments_raw or "{}")
+        except Exception:
+            args = {}
+        result = self.execute(args if isinstance(args, dict) else {}, account_name=account_name)
+        return json.dumps(result, ensure_ascii=False)

@@ -48,7 +48,6 @@ class FileSaveHandler2(HandlerV2):
                         "default": True,
                     },
                 },
-                # STRICT MODE: ALL PROPERTIES MUST BE REQUIRED
                 "required": [
                     "directory_path",
                     "file_name",
@@ -62,7 +61,6 @@ class FileSaveHandler2(HandlerV2):
 
     @classmethod
     def result_schema(cls) -> Dict[str, Any]:
-        # Mirrors FileLoadHandler2: require ok + tool; allow additionalProperties
         return {
             "type": "object",
             "properties": {
@@ -86,7 +84,6 @@ class FileSaveHandler2(HandlerV2):
         file_content = args.get("file_content")
         overwrite = args.get("overwrite", True)
 
-        # Basic presence check
         if not directory_path or not file_name or file_content is None:
             return {
                 "ok": False,
@@ -104,7 +101,6 @@ class FileSaveHandler2(HandlerV2):
                 "file_name": file_name,
             }
 
-        # Enforce that directory_path is relative and safe
         if os.path.isabs(directory_path):
             return {
                 "ok": False,
@@ -131,7 +127,6 @@ class FileSaveHandler2(HandlerV2):
             overwrite,
         )
 
-        # Resolve to allowed base path
         base_path = get_base_path(self.config, account_name, norm_dir)
         logging.info("file_save: resolved base_path=%s", base_path)
 
@@ -165,27 +160,28 @@ class FileSaveHandler2(HandlerV2):
             "result": f"success file saved at {full_path}",
         }
 
-    def execute_as_tool_content(self, args: Dict[str, Any], *, account_name: str = "auto") -> str:
-        return json.dumps(self.execute(args, account_name=account_name), ensure_ascii=False)
+    def execute_raw(self, arguments_raw: str, *, account_name: str = "auto", call_id: str = "") -> str:
+        try:
+            args = json.loads(arguments_raw or "{}")
+        except Exception:
+            args = {}
+        result = self.execute(args if isinstance(args, dict) else {}, account_name=account_name)
+        return json.dumps(result, ensure_ascii=False)
 
     def _write_file_safe(self, base_path: str, file_name: str, content: str, overwrite: bool = True) -> str:
         """Writes file_name inside base_path safely. Mirrors FileLoadHandler2 path rules."""
         base_abs = os.path.abspath(base_path)
 
-        # file_name must be a bare filename (no path separators)
         if os.path.sep in file_name or (os.path.altsep and os.path.altsep in file_name):
             raise ValueError("file_name must not contain path separators")
 
         full_path = os.path.abspath(os.path.join(base_abs, file_name))
 
-        # Ensure full path is within base path
         if not (full_path == base_abs or full_path.startswith(base_abs + os.path.sep)):
             raise ValueError("File access outside allowed base path")
 
-        # Ensure directory exists
         os.makedirs(base_abs, exist_ok=True)
 
-        # Overwrite protection
         if not overwrite and os.path.exists(full_path):
             raise FileExistsError("Target file already exists and overwrite=false")
 

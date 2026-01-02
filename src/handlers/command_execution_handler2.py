@@ -23,32 +23,32 @@ class CommandExecutionHandler2(HandlerV2):
     @classmethod
     def tool_def(cls) -> Dict[str, Any]:
         return {
-        "type": "function",
-        "name": cls.NAME,
-        "description": "Execute an OS command in a given working directory under the allowed base folder",
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "command": {
-                    "type": "string",
-                    "description": "Command to execute (shell=False). Provide full args/quotes as needed.",
+            "type": "function",
+            "name": cls.NAME,
+            "description": "Execute an OS command in a given working directory under the allowed base folder",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "command": {
+                        "type": "string",
+                        "description": "Command to execute (shell=False). Provide full args/quotes as needed.",
+                    },
+                    "working_directory": {
+                        "type": "string",
+                        "description": "Working directory relative to the allowed base folder",
+                    },
+                    "timeout_seconds": {
+                        "type": "integer",
+                        "description": "Timeout in seconds",
+                        "default": 30,
+                    },
                 },
-                "working_directory": {
-                    "type": "string",
-                    "description": "Working directory relative to the allowed base folder",
-                },
-                "timeout_seconds": {
-                    "type": "integer",
-                    "description": "Timeout in seconds",
-                    "default": 30,
-                },
+                "required": ["command", "working_directory", "timeout_seconds"],
+                "additionalProperties": False,
             },
-            # STRICT MODE REQUIRES ALL KEYS HERE
-            "required": ["command", "working_directory", "timeout_seconds"],
-            "additionalProperties": False,
-        },
-        "strict": True,
-    }
+            "strict": True,
+        }
+
     @classmethod
     def result_schema(cls) -> Dict[str, Any]:
         return {
@@ -82,7 +82,6 @@ class CommandExecutionHandler2(HandlerV2):
                 "args": {"command": command, "working_directory": working_directory},
             }
 
-        # Resolve to allowed base path
         try:
             resolved_dir = get_base_path(self.config, account_name, working_directory)
         except Exception as e:
@@ -107,11 +106,9 @@ class CommandExecutionHandler2(HandlerV2):
                 "resolved_working_directory": resolved_dir,
             }
 
-        # Friendly single-string result (like older handler) + structured fields
         if rc == 0:
             result_str = out.strip() or "success"
         else:
-            # include stderr because it's usually the useful bit
             result_str = f"error {rc}\nSTDOUT:\n{out}\nSTDERR:\n{err}"
 
         return {
@@ -126,21 +123,18 @@ class CommandExecutionHandler2(HandlerV2):
             "result": result_str,
         }
 
-    def execute_as_tool_content(self, args: Dict[str, Any], *, account_name: str = "auto") -> str:
-        return json.dumps(self.execute(args, account_name=account_name), ensure_ascii=False)
+    def execute_raw(self, arguments_raw: str, *, account_name: str = "auto", call_id: str = "") -> str:
+        try:
+            args = json.loads(arguments_raw or "{}")
+        except Exception:
+            args = {}
+        result = self.execute(args if isinstance(args, dict) else {}, account_name=account_name)
+        return json.dumps(result, ensure_ascii=False)
 
     def _execute_script(self, command: str, cwd: str, timeout: int = 30) -> tuple[int, str, str]:
-        """
-        Execute command with shell=False in cwd.
-
-        Notes:
-        - Uses shlex.split with OS-appropriate mode.
-        - Returns (returncode, stdout, stderr)
-        """
         if not os.path.isdir(cwd):
             raise ValueError(f"working dir does not exist: {cwd}")
 
-        # shlex is POSIX by default; on Windows use posix=False
         argv = shlex.split(command, posix=(os.name != "nt"))
 
         completed = subprocess.run(

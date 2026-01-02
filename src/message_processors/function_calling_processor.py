@@ -29,12 +29,6 @@ class ToolHandlerError(Exception):
 
 @dataclass(frozen=True)
 class _ProcessorContext:
-    """Typed view of frequently-used values inside FunctionCallingProcessor.
-
-    Internal-only. Keeps dict usage localized while leaving the public processor
-    and adapter interfaces unchanged.
-    """
-
     account_id: str
     agent_name: str
     conversation_id: str
@@ -49,8 +43,6 @@ class _ProcessorContext:
 
 @dataclass(frozen=True)
 class _ToolCall:
-    """Typed wrapper around a single tool call extracted from the adapter."""
-
     name: str
     call_id: str
     arguments_raw: str
@@ -77,15 +69,11 @@ class FunctionCallingProcessor(MessageProcessorInterface):
     # ------------------------------------------------------------------
 
     def _safe_json_loads(self, s: str) -> Dict[str, Any]:
-        """Parse a JSON string into a dict.
-
-        Tool arguments are expected to be JSON. If parsing fails, we log and
-        return an empty dict.
-        """
         if not s:
             return {}
         try:
-            return json.loads(s)
+            loaded = json.loads(s)
+            return loaded if isinstance(loaded, dict) else {}
         except Exception:
             logging.warning(
                 "Tool arguments were not valid JSON; using empty dict. args=%r",
@@ -93,25 +81,22 @@ class FunctionCallingProcessor(MessageProcessorInterface):
             )
             return {}
 
-    def _tool_result_to_text(self, tool_result: Any) -> str:
-        """Serialize a tool result to text for tool output messages.
+    def _tool_result_to_text(self, tool_result_text: Any) -> str:
+        """Ensure the tool result is a string and enforce max size.
 
-        Tool message content MUST be a string. Handlers usually return dicts; we
-        serialize here. Also enforces a maximum size based on
-        config["max_tool_result_chars"].
+        We do not parse/serialize tool I/O here anymore. Handlers are expected
+        to return a JSON object string.
         """
-        if tool_result is None:
+
+        if tool_result_text is None:
             s = json.dumps({"ok": False, "error": "Tool returned None"}, ensure_ascii=False)
-        elif isinstance(tool_result, str):
-            s = tool_result
+        elif isinstance(tool_result_text, str):
+            s = tool_result_text
         else:
             try:
-                s = json.dumps(tool_result, ensure_ascii=False)
+                s = json.dumps(tool_result_text, ensure_ascii=False)
             except Exception as e:
-                s = json.dumps(
-                    {"ok": False, "error": f"Tool result not JSON serializable: {e}"},
-                    ensure_ascii=False,
-                )
+                s = json.dumps({"ok": False, "error": f"Tool result not serializable: {e}"}, ensure_ascii=False)
 
         max_chars = int(self.config.get("max_tool_result_chars", 20000))
         if len(s) > max_chars:
@@ -133,8 +118,6 @@ class FunctionCallingProcessor(MessageProcessorInterface):
         conversation_id: str,
         context_name: str,
     ) -> _ProcessorContext:
-        """Build a typed context object from agent/account inputs."""
-
         account_id = (account.get("accountId") or "").strip()
         agent_name = primary_agent.name or "unknown"
 
@@ -161,7 +144,6 @@ class FunctionCallingProcessor(MessageProcessorInterface):
         )
 
     def _wrap_tool_calls(self, tool_calls: Iterable[Dict[str, Any]]) -> List[_ToolCall]:
-        """Wrap adapter tool call dicts into internal typed objects."""
         wrapped: List[_ToolCall] = []
         for tc in tool_calls or []:
             tool_name = tc.get("name") or ""
@@ -182,11 +164,6 @@ class FunctionCallingProcessor(MessageProcessorInterface):
         processor_factory: Any,
         delegation_depth: int,
     ) -> Dict[str, Any]:
-        """Execute a simple sequential tasklist.
-
-        This is a delegation hook used when a tool returns a "tasklist".
-        """
-
         max_depth = int(getattr(supervisor_agent, "max_delegation_depth", 1))
         if delegation_depth >= max_depth:
             logging.warning(
@@ -292,8 +269,6 @@ class FunctionCallingProcessor(MessageProcessorInterface):
         account: Dict[str, Any],
         ctx: _ProcessorContext,
     ) -> List[Dict[str, Any]]:
-        """Execute tool calls and return adapter-formatted tool output items."""
-
         tool_output_items: List[Dict[str, Any]] = []
 
         for tc in tool_calls:
@@ -302,53 +277,62 @@ class FunctionCallingProcessor(MessageProcessorInterface):
                     f"Tool call missing id/call_id for tool '{tc.name}'. Cannot send function_call_output."
                 )
 
-            tool_args = self._safe_json_loads(tc.arguments_raw)
-
             try:
                 handler = self.registry.create(tc.name, config=self.config)
-                tool_result = handler.execute(tool_args, account_name=ctx.account_id)
 
-                # Tool-level failure is NOT fatal: pass it back to the model so it can recover.
-                if isinstance(tool_result, dict) and tool_result.get("ok") is False:
-                    error_text = tool_result.get("error") or "Unknown tool error"
-                    logging.warning(
-                        "FunctionCallingProcessor: tool '%s' returned ok=False: %s",
-                        tc.name,
-                        error_text,
-                    )
+                logging.info(
+                    "tool_execute_start tool=%s call_id=%s account=%s",
+                    tc.name,
+                    tc.call_id,
+                    ctx.account_id,
+                )
 
-                # plan_tasks delegation hook
-                if (
-                    tc.name == "plan_tasks"
-                    and isinstance(tool_result, Dict)
-                    and tool_result.get("ok")
-                    and tool_result.get("kind") == "tasklist"
-                    and secondary_agent is not None
-                    and processor_factory is not None
-                ):
-                    logging.info(
-                        "FunctionCallingProcessor: executing tasklist from plan_tasks using supervisor=%s worker=%s session_id=%s",
-                        ctx.agent_name,
-                        secondary_agent.name,
-                        ctx.conversation_id,
-                    )
-                    tool_result = self._execute_simple_tasklist(
-                        tasklist=tool_result,
-                        supervisor_agent=primary_agent,
-                        worker_agent=secondary_agent,
-                        account=account,
-                        conversation_id=ctx.conversation_id,
-                        context_name=ctx.context_name,
-                        processor_factory=processor_factory,
-                        delegation_depth=ctx.delegation_depth,
-                    )
+                if hasattr(handler, "execute_raw"):
+                    tool_result_text = handler.execute_raw(tc.arguments_raw, account_name=ctx.account_id, call_id=tc.call_id)  # type: ignore[attr-defined]
+                else:
+                    tool_args = self._safe_json_loads(tc.arguments_raw)
+                    tool_result = handler.execute(tool_args, account_name=ctx.account_id)
+                    tool_result_text = json.dumps(tool_result, ensure_ascii=False)
 
-                tool_result_text = self._tool_result_to_text(tool_result)
+                logging.info(
+                    "tool_execute_done tool=%s call_id=%s result_preview=%r",
+                    tc.name,
+                    tc.call_id,
+                    (tool_result_text or "")[:200],
+                )
+
+                if tc.name == "plan_tasks" and secondary_agent is not None and processor_factory is not None:
+                    try:
+                        maybe = json.loads(tool_result_text or "{}")
+                    except Exception:
+                        maybe = {}
+
+                    if isinstance(maybe, dict) and maybe.get("ok") and maybe.get("kind") == "tasklist":
+                        logging.info(
+                            "FunctionCallingProcessor: executing tasklist from plan_tasks using supervisor=%s worker=%s session_id=%s call_id=%s",
+                            ctx.agent_name,
+                            secondary_agent.name,
+                            ctx.conversation_id,
+                            tc.call_id,
+                        )
+                        tasklist_result = self._execute_simple_tasklist(
+                            tasklist=maybe,
+                            supervisor_agent=primary_agent,
+                            worker_agent=secondary_agent,
+                            account=account,
+                            conversation_id=ctx.conversation_id,
+                            context_name=ctx.context_name,
+                            processor_factory=processor_factory,
+                            delegation_depth=ctx.delegation_depth,
+                        )
+                        tool_result_text = json.dumps(tasklist_result, ensure_ascii=False)
+
+                tool_result_text = self._tool_result_to_text(tool_result_text)
 
             except ToolResultTooLargeError as e:
                 tool_result_text = self._tool_result_to_text({"ok": False, "tool": tc.name, "error": str(e)})
             except Exception as e:
-                logging.exception("Tool execution failed: %s", tc.name)
+                logging.exception("Tool execution failed: %s call_id=%s", tc.name, tc.call_id)
                 raise ToolHandlerError(f"{type(e).__name__}: {e}")
 
             tool_output_items.append(self.llm_adapter.format_tool_output(call_id=str(tc.call_id), output=tool_result_text))
@@ -366,14 +350,9 @@ class FunctionCallingProcessor(MessageProcessorInterface):
         processor_factory: Optional[Any],
         account: Dict[str, Any],
     ) -> str:
-        """Run the LLM/tool-calling loop and return the final assistant text."""
-
         response_text = ""
         previous_response_id: Optional[str] = None
 
-        # For OpenAI Responses: input can be either:
-        #  - list of role/content messages (initial turn)
-        #  - list of function_call_output items (continuation turns)
         next_input_items: List[Dict[str, Any]] = prompt_messages
 
         for iteration in range(1, ctx.max_iterations + 1):
@@ -388,7 +367,6 @@ class FunctionCallingProcessor(MessageProcessorInterface):
                 previous_response_id=previous_response_id,
             )
 
-            # Always carry forward the response_id for chaining
             result_response_id = self.llm_adapter.get_response_id(llm_response)
             if result_response_id:
                 previous_response_id = result_response_id
@@ -531,7 +509,6 @@ class FunctionCallingProcessor(MessageProcessorInterface):
                 account=account,
             )
 
-            # Persist conversation if enabled
             if ctx.store_this_call and response_text:
                 self.storage.append_chat_message(
                     ctx.conversation_id,
@@ -556,7 +533,6 @@ class FunctionCallingProcessor(MessageProcessorInterface):
 
             error_message = "I ran into an internal error while processing your request. The issue has been logged."
 
-            # Best-effort store
             try:
                 self.storage.append_chat_message(
                     ctx.conversation_id,
