@@ -24,61 +24,69 @@ class PlanTasksHandler(HandlerV2):
 
     # --- Tool definition -------------------------------------------------
 
-    @classmethod
-    def tool_def(cls) -> Dict[str, Any]:
-        """OpenAI tool definition for the plan_tasks tool.
+@classmethod
+def tool_def(cls) -> Dict[str, Any]:
+    """OpenAI Responses tool definition for the plan_tasks tool.
 
-        The model is expected to provide a high-level goal description and may
-        optionally provide a list of files to focus on. The handler will
-        normalize this into a simple sequential task list with one task per
-        file (if files are provided) or a single task otherwise.
-        """
+    The model must provide a high-level goal description.
+    Other fields are semantically optional but structurally required
+    due to strict mode.
+    """
 
-        return {
-            "type": "function",
-            "function": {
-                "name": cls.name(),
-                "description": (
-                    "Create a simple sequential task list for a coding or "
-                    "refactoring task, given a goal and an optional list of files."
-                ),
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "goal": {
-                            "type": "string",
-                            "description": (
-                                "High-level description of the work to perform. "
-                                "This should be written as instructions for a worker agent."
-                            ),
-                        },
-                        "files": {
-                            "type": "array",
-                            "description": (
-                                "Optional list of file paths to focus on. If provided, "
-                                "the task list will contain one task per file."
-                            ),
-                            "items": {"type": "string"},
-                        },
-                        "instruction": {
-                            "type": "string",
-                            "description": (
-                                "Optional detailed instruction template for each task. "
-                                "If omitted, the goal will be used as the instruction."
-                            ),
-                        },
-                        "worker_agent": {
-                            "type": "string",
-                            "description": (
-                                "Optional name of the worker agent that should execute "
-                                "the tasks (for documentation purposes)."
-                            ),
-                        },
-                    },
-                    "required": ["goal"],
+    return {
+        "type": "function",
+        "name": cls.name(),
+        "description": (
+            "Create a simple sequential task list for a coding or "
+            "refactoring task, given a goal and an optional list of files."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "goal": {
+                    "type": "string",
+                    "description": (
+                        "High-level description of the work to perform. "
+                        "This should be written as instructions for a worker agent."
+                    ),
+                },
+                "files": {
+                    "type": "array",
+                    "description": (
+                        "Optional list of file paths to focus on. If provided, "
+                        "the task list will contain one task per file."
+                    ),
+                    "items": {"type": "string"},
+                    "default": [],
+                },
+                "instruction": {
+                    "type": "string",
+                    "description": (
+                        "Optional detailed instruction template for each task. "
+                        "If omitted, the goal will be used as the instruction."
+                    ),
+                    "default": "",
+                },
+                "worker_agent": {
+                    "type": "string",
+                    "description": (
+                        "Optional name of the worker agent that should execute "
+                        "the tasks (for documentation purposes)."
+                    ),
+                    "default": "",
                 },
             },
-        }
+            # STRICT MODE: ALL PROPERTIES MUST BE REQUIRED
+            "required": [
+                "goal",
+                "files",
+                "instruction",
+                "worker_agent",
+            ],
+            "additionalProperties": False,
+        },
+        "strict": True,
+    }
 
     # --- Result schema ---------------------------------------------------
 

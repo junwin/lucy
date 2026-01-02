@@ -8,11 +8,12 @@ import json
 from src.config_manager import ConfigManager
 from src.message_processors.message_processor_interface import MessageProcessorInterface
 from src.prompt_builders.prompt_builder_interface import PromptBuilderInterface
-from src.api_helpers import openai_call, ToolResult  # ToolResult/TextResult/SchemaResult live in api_helpers
 from src.handlers.handler_registry import HandlerRegistry
 from src.storage.base import Storage
 from src.storage.models import ChatMessage
 from src.agent import Agent
+
+from src.llm.adapter_interface import LLMAdapter
 
 
 class ToolResultTooLargeError(Exception):
@@ -31,11 +32,13 @@ class FunctionCallingProcessor(MessageProcessorInterface):
         registry: HandlerRegistry,
         storage: Storage,
         prompt_builder: PromptBuilderInterface,
+        llm_adapter: LLMAdapter,
     ):
         self.config = config
         self.registry = registry
         self.storage = storage
         self.prompt_builder = prompt_builder
+        self.llm_adapter = llm_adapter
 
     # ------------------------------------------------------------------
     # Internal helpers
@@ -232,7 +235,6 @@ class FunctionCallingProcessor(MessageProcessorInterface):
         )
 
         try:
-            # Initial input is the full prompt messages
             prompt_messages = self.prompt_builder.build_prompt(
                 content_text=message,
                 conversation_id=conversation_id,
@@ -251,25 +253,25 @@ class FunctionCallingProcessor(MessageProcessorInterface):
             response_text = ""
             previous_response_id: Optional[str] = None
 
-            # For Responses API: input can be either:
+            # For OpenAI Responses: input can be either:
             #  - list of role/content messages (initial turn)
             #  - list of function_call_output items (continuation turns)
             next_input_items: List[Dict[str, Any]] = prompt_messages
 
             for iteration in range(1, max_iterations + 1):
-                result = openai_call(
-                    messages=next_input_items,
-                    functions=function_defs,
-                    temperature=temperature,
+                llm_response = self.llm_adapter.call_model(
                     model=model,
+                    input=next_input_items,
+                    temperature=temperature,
+                    tools=function_defs,
+                    tool_choice="auto" if function_defs else None,
                     store=store_this_call,
-                    conversation_id=conversation_id,
-                    session_id=context_name or None,
+                    metadata={"conversation_id": conversation_id, "session_id": context_name or None},
                     previous_response_id=previous_response_id,
                 )
 
                 # Always carry forward the response_id for chaining
-                result_response_id = getattr(result, "response_id", None)
+                result_response_id = self.llm_adapter.get_response_id(llm_response)
                 if result_response_id:
                     previous_response_id = result_response_id
 
@@ -282,12 +284,14 @@ class FunctionCallingProcessor(MessageProcessorInterface):
                     previous_response_id,
                 )
 
+                tool_calls = self.llm_adapter.extract_tool_calls(llm_response)
+
                 # Tool-call path
-                if isinstance(result, ToolResult) and (result.tool_calls or []):
+                if tool_calls:
                     if not previous_response_id:
                         raise ToolHandlerError(
-                            "openai_call returned tool_calls but no response_id. "
-                            "Cannot chain function_call_output. Fix api_helpers.openai_call to set response_id=resp.id."
+                            "LLM returned tool_calls but no response_id. "
+                            "Cannot chain function_call_output. Ensure the LLMApi propagates response_id."
                         )
 
                     tool_output_items: List[Dict[str, Any]] = []
@@ -298,11 +302,11 @@ class FunctionCallingProcessor(MessageProcessorInterface):
                         max_iterations,
                         agent_name,
                         conversation_id,
-                        len(result.tool_calls),
+                        len(tool_calls),
                         previous_response_id,
                     )
 
-                    for idx, tc in enumerate(result.tool_calls):
+                    for idx, tc in enumerate(tool_calls):
                         tool_name = tc.get("name") or ""
                         tool_call_id = tc.get("id")
 
@@ -318,11 +322,14 @@ class FunctionCallingProcessor(MessageProcessorInterface):
                             handler = self.registry.create(tool_name, config=self.config)
                             tool_result = handler.execute(tool_args, account_name=account_id)
 
-                            # Terminal failure if handler reports ok=False
+                            # Tool-level failure is NOT fatal: pass it back to the model so it can recover.
                             if isinstance(tool_result, dict) and tool_result.get("ok") is False:
                                 error_text = tool_result.get("error") or "Unknown tool error"
-                                logging.error("FunctionCallingProcessor: tool '%s' reported failure: %s", tool_name, error_text)
-                                raise ToolHandlerError(f"Tool '{tool_name}' failed: {error_text}")
+                                logging.warning(
+                                    "FunctionCallingProcessor: tool '%s' returned ok=False: %s",
+                                    tool_name,
+                                    error_text,
+                                )
 
                             # plan_tasks delegation hook
                             if (
@@ -359,11 +366,7 @@ class FunctionCallingProcessor(MessageProcessorInterface):
                             raise ToolHandlerError(f"{type(e).__name__}: {e}")
 
                         tool_output_items.append(
-                            {
-                                "type": "function_call_output",
-                                "call_id": tool_call_id,
-                                "output": tool_result_text,
-                            }
+                            self.llm_adapter.format_tool_output(call_id=str(tool_call_id), output=tool_result_text)
                         )
 
                     logging.info(
@@ -392,7 +395,7 @@ class FunctionCallingProcessor(MessageProcessorInterface):
                     continue
 
                 # Normal response (no tool calls)
-                response_text = (getattr(result, "content", "") or "").strip()
+                response_text = self.llm_adapter.get_text(llm_response)
                 break
 
             # Persist conversation if enabled
@@ -431,7 +434,11 @@ class FunctionCallingProcessor(MessageProcessorInterface):
                 )
                 self.storage.append_chat_message(
                     conversation_id,
-                    ChatMessage(role="assistant", content=error_message + f" (Details: {type(e).__name__})", metadata={"agent": agent_name, "error": True}),
+                    ChatMessage(
+                        role="assistant",
+                        content=error_message + f" (Details: {type(e).__name__})",
+                        metadata={"agent": agent_name, "error": True},
+                    ),
                 )
             except Exception:
                 logging.exception("FunctionCallingProcessor: failed to store error conversation for session_id=%s", conversation_id)

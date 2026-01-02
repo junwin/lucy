@@ -32,26 +32,31 @@ class WebSearchHandler2(HandlerV2):
     def tool_def(cls) -> Dict[str, Any]:
         return {
             "type": "function",
-            "function": {
-                "name": cls.NAME,
-                "description": "Use Brave Search to search the web",
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "query": {
-                            "type": "string",
-                            "description": "The string used to query the web",
-                        },
-                        "count": {
-                            "type": "integer",
-                            "description": "Maximum number of results to return (default 10)",
-                        },
+            "name": cls.NAME,
+            "description": "Use Brave Search to search the web",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "The string used to query the web",
                     },
-                    "required": ["query"],
-                    "additionalProperties": False,
+                    "count": {
+                        "type": "integer",
+                        "description": "Maximum number of results to return",
+                        "default": 10,
+                    },
                 },
+                # STRICT MODE: ALL PROPERTIES MUST BE REQUIRED
+                "required": [
+                    "query",
+                    "count",
+                ],
+                "additionalProperties": False,
             },
+            "strict": True,
         }
+
 
     @classmethod
     def result_schema(cls) -> Dict[str, Any]:

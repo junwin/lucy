@@ -22,31 +22,30 @@ class FileLoadHandler2(HandlerV2):
     def tool_def(cls) -> Dict[str, Any]:
         return {
             "type": "function",
-            "function": {
-                "name": cls.NAME,
-                "description": (
-                    "Load a file from a directory relative to the allowed base folder "
-                    "and chunk if needed"
-                ),
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "directory_path": {
-                            "type": "string",
-                            "description": (
-                                "Location of the file relative to the allowed base folder. "
-                                "Must be a relative path (no leading / and no .. segments)."
-                            ),
-                        },
-                        "file_name": {
-                            "type": "string",
-                            "description": "Name of the file to be loaded",
-                        },
+            "name": cls.NAME,
+            "description": (
+                "Load a file from a directory relative to the allowed base folder "
+                "and chunk if needed"
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "directory_path": {
+                        "type": "string",
+                        "description": (
+                            "Location of the file relative to the allowed base folder. "
+                            "Must be a relative path (no leading / and no .. segments)."
+                        ),
                     },
-                    "required": ["directory_path", "file_name"],
-                    "additionalProperties": False,
+                    "file_name": {
+                        "type": "string",
+                        "description": "Name of the file to be loaded",
+                    },
                 },
+                "required": ["directory_path", "file_name"],
+                "additionalProperties": False,
             },
+            "strict": True,
         }
 
     @classmethod

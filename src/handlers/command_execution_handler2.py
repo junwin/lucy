@@ -23,33 +23,32 @@ class CommandExecutionHandler2(HandlerV2):
     @classmethod
     def tool_def(cls) -> Dict[str, Any]:
         return {
-            "type": "function",
-            "function": {
-                "name": cls.NAME,
-                "description": "Execute an OS command in a given working directory under the allowed base folder",
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "command": {
-                            "type": "string",
-                            "description": "Command to execute (shell=False). Provide full args/quotes as needed.",
-                        },
-                        "working_directory": {
-                            "type": "string",
-                            "description": "Working directory relative to the allowed base folder",
-                        },
-                        "timeout_seconds": {
-                            "type": "integer",
-                            "description": "Timeout in seconds",
-                            "default": 30,
-                        },
-                    },
-                    "required": ["command", "working_directory"],
-                    "additionalProperties": False,
+        "type": "function",
+        "name": cls.NAME,
+        "description": "Execute an OS command in a given working directory under the allowed base folder",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "command": {
+                    "type": "string",
+                    "description": "Command to execute (shell=False). Provide full args/quotes as needed.",
+                },
+                "working_directory": {
+                    "type": "string",
+                    "description": "Working directory relative to the allowed base folder",
+                },
+                "timeout_seconds": {
+                    "type": "integer",
+                    "description": "Timeout in seconds",
+                    "default": 30,
                 },
             },
-        }
-
+            # STRICT MODE REQUIRES ALL KEYS HERE
+            "required": ["command", "working_directory", "timeout_seconds"],
+            "additionalProperties": False,
+        },
+        "strict": True,
+    }
     @classmethod
     def result_schema(cls) -> Dict[str, Any]:
         return {

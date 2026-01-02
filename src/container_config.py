@@ -1,11 +1,10 @@
 # container_config.py
 
 from injector import Injector
-from injector import Module, provider, singleton, inject
+from injector import Module, provider, singleton
 
 from src.config_manager import ConfigManager
 from src.agent import AgentManager
-
 
 from src.storage.base import Storage
 from src.storage.json_file_storage import JsonFileStorage
@@ -17,6 +16,11 @@ from src.prompt_builders.prompt_builder_interface import PromptBuilderInterface
 from src.prompt_builders.prompt_builder import PromptBuilder
 
 from src.message_endpoints.ask_request_handler import AskRequestHandler
+
+from src.llm.adapter_interface import LLMAdapter
+from src.llm.openai_responses_adapter import OpenAIResponsesAdapter
+from src.llm.openai_responses import OpenAIResponsesApi
+from src.llm.interface import LLMApi
 
 
 config = ConfigManager("config.json")
@@ -66,6 +70,20 @@ class PromptBuilderModule(Module):
         return pb
 
 
+class LLMModule(Module):
+    @provider
+    @singleton
+    def provide_llm_api(self) -> LLMApi:
+        # Default LLM transport: OpenAI Responses API
+        return OpenAIResponsesApi()
+
+    @provider
+    @singleton
+    def provide_llm_adapter(self, api: LLMApi) -> LLMAdapter:
+        # Default adapter: OpenAI Responses protocol glue
+        return OpenAIResponsesAdapter(api)
+
+
 class ProcessorFactoryModule(Module):
     @provider
     @singleton
@@ -100,6 +118,7 @@ def configure_container():
             HandlerRegistryModule(),
             ProcessorFactoryModule(),
             PromptBuilderModule(),
+            LLMModule(),
             EndpointHandlersModule(),
         ]
     )

@@ -23,21 +23,23 @@ class ScrapeWebPageHandler2(HandlerV2):
     def tool_def(cls) -> Dict[str, Any]:
         return {
             "type": "function",
-            "function": {
-                "name": cls.NAME,
-                "description": "Read the text from a webpage",
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "page_url": {
-                            "type": "string",
-                            "description": "The URL of the page to be scraped",
-                        },
+            "name": cls.NAME,
+            "description": "Read the text from a webpage",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "page_url": {
+                        "type": "string",
+                        "description": "The URL of the page to be scraped",
                     },
-                    "required": ["page_url"],
-                    "additionalProperties": False,
                 },
+                # STRICT MODE: ALL PROPERTIES MUST BE REQUIRED
+                "required": [
+                    "page_url",
+                ],
+                "additionalProperties": False,
             },
+            "strict": True,
         }
 
     @classmethod
@@ -85,7 +87,7 @@ class ScrapeWebPageHandler2(HandlerV2):
                 "tool": self.NAME,
                 "error": str(e),
                 "page_url": page_url,
-                "python_utils_path": python_utils_path,
+                "python_utils_path": python_utils_path,                "name": cls.name(),
                 "base_path": base_path,
             }
 

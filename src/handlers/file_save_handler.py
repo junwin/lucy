@@ -22,37 +22,42 @@ class FileSaveHandler2(HandlerV2):
     def tool_def(cls) -> Dict[str, Any]:
         return {
             "type": "function",
-            "function": {
-                "name": cls.NAME,
-                "description": "Save code or text into a file under the allowed base folder",
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "directory_path": {
-                            "type": "string",
-                            "description": (
-                                "Location of the file relative to the allowed base folder. "
-                                "Must be a relative path (no leading / and no .. segments)."
-                            ),
-                        },
-                        "file_name": {
-                            "type": "string",
-                            "description": "Name of the file to be saved",
-                        },
-                        "file_content": {
-                            "type": "string",
-                            "description": "Content to write to the file",
-                        },
-                        "overwrite": {
-                            "type": "boolean",
-                            "description": "If false, fail when the target file already exists",
-                            "default": True,
-                        },
+            "name": cls.NAME,
+            "description": "Save code or text into a file under the allowed base folder",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "directory_path": {
+                        "type": "string",
+                        "description": (
+                            "Location of the file relative to the allowed base folder. "
+                            "Must be a relative path (no leading / and no .. segments)."
+                        ),
                     },
-                    "required": ["directory_path", "file_name", "file_content"],
-                    "additionalProperties": False,
+                    "file_name": {
+                        "type": "string",
+                        "description": "Name of the file to be saved",
+                    },
+                    "file_content": {
+                        "type": "string",
+                        "description": "Content to write to the file",
+                    },
+                    "overwrite": {
+                        "type": "boolean",
+                        "description": "If false, fail when the target file already exists",
+                        "default": True,
+                    },
                 },
+                # STRICT MODE: ALL PROPERTIES MUST BE REQUIRED
+                "required": [
+                    "directory_path",
+                    "file_name",
+                    "file_content",
+                    "overwrite",
+                ],
+                "additionalProperties": False,
             },
+            "strict": True,
         }
 
     @classmethod
