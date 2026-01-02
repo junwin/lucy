@@ -9,11 +9,16 @@ def get_base_path(config, account_name: str, relative_path: str = "") -> str:
     """Resolve a path inside the per-account sandbox.
 
     Rules:
-    - `relative_path` must be *relative* (no leading slash, no drive letter).
+    - `relative_path` is normally relative (no leading slash, no drive letter).
+    - Absolute paths are allowed only if they resolve *within* the account root.
     - `..` segments are not allowed to escape the account root.
     - `~` or `~/` are treated as "no extra path" (for convenience), but still
       resolved inside the account sandbox.
     - Both forward and backslashes are normalized to the current OS separator.
+
+    Raises:
+        ValueError: If the path is absolute outside the sandbox or attempts
+            traversal outside the allowed base path.
     """
 
     relative_path = (relative_path or "").strip()
@@ -32,16 +37,19 @@ def get_base_path(config, account_name: str, relative_path: str = "") -> str:
 
     account_root = os.path.realpath(os.path.join(config_base, account_name))
 
-    # Disallow absolute paths in the user-supplied part entirely.
+    # Allow absolute paths only if they are within account_root.
     if os.path.isabs(relative_path):
-        raise ValueError("relative_path must be relative to the account sandbox, not absolute")
+        resolved = os.path.realpath(relative_path)
+        if os.path.commonpath([account_root, resolved]) != account_root:
+            raise ValueError("Path traversal outside allowed base path")
+        return resolved
 
     # Normalize and build the final path
     norm_rel = os.path.normpath(relative_path) if relative_path else ""
 
     # Reject attempts to escape via leading ".."
     if norm_rel.startswith(".."):
-        raise ValueError("relative_path must not escape the account sandbox")
+        raise ValueError("Path traversal outside allowed base path")
 
     resolved = os.path.realpath(os.path.join(account_root, norm_rel))
 
