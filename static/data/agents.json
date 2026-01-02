@@ -3,7 +3,7 @@
     "name": "lucy",
     "language_code": "en-US",
     "context_type": "hybrid",
-    "max_prompt_conversations": 6,
+    "max_prompt_conversations": 8,
     "max_prompt_documents": 4,
     "temperature": 0,
     "save_responses": true,
