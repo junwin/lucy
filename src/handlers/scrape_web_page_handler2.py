@@ -6,8 +6,8 @@ from src.config_manager import ConfigManager
 from src.handlers.handler_utils import get_base_path, execute_script
 from src.handlers.handler_v2 import HandlerV2
 
-# Define a module-level logger
 logger = logging.getLogger(__name__)
+
 
 class ScrapeWebPageHandler2(HandlerV2):
     NAME = "scrape_web_page"
@@ -23,21 +23,20 @@ class ScrapeWebPageHandler2(HandlerV2):
     def tool_def(cls) -> Dict[str, Any]:
         return {
             "type": "function",
-            "function": {
-                "name": cls.NAME,
-                "description": "Read the text from a webpage",
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "page_url": {
-                            "type": "string",
-                            "description": "The URL of the page to be scraped",
-                        },
+            "name": cls.NAME,
+            "description": "Read the text from a webpage",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "page_url": {
+                        "type": "string",
+                        "description": "The URL of the page to be scraped",
                     },
-                    "required": ["page_url"],
-                    "additionalProperties": False,
                 },
+                "required": ["page_url"],
+                "additionalProperties": False,
             },
+            "strict": True,
         }
 
     @classmethod
@@ -96,5 +95,10 @@ class ScrapeWebPageHandler2(HandlerV2):
             "result": result_text,
         }
 
-    def execute_as_tool_content(self, args: Dict[str, Any], *, account_name: str = "auto") -> str:
-        return json.dumps(self.execute(args, account_name=account_name), ensure_ascii=False)
+    def execute_raw(self, arguments_raw: str, *, account_name: str = "auto", call_id: str = "") -> str:
+        try:
+            args = json.loads(arguments_raw or "{}")
+        except Exception:
+            args = {}
+        result = self.execute(args if isinstance(args, dict) else {}, account_name=account_name)
+        return json.dumps(result, ensure_ascii=False)

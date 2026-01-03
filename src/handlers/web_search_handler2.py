@@ -14,9 +14,8 @@ BRAVE_ENDPOINT = "https://api.search.brave.com/res/v1/web/search"
 class WebSearchHandler2(HandlerV2):
     NAME = "web_search_handler"
 
-    def __init__(self, config: ConfigManager | None = None):
-        # Allow explicit injection for tests, otherwise use container
-        self.config = config or container.get(ConfigManager)
+    def __init__(self, config: ConfigManager):
+        self.config = config
 
         credential_path = self.config.get("credential_path")
         with open(f"{credential_path}/brave.json", "r", encoding="utf-8") as config_file:
@@ -32,25 +31,25 @@ class WebSearchHandler2(HandlerV2):
     def tool_def(cls) -> Dict[str, Any]:
         return {
             "type": "function",
-            "function": {
-                "name": cls.NAME,
-                "description": "Use Brave Search to search the web",
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "query": {
-                            "type": "string",
-                            "description": "The string used to query the web",
-                        },
-                        "count": {
-                            "type": "integer",
-                            "description": "Maximum number of results to return (default 10)",
-                        },
+            "name": cls.NAME,
+            "description": "Use Brave Search to search the web",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "The string used to query the web",
                     },
-                    "required": ["query"],
-                    "additionalProperties": False,
+                    "count": {
+                        "type": "integer",
+                        "description": "Maximum number of results to return",
+                        "default": 10,
+                    },
                 },
+                "required": ["query", "count"],
+                "additionalProperties": False,
             },
+            "strict": True,
         }
 
     @classmethod
@@ -114,22 +113,20 @@ class WebSearchHandler2(HandlerV2):
                 "query": query,
             }
 
-    def execute_as_tool_content(self, args: Dict[str, Any], *, account_name: str = "auto") -> str:
-        return json.dumps(self.execute(args, account_name=account_name), ensure_ascii=False)
+    def execute_raw(self, arguments_raw: str, *, account_name: str = "auto", call_id: str = "") -> str:
+        try:
+            args = json.loads(arguments_raw or "{}")
+        except Exception:
+            args = {}
+        result = self.execute(args if isinstance(args, dict) else {}, account_name=account_name)
+        return json.dumps(result, ensure_ascii=False)
 
     def _brave_search(self, *, query: str, count: int) -> List[Dict[str, Any]]:
-        """Call Brave Search API and normalize results.
-
-        Returns a list of {"url", "name", "description"} dicts.
-        """
         headers = {
             "Accept": "application/json",
             "X-Subscription-Token": self.subscription_key,
         }
-        params = {
-            "q": query,
-            "count": count,
-        }
+        params = {"q": query, "count": count}
 
         response = requests.get(BRAVE_ENDPOINT, headers=headers, params=params, timeout=10)
         response.raise_for_status()

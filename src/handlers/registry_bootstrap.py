@@ -15,13 +15,9 @@ def build_registry() -> HandlerRegistry:
 
         reg.register(FileLoadHandler2)
         reg.register(FileSaveHandler2)
-        #logger.debug("Registering CommandExecutionHandler2.")
         reg.register(CommandExecutionHandler2)
-        #logger.debug("Registering ScrapeWebPageHandler2.")
         reg.register(ScrapeWebPageHandler2)
-        #logger.debug("Registering WebSearchHandler2.")
         reg.register(WebSearchHandler2)
-        #logger.debug("Registering PlanTasksHandler.")
         reg.register(PlanTasksHandler)
     except Exception as e:
         #logger.error("Error occurred while building the registry: %s", e)

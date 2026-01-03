@@ -3,7 +3,7 @@
 from injector import inject, Injector
 
 from src.message_processors.function_calling_processor import FunctionCallingProcessor
-from src.message_processors.automation_processor import AutomationProcessor
+#from src.message_processors.automation_processor import AutomationProcessor
 
 
 class ProcessorFactory:
@@ -18,7 +18,6 @@ class ProcessorFactory:
 
         self._registry = {
             "function_calling_processor": FunctionCallingProcessor,
-            "automation_processor": AutomationProcessor,
         }
 
     def get(self, processor_name: str):

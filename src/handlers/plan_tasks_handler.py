@@ -1,6 +1,7 @@
 # src/handlers/plan_tasks_handler.py
 from __future__ import annotations
 
+import json
 from typing import Any, Dict, List, Optional
 
 from src.config_manager import ConfigManager
@@ -8,12 +9,7 @@ from .handler_v2 import HandlerV2
 
 
 class PlanTasksHandler(HandlerV2):
-    """Generate a simple task list from a goal and optional file list.
-
-    This is a *planning* tool only. It does not execute the tasks; it just
-    returns a JSON structure that can later be passed to a tasklist executor
-    (e.g. inside FunctionCallingProcessor).
-    """
+    """Generate a simple task list from a goal and optional file list."""
 
     def __init__(self, config: ConfigManager):
         self.config = config
@@ -22,74 +18,59 @@ class PlanTasksHandler(HandlerV2):
     def name(cls) -> str:
         return "plan_tasks"
 
-    # --- Tool definition -------------------------------------------------
-
     @classmethod
     def tool_def(cls) -> Dict[str, Any]:
-        """OpenAI tool definition for the plan_tasks tool.
-
-        The model is expected to provide a high-level goal description and may
-        optionally provide a list of files to focus on. The handler will
-        normalize this into a simple sequential task list with one task per
-        file (if files are provided) or a single task otherwise.
-        """
-
         return {
             "type": "function",
-            "function": {
-                "name": cls.name(),
-                "description": (
-                    "Create a simple sequential task list for a coding or "
-                    "refactoring task, given a goal and an optional list of files."
-                ),
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "goal": {
-                            "type": "string",
-                            "description": (
-                                "High-level description of the work to perform. "
-                                "This should be written as instructions for a worker agent."
-                            ),
-                        },
-                        "files": {
-                            "type": "array",
-                            "description": (
-                                "Optional list of file paths to focus on. If provided, "
-                                "the task list will contain one task per file."
-                            ),
-                            "items": {"type": "string"},
-                        },
-                        "instruction": {
-                            "type": "string",
-                            "description": (
-                                "Optional detailed instruction template for each task. "
-                                "If omitted, the goal will be used as the instruction."
-                            ),
-                        },
-                        "worker_agent": {
-                            "type": "string",
-                            "description": (
-                                "Optional name of the worker agent that should execute "
-                                "the tasks (for documentation purposes)."
-                            ),
-                        },
+            "name": cls.name(),
+            "description": (
+                "Create a simple sequential task list for a coding or refactoring task, "
+                "given a goal and an optional list of files."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "goal": {
+                        "type": "string",
+                        "description": (
+                            "High-level description of the work to perform. "
+                            "This should be written as instructions for a worker agent."
+                        ),
                     },
-                    "required": ["goal"],
+                    "files": {
+                        "type": "array",
+                        "description": (
+                            "Optional list of file paths to focus on. If provided, "
+                            "the task list will contain one task per file."
+                        ),
+                        "items": {"type": "string"},
+                        "default": [],
+                    },
+                    "instruction": {
+                        "type": "string",
+                        "description": (
+                            "Optional detailed instruction template for each task. "
+                            "If omitted, the goal will be used as the instruction."
+                        ),
+                        "default": "",
+                    },
+                    "worker_agent": {
+                        "type": "string",
+                        "description": (
+                            "Optional name of the worker agent that should execute "
+                            "the tasks (for documentation purposes)."
+                        ),
+                        "default": "",
+                    },
                 },
+                "required": ["goal", "files", "instruction", "worker_agent"],
+                "additionalProperties": False,
             },
+            "strict": True,
         }
-
-    # --- Result schema ---------------------------------------------------
 
     @classmethod
     def result_schema(cls) -> Dict[str, Any]:
-        """JSON schema for the task list result.
-
-        This is intentionally minimal and matches the expectations of
-        FunctionCallingProcessor._execute_simple_tasklist.
-        """
-
         return {
             "type": "object",
             "properties": {
@@ -108,20 +89,12 @@ class PlanTasksHandler(HandlerV2):
                             "file": {"type": "string"},
                             "params": {"type": "object"},
                         },
-                        "required": [
-                            "id",
-                            "type",
-                            "title",
-                            "agent",
-                            "instruction",
-                        ],
+                        "required": ["id", "type", "title", "agent", "instruction"],
                     },
                 },
             },
             "required": ["kind", "description", "tasks"],
         }
-
-    # --- Execution -------------------------------------------------------
 
     def execute(self, args: Dict[str, Any], *, account_name: str = "auto") -> Dict[str, Any]:
         goal: str = (args.get("goal") or "").strip()
@@ -130,10 +103,7 @@ class PlanTasksHandler(HandlerV2):
         worker_agent: str = (args.get("worker_agent") or "colin").strip() or "colin"
 
         if not goal:
-            return {
-                "ok": False,
-                "error": "Missing 'goal' for plan_tasks tool.",
-            }
+            return {"ok": False, "tool": self.name(), "error": "Missing 'goal' for plan_tasks tool."}
 
         if not instruction:
             instruction = goal
@@ -142,7 +112,6 @@ class PlanTasksHandler(HandlerV2):
         tasks: List[Dict[str, Any]] = []
 
         if files:
-            # One task per file, assigned to the worker agent.
             for idx, path in enumerate(files, start=1):
                 title = f"Apply goal to {path}"
                 task_id = f"task-{idx}"
@@ -158,7 +127,6 @@ class PlanTasksHandler(HandlerV2):
                     }
                 )
         else:
-            # Single generic task, assigned to the worker agent.
             tasks.append(
                 {
                     "id": "task-1",
@@ -177,3 +145,11 @@ class PlanTasksHandler(HandlerV2):
             "description": description,
             "tasks": tasks,
         }
+
+    def execute_raw(self, arguments_raw: str, *, account_name: str = "auto", call_id: str = "") -> str:
+        try:
+            args = json.loads(arguments_raw or "{}")
+        except Exception:
+            args = {}
+        result = self.execute(args if isinstance(args, dict) else {}, account_name=account_name)
+        return json.dumps(result, ensure_ascii=False)

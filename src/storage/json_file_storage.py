@@ -448,6 +448,34 @@ class JsonFileStorage(Storage):
         self._atomic_write(path / f"{profile.account_name}.json", data)
 
     # ----------------------------------------------------------------------
+    # Backwards-compatible aliases (older tests / API)
+    # ----------------------------------------------------------------------
+
+    def save_user(self, account_name: str, profile: Dict[str, Any]) -> None:
+        """Compatibility wrapper for older tests.
+
+        Expected input shape in tests:
+          {"name": "...", "preferences": {...}}
+        """
+        user_profile = UserProfile(
+            account_name=account_name,
+            full_name=profile.get("name"),
+            preferences=profile.get("preferences", {}),
+            active=True,
+        )
+        self.upsert_user_profile(user_profile)
+
+    def load_user(self, account_name: str) -> Optional[Dict[str, Any]]:
+        """Compatibility wrapper for older tests."""
+        profile = self.get_user_profile(account_name)
+        if not profile:
+            return None
+        return {
+            "name": profile.full_name,
+            "preferences": profile.preferences,
+        }
+
+    # ----------------------------------------------------------------------
     # AGENT PROFILES
     # ----------------------------------------------------------------------
 
