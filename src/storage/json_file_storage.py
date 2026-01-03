@@ -63,7 +63,10 @@ class JsonFileStorage(Storage):
     """JSON-backed storage implementation for Lucy."""
 
     def __init__(self, base_path: str):
-        self.base_path = Path(base_path)
+        # Allow absolute paths (e.g. /home/junwin/lucydata), relative paths
+        # (e.g. ./lucydata), and ~ expansion.
+        expanded = os.path.expanduser(str(base_path))
+        self.base_path = Path(expanded)
         self.base_path.mkdir(parents=True, exist_ok=True)
 
     # ----------------------------------------------------------------------
