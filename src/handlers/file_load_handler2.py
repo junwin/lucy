@@ -24,25 +24,20 @@ class FileLoadHandler2(HandlerV2):
             "type": "function",
             "name": cls.NAME,
             "description": (
-                "Load a file from a directory relative to the allowed base folder "
-                "and chunk if needed"
+                "Load a file from a path relative to the allowed base folder and chunk if needed"
             ),
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "directory_path": {
+                    "relative_path": {
                         "type": "string",
                         "description": (
-                            "Location of the file relative to the allowed base folder. "
-                            "Must be a relative path (no leading / and no .. segments)."
+                            "File path relative to the allowed base folder. "
+                            "Must be a relative path (no leading /, no drive letters, no .. segments)."
                         ),
                     },
-                    "file_name": {
-                        "type": "string",
-                        "description": "Name of the file to be loaded",
-                    },
                 },
-                "required": ["directory_path", "file_name"],
+                "required": ["relative_path"],
                 "additionalProperties": False,
             },
             "strict": True,
@@ -57,6 +52,7 @@ class FileLoadHandler2(HandlerV2):
                 "tool": {"type": "string"},
                 "file_name": {"type": "string"},
                 "directory_path": {"type": "string"},
+                "relative_path": {"type": "string"},
                 "resolved_path": {"type": "string"},
                 "content_type": {"type": "string"},
                 "encoding": {"type": "string"},
@@ -68,43 +64,69 @@ class FileLoadHandler2(HandlerV2):
         }
 
     def execute(self, args: Dict[str, Any], *, account_name: str = "auto") -> Dict[str, Any]:
-        directory_path = (args.get("directory_path") or "").strip()
-        file_name = (args.get("file_name") or "").strip()
+        relative_path = (args.get("relative_path") or "").strip()
 
-        if not directory_path or not file_name:
+        if not relative_path:
             return {
                 "ok": False,
                 "tool": self.NAME,
-                "error": "directory_path and file_name are required",
-                "args": {"directory_path": directory_path, "file_name": file_name},
+                "error": "relative_path is required",
+                "args": {"relative_path": relative_path},
             }
 
-        if os.path.isabs(directory_path):
+        if self._has_drive_letter(relative_path):
             return {
                 "ok": False,
                 "tool": self.NAME,
-                "error": "directory_path must be relative, not absolute",
-                "directory_path": directory_path,
+                "error": "relative_path must be relative, not include drive letters",
+                "relative_path": relative_path,
             }
 
-        norm_dir = os.path.normpath(directory_path)
-        if norm_dir.startswith("..") or os.path.isabs(norm_dir):
+        if os.path.isabs(relative_path):
             return {
                 "ok": False,
                 "tool": self.NAME,
-                "error": "directory_path must not escape the allowed base folder",
-                "directory_path": directory_path,
-                "normalized_directory_path": norm_dir,
+                "error": "relative_path must be relative, not absolute",
+                "relative_path": relative_path,
+            }
+
+        norm_rel = os.path.normpath(relative_path)
+
+        # Reject empty/special paths and any parent traversal after normalization.
+        if norm_rel in ("", ".", ".."):
+            return {
+                "ok": False,
+                "tool": self.NAME,
+                "error": "relative_path must not be empty or point to current/parent directory",
+                "relative_path": relative_path,
+                "normalized_relative_path": norm_rel,
+            }
+
+        # Also reject any '..' segment anywhere in the normalized path.
+        parts = [p for p in norm_rel.split(os.path.sep) if p]
+        if os.path.altsep:
+            parts = [p for seg in parts for p in seg.split(os.path.altsep) if p]
+        if any(p == ".." for p in parts) or norm_rel.startswith(".."):
+            return {
+                "ok": False,
+                "tool": self.NAME,
+                "error": "relative_path must not contain '..' segments",
+                "relative_path": relative_path,
+                "normalized_relative_path": norm_rel,
             }
 
         logging.info(
-            "file_load: account=%s directory_path=%s file_name=%s",
+            "file_load: account=%s relative_path=%s",
             account_name,
-            directory_path,
-            file_name,
+            relative_path,
         )
 
-        base_path = get_base_path(self.config, account_name, norm_dir)
+        # Keep behavior consistent with previous implementation: base path is derived from
+        # the directory portion, and file name is read within that base.
+        directory_part = os.path.dirname(norm_rel)
+        file_name = os.path.basename(norm_rel)
+
+        base_path = get_base_path(self.config, account_name, directory_part)
         logging.info("file_load: resolved base_path=%s", base_path)
 
         try:
@@ -115,8 +137,8 @@ class FileLoadHandler2(HandlerV2):
                 "ok": False,
                 "tool": self.NAME,
                 "error": str(e),
-                "directory_path": directory_path,
-                "normalized_directory_path": norm_dir,
+                "relative_path": relative_path,
+                "normalized_relative_path": norm_rel,
                 "file_name": file_name,
                 "base_path": base_path,
             }
@@ -125,7 +147,7 @@ class FileLoadHandler2(HandlerV2):
             "ok": True,
             "tool": self.NAME,
             "file_name": file_name,
-            "directory_path": directory_path,
+            "relative_path": relative_path,
             "resolved_path": full_path,
             "content_type": "text/plain",
             "encoding": "utf-8",
@@ -141,16 +163,27 @@ class FileLoadHandler2(HandlerV2):
         result = self.execute(args if isinstance(args, dict) else {}, account_name=account_name)
         return json.dumps(result, ensure_ascii=False)
 
+    @staticmethod
+    def _has_drive_letter(path: str) -> bool:
+        # Disallow Windows drive letters like C:\ or C:/ even if running on non-Windows.
+        if len(path) >= 2 and path[1] == ":" and path[0].isalpha():
+            return True
+        return False
+
     def _read_file_safe(self, base_path: str, file_name: str) -> Tuple[str, str]:
         base_abs = os.path.abspath(base_path)
 
         if os.path.sep in file_name or (os.path.altsep and os.path.altsep in file_name):
             raise ValueError("file_name must not contain path separators")
 
-        full_path = os.path.abspath(os.path.join(base_abs, file_name))
+        joined = os.path.join(base_abs, file_name)
+        full_path = os.path.normpath(joined)
 
-        if not (full_path == base_abs or full_path.startswith(base_abs + os.path.sep)):
+        # Realpath containment check to prevent symlink escapes.
+        base_real = os.path.realpath(base_abs)
+        full_real = os.path.realpath(full_path)
+        if not (full_real == base_real or full_real.startswith(base_real + os.path.sep)):
             raise ValueError("File access outside allowed base path")
 
-        with open(full_path, "r", encoding="utf-8") as f:
-            return f.read(), full_path
+        with open(full_real, "r", encoding="utf-8") as f:
+            return f.read(), full_real

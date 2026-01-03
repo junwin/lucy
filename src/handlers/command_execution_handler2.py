@@ -25,21 +25,31 @@ class CommandExecutionHandler2(HandlerV2):
         return {
             "type": "function",
             "name": cls.NAME,
-            "description": "Execute an OS command in a given working directory under the allowed base folder",
+            "description": (
+                "Run a command (shell=False) inside a sandboxed working directory under the allowed base folder. "
+                "The working_directory must be a safe relative path resolved via get_base_path. "
+                "Returns exit code plus captured stdout/stderr. Use timeout_seconds to limit runtime."
+            ),
             "parameters": {
                 "type": "object",
                 "properties": {
                     "command": {
                         "type": "string",
-                        "description": "Command to execute (shell=False). Provide full args/quotes as needed.",
+                        "description": (
+                            "Command to execute (shell=False). Provide a full command line; "
+                            "shell operators like |, >, && will not work unless you explicitly run a shell."
+                        ),
                     },
                     "working_directory": {
                         "type": "string",
-                        "description": "Working directory relative to the allowed base folder",
+                        "description": (
+                            "Working directory relative to the allowed base folder (sandbox). "
+                            "This is resolved and validated via get_base_path."
+                        ),
                     },
                     "timeout_seconds": {
                         "type": "integer",
-                        "description": "Timeout in seconds",
+                        "description": "Timeout in seconds (limits runtime)",
                         "default": 30,
                     },
                 },
