@@ -46,14 +46,33 @@ class StorageModule(Module):
     def provide_storage(self) -> Storage:
         """Provide the Storage implementation used across the app.
 
-        Primary config key:
-          - chat_base_path
+        Config key:
+          - storage_root_path
+          - storage_base_path
 
-        Backwards compatibility:
-          - fall back to completion_base_path if chat_base_path is not set.
+        Notes:
+          - JsonFileStorage uses a single root folder. Chats are stored under
+            <storage_root_path>/<storage_base_path>/chats/...
+          - storage_base_path is treated as a subfolder name under
+            storage_root_path (no absolute paths, no '..').
         """
-        base_path = config.get("chat_base_path") or config.get("completion_base_path")
-        return JsonFileStorage(base_path)
+        import os
+        from pathlib import Path
+
+        storage_root_path = config.get("storage_root_path") or "/home/junwin/lucydata"
+        storage_base_path = config.get("storage_base_path") or "data"
+
+        base_str = os.path.expanduser(str(storage_base_path)).strip()
+        base = Path(base_str)
+        if base.is_absolute() or ".." in base.parts:
+            raise ValueError(
+                "storage_base_path must be a relative subfolder name (no absolute paths or '..')"
+            )
+
+        root = Path(os.path.expanduser(str(storage_root_path)))
+        effective_base_path = root / base
+
+        return JsonFileStorage(str(effective_base_path))
 
 
 class HandlerRegistryModule(Module):

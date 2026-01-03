@@ -56,9 +56,8 @@ app.register_blueprint(
 # -----------------------------------------------------------------------------
 # things that should go in a config file
 # -----------------------------------------------------------------------------
-prompt_base_path = config.get("prompt_base_path", "data/prompts")
 agents_path = config.get("agents_path", "static/data/agents.json")
-preset_path = config.get("preset_path", "static/data/presets.json")
+
 
 storage = container.get(Storage)
 
@@ -90,12 +89,21 @@ def ask():
     if not account_name:
         return jsonify({"error": "accountName is required"}), 400
 
-    user_profile = storage.get_user_profile(account_name)
+    try:
+        user_profile = storage.get_user_profile(account_name)
+    except Exception:
+        # This can happen during migrations or when storage is misconfigured.
+        # Keep the client response generic, but log the unusual exit.
+        logging.exception("/ask: failed to load user profile for user_id=%s", account_name)
+        return jsonify({"error": "An error occurred"}), 500
 
     if user_profile is None:
+        # Expected during migrations: user exists in auth/UI but not in storage yet.
+        logging.info("/ask: user profile not found for user_id=%s", account_name)
         return jsonify({"error": f"Unknown account '{account_name}'"}), 403
 
     if not user_profile.active:
+        logging.info("/ask: inactive account for user_id=%s", account_name)
         return jsonify({"error": f"Account '{account_name}' is inactive"}), 403
 
     handler = container.get(AskRequestHandler)
