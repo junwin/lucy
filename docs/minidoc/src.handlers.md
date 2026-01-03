@@ -4,7 +4,7 @@ tags:
   - HandlerV2
   - HandlerRegistry
   - FileLoadHandler2
-  - FileSaveHandler2
+  - FileSaveHandler
   - PlanTasksHandler
   - ScrapeWebPageHandler2
   - CommandExecutionHandler2
