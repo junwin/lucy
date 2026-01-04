@@ -3,7 +3,12 @@ from flask_swagger_ui import get_swaggerui_blueprint
 from flask_cors import CORS
 import ssl
 import logging
+from logging.handlers import RotatingFileHandler
 import os
+import time
+import uuid
+
+from src.request_context import request_id_var
 
 from src.storage.base import Storage
 from src.storage.models import ChatMessage, UserProfile
@@ -16,10 +21,65 @@ from src.message_processors.processor_factory import ProcessorFactory
 from src.message_endpoints.ask_request_handler import AskRequestHandler
 
 
+# -----------------------------------------------------------------------------
+# request_id correlation
+# -----------------------------------------------------------------------------
+
+
+class RequestIdFilter(logging.Filter):
+    def filter(self, record: logging.LogRecord) -> bool:
+        # Inject request_id into every LogRecord
+        record.request_id = request_id_var.get("-")
+        return True
+
+
+def _ensure_logs_dir_exists() -> None:
+    # Ensure logs/ directory exists
+    os.makedirs("logs", exist_ok=True)
+
+
+def configure_logging() -> None:
+    """Configure app logging once.
+
+    Rotates logs in logs/my_log_file.log.
+
+    Grep tip across rotated logs:
+      grep -R "<text>" logs/my_log_file.log*
+    """
+
+    _ensure_logs_dir_exists()
+
+    root_logger = logging.getLogger()
+    root_logger.setLevel(logging.INFO)
+
+    # Replace any existing handlers (e.g., Flask default, basicConfig, etc.)
+    for h in list(root_logger.handlers):
+        root_logger.removeHandler(h)
+
+    handler = RotatingFileHandler(
+        filename="logs/my_log_file.log",
+        maxBytes=1_000_000,  # ~1MB
+        backupCount=10,
+        encoding="utf-8",
+    )
+
+    handler.addFilter(RequestIdFilter())
+    formatter = logging.Formatter(
+        "%(asctime)s - %(levelname)s - request_id=%(request_id)s - %(name)s - %(message)s"
+    )
+    handler.setFormatter(formatter)
+
+    root_logger.addHandler(handler)
+
+
 app = Flask(__name__)
 CORS(app)
 
 config = ConfigManager("config.json")
+
+# Configure logging (initialized once in app.py and used throughout the app)
+configure_logging()
+
 
 # -----------------------------------------------------------------------------
 # Serve OpenAPI (swagger.json) with cache disabled
@@ -61,16 +121,33 @@ agents_path = config.get("agents_path", "static/data/agents.json")
 
 storage = container.get(Storage)
 
-# Configure logging
-logging.basicConfig(
-    filename="logs/my_log_file.log",
-    level=logging.INFO,
-    format="%(asctime)s - %(levelname)s - %(message)s",
-)
-
 
 # Get the AgentManager instance
 agent_manager = container.get(AgentManager)
+
+
+# -----------------------------------------------------------------------------
+# Request lifecycle hooks
+# -----------------------------------------------------------------------------
+@app.before_request
+def _set_request_id() -> None:
+    # Accept X-Request-Id (case-insensitive) or generate a UUID.
+    rid = (request.headers.get("X-Request-Id") or "").strip() or str(uuid.uuid4())
+    request_id_var.set(rid)
+    request._lucy_start_ts = time.perf_counter()  # type: ignore[attr-defined]
+
+
+@app.after_request
+def _clear_request_id(response):
+    # Clear request_id at end of request to avoid leaking between requests.
+    request_id_var.set("-")
+    return response
+
+
+@app.teardown_request
+def _teardown_request_id(exc):
+    # Also clear on teardown (covers exceptions).
+    request_id_var.set("-")
 
 
 # -----------------------------------------------------------------------------

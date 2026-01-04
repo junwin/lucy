@@ -178,8 +178,8 @@ class OpenAIResponsesApi(LLMApi):
         #    tools_json,
         #)
 
-        for tl in tools:
-            logging.info("OpenAIResponsesApi.create_response: tool=%s", tl.get("name"))
+        #for tl in tools:
+        #    logging.info("OpenAIResponsesApi.create_response: tool=%s", tl.get("name"))
 
         for attempt in range(self._max_attempts):
             t0 = time.time()

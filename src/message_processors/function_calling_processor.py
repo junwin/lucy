@@ -7,6 +7,7 @@ from injector import inject
 import logging
 from typing import Optional, Dict, Any, List, Iterable
 import json
+import time
 
 from src.config_manager import ConfigManager
 from src.message_processors.message_processor_interface import MessageProcessorInterface
@@ -268,11 +269,15 @@ class FunctionCallingProcessor(MessageProcessorInterface):
         processor_factory: Optional[Any],
         account: Dict[str, Any],
         ctx: _ProcessorContext,
+        metrics: Dict[str, Any],
     ) -> List[Dict[str, Any]]:
         tool_output_items: List[Dict[str, Any]] = []
 
         for tc in tool_calls:
+            metrics["tool_calls"] += 1
+
             if not tc.call_id:
+                metrics["failures"] += 1
                 raise ToolHandlerError(
                     f"Tool call missing id/call_id for tool '{tc.name}'. Cannot send function_call_output."
                 )
@@ -330,8 +335,10 @@ class FunctionCallingProcessor(MessageProcessorInterface):
                 tool_result_text = self._tool_result_to_text(tool_result_text)
 
             except ToolResultTooLargeError as e:
+                metrics["failures"] += 1
                 tool_result_text = self._tool_result_to_text({"ok": False, "tool": tc.name, "error": str(e)})
             except Exception as e:
+                metrics["failures"] += 1
                 logging.exception("Tool execution failed: %s call_id=%s", tc.name, tc.call_id)
                 raise ToolHandlerError(f"{type(e).__name__}: {e}")
 
@@ -349,6 +356,7 @@ class FunctionCallingProcessor(MessageProcessorInterface):
         secondary_agent: Optional[Agent],
         processor_factory: Optional[Any],
         account: Dict[str, Any],
+        metrics: Dict[str, Any],
     ) -> str:
         response_text = ""
         previous_response_id: Optional[str] = None
@@ -356,6 +364,9 @@ class FunctionCallingProcessor(MessageProcessorInterface):
         next_input_items: List[Dict[str, Any]] = prompt_messages
 
         for iteration in range(1, ctx.max_iterations + 1):
+            metrics["iterations"] = iteration
+            metrics["openai_calls"] += 1
+
             llm_response = self.llm_adapter.call_model(
                 model=ctx.model,
                 input=next_input_items,
@@ -385,6 +396,7 @@ class FunctionCallingProcessor(MessageProcessorInterface):
 
             if tool_calls:
                 if not previous_response_id:
+                    metrics["failures"] += 1
                     raise ToolHandlerError(
                         "LLM returned tool_calls but no response_id. "
                         "Cannot chain function_call_output. Ensure the LLMApi propagates response_id."
@@ -407,6 +419,7 @@ class FunctionCallingProcessor(MessageProcessorInterface):
                     processor_factory=processor_factory,
                     account=account,
                     ctx=ctx,
+                    metrics=metrics,
                 )
 
                 logging.info(
@@ -419,6 +432,7 @@ class FunctionCallingProcessor(MessageProcessorInterface):
                 next_input_items = tool_output_items
 
                 if iteration >= ctx.max_iterations:
+                    metrics["failures"] += 1
                     logging.error(
                         "FunctionCallingProcessor: exceeded max_function_call_iterations=%d for agent '%s' in conversation_id=%s",
                         ctx.max_iterations,
@@ -461,9 +475,18 @@ class FunctionCallingProcessor(MessageProcessorInterface):
         secondary_agent: Optional[Agent] = None,
         processor_factory: Optional[Any] = None,
     ) -> str:
+        start_ts = time.perf_counter()
+        metrics: Dict[str, Any] = {
+            "iterations": 0,
+            "openai_calls": 0,
+            "tool_calls": 0,
+            "failures": 0,
+        }
+
         logging.info("FunctionCallingProcessor inbound message: %s", message)
 
         if not primary_agent:
+            metrics["failures"] += 1
             return "[FunctionCallingProcessor] Missing primary_agent configuration."
 
         ctx = self._build_context(
@@ -474,6 +497,7 @@ class FunctionCallingProcessor(MessageProcessorInterface):
         )
 
         if not ctx.account_id:
+            metrics["failures"] += 1
             return "[FunctionCallingProcessor] Missing account.accountId."
 
         logging.info(
@@ -507,6 +531,7 @@ class FunctionCallingProcessor(MessageProcessorInterface):
                 secondary_agent=secondary_agent,
                 processor_factory=processor_factory,
                 account=account,
+                metrics=metrics,
             )
 
             if ctx.store_this_call and response_text:
@@ -525,6 +550,7 @@ class FunctionCallingProcessor(MessageProcessorInterface):
             raise
 
         except Exception as e:
+            metrics["failures"] += 1
             logging.exception(
                 "FunctionCallingProcessor: unhandled error agent=%s session_id=%s",
                 ctx.agent_name,
@@ -553,3 +579,17 @@ class FunctionCallingProcessor(MessageProcessorInterface):
                 )
 
             raise
+
+        finally:
+            latency_ms = int((time.perf_counter() - start_ts) * 1000)
+            logging.info(
+                "FunctionCallingProcessor summary: agent=%s session_id=%s account=%s iterations=%d openai_calls=%d tool_calls=%d failures=%d latency_ms=%d",
+                ctx.agent_name if "ctx" in locals() else "unknown",
+                ctx.conversation_id if "ctx" in locals() else "unknown",
+                ctx.account_id if "ctx" in locals() else "unknown",
+                metrics.get("iterations", 0),
+                metrics.get("openai_calls", 0),
+                metrics.get("tool_calls", 0),
+                metrics.get("failures", 0),
+                latency_ms,
+            )
