@@ -45,7 +45,7 @@ class AskRequestHandler:
         secondary_agent: Optional[Agent],
         account: Dict[str, Any],
         conversation_id: str,
-        context_name: str,
+        context_name: Optional[str],
         response_text: str,
     ) -> str:
         """If the model returned a plan_tasks tasklist, execute it via TaskRunner.
@@ -95,6 +95,7 @@ class AskRequestHandler:
           - accountName: str (required)
           - selectType: Optional[str]  (legacy)
           - contextType: Optional[str] (preferred)
+          - contextName: Optional[str] (if omitted/None => no storage-based context)
           - conversationId: Optional[str]
           - partnerAgentName: Optional[str]
         """
@@ -107,11 +108,17 @@ class AskRequestHandler:
         conversationId = payload.get("conversationId", "")
         secondary_agent_override = (payload.get("partnerAgentName", "") or "").lower()
 
+        # Optional context name (None means: no context)
+        context_name = payload.get("contextName")
+        if context_name is not None:
+            context_name = str(context_name).strip() or None
+
         self.logger.info(
-            "/ask: user_id=%s agentName=%s context_type=%s conversationId=%s partnerAgentName=%s",
+            "/ask: user_id=%s agentName=%s context_type=%s context_name=%s conversationId=%s partnerAgentName=%s",
             accountName,
             agentName,
             context_type,
+            context_name,
             conversationId,
             secondary_agent_override,
         )
@@ -164,9 +171,6 @@ class AskRequestHandler:
                     partner_agent_name,
                     conversationId,
                 )
-
-        # TODO: make this configurable later; keep legacy behavior for now
-        context_name = "lucyproject"
 
         processor_name = (primary_agent.message_processor or "").strip()
         if not processor_name:
