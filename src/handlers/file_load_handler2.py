@@ -24,7 +24,8 @@ class FileLoadHandler2(HandlerV2):
             "type": "function",
             "name": cls.NAME,
             "description": (
-                "Load a file from a path relative to the allowed base folder and chunk if needed"
+                "Load a file from a path relative to the allowed base folder and chunk if needed. "
+                "By default, relative paths are resolved under the account home directory (e.g. /home/<account>/...)."
             ),
             "parameters": {
                 "type": "object",
@@ -32,7 +33,7 @@ class FileLoadHandler2(HandlerV2):
                     "relative_path": {
                         "type": "string",
                         "description": (
-                            "File path relative to the allowed base folder. "
+                            "File path relative to the allowed base folder (by default: the account home directory). "
                             "Must be a relative path (no leading /, no drive letters, no .. segments)."
                         ),
                     },

@@ -7,6 +7,7 @@ from src.tasklists.file_tasklist import (
     save_tasklist_to_file,
     load_tasklist_from_file,
 )
+from src.tasklists.task_runner import PlannedTaskList
 from src.tasklists.tasklist_interface import (
     TASK_LIST_STATE_CREATED,
     TASK_LIST_STATE_RUNNING,
@@ -127,3 +128,34 @@ def test_add_task_replaces_existing_by_id():
     t1_after = tl.get_task("t-001")
     assert t1_after is t1_replacement
     assert t1_after.description == "Task one (updated)"
+
+
+def test_from_planned_tasklist_maps_title_to_description_and_preserves_instruction():
+    planned = PlannedTaskList.model_validate(
+        {
+            "kind": "tasklist",
+            "description": "Do things",
+            "tasks": [
+                {
+                    "id": "task-1",
+                    "type": "task",
+                    "title": "Work",
+                    "agent": "colin",
+                    "instruction": "Say hi",
+                    "file": "src/a.py",
+                    "params": {"x": 1},
+                }
+            ],
+        }
+    )
+
+    tl = TaskList.from_planned_tasklist(planned, task_list_id="tl-100")
+    assert tl.title == "Do things"
+
+    t = tl.get_task("task-1")
+    assert t is not None
+    assert t.description == "Work"
+    assert t.extra["instruction"] == "Say hi"
+    assert t.extra["file"] == "src/a.py"
+    assert t.extra["agent"] == "colin"
+    assert t.extra["params"] == {"x": 1}

@@ -4,6 +4,7 @@ import json
 from dataclasses import dataclass, field
 from typing import Any, Dict, Iterable, List, Optional
 
+from .task_runner import PlannedTaskList
 from .tasklist_interface import (
     AbstractTask,
     AbstractTaskList,
@@ -61,6 +62,47 @@ class FileTaskList(AbstractTaskList):
     _description: str = ""
     _tasks: List[FileTask] = field(default_factory=list)
     extra: Dict[str, Any] = field(default_factory=dict)
+
+    @classmethod
+    def from_planned_tasklist(
+        cls,
+        planned: PlannedTaskList,
+        *,
+        task_list_id: str,
+        state: str = TASK_LIST_STATE_CREATED,
+        extra: Optional[Dict[str, Any]] = None,
+    ) -> "FileTaskList":
+        """Create a FileTaskList from a canonical PlannedTaskList.
+
+        Mapping rules:
+        - FileTask.description is the task title.
+        - The worker instruction text is preserved in FileTask.extra['instruction'].
+        """
+
+        tasks: List[FileTask] = []
+        for t in planned.tasks:
+            tasks.append(
+                FileTask(
+                    task_id=t.id,
+                    description=t.title or "",
+                    extra={
+                        "instruction": t.instruction,
+                        "agent": t.agent,
+                        "file": t.file,
+                        "type": t.type,
+                        "params": t.params,
+                    },
+                )
+            )
+
+        return cls(
+            task_list_id=task_list_id,
+            state=state,
+            _title=planned.description or "",
+            _description=planned.description or "",
+            _tasks=tasks,
+            extra=extra or {},
+        )
 
     # ---- metadata ----
 

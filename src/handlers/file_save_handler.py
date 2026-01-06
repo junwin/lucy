@@ -23,14 +23,17 @@ class FileSaveHandler2(HandlerV2):
         return {
             "type": "function",
             "name": cls.NAME,
-            "description": "Save code or text into a file under the allowed base folder",
+            "description": (
+                "Save code or text into a file under the allowed base folder. "
+                "By default, relative paths are resolved under the account home directory (e.g. /home/<account>/...)."
+            ),
             "parameters": {
                 "type": "object",
                 "properties": {
                     "relative_path": {
                         "type": "string",
                         "description": (
-                            "File path relative to the allowed base folder. "
+                            "File path relative to the allowed base folder (by default: the account home directory). "
                             "Must be a relative path (no leading /, no drive letters, no .. segments)."
                         ),
                     },

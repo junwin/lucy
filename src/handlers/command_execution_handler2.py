@@ -27,6 +27,7 @@ class CommandExecutionHandler2(HandlerV2):
             "name": cls.NAME,
             "description": (
                 "Run a command (shell=False) inside a sandboxed working directory under the allowed base folder. "
+                "By default, relative working directories are resolved under the account home directory (e.g. /home/<account>/...). "
                 "The working_directory must be a safe relative path resolved via get_base_path. "
                 "Returns exit code plus captured stdout/stderr. Use timeout_seconds to limit runtime."
             ),
@@ -43,7 +44,7 @@ class CommandExecutionHandler2(HandlerV2):
                     "working_directory": {
                         "type": "string",
                         "description": (
-                            "Working directory relative to the allowed base folder (sandbox). "
+                            "Working directory relative to the allowed base folder (by default: the account home directory). "
                             "This is resolved and validated via get_base_path."
                         ),
                     },

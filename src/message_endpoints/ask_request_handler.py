@@ -1,3 +1,4 @@
+import json
 import logging
 from typing import Any, Dict, Tuple, Optional
 
@@ -7,6 +8,7 @@ from src.storage.base import Storage
 from src.message_processors.processor_factory import ProcessorFactory
 from src.message_processors.function_calling_processor import ToolHandlerError
 from src.storage.models import ChatMessage
+from src.tasklists.task_runner import TaskRunner
 
 
 class AskRequestHandler:
@@ -14,6 +16,11 @@ class AskRequestHandler:
 
     This version is intended to mirror the original /ask route logic from app.py
     as closely as possible, just moved into a class.
+
+    Design note:
+    - plan_tasks auto-run is preserved.
+    - Task execution is intentionally owned by this request handler (via TaskRunner)
+      rather than living inside FunctionCallingProcessor.
     """
 
     def __init__(
@@ -22,12 +29,61 @@ class AskRequestHandler:
         config: ConfigManager,
         storage: Storage,
         processor_factory: ProcessorFactory,
+        task_runner: Optional[TaskRunner] = None,
     ) -> None:
         self.agent_manager = agent_manager
         self.config = config
         self.storage = storage
         self.processor_factory = processor_factory
+        self.task_runner = task_runner or TaskRunner(processor_factory=processor_factory)
         self.logger = logging.getLogger(__name__)
+
+    def _maybe_autorun_tasklist(
+        self,
+        *,
+        primary_agent: Agent,
+        secondary_agent: Optional[Agent],
+        account: Dict[str, Any],
+        conversation_id: str,
+        context_name: str,
+        response_text: str,
+    ) -> str:
+        """If the model returned a plan_tasks tasklist, execute it via TaskRunner.
+
+        We keep the response format compatible with the previous behaviour:
+        the final assistant response can be the task execution summary.
+        """
+
+        if not secondary_agent:
+            return response_text
+
+        # FunctionCallingProcessor returns a string; when the LLM triggers plan_tasks,
+        # the tool output is a JSON string produced by plan_tasks handler.
+        try:
+            maybe = json.loads(response_text or "")
+        except Exception:
+            return response_text
+
+        if not (isinstance(maybe, dict) and maybe.get("ok") and maybe.get("kind") == "tasklist"):
+            return response_text
+
+        self.logger.info(
+            "AskRequestHandler: executing tasklist from plan_tasks using supervisor=%s worker=%s session_id=%s",
+            primary_agent.name,
+            secondary_agent.name,
+            conversation_id,
+        )
+
+        result = self.task_runner.run(
+            tasklist=maybe,
+            supervisor_agent=primary_agent,
+            worker_agent=secondary_agent,
+            account=account,
+            conversation_id=conversation_id,
+            context_name=context_name,
+        )
+
+        return json.dumps(result, ensure_ascii=False)
 
     def handle(self, payload: Dict[str, Any]) -> Tuple[int, Dict[str, Any]]:
         """Process the /ask request.
@@ -129,7 +185,7 @@ class AskRequestHandler:
             processor.context_type = context_type
 
         try:
-            response = processor.process_message(
+            response_text = processor.process_message(
                 primary_agent=primary_agent,
                 secondary_agent=partner_agent_obj,
                 account=account,
@@ -138,7 +194,17 @@ class AskRequestHandler:
                 context_name=context_name,
                 processor_factory=self.processor_factory,
             )
-            return 200, {"response": response}
+
+            response_text = self._maybe_autorun_tasklist(
+                primary_agent=primary_agent,
+                secondary_agent=partner_agent_obj,
+                account=account,
+                conversation_id=conversationId,
+                context_name=context_name,
+                response_text=response_text,
+            )
+
+            return 200, {"response": response_text}
 
         except ToolHandlerError as e:
             error_message = f"Tool execution failed: {str(e)}"
