@@ -4,8 +4,10 @@ import sys
 
 import json
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from typing import Any, Callable, Dict, List, Optional
 from unittest.mock import Mock
+from uuid import uuid4
 
 import pytest
 
@@ -34,10 +36,123 @@ class FakeConfig:
 
 @dataclass
 class FakeStorage:
+    """In-memory storage implementing the subset of the storage interface used by tests."""
+
+    # legacy field used by some tests to seed messages
     messages: List[Any] = field(default_factory=list)
 
+    # user data
+    users: Dict[str, Any] = field(default_factory=dict)
+
+    # chat sessions keyed by id
+    chat_sessions: Dict[str, Any] = field(default_factory=dict)
+
+    # contexts keyed by (account_name, context_id)
+    contexts: Dict[tuple[str, str], Any] = field(default_factory=dict)
+
+    # profiles
+    user_profiles: Dict[str, Any] = field(default_factory=dict)
+    agent_profiles: Dict[str, Any] = field(default_factory=dict)
+
+    # -------------------------
+    # Users (simple dict API)
+    # -------------------------
+
+    def save_user(self, account_name: str, profile: dict) -> None:
+        self.users[account_name] = profile
+
+    def load_user(self, account_name: str) -> Optional[dict]:
+        return self.users.get(account_name)
+
+    # -------------------------
+    # Chats
+    # -------------------------
+
+    def create_chat_session(
+        self,
+        account_name: str,
+        agent_name: str,
+        friendly_name: Optional[str] = None,
+        tags: Optional[List[str]] = None,
+    ) -> Any:
+        from src.storage.models import ChatSession
+
+        session_id = str(uuid4())
+        now = datetime.now(timezone.utc)
+        session = ChatSession(
+            id=session_id,
+            account_name=account_name,
+            agent_name=agent_name,
+            friendly_name=friendly_name,
+            tags=tags or [],
+            created_at=now,
+            updated_at=now,
+            messages=[],
+        )
+        self.chat_sessions[session_id] = session
+        return session
+
+    def get_chat_session(self, session_id: str) -> Optional[Any]:
+        return self.chat_sessions.get(session_id)
+
+    def rename_chat_session(self, session_id: str, friendly_name: str) -> None:
+        session = self.chat_sessions.get(session_id)
+        if session is None:
+            raise Exception(f"Chat session not found: {session_id}")
+        session.friendly_name = friendly_name
+        session.updated_at = datetime.now(timezone.utc)
+
+    def list_chat_sessions(
+        self,
+        account_name: str,
+        agent_name: Optional[str] = None,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> List[Any]:
+        sessions = [
+            s
+            for s in self.chat_sessions.values()
+            if s.account_name == account_name and (agent_name is None or s.agent_name == agent_name)
+        ]
+        sessions.sort(key=lambda s: s.updated_at or s.created_at, reverse=True)
+        return sessions[offset : offset + limit]
+
     def append_chat_message(self, conversation_id: str, chat_message: Any) -> None:
+        # Keep legacy behavior for tests that seed FakeStorage(messages=[...])
         self.messages.append((conversation_id, chat_message))
+
+        session = self.chat_sessions.get(conversation_id)
+        if session is None:
+            raise Exception(f"Chat session not found: {conversation_id}")
+
+        session.messages.append(chat_message)
+        session.updated_at = datetime.now(timezone.utc)
+
+    # -------------------------
+    # Contexts
+    # -------------------------
+
+    def save_context(self, context: Any) -> None:
+        self.contexts[(context.account_name, context.id)] = context
+
+    def get_context(self, account_name: str, context_id: str) -> Optional[Any]:
+        return self.contexts.get((account_name, context_id))
+
+    # -------------------------
+    # Profiles
+    # -------------------------
+
+    def upsert_user_profile(self, profile: Any) -> None:
+        self.user_profiles[profile.account_name] = profile
+
+    def get_user_profile(self, account_name: str) -> Optional[Any]:
+        return self.user_profiles.get(account_name)
+
+    def upsert_agent_profile(self, profile: Any) -> None:
+        self.agent_profiles[profile.name] = profile
+
+    def get_agent_profile(self, name: str) -> Optional[Any]:
+        return self.agent_profiles.get(name)
 
 
 class FakeHandler:
@@ -165,4 +280,3 @@ def make_proc(config, registry, storage, prompt_builder, llm_adapter) -> Callabl
         )
 
     return _make
-
