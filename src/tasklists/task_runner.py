@@ -8,7 +8,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from src.agent import Agent
 from src.message_processors.function_calling_processor import ToolHandlerError
-from src.message_processors.processor_factory import ProcessorFactory
+from src.message_processors.message_processor_interface import ProcessorFactoryInterface
 
 
 class PlannedTask(BaseModel):
@@ -59,7 +59,7 @@ class TaskRunner:
       is owned by the /ask request flow (AskRequestHandler) via this TaskRunner.
     """
 
-    def __init__(self, *, processor_factory: ProcessorFactory) -> None:
+    def __init__(self, *, processor_factory: ProcessorFactoryInterface) -> None:
         self.processor_factory = processor_factory
         self.logger = logging.getLogger(__name__)
 

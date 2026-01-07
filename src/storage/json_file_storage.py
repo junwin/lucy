@@ -527,6 +527,40 @@ class JsonFileStorage(Storage):
             updated_at=_parse_dt_utc(data.get("updated_at", "")),
         )
 
+    def get_or_create_context(
+        self,
+        account_name: str,
+        context_id: str,
+        *,
+        default_data: Optional[Dict[str, Any]] = None,
+    ) -> ContextState:
+        """Load a context; if missing, create and save it immediately.
+
+        This supports the "context_name" flow where the client can reference a
+        durable project state without pre-creating it.
+        """
+        existing = self.get_context(account_name=account_name, context_id=context_id)
+        if existing is not None:
+            return existing
+
+        data: Dict[str, Any] = {
+            "context_name": context_id,
+            "agreed": False,
+            "tasklist_status": "draft",
+        }
+        if default_data:
+            # Allow caller to override/extend defaults
+            data.update(default_data)
+
+        ctx = ContextState(
+            id=context_id,
+            account_name=account_name,
+            data=data,
+            updated_at=_now_utc(),
+        )
+        self.save_context(ctx)
+        return ctx
+
     def save_context(self, context: ContextState) -> None:
         path = self.base_path / "contexts" / context.account_name
         self._ensure_dir(path)

@@ -1,12 +1,15 @@
 # src/message_processors/processor_factory.py
+from __future__ import annotations
+from abc import ABC, abstractmethod
+from src.message_processors.message_processor_interface import MessageProcessorInterface
 
 from injector import inject, Injector
 
 from src.message_processors.function_calling_processor import FunctionCallingProcessor
-#from src.message_processors.automation_processor import AutomationProcessor
+from src.message_processors.automation_processor import AutomationProcessor
 
 
-class ProcessorFactory:
+class ProcessorFactory(ABC):
     """
     Maps agent-config "message_processor" strings to concrete processor instances.
     Uses Injector to construct processors so dependencies are injected.
@@ -18,6 +21,7 @@ class ProcessorFactory:
 
         self._registry = {
             "function_calling_processor": FunctionCallingProcessor,
+            "automation_processor": AutomationProcessor,
         }
 
     def get(self, processor_name: str):

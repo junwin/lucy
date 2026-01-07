@@ -51,6 +51,7 @@ class AbstractTask(Protocol):
         ...
 
 
+
 # -----------------------------
 # Task list interface
 # -----------------------------

@@ -1,7 +1,4 @@
-# /home/junwin/src/repos/lucy/src/message_processors/function_calling_processor.py
-
 from __future__ import annotations
-
 from dataclasses import dataclass
 from injector import inject
 import logging
@@ -153,9 +150,117 @@ class FunctionCallingProcessor(MessageProcessorInterface):
             wrapped.append(_ToolCall(name=tool_name, call_id=str(tool_call_id or ""), arguments_raw=args_raw))
         return wrapped
 
-    # NOTE: Tasklist execution is intentionally owned by the /ask request flow
-    # (AskRequestHandler -> TaskRunner). Do not re-introduce in-processor task
-    # execution; tests assert this helper does not exist.
+
+    def _execute_simple_tasklist(
+        self,
+        tasklist: Dict[str, Any],
+        *,
+        supervisor_agent: Agent,
+        worker_agent: Optional[Agent],
+        account: Dict[str, Any],
+        conversation_id: str,
+        context_name: str,
+        processor_factory: Any,
+        delegation_depth: int,
+    ) -> Dict[str, Any]:
+        max_depth = int(getattr(supervisor_agent, "max_delegation_depth", 1))
+        if delegation_depth >= max_depth:
+            logging.warning(
+                "_execute_simple_tasklist: delegation depth %d >= max %d for agent=%s session_id=%s; refusing.",
+                delegation_depth,
+                max_depth,
+                supervisor_agent.name,
+                conversation_id,
+            )
+            return {"ok": False, "error": "Max delegation depth exceeded while executing the tasklist."}
+
+        tasks = tasklist.get("tasks") or []
+        if not isinstance(tasks, list):
+            return {"ok": False, "error": "tasklist.tasks must be a list."}
+
+        results: List[Dict[str, Any]] = []
+        tasklist_description = tasklist.get("description") or ""
+
+        logging.info(
+            "_execute_simple_tasklist: start supervisor=%s worker=%s session_id=%s tasks=%d depth=%d/%d desc=%r",
+            supervisor_agent.name,
+            worker_agent.name if worker_agent else None,
+            conversation_id,
+            len(tasks),
+            delegation_depth,
+            max_depth,
+            tasklist_description[:120],
+        )
+
+        for idx, task in enumerate(tasks, start=1):
+            task_id = task.get("id") or f"task-{idx}"
+            task_type = task.get("type", "task")
+            task_agent_name = task.get("agent") or (worker_agent.name if worker_agent else "")
+            task_title = task.get("title") or ""
+            instruction = task.get("instruction") or ""
+            file_path = task.get("file") or ""
+
+            logging.info(
+                "_execute_simple_tasklist: task %d/%d id=%s type=%s agent=%s title=%r",
+                idx,
+                len(tasks),
+                task_id,
+                task_type,
+                task_agent_name,
+                task_title[:80],
+            )
+
+            if task_type != "task":
+                results.append({"id": task_id, "ok": False, "error": f"Unsupported task type: {task_type}"})
+                continue
+
+            if not instruction:
+                results.append({"id": task_id, "ok": False, "error": "Task has no instruction to execute."})
+                continue
+
+            msg_parts = [instruction]
+            if file_path:
+                msg_parts.append(f"\n\nFocus file: {file_path}")
+            task_message = "".join(msg_parts)
+
+            if worker_agent and task_agent_name == worker_agent.name:
+                try:
+                    task_response = self.process_message(
+                        primary_agent=worker_agent,
+                        account=account,
+                        message=task_message,
+                        conversation_id=conversation_id,
+                        context_name=context_name,
+                        secondary_agent=None,
+                        processor_factory=processor_factory,
+                    )
+                    results.append({"id": task_id, "ok": True, "agent": task_agent_name, "response": task_response})
+                except ToolHandlerError as e:
+                    logging.exception("_execute_simple_tasklist: error executing worker task id=%s", task_id)
+                    results.append({"id": task_id, "ok": False, "agent": task_agent_name, "error": f"{type(e).__name__}: {e}"})
+                    break
+            else:
+                results.append({"id": task_id, "ok": False, "agent": task_agent_name, "error": f"Unknown agent: {task_agent_name}"})
+
+        summary = {
+            "ok": all(r.get("ok") for r in results) if results else False,
+            "description": tasklist_description,
+            "tasks": results,
+        }
+
+        logging.info(
+            "_execute_simple_tasklist: completed supervisor=%s worker=%s session_id=%s tasks=%d ok=%s",
+            supervisor_agent.name,
+            worker_agent.name if worker_agent else None,
+            conversation_id,
+            len(results),
+            summary["ok"],
+        )
+        return summary
+
+
+
+
 
     def _execute_tool_calls(
         self,
@@ -202,7 +307,32 @@ class FunctionCallingProcessor(MessageProcessorInterface):
                     tc.call_id,
                     (tool_result_text or "")[:200],
                 )
-                # NOTE: plan_tasks tasklist auto-run is handled by AskRequestHandler -> TaskRunner.
+
+                if tc.name == "plan_tasks" and secondary_agent is not None and processor_factory is not None:
+                    try:
+                        maybe = json.loads(tool_result_text or "{}")
+                    except Exception:
+                        maybe = {}
+
+                    if isinstance(maybe, dict) and maybe.get("ok") and maybe.get("kind") == "tasklist":
+                        logging.info(
+                            "FunctionCallingProcessor: executing tasklist from plan_tasks using supervisor=%s worker=%s session_id=%s call_id=%s",
+                            ctx.agent_name,
+                            secondary_agent.name,
+                            ctx.conversation_id,
+                            tc.call_id,
+                        )
+                        tasklist_result = self._execute_simple_tasklist(
+                            tasklist=maybe,
+                            supervisor_agent=primary_agent,
+                            worker_agent=secondary_agent,
+                            account=account,
+                            conversation_id=ctx.conversation_id,
+                            context_name=ctx.context_name,
+                            processor_factory=processor_factory,
+                            delegation_depth=ctx.delegation_depth,
+                        )
+                        tool_result_text = json.dumps(tasklist_result, ensure_ascii=False)
 
                 tool_result_text = self._tool_result_to_text(tool_result_text)
 
@@ -217,6 +347,8 @@ class FunctionCallingProcessor(MessageProcessorInterface):
             tool_output_items.append(self.llm_adapter.format_tool_output(call_id=str(tc.call_id), output=tool_result_text))
 
         return tool_output_items
+
+
 
     def _run_llm_loop(
         self,

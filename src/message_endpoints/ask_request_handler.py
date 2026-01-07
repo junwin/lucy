@@ -154,6 +154,23 @@ class AskRequestHandler:
         # account object (minimum)
         account = {"accountId": accountName}
 
+        # If a context_name is provided, ensure it exists immediately.
+        # This supports durable project state (tasklists, progress, flags) without
+        # requiring a separate "create context" call.
+        if context_name:
+            if hasattr(self.storage, "get_or_create_context"):
+                self.storage.get_or_create_context(
+                    account_name=accountName,
+                    context_id=context_name,
+                )
+            else:
+                # Backwards compatibility: older storage implementations may not
+                # support contexts yet.
+                self.logger.warning(
+                    "Storage does not support get_or_create_context(); context_name=%s will not be persisted",
+                    context_name,
+                )
+
         # default context_type from agent if not provided
         if not context_type:
             context_type = primary_agent.context_type or "hybrid"
