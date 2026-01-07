@@ -187,6 +187,26 @@ def ask():
     return jsonify(body), status
 
 
+@app.route("/context/names", methods=["GET"])
+def list_context_names():
+    """Return a JSON list of context names for the given account.
+
+    Query param:
+      accountName: required
+
+    Response:
+      ["lucy_client", "lucy_gptchum", "lucyproject"]
+
+    NOTE: This is a temporary stub. We'll tie this into storage later.
+    """
+
+    account_name = (request.args.get("accountName") or "").strip()
+    if not account_name:
+        return jsonify({"error": "Missing accountName"}), 400
+
+    return jsonify(["lucy_client", "lucy_gptchum", "lucyproject"]), 200
+
+
 @app.route("/agents", methods=["GET"])
 def get_agents():
     try:
