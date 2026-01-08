@@ -114,6 +114,22 @@ class Storage(ABC):
         """Insert or update a context state."""
         pass
 
+    def list_context_names(self, account_name: str) -> List[str]:
+        """List context names for an account.
+
+        Minimal contract:
+        - Return the filename stem for each "*.json" file under
+          "contexts/<account_name>/" in storage.
+        - Return an empty list if the account has no contexts or does not exist.
+        - Results should be stable and deterministic (implementations should
+          sort by name ascending).
+
+        This is intentionally non-abstract for backward compatibility with
+        older/custom Storage implementations.
+        """
+
+        return []
+
     @abstractmethod
     def list_documents(
         self,
