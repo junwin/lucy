@@ -13,7 +13,7 @@ Short description: File-backed “context state” used as optional durable memo
 
 - Storage implementation: `src/repos/lucy/src/storage/json_file_storage.py`
 - Model: `ContextState` in `src/repos/lucy/src/storage/models.py`
-
+- Sample `lucydata/data/contexts/junwin/lucy_gptchum.json`
 ## On-disk layout
 
 - `base_path/contexts/<account_name>/<context_id>.json`

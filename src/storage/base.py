@@ -110,6 +110,15 @@ class Storage(ABC):
         pass
 
     @abstractmethod
+    def get_or_create_context(
+        self,
+        account_name: str,
+        context_id: str,
+    ) -> ContextState:
+        """Fetch the context state, creating it if it does not exist."""
+        pass
+
+    @abstractmethod
     def save_context(self, context: ContextState) -> None:
         """Insert or update a context state."""
         pass
