@@ -31,8 +31,10 @@ TASK_STATE_BLOCKED = "Blocked"
 class AbstractTask(Protocol):
     """Interface for a single task/step in a task list.
 
-    Concrete implementations may store data in memory, files, nodes, etc.,
-    but must expose at least these attributes and behaviours.
+    Concrete implementations may store data in memory, files, nodes, etc.
+
+    Serialization for tasks is JSON-only. Dict-based serialization
+    (to_dict/from_dict) is intentionally not part of this interface.
     """
 
     # Required attributes
@@ -41,15 +43,14 @@ class AbstractTask(Protocol):
     state: str
     result: Optional[str]
 
-    def to_dict(self) -> dict:
-        """Return a serialisable representation of this task."""
+    def to_json(self, *, indent: Optional[int] = None) -> str:
+        """Serialise this task to a JSON string."""
         ...
 
     @classmethod
-    def from_dict(cls, data: dict) -> "AbstractTask":
-        """Create a task instance from a serialised representation."""
+    def from_json(cls, s: str) -> "AbstractTask":
+        """Create a task instance from a JSON string."""
         ...
-
 
 
 # -----------------------------
@@ -133,19 +134,6 @@ class AbstractTaskList(ABC):
         raise NotImplementedError
 
     # ---- serialisation ----
-
-    @abstractmethod
-    def to_dict(self) -> dict:
-        """Convert this task list (and its tasks) to a plain dict suitable
-        for JSON serialisation.
-        """
-        raise NotImplementedError
-
-    @classmethod
-    @abstractmethod
-    def from_dict(cls, data: dict) -> "AbstractTaskList":
-        """Create a task list from a dict (inverse of to_dict)."""
-        raise NotImplementedError
 
     @abstractmethod
     def to_json(self, *, indent: Optional[int] = None) -> str:

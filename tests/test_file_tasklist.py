@@ -7,7 +7,6 @@ from src.tasklists.file_tasklist import (
     save_tasklist_to_file,
     load_tasklist_from_file,
 )
-from src.tasklists.task_runner import PlannedTaskList
 from src.tasklists.tasklist_interface import (
     TASK_LIST_STATE_CREATED,
     TASK_LIST_STATE_RUNNING,
@@ -17,7 +16,7 @@ from src.tasklists.tasklist_interface import (
 )
 
 
-def test_task_and_tasklist_to_from_dict_roundtrip():
+def test_task_and_tasklist_json_roundtrip():
     # Create tasks
     t1 = Task(task_id="t-001", description="Run unit tests for module A")
     t2 = Task(task_id="t-002", description="Summarise failures for module A")
@@ -34,13 +33,14 @@ def test_task_and_tasklist_to_from_dict_roundtrip():
         _tasks=[t1, t2],
     )
 
-    # Convert to dict and back
-    tl_dict = tl.to_dict()
-    assert tl_dict["task_list_id"] == "tl-001"
-    assert tl_dict["state"] == TASK_LIST_STATE_CREATED
-    assert len(tl_dict["tasks"]) == 2
+    # Convert to JSON and back (JSON-only; no dict serialization)
+    json_str = tl.to_json()
+    parsed = json.loads(json_str)
+    assert parsed["task_list_id"] == "tl-001"
+    assert parsed["state"] == TASK_LIST_STATE_CREATED
+    assert len(parsed["tasks"]) == 2
 
-    tl2 = TaskList.from_dict(tl_dict)
+    tl2 = TaskList.from_json(json_str)
 
     # Check basic fields survived
     assert tl2.task_list_id == "tl-001"
@@ -128,34 +128,3 @@ def test_add_task_replaces_existing_by_id():
     t1_after = tl.get_task("t-001")
     assert t1_after is t1_replacement
     assert t1_after.description == "Task one (updated)"
-
-
-def test_from_planned_tasklist_maps_title_to_description_and_preserves_instruction():
-    planned = PlannedTaskList.model_validate(
-        {
-            "kind": "tasklist",
-            "description": "Do things",
-            "tasks": [
-                {
-                    "id": "task-1",
-                    "type": "task",
-                    "title": "Work",
-                    "agent": "colin",
-                    "instruction": "Say hi",
-                    "file": "src/a.py",
-                    "params": {"x": 1},
-                }
-            ],
-        }
-    )
-
-    tl = TaskList.from_planned_tasklist(planned, task_list_id="tl-100")
-    assert tl.title == "Do things"
-
-    t = tl.get_task("task-1")
-    assert t is not None
-    assert t.description == "Work"
-    assert t.extra["instruction"] == "Say hi"
-    assert t.extra["file"] == "src/a.py"
-    assert t.extra["agent"] == "colin"
-    assert t.extra["params"] == {"x": 1}

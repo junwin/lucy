@@ -8,7 +8,7 @@ from src.storage.base import Storage
 from src.message_processors.processor_factory import ProcessorFactory
 from src.message_processors.function_calling_processor import ToolHandlerError
 from src.storage.models import ChatMessage
-from src.tasklists.task_runner import TaskRunner
+
 
 
 class AskRequestHandler:
@@ -29,13 +29,12 @@ class AskRequestHandler:
         config: ConfigManager,
         storage: Storage,
         processor_factory: ProcessorFactory,
-        task_runner: Optional[TaskRunner] = None,
+ 
     ) -> None:
         self.agent_manager = agent_manager
         self.config = config
         self.storage = storage
         self.processor_factory = processor_factory
-        self.task_runner = task_runner or TaskRunner(processor_factory=processor_factory)
         self.logger = logging.getLogger(__name__)
 
     def _maybe_autorun_tasklist(

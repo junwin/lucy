@@ -580,6 +580,20 @@ class JsonFileStorage(Storage):
 
         self._atomic_write(path / f"{context.id}.json", data)
 
+    def list_context_names(self, account_name: str) -> List[str]:
+        """List context names (filename stems) for an account in sorted order."""
+        ctx_dir = self.base_path / "contexts" / account_name
+        if not ctx_dir.exists() or not ctx_dir.is_dir():
+            return []
+
+        names: List[str] = []
+        for p in ctx_dir.glob("*.json"):
+            # filename stem without suffix
+            names.append(p.stem)
+
+        names.sort()
+        return names
+
     # ----------------------------------------------------------------------
     # DOCUMENTS
     # ----------------------------------------------------------------------

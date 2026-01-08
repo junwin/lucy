@@ -138,6 +138,15 @@ class FakeStorage:
     def get_context(self, account_name: str, context_id: str) -> Optional[Any]:
         return self.contexts.get((account_name, context_id))
 
+    def list_context_names(self, account_name: str) -> List[str]:
+        """Return sorted context ids for the given account."""
+        names = [
+            ctx_id
+            for (acct, ctx_id) in self.contexts.keys()
+            if acct == account_name
+        ]
+        return sorted(set(names))
+
     # -------------------------
     # Profiles
     # -------------------------
