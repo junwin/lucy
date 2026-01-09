@@ -13,15 +13,17 @@ from src.handlers.handler_registry import HandlerRegistry
 from src.message_processors.message_processor_interface import MessageProcessorInterface
 from src.prompt_builders.prompt_builder_interface import PromptBuilderInterface
 from src.storage.base import Storage
-from src.tasklists.file_tasklist import FileTaskList
-from src.tasklists.tasklist_interface import (
-    TASK_LIST_STATE_COMPLETED,
-    TASK_LIST_STATE_CREATED,
-    TASK_LIST_STATE_RUNNING,
-    TASK_STATE_COMPLETED,
+from src.tasklists.task_list import TaskList
+from src.tasklists.task import Task
+from src.tasklists.task_states import (
     TASK_STATE_PENDING,
     TASK_STATE_RUNNING,
+    TASK_STATE_COMPLETED,
+    TASK_LIST_STATE_CREATED,
+    TASK_LIST_STATE_RUNNING,
+    TASK_LIST_STATE_COMPLETED,
 )
+
 
 logger = logging.getLogger(__name__)
 
@@ -91,28 +93,28 @@ def _parse_execution_mode_from_text(message: str) -> str:
     return "single-step"
 
 
-def _coerce_tasklist(tasklist_json: Any) -> Tuple[Optional[FileTaskList], Optional[str]]:
-    """Convert persisted tasklist_json into a FileTaskList.
+def _coerce_tasklist(tasklist: Any) -> Tuple[Optional[TaskList], Optional[str]]:
+    """Convert persisted tasklist into a TaskList.
 
     Returns (tasklist, error_message)
     """
 
-    if tasklist_json is None:
-        return None, "No tasklist_json present."
+    if tasklist is None:
+        return None, "No tasklist present."
 
     try:
-        if isinstance(tasklist_json, str):
-            return FileTaskList.from_json(tasklist_json), None
-        if isinstance(tasklist_json, dict):
-            return FileTaskList.from_json(json.dumps(tasklist_json)), None
+        if isinstance(tasklist, str):
+            return TaskList.from_json(tasklist), None
+        if isinstance(tasklist, dict):
+            return TaskList.from_json(json.dumps(tasklist)), None
 
-        return None, f"Unsupported tasklist_json type: {type(tasklist_json)!r}"
+        return None, f"Unsupported tasklist type: {type(tasklist)!r}"
     except Exception as e:
-        logger.exception("Failed to parse tasklist_json")
-        return None, f"Failed to parse tasklist_json: {e}"
+        logger.exception("Failed to parse tasklist")
+        return None, f"Failed to parse tasklist: {e}"
 
 
-def _find_next_pending_task(tasklist: FileTaskList) -> Tuple[Optional[int], Optional[Any]]:
+def _find_next_pending_task(tasklist: TaskList) -> Tuple[Optional[int], Optional[Any]]:
     """Return (index, task) for the next pending task."""
 
     tasks = getattr(tasklist, "tasks", None) or []
@@ -132,10 +134,10 @@ def _set_task_state(task: Any, state: str) -> None:
         setattr(task, "state", state)
 
 
-def _serialize_tasklist(tasklist: FileTaskList) -> Dict[str, Any]:
-    """Serialize FileTaskList to a plain dict for persistence."""
+def _serialize_tasklist(tasklist: TaskList) -> Dict[str, Any]:
+    """Serialize TaskList to a plain dict for persistence."""
 
-    # FileTaskList is not pydantic; it has to_json.
+    # TaskList is not pydantic; it has to_json.
     return json.loads(tasklist.to_json())
 
 
@@ -208,24 +210,24 @@ class AutomationProcessor(MessageProcessorInterface):
         if ctx is None:
             return f"[AutomationProcessor] mode={mode} context '{context_name}' not found."
 
-        tasklist_json = None
+        tasklist = None
         try:
             data = getattr(ctx, "data", None)
             if isinstance(data, dict):
-                tasklist_json = data.get("tasklist_json")
+                tasklist = data.get("tasklist")
             else:
-                tasklist_json = getattr(data, "tasklist_json", None)
+                tasklist = getattr(data, "tasklist", None)
         except Exception:
-            logger.exception("Failed reading tasklist_json from context")
+            logger.exception("Failed reading tasklist from context")
 
-        if not tasklist_json:
-            logger.info("Context present but missing tasklist_json context=%s", context_name)
+        if not tasklist:
+            logger.info("Context present but missing tasklist context=%s", context_name)
             return (
                 f"[AutomationProcessor] mode={mode} no task list found in context '{context_name}'. "
-                "Expected context.data.tasklist_json. Create a task list first."
+                "Expected context.data.tasklist. Create a task list first."
             )
 
-        tasklist, err = _coerce_tasklist(tasklist_json)
+        tasklist, err = _coerce_tasklist(tasklist)
         if err or tasklist is None:
             return f"[AutomationProcessor] mode={mode} {err}"
 
@@ -300,9 +302,9 @@ class AutomationProcessor(MessageProcessorInterface):
 
                 data = getattr(ctx, "data", None)
                 if isinstance(data, dict):
-                    data["tasklist_json"] = serialized
+                    data["tasklist"] = serialized
                 else:
-                    setattr(data, "tasklist_json", serialized)
+                    setattr(data, "tasklist", serialized)
 
                 self.storage.save_context(ctx)
             except Exception as e:
@@ -323,9 +325,9 @@ class AutomationProcessor(MessageProcessorInterface):
             serialized = _serialize_tasklist(tasklist)
             data = getattr(ctx, "data", None)
             if isinstance(data, dict):
-                data["tasklist_json"] = serialized
+                data["tasklist"] = serialized
             else:
-                setattr(data, "tasklist_json", serialized)
+                setattr(data, "tasklist", serialized)
             self.storage.save_context(ctx)
         except Exception:
             logger.exception("Failed final persist")

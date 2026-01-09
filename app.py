@@ -204,7 +204,7 @@ def list_context_names():
     if not account_name:
         return jsonify({"error": "Missing accountName"}), 400
 
-    return jsonify(["lucy_client", "lucy_gptchum", "lucyproject"]), 200
+    return jsonify(["lucy_client", "lucy_gptchum", "lucyproject", "task_sample"]), 200
 
 
 @app.route("/agents", methods=["GET"])

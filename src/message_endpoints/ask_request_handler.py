@@ -215,14 +215,7 @@ class AskRequestHandler:
                 processor_factory=self.processor_factory,
             )
 
-            response_text = self._maybe_autorun_tasklist(
-                primary_agent=primary_agent,
-                secondary_agent=partner_agent_obj,
-                account=account,
-                conversation_id=conversationId,
-                context_name=context_name,
-                response_text=response_text,
-            )
+ 
 
             return 200, {"response": response_text}
 
