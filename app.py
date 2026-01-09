@@ -11,13 +11,12 @@ import uuid
 from src.request_context import request_id_var
 
 from src.storage.base import Storage
-from src.storage.models import ChatMessage, UserProfile
+from src.storage.models import ChatMessage
 
 from src.agent import AgentManager
 from src.container_config import container
 from src.config_manager import ConfigManager
 from src.prompt_builders.prompt_builder import PromptBuilder
-from src.message_processors.processor_factory import ProcessorFactory
 from src.message_endpoints.ask_request_handler import AskRequestHandler
 
 
@@ -188,6 +187,26 @@ def ask():
     return jsonify(body), status
 
 
+@app.route("/context/names", methods=["GET"])
+def list_context_names():
+    """Return a JSON list of context names for the given account.
+
+    Query param:
+      accountName: required
+
+    Response:
+      ["lucy_client", "lucy_gptchum", "lucyproject"]
+
+    NOTE: This is a temporary stub. We'll tie this into storage later.
+    """
+
+    account_name = (request.args.get("accountName") or "").strip()
+    if not account_name:
+        return jsonify({"error": "Missing accountName"}), 400
+
+    return jsonify(["lucy_client", "lucy_gptchum", "lucyproject", "task_sample"]), 200
+
+
 @app.route("/agents", methods=["GET"])
 def get_agents():
     try:
@@ -208,7 +227,11 @@ def build_prompt():
     # keep request field name for now, but map to context_type
     context_type = payload.get("selectType", "") or payload.get("contextType", "")
     conversationId = payload.get("conversationId", "")
-    context_name = payload.get("contextName", "") or ""
+
+    # Optional: None means "no storage-based context"
+    context_name = payload.get("contextName") or payload.get("context_name")
+    if context_name is not None:
+        context_name = str(context_name).strip() or None
 
     # allow optional list of extra system messages
     extra_system_messages = payload.get("extraSystemMessages") or []

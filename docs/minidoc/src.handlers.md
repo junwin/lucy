@@ -18,6 +18,18 @@ tags:
 
 Short description: Core tool handler layer for Lucy. Defines the handler interfaces and concrete tool implementations used by FunctionCallingProcessor and other components.
 
+## Note on paths (important)
+
+Many tools in this layer accept *relative* paths (for example `file_load`, `file_save`, and `execute_command.working_directory`).
+
+By default, **all relative paths are resolved under the account home directory** (for example `/home/<account>/...`).
+
+So if you want to access files inside this repo, you typically need to include the repo prefix in the path, e.g.:
+
+- `src/repos/lucy/tests/test_function_calling_processor.py`
+
+(not just `tests/test_function_calling_processor.py`).
+
 ## Python files and key classes
 
 - `src/handlers/__init__.py`

@@ -2,14 +2,22 @@
 from __future__ import annotations
 
 import json
+import logging
 from typing import Any, Dict, List, Optional
 
 from src.config_manager import ConfigManager
 from .handler_v2 import HandlerV2
 
+logger = logging.getLogger(__name__)
+
 
 class PlanTasksHandler(HandlerV2):
-    """Generate a simple task list from a goal and optional file list."""
+    """Plan a simple sequential task list for a goal (and optional file list).
+
+    Note: This handler *plans* tasks and returns a structured task list. The actual
+    execution of those tasks is performed elsewhere (currently in
+    `FunctionCallingProcessor`).
+    """
 
     def __init__(self, config: ConfigManager):
         self.config = config
@@ -24,8 +32,9 @@ class PlanTasksHandler(HandlerV2):
             "type": "function",
             "name": cls.name(),
             "description": (
-                "Create a simple sequential task list for a coding or refactoring task, "
-                "given a goal and an optional list of files."
+                "Plan a simple sequential task list for a coding/refactoring goal, optionally scoped to files. "
+                "Returns a structured task list that will be executed by the orchestration layer "
+                "(e.g., FunctionCallingProcessor)."
             ),
             "parameters": {
                 "type": "object",
@@ -34,7 +43,7 @@ class PlanTasksHandler(HandlerV2):
                         "type": "string",
                         "description": (
                             "High-level description of the work to perform. "
-                            "This should be written as instructions for a worker agent."
+                            "Write this as instructions for a worker agent."
                         ),
                     },
                     "files": {
@@ -57,8 +66,8 @@ class PlanTasksHandler(HandlerV2):
                     "worker_agent": {
                         "type": "string",
                         "description": (
-                            "Optional name of the worker agent that should execute "
-                            "the tasks (for documentation purposes)."
+                            "Optional name of the worker agent that should execute the tasks. "
+                            "(Used for routing/documentation; execution is handled by the orchestrator.)"
                         ),
                         "default": "",
                     },
@@ -97,13 +106,22 @@ class PlanTasksHandler(HandlerV2):
         }
 
     def execute(self, args: Dict[str, Any], *, account_name: str = "auto") -> Dict[str, Any]:
+        logger.info(
+            "plan_tasks input account=%s args=%s",
+            account_name,
+            args,
+        )
+
         goal: str = (args.get("goal") or "").strip()
         files: Optional[List[str]] = args.get("files") or None
         instruction: str = (args.get("instruction") or "").strip()
         worker_agent: str = (args.get("worker_agent") or "colin").strip() or "colin"
+        worker_agent = worker_agent.lower()
 
         if not goal:
-            return {"ok": False, "tool": self.name(), "error": "Missing 'goal' for plan_tasks tool."}
+            result = {"ok": False, "tool": self.name(), "error": "Missing 'goal' for plan_tasks tool."}
+            logger.info("plan_tasks output account=%s ok=%s result=%s", account_name, False, result)
+            return result
 
         if not instruction:
             instruction = goal
@@ -138,18 +156,33 @@ class PlanTasksHandler(HandlerV2):
                 }
             )
 
-        return {
+        result = {
             "ok": True,
             "tool": self.name(),
             "kind": "tasklist",
             "description": description,
             "tasks": tasks,
         }
+        logger.info("plan_tasks output account=%s ok=%s tasks=%d", account_name, True, len(tasks))
+        return result
 
     def execute_raw(self, arguments_raw: str, *, account_name: str = "auto", call_id: str = "") -> str:
+        logger.info(
+            "plan_tasks raw_input account=%s call_id=%s arguments_raw=%s",
+            account_name,
+            call_id,
+            arguments_raw,
+        )
         try:
             args = json.loads(arguments_raw or "{}")
         except Exception:
             args = {}
         result = self.execute(args if isinstance(args, dict) else {}, account_name=account_name)
-        return json.dumps(result, ensure_ascii=False)
+        result_raw = json.dumps(result, ensure_ascii=False)
+        logger.info(
+            "plan_tasks raw_output account=%s call_id=%s result_raw=%s",
+            account_name,
+            call_id,
+            result_raw,
+        )
+        return result_raw

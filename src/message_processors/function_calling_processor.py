@@ -1,7 +1,4 @@
-# /home/junwin/src/repos/lucy/src/message_processors/function_calling_processor.py
-
 from __future__ import annotations
-
 from dataclasses import dataclass
 from injector import inject
 import logging
@@ -153,6 +150,7 @@ class FunctionCallingProcessor(MessageProcessorInterface):
             wrapped.append(_ToolCall(name=tool_name, call_id=str(tool_call_id or ""), arguments_raw=args_raw))
         return wrapped
 
+
     def _execute_simple_tasklist(
         self,
         tasklist: Dict[str, Any],
@@ -260,6 +258,10 @@ class FunctionCallingProcessor(MessageProcessorInterface):
         )
         return summary
 
+
+
+
+
     def _execute_tool_calls(
         self,
         *,
@@ -345,6 +347,8 @@ class FunctionCallingProcessor(MessageProcessorInterface):
             tool_output_items.append(self.llm_adapter.format_tool_output(call_id=str(tc.call_id), output=tool_result_text))
 
         return tool_output_items
+
+
 
     def _run_llm_loop(
         self,

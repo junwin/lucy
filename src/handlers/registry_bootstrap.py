@@ -17,7 +17,7 @@ def build_registry() -> HandlerRegistry:
         reg.register(FileSaveHandler2)
         reg.register(CommandExecutionHandler2)
         reg.register(ScrapeWebPageHandler2)
-        reg.register(WebSearchHandler2)
+        #reg.register(WebSearchHandler2)
         reg.register(PlanTasksHandler)
     except Exception as e:
         #logger.error("Error occurred while building the registry: %s", e)

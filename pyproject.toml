@@ -8,6 +8,14 @@ readme = "README.md"
 [tool.poetry.dependencies]
 python = "^3.11"
 
+# Test dependencies (used by pytest)
+pytest = "^8.0.0"
+
+[tool.pytest.ini_options]
+minversion = "8.0"
+addopts = "-q"
+testpaths = ["tests"]
+python_files = ["test_*.py"]
 
 [build-system]
 requires = ["poetry-core"]

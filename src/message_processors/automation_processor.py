@@ -1,42 +1,151 @@
-from typing import Optional
-
-from injector import inject
-import logging
-from typing import Optional, Dict, Any
+from __future__ import annotations
 
 import json
+import logging
+from datetime import datetime, timezone
+from typing import Any, Dict, Optional, Tuple
 
+from injector import inject
+
+from src.agent import Agent
 from src.config_manager import ConfigManager
-#from src.prompt_builders.prompt_builder import PromptBuilder
-from src.message_processors.message_processor_interface import MessageProcessorInterface
-#from src.message_processors.processor_factory import ProcessorFactory
-from src.prompt_builders.prompt_builder_interface import PromptBuilderInterface
-from src.message_processors.types import AgentDict, AccountDict
-from src.api_helpers import openai_call, ToolResult
 from src.handlers.handler_registry import HandlerRegistry
-from src.storage.base import Storage 
-from src.storage.models import ChatMessage
-
-from src.tasklists.file_tasklist import FileTaskList
-from src.tasklists.tasklist_interface import (
+from src.message_processors.message_processor_interface import MessageProcessorInterface
+from src.prompt_builders.prompt_builder_interface import PromptBuilderInterface
+from src.storage.base import Storage
+from src.tasklists.task_list import TaskList
+from src.tasklists.task import Task
+from src.tasklists.task_states import (
+    TASK_STATE_PENDING,
+    TASK_STATE_RUNNING,
+    TASK_STATE_COMPLETED,
     TASK_LIST_STATE_CREATED,
     TASK_LIST_STATE_RUNNING,
     TASK_LIST_STATE_COMPLETED,
-    TASK_STATE_PENDING,
-    TASK_STATE_COMPLETED,
 )
+
 
 logger = logging.getLogger(__name__)
 
 
-class AutomationProcessor(MessageProcessorInterface):
-    """Automation processor for running simple task lists.
+def _now_utc() -> datetime:
+    return datetime.now(timezone.utc)
 
-    Current behaviour (MVP):
-    - Only handles the supervisor agent "doris".
-    - Expects `message` to be a JSON-encoded task list (the whole string).
-    - Parses the task list, runs each pending task via a worker assistant,
-      updates task states/results, and returns the updated task list JSON.
+
+def _safe_preview(text: str, limit: int = 500) -> str:
+    text = text or ""
+    if len(text) <= limit:
+        return text
+    return text[:limit] + "..."
+
+
+def _is_run_command(message: str) -> bool:
+    """Very small command parser.
+
+    Intended behavior for now:
+    - If message asks to run tasks, proceed.
+    - Otherwise return a helpful error.
+
+    Accepts either free text containing 'run' + 'task(s)' or JSON like:
+      {"action": "run"}
+    """
+
+    raw = (message or "").strip()
+    if not raw:
+        return False
+
+    # JSON command
+    try:
+        obj = json.loads(raw)
+        if isinstance(obj, dict):
+            action = str(obj.get("action", "")).lower().strip()
+            if action in {"run", "execute", "start"}:
+                return True
+    except Exception:
+        pass
+
+    # Free text
+    text = raw.lower()
+    return ("run" in text or "execute" in text or "start" in text) and (
+        "task" in text or "tasks" in text
+    )
+
+
+def _parse_execution_mode_from_text(message: str) -> str:
+    """Parse execution mode from free-text.
+
+    Supported: 'single-step' or 'multi-step'. Default: 'single-step'.
+
+    Accepts variants like: "single step", "multi step", case-insensitive.
+    """
+
+    text = (message or "").lower().strip()
+    if not text:
+        return "single-step"
+
+    normalized = text.replace("-", " ")
+    if "multi" in normalized and "step" in normalized:
+        return "multi-step"
+    if "single" in normalized and "step" in normalized:
+        return "single-step"
+
+    # Default if no explicit mode requested.
+    return "single-step"
+
+
+def _coerce_tasklist(tasklist: Any) -> Tuple[Optional[TaskList], Optional[str]]:
+    """Convert persisted tasklist into a TaskList.
+
+    Returns (tasklist, error_message)
+    """
+
+    if tasklist is None:
+        return None, "No tasklist present."
+
+    try:
+        if isinstance(tasklist, str):
+            return TaskList.from_json(tasklist), None
+        if isinstance(tasklist, dict):
+            return TaskList.from_json(json.dumps(tasklist)), None
+
+        return None, f"Unsupported tasklist type: {type(tasklist)!r}"
+    except Exception as e:
+        logger.exception("Failed to parse tasklist")
+        return None, f"Failed to parse tasklist: {e}"
+
+
+def _find_next_pending_task(tasklist: TaskList) -> Tuple[Optional[int], Optional[Any]]:
+    """Return (index, task) for the next pending task."""
+
+    tasks = getattr(tasklist, "tasks", None) or []
+    for idx, task in enumerate(tasks):
+        state = getattr(task, "state", None)
+        if state == TASK_STATE_PENDING:
+            return idx, task
+    return None, None
+
+
+def _set_task_state(task: Any, state: str) -> None:
+    """Set task.state safely for pydantic models or dicts."""
+
+    if isinstance(task, dict):
+        task["state"] = state
+    else:
+        setattr(task, "state", state)
+
+
+def _serialize_tasklist(tasklist: TaskList) -> Dict[str, Any]:
+    """Serialize TaskList to a plain dict for persistence."""
+
+    # TaskList is not pydantic; it has to_json.
+    return json.loads(tasklist.to_json())
+
+
+class AutomationProcessor(MessageProcessorInterface):
+    """Automation processor for running persisted task lists.
+
+    For Part 1+2, this does not execute external tools; it only updates task
+    state and stores placeholder results.
     """
 
     @inject
@@ -50,150 +159,178 @@ class AutomationProcessor(MessageProcessorInterface):
         self.config = config
         self.registry = registry
         self.storage = storage
-        self.context_type = ""
         self.prompt_builder = prompt_builder
 
     def process_message(
         self,
         *,
-        primary_agent: AgentDict,
-        account: AccountDict,
+        primary_agent: Agent,
+        account: Dict[str, Any],
         message: str,
         conversation_id: str = "0",
         context_name: str = "",
-        secondary_agent: Optional[AgentDict] = None,
+        secondary_agent: Optional[Agent] = None,
         processor_factory: Optional[Any] = None,
     ) -> str:
-        agent_name = (primary_agent.get("name") or "").lower().strip()
+        agent_name = (getattr(primary_agent, "name", "") or "").lower().strip()
         if agent_name != "doris":
+            logger.debug("AutomationProcessor ignoring agent=%s", agent_name)
             return f"[AutomationProcessor] Not responsible for agent '{agent_name}'."
 
-        store_this_call = bool(primary_agent.get("save_reposnses", False))
+        if not context_name:
+            logger.warning("AutomationProcessor missing context_name")
+            return "[AutomationProcessor] Missing context_name. Provide a context_name to run automation."
 
-        account_id = (account.get("accountId") or "").strip() or "(missing accountId)"
-        worker_name = (
-            (secondary_agent or {}).get("name")
-            or (primary_agent.get("partner_agent") or "")
-            or "billy"
+        if not _is_run_command(message):
+            return (
+                "[AutomationProcessor] Unknown or invalid command. "
+                "Try: 'run tasks' (optionally 'single step' or 'multi-step')."
+            )
+
+        account_name = (account.get("accountId") or "").strip() or "(missing accountId)"
+        mode = _parse_execution_mode_from_text(message)
+
+        logger.info(
+            "AutomationProcessor start agent=%s account=%s conversation_id=%s context=%s mode=%s",
+            agent_name,
+            account_name,
+            conversation_id,
+            context_name,
+            mode,
         )
-        worker_name = worker_name.lower().strip()
-        worker_processor = processor_factory.get("function_calling_processor") if processor_factory else None   
-        
-        # 1. Parse the incoming message as a JSON task list
+        logger.debug("Incoming message preview: %s", _safe_preview(message, 800))
+
+        # Load existing context (do not create).
         try:
-            # message is the JSON string for the task list
-            # We parse it once to validate it's JSON, then pass it to FileTaskList
-            json.loads(message)  # just to validate
-            task_list = FileTaskList.from_json(message)
-        except json.JSONDecodeError:
-            error_text = (
-                "[AutomationProcessor] Expected JSON task list in message, "
-                "but could not parse JSON."
-            )
-            logger.warning(error_text)
-            return error_text
+            ctx = self.storage.get_context(account_name, context_name)
         except Exception as e:
-            logger.exception("Failed to parse task list JSON")
-            return f"[AutomationProcessor] Failed to parse task list JSON: {e}"
+            logger.exception("Failed loading context")
+            return f"[AutomationProcessor] mode={mode} context '{context_name}' not found: {e}"
 
-        # 2. Ensure task list is in a sensible starting state
-        if task_list.state == TASK_LIST_STATE_CREATED:
-            task_list.state = TASK_LIST_STATE_RUNNING
-        else:
-            logger.info(
-                "AutomationProcessor received task list in state %s (id=%s)",
-                task_list.state,
-                task_list.task_list_id,
+        if ctx is None:
+            return f"[AutomationProcessor] mode={mode} context '{context_name}' not found."
+
+        tasklist = None
+        try:
+            data = getattr(ctx, "data", None)
+            if isinstance(data, dict):
+                tasklist = data.get("tasklist")
+            else:
+                tasklist = getattr(data, "tasklist", None)
+        except Exception:
+            logger.exception("Failed reading tasklist from context")
+
+        if not tasklist:
+            logger.info("Context present but missing tasklist context=%s", context_name)
+            return (
+                f"[AutomationProcessor] mode={mode} no task list found in context '{context_name}'. "
+                "Expected context.data.tasklist. Create a task list first."
             )
 
-        # 3. Process each pending task in order
-        for task in task_list.tasks():
-            if task.state != TASK_STATE_PENDING:
-                continue
+        tasklist, err = _coerce_tasklist(tasklist)
+        if err or tasklist is None:
+            return f"[AutomationProcessor] mode={mode} {err}"
+
+        # Mark list state running if it was created.
+        try:
+            if getattr(tasklist, "state", None) == TASK_LIST_STATE_CREATED:
+                tasklist.state = TASK_LIST_STATE_RUNNING
+        except Exception:
+            logger.exception("Failed updating task list state")
+
+        overall_state = "running"
+        executed_count = 0
+        last_task_name = ""
+
+        while True:
+            idx, task = _find_next_pending_task(tasklist)
+            if task is None or idx is None:
+                try:
+                    tasklist.state = TASK_LIST_STATE_COMPLETED
+                except Exception:
+                    logger.exception("Failed setting task list completed")
+                overall_state = "completed"
+                break
+
+            last_task_name = (
+                getattr(task, "title", None)
+                or getattr(task, "name", None)
+                or getattr(task, "file_path", None)
+                or f"task#{idx}"
+            )
 
             try:
-                worker_result = worker_processor.process_message(
-                    primary_agent=secondary_agent,
-                    account=account,
-                    message=task.description,
-                    conversation_id=conversation_id,
-                    context_name=context_name,
-                ) 
-                #worker_result = self._run_worker_for_task(
-                #    worker_name=worker_name,
-                 #   account=account,
-                 #   conversation_id=conversation_id,
-                   # task_text=task.description,
-                #)
+                _set_task_state(task, TASK_STATE_RUNNING)
+            except Exception:
+                logger.exception("Failed setting task running")
+
+            placeholder_result = {
+                "timestamp": _now_utc().isoformat(),
+                "note": "Placeholder result. External tool execution disabled for Part 1+2.",
+                "intended_action": {
+                    "task": last_task_name,
+                    "mode": mode,
+                },
+            }
+
+            logger.info(
+                "AutomationProcessor intended action (no-op): task=%s index=%s mode=%s",
+                last_task_name,
+                idx,
+                mode,
+            )
+
+            try:
+                if isinstance(task, dict):
+                    task["result"] = placeholder_result
+                else:
+                    if hasattr(task, "result"):
+                        setattr(task, "result", placeholder_result)
+            except Exception:
+                logger.exception("Failed attaching placeholder result")
+
+            try:
+                _set_task_state(task, TASK_STATE_COMPLETED)
+            except Exception:
+                logger.exception("Failed setting task completed")
+                overall_state = "failed"
+
+            executed_count += 1
+
+            try:
+                serialized = _serialize_tasklist(tasklist)
+
+                data = getattr(ctx, "data", None)
+                if isinstance(data, dict):
+                    data["tasklist"] = serialized
+                else:
+                    setattr(data, "tasklist", serialized)
+
+                self.storage.save_context(ctx)
             except Exception as e:
-                logger.exception("Worker execution failed for task %s", task.task_id)
-                worker_result = f"Worker error: {e}"
+                logger.exception("Failed persisting context/tasklist")
+                overall_state = "failed"
+                return (
+                    f"[AutomationProcessor] mode={mode} state=failed task='{last_task_name}' "
+                    f"error='Failed to persist task state: {e}'"
+                )
 
-            task_list.set_task_result(
-                task_id=task.task_id,
-                result=worker_result,
-                new_state=TASK_STATE_COMPLETED,
-            )
+            if overall_state == "failed":
+                break
 
-        # 4. Mark the overall task list as completed (MVP behaviour)
-        task_list.state = TASK_LIST_STATE_COMPLETED
+            if mode != "multi-step":
+                break
 
-        # 5. Serialise the updated task list back to JSON
-        updated_task_list_json = task_list.to_json(indent=2)
+        try:
+            serialized = _serialize_tasklist(tasklist)
+            data = getattr(ctx, "data", None)
+            if isinstance(data, dict):
+                data["tasklist"] = serialized
+            else:
+                setattr(data, "tasklist", serialized)
+            self.storage.save_context(ctx)
+        except Exception:
+            logger.exception("Failed final persist")
 
-        # 6. Optionally store the original message and the updated task list
-        if store_this_call:
-            # Store the original incoming message
-            self.storage.append_chat_message(
-                conversation_id,
-                ChatMessage(
-                    role="user",
-                    content=message,
-                    metadata={"agent": agent_name, "account_id": account_id},
-                ),
-            )
-            # Store the updated task list as the assistant's response
-            self.storage.append_chat_message(
-                conversation_id,
-                ChatMessage(
-                    role="assistant",
-                    content=updated_task_list_json,
-                    metadata={
-                        "agent": agent_name,
-                        "account_id": account_id,
-                        "worker": worker_name,
-                    },
-                ),
-            )
-
-        # 7. Return the updated task list JSON as the response
-        return updated_task_list_json
-
-    # ------------------------------------------------------------------
-    # Worker integration (MVP stub)
-    # ------------------------------------------------------------------
-
-    def _run_worker_for_task(
-        self,
-        *,
-        worker_name: str,
-        account: AccountDict,
-        conversation_id: str,
-        task_text: str,
-    ) -> str:
-        """Placeholder for calling a worker assistant.
-
-        For now this is a stub that just echoes the task text.
-        Later this should:
-        - look up the worker agent config by name,
-        - build a prompt using prompt_builder,
-        - call the model/tooling,
-        - and return the worker's response text.
-        """
-        logger.info(
-            "AutomationProcessor would call worker '%s' for conversation %s with task: %s",
-            worker_name,
-            conversation_id,
-            task_text,
-        )
-        return f"[worker:{worker_name}] processed task: {task_text}"
+        current_task_part = f"task='{last_task_name}'" if last_task_name else "task='(none)'"
+        return f"[AutomationProcessor] mode={mode} state={overall_state} {current_task_part} executed={executed_count}"

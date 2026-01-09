@@ -12,6 +12,7 @@ from src.storage.json_file_storage import JsonFileStorage
 from src.handlers.handler_registry import HandlerRegistry
 from src.handlers.registry_bootstrap import build_registry
 from src.message_processors.processor_factory import ProcessorFactory
+from src.message_processors.message_processor_interface import ProcessorFactoryInterface        
 from src.prompt_builders.prompt_builder_interface import PromptBuilderInterface
 from src.prompt_builders.prompt_builder import PromptBuilder
 
@@ -106,7 +107,7 @@ class LLMModule(Module):
 class ProcessorFactoryModule(Module):
     @provider
     @singleton
-    def provide_processor_factory(self, injector: Injector) -> ProcessorFactory:
+    def provide_processor_factory(self, injector: Injector) -> ProcessorFactoryInterface :
         return ProcessorFactory(injector)
 
 

@@ -527,6 +527,40 @@ class JsonFileStorage(Storage):
             updated_at=_parse_dt_utc(data.get("updated_at", "")),
         )
 
+    def get_or_create_context(
+        self,
+        account_name: str,
+        context_id: str,
+        *,
+        default_data: Optional[Dict[str, Any]] = None,
+    ) -> ContextState:
+        """Load a context; if missing, create and save it immediately.
+
+        This supports the "context_name" flow where the client can reference a
+        durable project state without pre-creating it.
+        """
+        existing = self.get_context(account_name=account_name, context_id=context_id)
+        if existing is not None:
+            return existing
+
+        data: Dict[str, Any] = {
+            "context_name": context_id,
+            "agreed": False,
+            "tasklist_status": "draft",
+        }
+        if default_data:
+            # Allow caller to override/extend defaults
+            data.update(default_data)
+
+        ctx = ContextState(
+            id=context_id,
+            account_name=account_name,
+            data=data,
+            updated_at=_now_utc(),
+        )
+        self.save_context(ctx)
+        return ctx
+
     def save_context(self, context: ContextState) -> None:
         path = self.base_path / "contexts" / context.account_name
         self._ensure_dir(path)
@@ -545,6 +579,20 @@ class JsonFileStorage(Storage):
         }
 
         self._atomic_write(path / f"{context.id}.json", data)
+
+    def list_context_names(self, account_name: str) -> List[str]:
+        """List context names (filename stems) for an account in sorted order."""
+        ctx_dir = self.base_path / "contexts" / account_name
+        if not ctx_dir.exists() or not ctx_dir.is_dir():
+            return []
+
+        names: List[str] = []
+        for p in ctx_dir.glob("*.json"):
+            # filename stem without suffix
+            names.append(p.stem)
+
+        names.sort()
+        return names
 
     # ----------------------------------------------------------------------
     # DOCUMENTS

@@ -1,3 +1,4 @@
+import json
 import logging
 from typing import Any, Dict, Tuple, Optional
 
@@ -9,11 +10,17 @@ from src.message_processors.function_calling_processor import ToolHandlerError
 from src.storage.models import ChatMessage
 
 
+
 class AskRequestHandler:
     """Handle the /ask endpoint.
 
     This version is intended to mirror the original /ask route logic from app.py
     as closely as possible, just moved into a class.
+
+    Design note:
+    - plan_tasks auto-run is preserved.
+    - Task execution is intentionally owned by this request handler (via TaskRunner)
+      rather than living inside FunctionCallingProcessor.
     """
 
     def __init__(
@@ -22,12 +29,60 @@ class AskRequestHandler:
         config: ConfigManager,
         storage: Storage,
         processor_factory: ProcessorFactory,
+ 
     ) -> None:
         self.agent_manager = agent_manager
         self.config = config
         self.storage = storage
         self.processor_factory = processor_factory
         self.logger = logging.getLogger(__name__)
+
+    def _maybe_autorun_tasklist(
+        self,
+        *,
+        primary_agent: Agent,
+        secondary_agent: Optional[Agent],
+        account: Dict[str, Any],
+        conversation_id: str,
+        context_name: Optional[str],
+        response_text: str,
+    ) -> str:
+        """If the model returned a plan_tasks tasklist, execute it via TaskRunner.
+
+        We keep the response format compatible with the previous behaviour:
+        the final assistant response can be the task execution summary.
+        """
+
+        if not secondary_agent:
+            return response_text
+
+        # FunctionCallingProcessor returns a string; when the LLM triggers plan_tasks,
+        # the tool output is a JSON string produced by plan_tasks handler.
+        try:
+            maybe = json.loads(response_text or "")
+        except Exception:
+            return response_text
+
+        if not (isinstance(maybe, dict) and maybe.get("ok") and maybe.get("kind") == "tasklist"):
+            return response_text
+
+        self.logger.info(
+            "AskRequestHandler: executing tasklist from plan_tasks using supervisor=%s worker=%s session_id=%s",
+            primary_agent.name,
+            secondary_agent.name,
+            conversation_id,
+        )
+
+        result = self.task_runner.run(
+            tasklist=maybe,
+            supervisor_agent=primary_agent,
+            worker_agent=secondary_agent,
+            account=account,
+            conversation_id=conversation_id,
+            context_name=context_name,
+        )
+
+        return json.dumps(result, ensure_ascii=False)
 
     def handle(self, payload: Dict[str, Any]) -> Tuple[int, Dict[str, Any]]:
         """Process the /ask request.
@@ -39,6 +94,7 @@ class AskRequestHandler:
           - accountName: str (required)
           - selectType: Optional[str]  (legacy)
           - contextType: Optional[str] (preferred)
+          - contextName: Optional[str] (if omitted/None => no storage-based context)
           - conversationId: Optional[str]
           - partnerAgentName: Optional[str]
         """
@@ -51,11 +107,17 @@ class AskRequestHandler:
         conversationId = payload.get("conversationId", "")
         secondary_agent_override = (payload.get("partnerAgentName", "") or "").lower()
 
+        # Optional context name (None means: no context)
+        context_name = payload.get("contextName")
+        if context_name is not None:
+            context_name = str(context_name).strip() or None
+
         self.logger.info(
-            "/ask: user_id=%s agentName=%s context_type=%s conversationId=%s partnerAgentName=%s",
+            "/ask: user_id=%s agentName=%s context_type=%s context_name=%s conversationId=%s partnerAgentName=%s",
             accountName,
             agentName,
             context_type,
+            context_name,
             conversationId,
             secondary_agent_override,
         )
@@ -91,6 +153,23 @@ class AskRequestHandler:
         # account object (minimum)
         account = {"accountId": accountName}
 
+        # If a context_name is provided, ensure it exists immediately.
+        # This supports durable project state (tasklists, progress, flags) without
+        # requiring a separate "create context" call.
+        if context_name:
+            if hasattr(self.storage, "get_or_create_context"):
+                self.storage.get_or_create_context(
+                    account_name=accountName,
+                    context_id=context_name,
+                )
+            else:
+                # Backwards compatibility: older storage implementations may not
+                # support contexts yet.
+                self.logger.warning(
+                    "Storage does not support get_or_create_context(); context_name=%s will not be persisted",
+                    context_name,
+                )
+
         # default context_type from agent if not provided
         if not context_type:
             context_type = primary_agent.context_type or "hybrid"
@@ -109,9 +188,6 @@ class AskRequestHandler:
                     conversationId,
                 )
 
-        # TODO: make this configurable later; keep legacy behavior for now
-        context_name = "lucyproject"
-
         processor_name = (primary_agent.message_processor or "").strip()
         if not processor_name:
             self.logger.info(
@@ -129,7 +205,7 @@ class AskRequestHandler:
             processor.context_type = context_type
 
         try:
-            response = processor.process_message(
+            response_text = processor.process_message(
                 primary_agent=primary_agent,
                 secondary_agent=partner_agent_obj,
                 account=account,
@@ -138,7 +214,10 @@ class AskRequestHandler:
                 context_name=context_name,
                 processor_factory=self.processor_factory,
             )
-            return 200, {"response": response}
+
+ 
+
+            return 200, {"response": response_text}
 
         except ToolHandlerError as e:
             error_message = f"Tool execution failed: {str(e)}"

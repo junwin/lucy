@@ -208,17 +208,30 @@ class PromptBuilder(PromptBuilderInterface):
     def _get_context_text(self, account_name: str, context_name: str) -> str:
         """Load context text from storage.
 
-        For now this is a simple, read-only lookup that expects a ContextState
-        whose data dict may contain a "text" field with free-form content.
+        Context is expected to be a ContextState with a free-form data dict.
+
+        Behavior:
+        - If context_name is missing/"none": return empty string.
+        - If context is missing in storage: create it immediately (empty defaults)
+          and return empty string.
+        - If context exists: return data["text"] if present.
+
+        Note: PromptBuilder should not be responsible for *writing* meaningful
+        context content, but creating an empty context here is a safe fallback
+        in case the request handler didn't do it.
         """
         if not context_name or context_name == "none":
             return ""
 
+        # Prefer get_or_create_context if available.
         try:
-            ctx = self.storage.get_context(account_name, context_name)
+            if hasattr(self.storage, "get_or_create_context"):
+                ctx = self.storage.get_or_create_context(account_name, context_name)
+            else:
+                ctx = self.storage.get_context(account_name, context_name)
         except Exception as ex:
             logging.warning(
-                "PromptBuilder: failed to load context %s for %s: %s",
+                "PromptBuilder: failed to load/create context %s for %s: %s",
                 context_name,
                 account_name,
                 ex,
@@ -226,6 +239,8 @@ class PromptBuilder(PromptBuilderInterface):
             return ""
 
         if ctx is None:
+            # Should be rare (only if storage.get_context returned None and
+            # get_or_create_context is not available).
             logging.warning(
                 "PromptBuilder: context %s not found for account=%s",
                 context_name,
