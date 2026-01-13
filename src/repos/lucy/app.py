@@ -196,6 +196,8 @@ def list_context_names():
 
     Response:
       ["lucy_client", "lucy_gptchum", "lucyproject"]
+
+    NOTE: This previously returned a static stub; now delegates to storage.list_context_names().
     """
 
     account_name = (request.args.get("accountName") or "").strip()
@@ -203,11 +205,10 @@ def list_context_names():
         return jsonify({"error": "Missing accountName"}), 400
 
     try:
-        return jsonify(storage.list_context_names(account_name)), 200
+        names = storage.list_context_names(account_name)
+        return jsonify(names), 200
     except Exception:
-        logging.exception(
-            "/context/names: failed to list context names for account=%s", account_name
-        )
+        logging.exception("/context/names: failed to list context names for account=%s", account_name)
         return jsonify({"error": "An error occurred"}), 500
 
 
@@ -466,7 +467,6 @@ def search_documents():
             query=query,
             kind=kind,
             limit=limit,
-            before=None,
         )
 
         return jsonify(

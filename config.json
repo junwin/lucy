@@ -1,6 +1,7 @@
 {
   "storage_base_path": "data",
   "agents_path": "static/data/agents.json",
+  "storage_root_path": "/home/junwin/lucy_storage",
   "code_sandbox_path": "/home",
   "python_utils_path": "src/utils",
   "swagger_url": "/api/docs",
