@@ -1,5 +1,5 @@
 import pytest
-from src.keywords import Keywords  # Assuming that the above class is saved in a file called keywords.py
+from src.keywords.keywords import Keywords  # Assuming that the above class is saved in a file called keywords.py
 
 
 @pytest.fixture(scope="module")

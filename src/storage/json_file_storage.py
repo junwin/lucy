@@ -10,7 +10,7 @@ import logging
 from pathlib import Path
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
-from src.keywords import Keywords
+from src.keywords.keywords import Keywords
 from src.storage_paths.storage_paths import StoragePaths  
  
 from flask import sessions
