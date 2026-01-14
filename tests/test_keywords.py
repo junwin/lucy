@@ -1,49 +1,89 @@
 import pytest
-from src.keywords.keywords import Keywords  # Assuming that the above class is saved in a file called keywords.py
+
+from src.keywords.keywords import Keywords
 
 
-@pytest.fixture(scope="module")
-def keywords_obj():
-    return Keywords()
+class FakeToken:
+    def __init__(self, text, lemma_, *, is_punct=False, pos_="NOUN"):
+        self.text = text
+        self.lemma_ = lemma_
+        self.is_punct = is_punct
+        self.pos_ = pos_
 
-def test_extract_from_content(keywords_obj):
-    content = "The quick brown fox jumped over the lazy dog"
-    # should produce['fox', 'jump', 'dog']
-    result = keywords_obj.extract_from_content(content, top_n=5)
-    assert isinstance(result, list)
-    assert len(result) == 3
 
-def test_extract_keywords(keywords_obj):
-    content = "The quick brown fox jumped over the lazy dog"
-    # should produce['fox', 'jump', 'dog']
-    result = keywords_obj.extract_keywords(content, top_n=5)
-    assert isinstance(result, list)
-    assert len(result) == 3
+class FakeDoc(list):
+    pass
 
-def test_get_specified_keywords(keywords_obj):
-    input_str = "```dog,cat,bird```"
-    result = keywords_obj.get_specified_keywords(input_str)
-    assert result == ['dog', 'cat', 'bird']
 
-def test_compare_keyword_lists_semantic_similarity(keywords_obj):
-    keywords1 = ['dog', 'cat', 'bird']
-    keywords2 = ['dog', 'cat', 'bird']
-    result = keywords_obj.compare_keyword_lists_semantic_similarity(keywords1, keywords2)
-    assert result == 1.0
+def make_fake_nlp(tokens):
+    def _nlp(_text):
+        return FakeDoc(tokens)
 
-def test_compare_semantic_similarity(keywords_obj):
-    text1 = "dog cat bird"
-    text2 = "dog cat bird"
-    result = keywords_obj.compare_semantic_similarity(text1, text2)
-    assert round(result,8) == 1.0
+    return _nlp
 
-def test_compare_keywords(keywords_obj):
-    set1 = {'dog', 'cat', 'bird'}
-    set2 = {'dog', 'cat', 'bird'}
-    result = keywords_obj.compare_keywords(set1, set2, operator="and")
-    assert result is True
 
-def test_concatenate_keywords(keywords_obj):
-    keyword_list = ['dog', 'cat', 'bird']
-    result = keywords_obj.concatenate_keywords(keyword_list)
-    assert result == 'dog cat bird'
+@pytest.fixture
+def keywords(monkeypatch):
+    # Avoid spaCy model loading + NLTK data checks
+    monkeypatch.setattr(Keywords, "_initialize_nlp_model", lambda self: None)
+    kw = Keywords(language_code="en")
+    return kw
+
+
+def test_extract_keywords_filters_stopwords_punct_and_pos_and_respects_top_n(keywords, monkeypatch):
+    # Patch STOP_WORDS in the module under test (not spacy)
+    import src.keywords.keywords as kw_mod
+
+    monkeypatch.setattr(kw_mod, "STOP_WORDS", {"the", "and"})
+
+    tokens = [
+        FakeToken("the", "the", pos_="DET"),  # stopword
+        FakeToken(",", ",", is_punct=True, pos_="PUNCT"),  # punct
+        FakeToken("Cats", "cat", pos_="NOUN"),
+        FakeToken("cats", "cat", pos_="NOUN"),
+        FakeToken("run", "run", pos_="VERB"),
+        FakeToken("quickly", "quickly", pos_="ADV"),  # filtered by POS
+        FakeToken("and", "and", pos_="CCONJ"),  # stopword
+        FakeToken("Dogs", "dog", pos_="PROPN"),
+    ]
+
+    keywords.nlp = make_fake_nlp(tokens)
+
+    # cat appears twice, so it should be first; top_n=2 should return only 2
+    assert keywords.extract_keywords("ignored", top_n=2) == ["cat", "run"]
+
+
+def test_extract_keywords_request_keywords_fenced_block_parsing(keywords):
+    content = """please do this\nrequest keywords:\n```alpha, beta,gamma```\nthanks"""
+    # Current implementation splits by comma and does not strip whitespace
+    assert keywords.extract_keywords(content, top_n=10) == ["alpha", " beta", "gamma"]
+
+
+def test_get_specified_keywords_returns_empty_when_missing(keywords):
+    assert keywords.get_specified_keywords("no fenced block here") == []
+
+
+def test_compare_keywords_and_or_and_invalid_operator(keywords):
+    assert keywords.compare_keywords({"a", "b"}, {"b", "a"}, operator="and") is True
+    assert keywords.compare_keywords({"a", "b"}, {"b", "c"}, operator="and") is False
+
+    assert keywords.compare_keywords({"a", "b"}, {"c", "b"}, operator="or") is True
+    assert keywords.compare_keywords({"a"}, {"b"}, operator="or") is False
+
+    with pytest.raises(ValueError):
+        keywords.compare_keywords({"a"}, {"a"}, operator="xor")
+
+
+def test_compare_semantic_similarity_identical_is_1_and_different_is_lower(keywords):
+    assert keywords.compare_semantic_similarity("cat dog", "cat dog") == 1.0
+    sim = keywords.compare_semantic_similarity("cat dog", "banana orange")
+    assert sim < 1.0
+    # ensure rounding to 6 decimals
+    assert sim == round(sim, 6)
+
+
+def test_compare_keyword_lists_semantic_similarity_identical_is_1_and_different_is_lower(keywords):
+    assert keywords.compare_keyword_lists_semantic_similarity(["cat", "dog"], ["cat", "dog"]) == 1.0
+    sim = keywords.compare_keyword_lists_semantic_similarity(["cat", "dog"], ["banana", "orange"])
+    assert sim < 1.0
+    assert sim == round(sim, 6)

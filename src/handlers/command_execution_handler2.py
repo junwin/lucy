@@ -34,7 +34,12 @@ class CommandExecutionHandler2(HandlerV2):
             "type": "function",
             "name": cls.NAME,
             "description": (
-                "Run a command (shell=False) inside a sandboxed working directory under a named location. "
+                "Run a command inside a sandboxed working directory under a named location. "
+                "IMPORTANT: the command is executed with shell=False (subprocess.run(..., shell=False)). "
+                "Do NOT use shell operators (for example: &&, ||, |, ;, >, <, >>, 2>, $(), backticks, etc.). "
+                "If you need shell features (pipes, redirection, compound/conditional commands), wrap the entire command in a shell invocation, e.g. `bash -lc '\"...\"'`. "
+                "Example: `bash -lc '\"grep -R \"pattern\" . | sed -n \'1,10p\"'` will run a shell so pipes and redirects work. "
+                "(bash is available in the environment.) "
                 "Paths are always relative. "
                 "location='sandbox' uses code_sandbox_path; location='external' uses external_root."
             ),
@@ -53,8 +58,9 @@ class CommandExecutionHandler2(HandlerV2):
                     "command": {
                         "type": "string",
                         "description": (
-                            "Command to execute (shell=False). Provide a full command line; "
-                            "shell operators like |, >, && will not work unless you explicitly run a shell."
+                            "Command to execute (executed with shell=False). "
+                            "Do NOT include shell operators like &&, ||, |, >, <, 2>, etc. "
+                            "If you need them, wrap the command in a shell invocation, for example: `bash -lc '\"your full command here\"'`."
                         ),
                     },
                     "working_directory": {
@@ -68,9 +74,18 @@ class CommandExecutionHandler2(HandlerV2):
                         "description": "Timeout in seconds (limits runtime)",
                         "default": 30,
                     },
+                    "success_exit_codes": {
+                        "type": "array",
+                        "items": {"type": "integer"},
+                        "description": (
+                            "Return codes that should be treated as success. "
+                            "Default [0]. Useful for commands like grep where 1 means 'no matches'."
+                        ),
+                        "default": [0],
+                    },
                 },
                 # STRICT RULE: required must include EVERY property key
-                "required": ["location", "external_root", "command", "working_directory", "timeout_seconds"],
+                "required": ["location", "external_root", "command", "working_directory", "timeout_seconds", "success_exit_codes"],
                 "additionalProperties": False,
             },
             "strict": True,
@@ -197,8 +212,17 @@ class CommandExecutionHandler2(HandlerV2):
             command,
         )
 
+        success_exit_codes = args.get("success_exit_codes", [0])
+        if not isinstance(success_exit_codes, list) or not all(isinstance(x, int) for x in success_exit_codes):
+            success_exit_codes = [0]
+
+
         try:
-            rc, out, err = self._execute_script(command, resolved_dir, timeout=int(timeout_seconds))
+            rc, out_raw, err_raw = self._execute_script(command, resolved_dir, timeout=int(timeout_seconds))
+
+            out = self._truncate(out_raw)
+            err = self._truncate(err_raw)
+            
         except Exception as e:
             logging.exception("execute_command failed")
             return {
@@ -213,8 +237,16 @@ class CommandExecutionHandler2(HandlerV2):
                 "resolved_working_directory": resolved_dir,
             }
 
-        if rc == 0:
-            result_str = out.strip() or "success"
+        ok = rc in success_exit_codes
+
+        if ok:
+            # If rc!=0 but is “expected success” (e.g., grep=1), don’t label it “error”.
+            if out.strip():
+                result_str = out.strip()
+            elif err.strip():
+                result_str = err.strip()
+            else:
+                result_str = "success"
         else:
             result_str = f"error {rc}\nSTDOUT:\n{out}\nSTDERR:\n{err}"
 
@@ -347,3 +379,16 @@ class CommandExecutionHandler2(HandlerV2):
             timeout=timeout,
         )
         return completed.returncode, completed.stdout or "", completed.stderr or ""
+    
+    MAX_OUTPUT_CHARS = 10_000  # conservative, well under tool limits
+
+    def _truncate(self, text: str, limit: int = MAX_OUTPUT_CHARS) -> str:
+        if not text:
+            return ""
+        if len(text) <= limit:
+            return text
+        return (
+            text[: limit // 2]
+            + "\n\n[... output truncated ...]\n\n"
+            + text[-limit // 2 :]
+        )

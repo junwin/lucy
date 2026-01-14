@@ -20,8 +20,15 @@ def test_properties_and_resolve_relative_normal(tmp_path):
     assert sp.chats == expected_base / "chats"
     assert sp.documents == expected_base / "documents"
     assert sp.users == expected_base / "users"
-    assert sp.indexes == expected_base / "indexes"
+    # indexes are now stored per-domain alongside domain data. Use helper
+    # methods to build domain-local index paths.
     assert sp.agents == expected_base / "agents"
+
+    # verify index helpers
+    assert sp.index_for("chats", "alice") == expected_base / "chats" / "alice" / "index.json"
+    assert sp.index_for("documents", "doc123", "meta.json") == expected_base / "documents" / "doc123" / "meta.json"
+
+    assert sp.domain_index("documents", "doc123", "index.json") == expected_base / "documents" / "doc123" / "index.json"
 
     # create a nested file and resolve it
     doc_dir = expected_base / "documents"

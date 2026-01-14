@@ -118,13 +118,34 @@ All three handlers apply similar safety checks:
 - `working_directory`: relative directory under the base
 - `timeout_seconds`: integer
 
+**Important - shell behavior and restrictions**
+
+- Commands are executed with `shell=False` using `shlex.split` and `subprocess.run(..., shell=False)`.
+- Do NOT use shell operators directly in the `command` string. Examples of operators and shell features that will NOT work unless you run a shell include:
+  - Pipes and filters: `|`
+  - Conditional/compound operators: `&&`, `||`, `;`
+  - Redirection: `>`, `>>`, `<`, `2>`, `2>&1`
+  - Subshells and command substitution: `$(...)`, backticks `` `...` ``
+  - Variable expansion, globbing and other shell parsing features
+- If you need shell features (pipes, redirection, compound commands), wrap the entire command in an explicit shell invocation. For example:
+
+```json
+{
+  "location": "external",
+  "external_root": "repo_lucy",
+  "command": "bash -lc 'grep -R \"pattern\" . | sed -n \"1,10p\"'",
+  "working_directory": "src",
+  "timeout_seconds": 30
+}
+```
+
+- Note: at present bash is available in the environment; use `bash -lc '...'` to enable shell features.
+
 **Notes**
 
 - If `location="sandbox"`, the base directory is `config["code_sandbox_path"]` (and may be further scoped by `account_name` if that directory exists).
 - If `location="external"`, the base directory is `external_roots[external_root]`.
-- `working_directory` must exist.
-- Commands are executed with `shell=false` using `shlex.split`.
-  - Shell operators like `|`, `>`, `&&` will not work unless you explicitly run a shell (e.g. `bash -lc "..."`).
+- `working_directory` must exist and be a relative path under the chosen base.
 
 **Example (run a command in this repo)**
 
@@ -133,7 +154,7 @@ All three handlers apply similar safety checks:
   "location": "external",
   "external_root": "repo_lucy",
   "command": "python -m pytest -q",
-  "working_directory": ".",
+  "working_directory": "src",
   "timeout_seconds": 30
 }
 ```

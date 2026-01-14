@@ -339,6 +339,7 @@ class FunctionCallingProcessor(MessageProcessorInterface):
             except ToolResultTooLargeError as e:
                 metrics["failures"] += 1
                 tool_result_text = self._tool_result_to_text({"ok": False, "tool": tc.name, "error": str(e)})
+                raise ToolResultTooLargeError(str(e)) from e   
             except Exception as e:
                 metrics["failures"] += 1
                 logging.exception("Tool execution failed: %s call_id=%s", tc.name, tc.call_id)

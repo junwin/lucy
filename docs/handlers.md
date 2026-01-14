@@ -1,130 +1,192 @@
-# Handlers (v2)
+# Handlers
 
-## What is a handler?
+This repo exposes “tools” to the LLM via the **handlers** module (`src/handlers`).
 
-A **HandlerV2** is a pluggable "tool implementation" that the AI can call. Each handler:
+A handler is a small, pluggable unit that:
 
-1. **Defines a tool** (for OpenAI / function calling):
-   - `@classmethod def tool_def(cls) -> Dict[str, Any]`
-   - Returns an OpenAI-style tool definition:
-     - `type: "function"`
-     - `function: { name, description, parameters (JSON schema) }`
-   - This is what gets exposed to the model as an available tool.
+- advertises a tool definition (name/description/parameters)
+- executes some side-effectful or external operation
+- returns a structured result
 
-2. **Has a stable name**:
-   - `@classmethod def name(cls) -> str`
-   - Used as the tool/function name and as the key in the registry.
+There are currently **two handler styles** in the codebase:
 
-3. **Executes the tool logic**:
-   - `def execute(self, args: Dict[str, Any], *, account_name: str = "auto") -> Dict[str, Any]`
-   - Takes structured arguments (matching `tool_def.parameters`).
-   - Returns a **structured Python dict** with the result (and error info if needed).
+1. **`HandlerV2`**: the original v2 interface (dict-in / dict-out)
+2. **`SchemaHandlerV2`**: a newer typed base (raw-JSON-in / JSON-string-out) using Pydantic models
 
-4. **Optionally defines a result schema**:
-   - `@classmethod def result_schema(cls) -> Optional[Dict[str, Any]]`
-   - JSON schema describing the shape of the dict returned by `execute`.
-   - Used by `HandlerRegistry` to collect schemas.
+The registry (`HandlerRegistry`) is still built around `HandlerV2`, but `SchemaHandlerV2` exists for incremental migration.
 
-5. **May provide a helper for tool content** (not in the base interface, but used in examples):
-   - `execute_as_tool_content(...) -> str`
-   - Wraps `execute` and returns JSON-serialized string, suitable for tool output.
+---
 
-So conceptually:
+## Directory overview
 
-> A handler is a pluggable "tool implementation" that:
-> - advertises itself via a tool definition (name, description, parameters),
-> - runs some side-effectful or external operation when called,
-> - and returns a structured result dict, optionally described by a JSON schema.
+`src/handlers/`
+
+- `handler_v2.py` – `HandlerV2` abstract base class
+- `schema_handler_v2.py` – `SchemaHandlerV2` typed base class (Pydantic)
+- `handler_registry.py` – `HandlerRegistry` (register/create/tools/result schemas)
+- `registry_bootstrap.py` – `build_registry()` that registers concrete handlers
+- `handler_utils.py` – shared helpers (safe base-path resolution, script execution, etc.)
+
+Concrete handlers (tools):
+
+- `file_load_handler2.py` – `file_load`
+- `file_save_handler.py` – `file_save`
+- `command_execution_handler2.py` – `execute_command`
+- `scrape_web_page_handler2.py` – `scrape_web_page`
+- `web_search_handler2.py` – `web_search`
+- `get_keywords_handler.py` – `get_keywords` (optional deps)
+- `plan_tasks_handler.py` – `plan_tasks`
+
+---
+
+## HandlerV2 (dict-in / dict-out)
+
+File: `src/handlers/handler_v2.py`
+
+`HandlerV2` is the “classic” tool interface:
+
+- `@classmethod def name(cls) -> str`
+- `@classmethod def tool_def(cls) -> Dict[str, Any]`
+- `@classmethod def result_schema(cls) -> Optional[Dict[str, Any]]` (optional)
+- `def execute(self, args: Dict[str, Any], *, account_name: str = "auto") -> Dict[str, Any]`
+
+Notes:
+
+- `tool_def()` returns an OpenAI-style tool definition:
+  - `{"type": "function", "function": {"name": ..., "description": ..., "parameters": ...}}`
+- `execute()` returns a Python `dict` (the tool result).
+
+---
+
+## SchemaHandlerV2 (typed, raw JSON interface)
+
+File: `src/handlers/schema_handler_v2.py`
+
+`SchemaHandlerV2` is a newer base class intended to make tool calls more robust by:
+
+- validating arguments with a Pydantic `ArgsModel`
+- validating results with a Pydantic `ResultModel`
+- standardizing error codes
+- providing a raw JSON-string interface (`execute_raw`) that always returns a JSON object string
+
+Key pieces:
+
+- `ArgsModel: Type[pydantic.BaseModel]`
+- `ResultModel: Type[pydantic.BaseModel]`
+- `@classmethod def name(cls) -> str`
+- `@classmethod def tool_def(cls) -> Dict[str, Any]`
+- `def execute_raw(self, arguments_raw: str, *, account_name: str = "auto", call_id: str = "") -> str`
+- `def execute(self, args: ArgsModel, *, account_name: str = "auto", call_id: str = "") -> ResultModel | Dict[str, Any]`
+
+Shared error codes (enum `ErrorCode`):
+
+- `invalid_args`
+- `tool_execution_failed`
+- `result_serialization_failed`
+
+`SchemaHandlerV2.result_schema()` defaults to `ResultModel.model_json_schema()` when available.
+
+---
 
 ## HandlerRegistry
 
-`HandlerRegistry` is the central registry for all `HandlerV2` implementations:
+File: `src/handlers/handler_registry.py`
 
-- Keeps a mapping: `handler_name -> handler_class`.
-- Ensures:
-  - `name()` is non-empty.
-  - No duplicate names.
+`HandlerRegistry` is the central registry for `HandlerV2` implementations.
+
+What it does:
+
+- maps `handler_name -> handler_class`
+- prevents empty names and duplicate registrations
+- caches `result_schema()` at registration time (best-effort)
 
 Key methods:
 
-- `register(handler_cls: Type[HandlerV2])`  
-  Register a handler class.
+- `register(handler_cls)`
+- `create(name: str, *, config) -> HandlerV2`
+- `tools() -> List[tool_def]`
+- `tool_names() -> List[str]` (sorted)
+- `result_schema(name)` / `all_result_schemas()`
 
-- `create(name: str, *, config: ConfigManager) -> HandlerV2`  
-  Instantiate a handler by name, passing a `ConfigManager` into its constructor.
+Important detail:
 
-- `tools() -> List[Dict[str, Any]]`  
-  Returns all `tool_def()`s for registered handlers (for exposing to the LLM).
+- `create()` currently assumes all `HandlerV2` handlers accept `config` in `__init__`.
 
-- `tool_names() -> List[str]`  
-  Sorted list of handler names.
+---
 
-- `result_schema(name: str)` and `all_result_schemas()`  
-  Access the JSON schemas for handler results.
+## Registry bootstrap
 
-So the registry is the glue that:
+File: `src/handlers/registry_bootstrap.py`
 
-- Knows which handlers exist.
-- Can create them with config.
-- Can provide their tool definitions and result schemas to the rest of the system.
+`build_registry()` constructs a registry and registers handlers.
 
-## Examples
+Currently registered:
 
-### CommandExecutionHandler2
+Core (expected):
+
+- `FileLoadHandler2` (`file_load`)
+- `FileSaveHandler2` (`file_save`)
+- `CommandExecutionHandler2` (`execute_command`)
+- `ScrapeWebPageHandler2` (`scrape_web_page`)
+
+Optional:
+
+- `WebSearchHandler2` (`web_search`) – registered in a try/except
+- `GetKeywordsHandler` (`get_keywords`) – registered in a try/except; may require spaCy/nltk/scikit-learn
+
+Also registered:
+
+- `PlanTasksHandler` (`plan_tasks`)
+
+---
+
+## Example: execute_command
 
 File: `src/handlers/command_execution_handler2.py`
 
-**Purpose:** Execute an OS command in a given working directory under a controlled base folder.
+Purpose: execute an OS command in a controlled working directory.
 
-Key points:
+Typical parameters:
 
-- `NAME = "execute_command"`.
-- `tool_def()` describes parameters: `command`, `working_directory`, `timeout_seconds`.
-- `execute()`:
-  - Validates inputs.
-  - Uses `get_base_path(config, account_name, working_directory)` to resolve a safe directory.
-  - Runs the command with `subprocess.run` (`shell=False`).
-  - Returns a structured result dict with `ok`, `returncode`, `stdout`, `stderr`, and a human-friendly `result`.
+- `location`: `"sandbox" | "external"`
+- `external_root`: name of the external root when `location="external"`
+- `command`: full command line (executed with shell=False; see WARNING below)
+- `working_directory`: relative directory under the chosen root
+- `timeout_seconds`: execution timeout
 
-### ScrapeWebPageHandler2
+WARNING (important): the handler executes commands with shell=False (subprocess.run(..., shell=False)). Do NOT use shell operators (examples include: &&, ||, |, ;, >, <, >>, 2>, subshells, backticks, etc.) in the `command` string. If you require shell behavior (pipes, redirection, compound/conditional commands), wrap the whole command in a shell invocation. Example wrapper to allow pipes/redirection:
 
-File: `src/handlers/scrape_web_page_handler2.py`
+```
+command: "bash -lc 'grep -R \"pattern\" . | sed -n \"1,10p\"'"
+```
 
-**Purpose:** Read the text from a webpage by calling an external Python script.
+(For now, bash is available in the environment.)
 
-Key points:
+The handler:
 
-- `NAME = "scrape_web_page"`.
-- `tool_def()` describes parameter: `page_url`.
-- `execute()`:
-  - Validates `page_url`.
-  - Reads `python_utils_path` from `ConfigManager`.
-  - Resolves `base_path = get_base_path(config, account_name, python_utils_path)`.
-  - Builds command: `python3 scrape.py {page_url}`.
-  - Calls `execute_script(command, base_path)`.
-  - Returns a structured result dict with `ok`, `page_url`, `result` (scraped text) or `error`.
+- resolves a safe base path (via `handler_utils.get_base_path(...)`)
+- runs the command with `subprocess.run(..., shell=False)`
+- returns a structured dict including `ok`, `returncode`, `stdout`, `stderr`
 
-## Dependencies of a handler
+---
 
-From these examples, a typical `HandlerV2` depends on:
+## Path safety model (important)
 
-### Core interface
+Several handlers accept file paths or working directories.
 
-- `src.handlers.handler_v2.HandlerV2` – abstract base class defining `name`, `tool_def`, `result_schema`, and `execute`.
+The safety model is:
 
-### Configuration
+- paths are **relative** to a configured base directory
+- no absolute paths
+- no `..` traversal
 
-- `src.config_manager.ConfigManager` – passed into the handler constructor and used to read configuration values.
+This is enforced by the file and command handlers (and by `handler_utils.get_base_path`).
 
-### Handler utilities
+---
 
-- `src.handlers.handler_utils.get_base_path(config, account_name, relative_path)` – resolves a relative path into a safe, allowed base directory.
-- `src.handlers.handler_utils.execute_script(command, base_path)` – helper to run a command in a given base path and return its output (used by some handlers).
+## When to use which base class
 
-### Standard library / logging
+- Use **`HandlerV2`** when you want the simplest implementation and you’re OK with “best effort” validation.
+- Use **`SchemaHandlerV2`** when you want strict argument/result validation and standardized error handling.
 
-- `os`, `shlex`, `subprocess`, `logging`, `json`, `typing` (`Dict`, `Any`, etc.).
-
-### Registry
-
-- `src.handlers.handler_registry.HandlerRegistry` – used by the system to register handlers, instantiate them with config, and expose their tool definitions and result schemas.
+If you want, I can also update this doc to include a short per-tool table of parameters and result fields for each concrete handler (based on the current code).
