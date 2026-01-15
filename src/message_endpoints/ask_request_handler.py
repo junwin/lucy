@@ -204,6 +204,90 @@ class AskRequestHandler:
         if hasattr(processor, "context_type"):
             processor.context_type = context_type
 
+        # conversation/session resolution: if no conversationId was provided,
+        # try to resolve using a friendlyName (payload: friendlyName) or create
+        # a new chat session. This mirrors the behavior used elsewhere in the
+        # app and main entrypoint.
+        try:
+            if not conversationId:
+                # Prefer camelCase friendlyName from client, but accept snake_case too
+                friendly_name = payload.get("friendlyName") or payload.get("friendly_name")
+                if friendly_name is not None:
+                    friendly_name = str(friendly_name).strip() or None
+
+                # Validate account/agent before calling storage
+                if not accountName or not agentName:
+                    self.logger.warning(
+                        "/ask: cannot resolve or create session - missing accountName or agentName (account=%s agent=%s)",
+                        accountName,
+                        agentName,
+                    )
+                    return 400, {"error": "Missing accountName or agentName for session creation"}
+
+                # Attempt to find an existing session by friendly name
+                found_session_id: Optional[str] = None
+                if friendly_name and hasattr(self.storage, "find_chat_sessions_by_friendly_name"):
+                    try:
+                        matches = self.storage.find_chat_sessions_by_friendly_name(
+                            account_name=accountName,
+                            agent_name=agentName,
+                            friendly_name=friendly_name,
+                            limit=1,
+                        )
+                        if matches:
+                            found_session_id = matches[0].id
+                            self.logger.info(
+                                "/ask: resolved conversation by friendlyName account=%s agent=%s friendlyName=%s -> session_id=%s",
+                                accountName,
+                                agentName,
+                                friendly_name,
+                                found_session_id,
+                            )
+                    except Exception as e:
+                        # Non-fatal: log and continue to creating a session
+                        self.logger.exception(
+                            "/ask: error searching for friendlyName=%s account=%s agent=%s: %s",
+                            friendly_name,
+                            accountName,
+                            agentName,
+                            e,
+                        )
+
+                if found_session_id:
+                    conversationId = found_session_id
+                else:
+                    # Create a fresh chat session (may include friendly name or not)
+                    try:
+                        session = self.storage.create_chat_session(
+                            account_name=accountName,
+                            agent_name=agentName,
+                            friendly_name=friendly_name,
+                        )
+                        conversationId = session.id
+                        self.logger.info(
+                            "/ask: created new chat session account=%s agent=%s friendlyName=%s session_id=%s",
+                            accountName,
+                            agentName,
+                            friendly_name,
+                            conversationId,
+                        )
+                    except Exception:
+                        self.logger.exception(
+                            "/ask: failed to create chat session account=%s agent=%s friendlyName=%s",
+                            accountName,
+                            agentName,
+                            friendly_name,
+                        )
+                        return 500, {"error": "Failed to create chat session"}
+
+        except Exception:
+            self.logger.exception(
+                "/ask: unexpected error during session resolution account=%s agent=%s",
+                accountName,
+                agentName,
+            )
+            return 500, {"error": "Failed to resolve or create session"}
+
         try:
             response_text = processor.process_message(
                 primary_agent=primary_agent,
@@ -215,9 +299,8 @@ class AskRequestHandler:
                 processor_factory=self.processor_factory,
             )
 
- 
-
-            return 200, {"response": response_text}
+            # Return the conversation id so callers can persist it for future requests
+            return 200, {"response": response_text, "conversation_id": conversationId}
 
         except ToolHandlerError as e:
             error_message = f"Tool execution failed: {str(e)}"
@@ -227,14 +310,22 @@ class AskRequestHandler:
                 agentName,
                 conversationId,
             )
-            self.storage.append_chat_message(
-                conversationId,
-                ChatMessage(
-                    role="assistant",
-                    content=error_message,
-                    metadata={"error": True},
-                ),
-            )
+            # Try to append the error to the session if we have one
+            if conversationId:
+                try:
+                    self.storage.append_chat_message(
+                        conversationId,
+                        ChatMessage(
+                            role="assistant",
+                            content=error_message,
+                            metadata={"error": True},
+                        ),
+                    )
+                except Exception:
+                    self.logger.exception(
+                        "/ask: failed to append error message to session %s",
+                        conversationId,
+                    )
             return 500, {"error": error_message}
 
         except Exception:

@@ -22,7 +22,7 @@ From the project root:
 
 ```bash
 cd src/repos/lucy
-python main.py --agentName lucy --accountName junwin
+python main.py --agentName lucy --accountName junwin --friendlyName talisker
 ```
 
 Type a message at the prompt, for example:

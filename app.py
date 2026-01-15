@@ -182,8 +182,79 @@ def ask():
         logging.info("/ask: inactive account for user_id=%s", account_name)
         return jsonify({"error": f"Account '{account_name}' is inactive"}), 403
 
+    # New behavior: support friendlyName-based session resume/creation when
+    # conversationId is missing or blank in the payload.
+    conv_id = (payload.get("conversationId") or "").strip()
+    if not conv_id:
+        friendly_name = payload.get("friendlyName")
+        if friendly_name:
+            agent_name = (payload.get("agentName") or "").lower()
+            if not agent_name:
+                logging.info("/ask: friendlyName provided but agentName missing; skipping session lookup")
+            else:
+                try:
+                    # Try to find existing session by friendly name
+                    matches = []
+                    if hasattr(storage, "find_chat_sessions_by_friendly_name"):
+                        matches = storage.find_chat_sessions_by_friendly_name(
+                            account_name, agent_name, friendly_name, limit=1
+                        )
+                    if matches:
+                        session = matches[0]
+                        conv_id = session.id
+                        payload["conversationId"] = conv_id
+                        logging.info(
+                            "/ask: resumed session id=%s for friendlyName=%s account=%s agent=%s",
+                            conv_id,
+                            friendly_name,
+                            account_name,
+                            agent_name,
+                        )
+                    else:
+                        # No existing session — create one so the conversationId is stable
+                        try:
+                            session = storage.create_chat_session(
+                                account_name=account_name,
+                                agent_name=agent_name,
+                                friendly_name=friendly_name,
+                            )
+                            conv_id = session.id
+                            payload["conversationId"] = conv_id
+                            logging.info(
+                                "/ask: created new session id=%s for friendlyName=%s account=%s agent=%s",
+                                conv_id,
+                                friendly_name,
+                                account_name,
+                                agent_name,
+                            )
+                        except Exception:
+                            logging.exception(
+                                "/ask: failed to create chat session for friendlyName=%s account=%s agent=%s",
+                                friendly_name,
+                                account_name,
+                                agent_name,
+                            )
+                except Exception:
+                    logging.exception(
+                        "/ask: failed to lookup chat session for friendlyName=%s account=%s agent=%s",
+                        friendly_name,
+                        account_name,
+                        agent_name,
+                    )
+
     handler = container.get(AskRequestHandler)
     status, body = handler.handle(payload)
+
+    # Ensure response body includes conversation_id for client convenience.
+    try:
+        # Prefer the conversationId we set on the payload, fallback to any
+        # value returned by the handler.
+        returned_conv = (payload.get("conversationId") or payload.get("conversation_id") or conv_id)
+        if isinstance(body, dict) and returned_conv:
+            body["conversation_id"] = returned_conv
+    except Exception:
+        logging.exception("/ask: failed to attach conversation_id to response body")
+
     return jsonify(body), status
 
 
