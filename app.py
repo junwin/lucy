@@ -513,31 +513,34 @@ def update_chat(session_id: str):
         return jsonify({"ok": False, "error": str(e)}), 500
 
 
-@app.route("/documents/search", methods=["GET"])
+@app.route("/documents/search", methods=["POST"])
 def search_documents():
     """Search documents (e.g., Obsidian notes) using simple keyword matching."""
-    account_name = (request.args.get("accountName", "") or "").lower()
-    query = request.args.get("q", "") or ""
-    kind = request.args.get("kind") or None
-    limit = int(request.args.get("limit", "10"))
+    data = request.get_json(silent=True) or {}
+
+    account_name = (data.get("account_name", "") or "").lower()
+    query = data.get("question") or data.get("q") or ""
+    kind = data.get("kind")
+    tag = data.get("tag")
+    limit = int(data.get("limit", 10))
 
     if not account_name:
-        return jsonify({"error": "Missing accountName"}), 400
+        return jsonify({"error": "Missing account_name"}), 400
     if not query.strip():
-        return jsonify({"error": "Missing q (query)"}), 400
+        return jsonify({"error": "Missing query"}), 400
 
     try:
-        # We currently only have the implementation on JsonFileStorage,
-        # but this can be promoted to the Storage interface later.
         if not hasattr(storage, "search_documents_poor_man"):
-            return jsonify({"error": "Document search not supported by this storage backend"}), 501
+            return jsonify(
+                {"error": "Document search not supported by this storage backend"}
+            ), 501
 
         results = storage.search_documents_poor_man(
             account_name=account_name,
             query=query,
             kind=kind,
             limit=limit,
-            before=None,
+            tag=tag,
         )
 
         return jsonify(

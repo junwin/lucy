@@ -697,7 +697,7 @@ class JsonFileStorage(Storage):
 
         myKwUtil = Keywords()
 
-        terms = myKwUtil.extract_keywords(query, top_n=10)   
+        terms = myKwUtil.extract_keywords(query, top_n=20)   
 
         # Tokenize query into lowercase terms
         # terms = [t for t in query.lower().split() if t.strip()]
