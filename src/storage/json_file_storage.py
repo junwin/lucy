@@ -606,6 +606,8 @@ class JsonFileStorage(Storage):
         limit: int = 100,
     ) -> List[DocumentRef]:
 
+        logging.debug("list_documents called: account=%s kind=%s tag=%r limit=%s", account_name, kind, tag, limit)
+
         doc_dir = self.storage_paths.documents / account_name
         if not doc_dir.exists():
             return []
@@ -618,7 +620,8 @@ class JsonFileStorage(Storage):
 
             if kind and data.get("kind") != kind:
                 continue
-            if tag and tag not in data.get("tags", []):
+            # If tag is provided (could be empty string), strictly require it to be present
+            if tag is not None and tag not in data.get("tags", []):
                 continue
 
             docs.append(self._doc_dict_to_ref(data))
