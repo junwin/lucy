@@ -8,6 +8,7 @@ class FakeToken:
         self.text = text
         self.lemma_ = lemma_
         self.is_punct = is_punct
+        self.is_space = False
         self.pos_ = pos_
 
 
