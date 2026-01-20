@@ -6,6 +6,7 @@ from pathlib import Path
 
 from src.storage.json_file_storage import JsonFileStorage
 from src.utils.obsidian_importer import index_obsidian_vault
+from src.storage_paths.storage_paths import StoragePaths
 
 
 def main() -> None:
@@ -40,9 +41,9 @@ def main() -> None:
     args = parser.parse_args()
 
     logging.basicConfig(level=logging.INFO, format="%(levelname)s - %(message)s")
+    storage_path = StoragePaths("/home/junwin/lucy_storage", "data")
 
-    base_path = Path(args.base_path).expanduser().resolve()
-    storage = JsonFileStorage(str(base_path))
+    storage = JsonFileStorage(storage_path)
 
     docs = index_obsidian_vault(
         storage=storage,

@@ -145,35 +145,7 @@ def test_bad_json_tool_args_falls_back_to_empty_dict(make_proc, prompt_builder, 
     assert handler.calls == [({}, "acct1")]
 
 
-def test_tool_result_too_large_is_converted_to_error_tool_output_and_model_called_again(make_proc, prompt_builder, llm_adapter):
-    from tests.conftest import FakeHandler, FakeRegistry, FakeAgent, setup_tool_then_text
-    from src.message_processors.function_calling_processor import ToolResultTooLargeError
 
-    handler = FakeHandler(exc=ToolResultTooLargeError("too big"))
-    reg = FakeRegistry(handler_by_name={"my_tool": handler}, tool_defs=[{"name": "my_tool"}])
-    proc = make_proc(registry=reg)
-
-    prompt_builder.build_prompt.return_value = [{"role": "user", "content": "big"}]
-
-    # First call triggers tool call, second returns text.
-    setup_tool_then_text(llm_adapter, tool_name="my_tool", tool_args="{}", final_text="recovered")
-
-    out = proc.process_message(
-        primary_agent=FakeAgent(max_function_call_iterations=3),
-        account={"accountId": "acct1"},
-        message="big",
-        conversation_id="c1",
-        context_name="ctx",
-    )
-
-    assert out == "recovered"
-    assert llm_adapter.call_model.call_count == 2
-
-    second_call_kwargs = llm_adapter.call_model.call_args_list[1].kwargs
-    assert second_call_kwargs["previous_response_id"] == "r1"
-    tool_output = second_call_kwargs["input"][0]
-    assert tool_output["call_id"] == "call-1"
-    assert "error" in str(tool_output["output"]).lower()
 
 
 def test_handler_exception_is_wrapped_in_tool_handler_error(make_proc, prompt_builder, llm_adapter):

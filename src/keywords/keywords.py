@@ -1,5 +1,6 @@
 from typing import List, Dict, Set
 from collections import Counter
+from annotated_types import doc
 from nltk.stem import SnowballStemmer
 from nltk.tokenize import word_tokenize
 import nltk
@@ -46,17 +47,25 @@ class Keywords:
     def extract_keywords(self, content: str, top_n: int = 10) -> List[str]:
         if 'request keywords:' in content:
             return self.get_specified_keywords(content)
+        
 
         doc = self.nlp(content.lower())
 
-        no_punct_tokens = [token for token in doc if not token.is_punct]
-        no_stop_tokens = [token for token in no_punct_tokens if token.text not in STOP_WORDS]
-        filtered_tokens = [token for token in no_stop_tokens if token.pos_ in ["PROPN", "NOUN", "VERB"]]
-        lemmatized_words = [token.lemma_ for token in filtered_tokens]
-        word_frequency = Counter(lemmatized_words)
-        keywords = [word for word, freq in word_frequency.most_common(top_n)]
+        tokens = [t for t in doc if not t.is_punct and not t.is_space]
 
+        # POS filter first (optional order)
+        tokens = [t for t in tokens if t.pos_ in {"PROPN", "NOUN", "VERB"}]
+
+        # Lemmatize
+        lemmas = [t.lemma_.lower() for t in tokens]
+
+        # Now stop-word filter on lemmas (not token.text)
+        lemmas = [l for l in lemmas if l not in STOP_WORDS and l.strip()]
+
+        word_frequency = Counter(lemmas)
+        keywords = [w for w, _ in word_frequency.most_common(top_n)]
         return keywords
+
 
     def get_specified_keywords(self, input_str: str) -> List[str]:
         match = re.search('```(.*?)```', input_str, re.S)

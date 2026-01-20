@@ -92,11 +92,25 @@ class PromptBuilder(PromptBuilderInterface):
         doc_contexts: List[Dict[str, Any]] = []
         if context_type in ("documents", "hybrid"):
             try:
+                # Read optional docs_tag from the context state if available.
+                docs_tag: Optional[str] = None
+                if context_name and context_name != "none":
+                    ctx = self._get_context_state(account_name=account_name, context_name=context_name)
+                    if ctx is not None:
+                        data = getattr(ctx, "data", None)
+                        if isinstance(data, dict):
+                            tag_val = data.get("tag")
+                            if isinstance(tag_val, str) and tag_val.strip():
+                                docs_tag = tag_val.strip()
+
+                logging.info("PromptBuilder.build_prompt: docs_tag=%s", docs_tag)
+
                 doc_contexts = get_document_context(
                     storage=self.storage,
                     account_name=account_name,
                     query=content_text,
                     kind="obsidian_note",
+                    docs_tag=docs_tag,
                     limit=3,
                     max_chars=2000,
                 )
@@ -205,6 +219,31 @@ class PromptBuilder(PromptBuilderInterface):
         msgs = session.messages[-max_conversations:]
         return [{"role": m.role, "content": m.content} for m in msgs]
 
+    def _get_context_state(self, account_name: str, context_name: str) -> Optional[Any]:
+        """Return the ContextState object (or None) for the named context.
+
+        This follows the same fallback logic as _get_context_text: prefer a
+        storage implementation that supports get_or_create_context, otherwise
+        use get_context. Fail softly and return None on errors.
+        """
+        if not context_name or context_name == "none":
+            return None
+
+        try:
+            if hasattr(self.storage, "get_or_create_context"):
+                ctx = self.storage.get_or_create_context(account_name, context_name)
+            else:
+                ctx = self.storage.get_context(account_name, context_name)
+            return ctx
+        except Exception as ex:
+            logging.warning(
+                "PromptBuilder: failed to load/create context %s for %s: %s",
+                context_name,
+                account_name,
+                ex,
+            )
+            return None
+
     def _get_context_text(self, account_name: str, context_name: str) -> str:
         """Load context text from storage.
 
@@ -220,32 +259,8 @@ class PromptBuilder(PromptBuilderInterface):
         context content, but creating an empty context here is a safe fallback
         in case the request handler didn't do it.
         """
-        if not context_name or context_name == "none":
-            return ""
-
-        # Prefer get_or_create_context if available.
-        try:
-            if hasattr(self.storage, "get_or_create_context"):
-                ctx = self.storage.get_or_create_context(account_name, context_name)
-            else:
-                ctx = self.storage.get_context(account_name, context_name)
-        except Exception as ex:
-            logging.warning(
-                "PromptBuilder: failed to load/create context %s for %s: %s",
-                context_name,
-                account_name,
-                ex,
-            )
-            return ""
-
+        ctx = self._get_context_state(account_name, context_name)
         if ctx is None:
-            # Should be rare (only if storage.get_context returned None and
-            # get_or_create_context is not available).
-            logging.warning(
-                "PromptBuilder: context %s not found for account=%s",
-                context_name,
-                account_name,
-            )
             return ""
 
         data = getattr(ctx, "data", None)

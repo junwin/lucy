@@ -182,79 +182,8 @@ def ask():
         logging.info("/ask: inactive account for user_id=%s", account_name)
         return jsonify({"error": f"Account '{account_name}' is inactive"}), 403
 
-    # New behavior: support friendlyName-based session resume/creation when
-    # conversationId is missing or blank in the payload.
-    conv_id = (payload.get("conversationId") or "").strip()
-    if not conv_id:
-        friendly_name = payload.get("friendlyName")
-        if friendly_name:
-            agent_name = (payload.get("agentName") or "").lower()
-            if not agent_name:
-                logging.info("/ask: friendlyName provided but agentName missing; skipping session lookup")
-            else:
-                try:
-                    # Try to find existing session by friendly name
-                    matches = []
-                    if hasattr(storage, "find_chat_sessions_by_friendly_name"):
-                        matches = storage.find_chat_sessions_by_friendly_name(
-                            account_name, agent_name, friendly_name, limit=1
-                        )
-                    if matches:
-                        session = matches[0]
-                        conv_id = session.id
-                        payload["conversationId"] = conv_id
-                        logging.info(
-                            "/ask: resumed session id=%s for friendlyName=%s account=%s agent=%s",
-                            conv_id,
-                            friendly_name,
-                            account_name,
-                            agent_name,
-                        )
-                    else:
-                        # No existing session — create one so the conversationId is stable
-                        try:
-                            session = storage.create_chat_session(
-                                account_name=account_name,
-                                agent_name=agent_name,
-                                friendly_name=friendly_name,
-                            )
-                            conv_id = session.id
-                            payload["conversationId"] = conv_id
-                            logging.info(
-                                "/ask: created new session id=%s for friendlyName=%s account=%s agent=%s",
-                                conv_id,
-                                friendly_name,
-                                account_name,
-                                agent_name,
-                            )
-                        except Exception:
-                            logging.exception(
-                                "/ask: failed to create chat session for friendlyName=%s account=%s agent=%s",
-                                friendly_name,
-                                account_name,
-                                agent_name,
-                            )
-                except Exception:
-                    logging.exception(
-                        "/ask: failed to lookup chat session for friendlyName=%s account=%s agent=%s",
-                        friendly_name,
-                        account_name,
-                        agent_name,
-                    )
-
     handler = container.get(AskRequestHandler)
     status, body = handler.handle(payload)
-
-    # Ensure response body includes conversation_id for client convenience.
-    try:
-        # Prefer the conversationId we set on the payload, fallback to any
-        # value returned by the handler.
-        returned_conv = (payload.get("conversationId") or payload.get("conversation_id") or conv_id)
-        if isinstance(body, dict) and returned_conv:
-            body["conversation_id"] = returned_conv
-    except Exception:
-        logging.exception("/ask: failed to attach conversation_id to response body")
-
     return jsonify(body), status
 
 
@@ -267,6 +196,8 @@ def list_context_names():
 
     Response:
       ["lucy_client", "lucy_gptchum", "lucyproject"]
+
+    NOTE: This previously returned a static stub; now delegates to storage.list_context_names().
     """
 
     account_name = (request.args.get("accountName") or "").strip()
@@ -274,11 +205,10 @@ def list_context_names():
         return jsonify({"error": "Missing accountName"}), 400
 
     try:
-        return jsonify(storage.list_context_names(account_name)), 200
+        names = storage.list_context_names(account_name)
+        return jsonify(names), 200
     except Exception:
-        logging.exception(
-            "/context/names: failed to list context names for account=%s", account_name
-        )
+        logging.exception("/context/names: failed to list context names for account=%s", account_name)
         return jsonify({"error": "An error occurred"}), 500
 
 
@@ -513,34 +443,30 @@ def update_chat(session_id: str):
         return jsonify({"ok": False, "error": str(e)}), 500
 
 
-@app.route("/documents/search", methods=["POST"])
+@app.route("/documents/search", methods=["GET"])
 def search_documents():
     """Search documents (e.g., Obsidian notes) using simple keyword matching."""
-    data = request.get_json(silent=True) or {}
-
-    account_name = (data.get("account_name", "") or "").lower()
-    query = data.get("question") or data.get("q") or ""
-    kind = data.get("kind")
-    tag = data.get("tag")
-    limit = int(data.get("limit", 10))
+    account_name = (request.args.get("accountName", "") or "").lower()
+    query = request.args.get("q", "") or ""
+    kind = request.args.get("kind") or None
+    limit = int(request.args.get("limit", "10"))
 
     if not account_name:
-        return jsonify({"error": "Missing account_name"}), 400
+        return jsonify({"error": "Missing accountName"}), 400
     if not query.strip():
-        return jsonify({"error": "Missing query"}), 400
+        return jsonify({"error": "Missing q (query)"}), 400
 
     try:
+        # We currently only have the implementation on JsonFileStorage,
+        # but this can be promoted to the Storage interface later.
         if not hasattr(storage, "search_documents_poor_man"):
-            return jsonify(
-                {"error": "Document search not supported by this storage backend"}
-            ), 501
+            return jsonify({"error": "Document search not supported by this storage backend"}), 501
 
         results = storage.search_documents_poor_man(
             account_name=account_name,
             query=query,
             kind=kind,
             limit=limit,
-            tag=tag,
         )
 
         return jsonify(

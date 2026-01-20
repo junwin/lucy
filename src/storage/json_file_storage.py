@@ -10,7 +10,8 @@ import logging
 from pathlib import Path
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
-from src.keywords import Keywords
+from src.keywords.keywords import Keywords
+from src.storage_paths.storage_paths import StoragePaths  
  
 from flask import sessions
 
@@ -62,12 +63,10 @@ def _parse_dt_utc(dt_str: str) -> datetime:
 class JsonFileStorage(Storage):
     """JSON-backed storage implementation for Lucy."""
 
-    def __init__(self, base_path: str):
-        # Allow absolute paths (e.g. /home/junwin/lucydata), relative paths
-        # (e.g. ./lucydata), and ~ expansion.
-        expanded = os.path.expanduser(str(base_path))
-        self.base_path = Path(expanded)
-        self.base_path.mkdir(parents=True, exist_ok=True)
+    def __init__(self, storage_paths: StoragePaths):
+
+        self.storage_paths = storage_paths
+
 
     # ----------------------------------------------------------------------
     # Helpers
@@ -126,7 +125,7 @@ class JsonFileStorage(Storage):
             metadata={},
         )
 
-        chat_dir = self.base_path / "chats" / account_name
+        chat_dir = self.storage_paths.chats / account_name
         self._ensure_dir(chat_dir)
 
         # Write JSON — Option A (sparse fields)
@@ -171,7 +170,7 @@ class JsonFileStorage(Storage):
     # ----------------------------------------------------------------------
 
     def get_chat_session(self, session_id: str) -> Optional[ChatSession]:
-        chats_dir = self.base_path / "chats"
+        chats_dir = self.storage_paths.chats
         if not chats_dir.exists():
             return None
 
@@ -197,7 +196,8 @@ class JsonFileStorage(Storage):
         before: Optional[datetime] = None,
     ) -> List[ChatSession]:
 
-        chat_dir = self.base_path / "chats" / account_name
+        
+        chat_dir = self.storage_paths.chats / account_name
         if not chat_dir.exists():
             return []
 
@@ -257,7 +257,7 @@ class JsonFileStorage(Storage):
             raise ValueError(f"Session {session_id} not found")
 
         chat_path = (
-            self.base_path / "chats" / session.account_name / f"{session_id}.json"
+            self.storage_paths.chats / session.account_name / f"{session_id}.json"
         )
         data = self._load_json(chat_path)
         if not data:
@@ -301,7 +301,7 @@ class JsonFileStorage(Storage):
         # Update index if friendly name changed
         if friendly_name is not None:
             index_path = (
-                self.base_path / "chats" / session.account_name / "index.json"
+                self.storage_paths.chats / session.account_name / "index.json"
             )
             index = self._load_json(index_path) or {}
             # Preserve existing structure if present, otherwise create new
@@ -328,7 +328,7 @@ class JsonFileStorage(Storage):
             raise FileNotFoundError(f"Session {session_id} not found")
 
         chat_path = (
-            self.base_path / "chats" / session.account_name / f"{session_id}.json"
+            self.storage_paths.chats / session.account_name / f"{session_id}.json"
         )
         data = self._load_json(chat_path)
         if not data:
@@ -368,7 +368,7 @@ class JsonFileStorage(Storage):
             return
 
         account_name = session.account_name
-        chat_dir = self.base_path / "chats" / account_name
+        chat_dir = self.storage_paths / account_name
         chat_path = chat_dir / f"{session_id}.json"
 
         # Remove the chat file if it exists
@@ -426,7 +426,7 @@ class JsonFileStorage(Storage):
     # ----------------------------------------------------------------------
 
     def get_user_profile(self, account_name: str) -> Optional[UserProfile]:
-        path = self.base_path / "users" / f"{account_name}.json"
+        path = self.storage_paths.users / f"{account_name}.json"
         data = self._load_json(path)
         if not data:
             return None
@@ -439,7 +439,7 @@ class JsonFileStorage(Storage):
         )
 
     def upsert_user_profile(self, profile: UserProfile) -> None:
-        path = self.base_path / "users"
+        path = self.storage_paths.users
         self._ensure_dir(path)
 
         data = {
@@ -483,7 +483,7 @@ class JsonFileStorage(Storage):
     # ----------------------------------------------------------------------
 
     def get_agent_profile(self, name: str) -> Optional[AgentProfile]:
-        path = self.base_path / "agents" / f"{name}.json"
+        path = self.storage_paths.agents / f"{name}.json"
         data = self._load_json(path)
         if not data:
             return None
@@ -497,7 +497,7 @@ class JsonFileStorage(Storage):
         )
 
     def upsert_agent_profile(self, agent: AgentProfile) -> None:
-        path = self.base_path / "agents"
+        path = self.storage_paths.agents
         self._ensure_dir(path)
 
         data = {
@@ -515,7 +515,7 @@ class JsonFileStorage(Storage):
     # ----------------------------------------------------------------------
 
     def get_context(self, account_name: str, context_id: str) -> Optional[ContextState]:
-        path = self.base_path / "contexts" / account_name / f"{context_id}.json"
+        path = self.storage_paths.contexts / account_name / f"{context_id}.json"
         data = self._load_json(path)
         if not data:
             return None
@@ -562,7 +562,7 @@ class JsonFileStorage(Storage):
         return ctx
 
     def save_context(self, context: ContextState) -> None:
-        path = self.base_path / "contexts" / context.account_name
+        path = self.storage_paths.contexts / context.account_name
         self._ensure_dir(path)
 
         updated = context.updated_at
@@ -582,7 +582,7 @@ class JsonFileStorage(Storage):
 
     def list_context_names(self, account_name: str) -> List[str]:
         """List context names (filename stems) for an account in sorted order."""
-        ctx_dir = self.base_path / "contexts" / account_name
+        ctx_dir = self.storage_paths.contexts / account_name
         if not ctx_dir.exists() or not ctx_dir.is_dir():
             return []
 
@@ -606,7 +606,9 @@ class JsonFileStorage(Storage):
         limit: int = 100,
     ) -> List[DocumentRef]:
 
-        doc_dir = self.base_path / "documents" / account_name
+        logging.debug("list_documents called: account=%s kind=%s tag=%r limit=%s", account_name, kind, tag, limit)
+
+        doc_dir = self.storage_paths.documents / account_name
         if not doc_dir.exists():
             return []
 
@@ -618,7 +620,8 @@ class JsonFileStorage(Storage):
 
             if kind and data.get("kind") != kind:
                 continue
-            if tag and tag not in data.get("tags", []):
+            # If tag is provided (could be empty string), strictly require it to be present
+            if tag is not None and tag not in data.get("tags", []):
                 continue
 
             docs.append(self._doc_dict_to_ref(data))
@@ -626,7 +629,7 @@ class JsonFileStorage(Storage):
         return docs[:limit]
 
     def get_document(self, document_id: str) -> Optional[DocumentRef]:
-        docs_dir = self.base_path / "documents"
+        docs_dir = self.storage_paths.documents
         if not docs_dir.exists():
             return None
 
@@ -643,7 +646,7 @@ class JsonFileStorage(Storage):
         return None
 
     def upsert_document(self, doc: DocumentRef) -> None:
-        path = self.base_path / "documents" / doc.account_name
+        path = self.storage_paths.documents / doc.account_name
         self._ensure_dir(path)
 
         data = {
@@ -697,7 +700,7 @@ class JsonFileStorage(Storage):
 
         myKwUtil = Keywords()
 
-        terms = myKwUtil.extract_keywords(query, top_n=10)   
+        terms = myKwUtil.extract_keywords(query, top_n=20)   
 
         # Tokenize query into lowercase terms
         # terms = [t for t in query.lower().split() if t.strip()]
@@ -821,6 +824,6 @@ class JsonFileStorage(Storage):
 
     def health_check(self) -> bool:
         try:
-            return self.base_path.exists() and os.access(self.base_path, os.W_OK)
+            return self.storage_paths.base.exists() and os.access(self.storage_paths.base, os.W_OK)
         except Exception:
             return False

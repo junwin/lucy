@@ -22,7 +22,7 @@ From the project root:
 
 ```bash
 cd src/repos/lucy
-python main.py --agentName lucy --accountName junwin
+python main.py --agentName lucy --accountName junwin --friendlyName talisker
 ```
 
 Type a message at the prompt, for example:
@@ -159,6 +159,17 @@ Very short request flow for `/ask`:
 2. `FunctionCallingProcessor` starts for the selected agent and session.
 3. `PromptBuilder` builds the prompt (history, agent config, optional storage-based context).
 4. The model is called; if it requests tools, `FunctionCallingProcessor` executes them and then returns the final reply.
+
+> IMPORTANT: Command execution and shell usage
+>
+> - Commands are executed with `shell=False` by default — the executor runs the program directly, not via a shell.
+> - Do NOT rely on shell-only features/operators: piping (`|`), command chaining (`&&`, `||`, `;`), redirection (`>`, `>>`, `<`, `2>`, `2>&1`), globbing/wildcards (`*`, `?`, `[ ]`), environment-variable expansion (`$VAR`), command substitution (`$(...)`, `` `...` ``), here-documents (`<<`), process substitution (`<(...))`, or other shell metacharacters.
+> - If you need shell behaviour, explicitly invoke a shell. Recommended wrapper (for now): `bash -lc '...'`. Example:
+>
+>   `command: "bash -lc 'echo \"Hello\" && ls -la /tmp | grep py'"`
+>
+> - Note: this relies on the system's `bash` binary. Bash may not be available or behave the same on Windows or other platforms; adjust accordingly.
+> - Security: `shell=False` is the default to avoid shell injection and reduce the attack surface. If we add first-class shell support later, it will come with extra security considerations.
 
 Logging is initialized once in `app.py` and used throughout the app.
 

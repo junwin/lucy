@@ -5,7 +5,7 @@ from injector import Module, provider, singleton
 
 from src.config_manager import ConfigManager
 from src.agent import AgentManager
-
+from src.storage_paths.storage_paths import StoragePaths  
 from src.storage.base import Storage
 from src.storage.json_file_storage import JsonFileStorage
 
@@ -60,20 +60,16 @@ class StorageModule(Module):
         import os
         from pathlib import Path
 
+
         storage_root_path = config.get("storage_root_path") or "/home/junwin/lucydata"
-        storage_base_path = config.get("storage_base_path") or "data"
+        storage_namespace = config.get("storage_namespace") or "data"
 
-        base_str = os.path.expanduser(str(storage_base_path)).strip()
-        base = Path(base_str)
-        if base.is_absolute() or ".." in base.parts:
-            raise ValueError(
-                "storage_base_path must be a relative subfolder name (no absolute paths or '..')"
-            )
+        storage_paths = StoragePaths(
+            storage_root_path=storage_root_path,
+            storage_namespace=storage_namespace,
+        )
 
-        root = Path(os.path.expanduser(str(storage_root_path)))
-        effective_base_path = root / base
-
-        return JsonFileStorage(str(effective_base_path))
+        return JsonFileStorage(storage_paths)
 
 
 class HandlerRegistryModule(Module):

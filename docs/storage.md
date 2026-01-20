@@ -1,167 +1,210 @@
-# Storage and conversations
+Storage and conversations
 
-This document describes how storage works in Lucy, with a focus on how chat
-conversations are created, identified, and named.
+This document describes Lucy’s storage layer and the current implementation.
+It focuses on chat conversations, on-disk layout, and the JSON-backed storage
+used in most running configurations.
 
-## Storage implementation
+Summary of relevant modules
 
-Lucy uses a `Storage` interface with a JSON-backed implementation:
+- src/storage/base.py — abstract Storage interface (Storage class).
+- src/storage/json_file_storage.py — concrete JSON-backed implementation (JsonFileStorage).
+- src/storage/models.py — dataclasses used by the storage layer:
+  - ChatMessage, ChatSession
+  - UserProfile, AgentProfile
+  - ContextState
+  - DocumentRef
+  - EmbeddingRecord
+- src/storage_paths/storage_paths.py — StoragePaths helper providing canonical filesystem locations.
 
-- `src/storage/base.py` – abstract `Storage` interface.
-- `src/storage/json_file_storage.py` – concrete `JsonFileStorage`.
-- `src/storage/models.py` – dataclasses for stored entities.
+Key APIs (Storage interface)
 
-`JsonFileStorage` persists data under a configurable base directory, with
-subdirectories for different entity types:
+The Storage ABC in src/storage/base.py defines the contract used throughout the
+codebase.
 
-- `chats/<account_name>/...` – chat sessions and per-account chat index.
-- `users/<account_name>.json` – user profiles.
-- `agents/<agent_name>.json` – agent profiles.
-- `contexts/<account_name>/<context_id>.json` – whiteboard/context state.
-- `documents/<account_name>/<document_id>.json` – document metadata.
-- `embeddings/<account_name>/<namespace>/<id>.json` – vector embeddings.
+Chat sessions
 
-The DI container wires `JsonFileStorage` into the rest of the system so that
-message processors, handlers, and endpoints can depend only on the `Storage`
-interface.
+- create_chat_session(
+    account_name: str,
+    agent_name: str,
+    friendly_name: Optional[str] = None,
+    tags: Optional[List[str]] = None,
+  ) -> ChatSession
 
-## Chat sessions and messages
+- get_chat_session(session_id: str) -> Optional[ChatSession]
 
-### Data model
+- list_chat_sessions(
+    account_name: str,
+    agent_name: Optional[str] = None,
+    limit: int = 50,
+    before: Optional[datetime] = None,
+  ) -> List[ChatSession]
 
-Defined in `src/storage/models.py`:
+- update_chat_session(
+    session_id: str,
+    *,
+    friendly_name: Optional[str] = None,
+    tags: Optional[List[str]] = None,
+    summary: Optional[str] = None,
+    importance_score: Optional[float] = None,
+    include_in_context: Optional[bool] = None,
+    metadata: Optional[Dict[str, Any]] = None,
+  ) -> None
 
-- `ChatMessage`
-  - `role`: `"user"`, `"assistant"`, `"system"`, etc.
-  - `content`: message text.
-  - `utc_timestamp`: optional `datetime`; default is `datetime.utcnow()`.
-  - `metadata`: free-form dict for extra info.
+- rename_chat_session(session_id: str, friendly_name: str) -> None
+  - Compatibility alias that delegates to update_chat_session in JsonFileStorage.
 
-- `ChatSession`
-  - `id`: internal GUID (string) – **canonical conversation id**.
-  - `account_name`: e.g. `"junwin"`.
-  - `agent_name`: e.g. `"lucy"`.
-  - `friendly_name`: optional human label, e.g. `"CLI – 2025-12-28"`.
-  - `created_at`, `updated_at`: `datetime` in UTC.
-  - `messages`: list of `ChatMessage`.
-  - `tags`: list of strings.
-  - `summary`: optional short summary.
-  - `importance_score`: float, used for ranking/pruning.
-  - `include_in_context`: whether this chat is eligible for prompts.
-  - `metadata`: free-form dict for extra info.
+- append_chat_message(session_id: str, message: ChatMessage) -> None
 
-### On-disk layout
+- delete_chat_session(session_id: str) -> None
 
-For each account, chat sessions live under `chats/<account_name>/`:
+Profiles
 
-- `chats/<account_name>/<session_id>.json` – full session, including messages.
-- `chats/<account_name>/index.json` – per-account index of sessions:
+- get_user_profile(account_name: str) -> Optional[UserProfile]
+- upsert_user_profile(profile: UserProfile) -> None
 
-  ```jsonc
-  {
-    "<session_id>": {
-      "friendly_name": "CLI – 2025-12-28",
-      "agent_name": "lucy",
-      "account_name": "junwin",
-      "updated_at": "2025-12-28T13:26:08.401234+00:00",
-      "include_in_context": true
-    },
-    "...": { "...": "..." }
-  }
-  ```
+- get_agent_profile(name: str) -> Optional[AgentProfile]
+- upsert_agent_profile(agent: AgentProfile) -> None
 
-### Creating a chat session
+Contexts (“whiteboards”)
 
-`JsonFileStorage.create_chat_session` is the only place that creates new chat
-sessions on disk:
+- get_context(account_name: str, context_id: str) -> Optional[ContextState]
+- get_or_create_context(
+    account_name: str,
+    context_id: str,
+    *,
+    default_data: Optional[Dict[str, Any]] = None,
+  ) -> ContextState
+- save_context(context: ContextState) -> None
+- list_context_names(account_name: str) -> List[str]
 
-```python
-session = storage.create_chat_session(
-    account_name=account_name,
-    agent_name=agent_name,
-    friendly_name=friendly_name,  # optional human label
-    tags=tags,
-)
-```
+Documents
 
-Behavior:
+- list_documents(account_name: str) -> List[DocumentRef]
+- get_document(account_name: str, document_id: str) -> Optional[DocumentRef]
+- upsert_document(doc: DocumentRef) -> None
 
-- Generates a new UUID for `session.id`.
-- Sets `created_at` and `updated_at` to the current UTC time.
-- Uses the provided `friendly_name` if given; otherwise defaults to
-  `"Chat <first 8 chars of id>"`.
-- Writes `chats/<account_name>/<session_id>.json` with an empty `messages` list.
-- Updates `chats/<account_name>/index.json` with a summary entry.
+Embeddings
 
-The returned `session.id` is the **canonical conversation id** that must be
-used for all subsequent operations on that chat.
+- upsert_embedding(record: EmbeddingRecord) -> None
+- query_embeddings(
+    namespace: str,
+    account_name: str,
+    query_vector: List[float],
+    top_k: int = 10,
+    filter: Optional[Dict[str, Any]] = None,
+  ) -> List[Tuple[EmbeddingRecord, float]]
 
-### Looking up and listing sessions
+Other
 
-- `get_chat_session(session_id: str) -> Optional[ChatSession]`
-  - Searches all `chats/<account_name>/` directories for a file named
-    `<session_id>.json`.
-  - Returns a `ChatSession` or `None`.
+- health_check() -> bool
 
-- `list_chat_sessions(account_name: str, agent_name: Optional[str], ...)`
-  - Lists sessions for a given account (optionally filtered by agent).
-  - Sorts by `updated_at` (most recent first).
+JsonFileStorage (src/storage/json_file_storage.py)
 
-- `find_chat_sessions_by_friendly_name(account_name, agent_name, friendly_name)`
-  - Convenience helper that filters `list_chat_sessions` by `friendly_name`.
+JsonFileStorage is initialized with a StoragePaths instance:
 
-### Updating and deleting sessions
+    JsonFileStorage(storage_paths: StoragePaths)
 
-- `update_chat_session(session_id, friendly_name=..., tags=..., ...)`
-  - Loads the session, applies changes, updates `updated_at`, and rewrites the
-    JSON file.
-  - Keeps `index.json` in sync when `friendly_name` changes.
+It stores data under storage_paths.base with the following conventions
+(StoragePaths properties map these directories):
 
-- `rename_chat_session(session_id, friendly_name)`
-  - Thin wrapper around `update_chat_session`.
+- chats/<account_name>/<session_id>.json
+  - Full chat session JSON (messages included).
 
-- `delete_chat_session(session_id)`
-  - Locates the session to determine `account_name`.
-  - Deletes `chats/<account_name>/<session_id>.json` if present.
-  - Removes the entry from `index.json`.
+- chats/<account_name>/index.json
+  - Per-account summary index mapping session_id -> summary metadata
+    (friendly_name, agent_name, account_name, updated_at, include_in_context).
 
-### Appending messages
+- users/<account_name>.json — user profile.
+- agents/<agent_name>.json — agent profile.
+- contexts/<account_name>/<context_id>.json — context/whiteboard JSON.
+- documents/<account_name>/<document_id>.json — document references.
+- embeddings/<account_name>/<namespace>/<id>.json — embedding records.
 
-`append_chat_message(session_id: str, message: ChatMessage)`:
+Note on index files
 
-- Uses `get_chat_session(session_id)` to locate the session.
-- Loads `chats/<account_name>/<session_id>.json`.
-- Normalizes `message.utc_timestamp` to an aware UTC `datetime`.
-- Appends a JSON representation of the message to the `messages` list.
-- Updates `updated_at` to the current UTC time.
-- Writes the file back atomically.
+Index files are stored inside each domain directory rather than in a single
+top-level directory. For example, chat indexes live at
+chats/<account_name>/index.json. Any domain that needs an index follows the same
+pattern (e.g., contexts/<account_name>/index.json or a similar per-account index
+file within the domain directory).
 
-If the session or JSON file cannot be found, it raises `FileNotFoundError`.
+On-disk chat JSON shape (common fields)
 
-## Conversation ids vs friendly names
+- id, account_name, agent_name, friendly_name
+- created_at, updated_at — ISO8601 timestamps (UTC)
+- messages — list of { role, content, utc_timestamp, metadata }
+- tags — list of strings
+- importance_score — float (default 0.5)
+- include_in_context — bool
+- summary (optional)
+- metadata (optional)
 
-There are two distinct identifiers for a conversation:
+Chat lifecycle and behavior
 
-1. **Conversation id** – `ChatSession.id`
-   - Generated by storage (UUID).
-   - Used as the primary key for all storage operations.
-   - Exposed to clients as `conversation_id`.
+- Creating a chat session
+  - create_chat_session(...) generates a UUID id, sets timestamps, writes a
+    minimal JSON file (messages = []), and updates chats/<account_name>/index.json.
 
-2. **Friendly name** – `ChatSession.friendly_name`
-   - Optional human-readable label.
-   - Can be provided by the client when opening a session.
-   - Stored in the session JSON and in `index.json`.
-   - Can be changed later via `update_chat_session` / `rename_chat_session`.
+- Looking up sessions
+  - get_chat_session(session_id) searches all accounts under chats/ for a
+    matching <session_id>.json and returns a ChatSession (or None).
+  - list_chat_sessions(...) enumerates files under chats/<account_name>/,
+    filters by agent and before timestamp, sorts by updated_at desc, and returns
+    up to limit results.
 
-Clients should treat `conversation_id` as the opaque, canonical identifier and
-use `friendly_name` purely for display.
+- Updating sessions
+  - update_chat_session(...) loads the stored JSON, applies changes, updates
+    updated_at, writes the file, and keeps index.json in sync.
+  - If the session is missing, JsonFileStorage raises ValueError.
 
-## Dependencies
+- Appending messages
+  - append_chat_message(...) normalizes message.utc_timestamp to an aware UTC
+    datetime, appends it, and updates updated_at.
+  - If the session/file is missing, JsonFileStorage raises FileNotFoundError.
 
-- `JsonFileStorage` is used by:
-  - Message processors (e.g., `FunctionCallingProcessor`) to read/write chats.
-  - Request handlers (e.g., `/ask`) to create and resolve sessions.
-  - Other components that manage users, agents, contexts, documents, and embeddings.
+- Deleting sessions
+  - delete_chat_session(session_id) removes the per-session JSON file (if
+    present) and removes the entry from the per-account index.json.
+  - The operation is best-effort and intended to be idempotent.
 
-This separation keeps HTTP concerns (payload shape, session opening rules) out
-of the storage layer, which remains a generic persistence mechanism.
+Documents and simple search
+
+JsonFileStorage exposes list_documents/get_document/upsert_document for
+DocumentRef objects.
+
+It also includes search_documents_poor_man(...), a simple keyword-based search
+over stored DocumentRef metadata using the project’s Keywords utility.
+
+Embeddings
+
+- upsert_embedding(record)
+  - Writes an embedding record JSON under embeddings/<account_name>/<namespace>/<id>.json
+    with created_at normalized to UTC.
+
+- query_embeddings(...)
+  - Loads embedding JSON files for the given namespace/account, optionally
+    applies a simple filter, computes cosine similarity against query_vector,
+    and returns the top_k matches sorted by score (desc).
+
+Backwards compatibility / legacy behavior
+
+JsonFileStorage provides compatibility wrappers for older tests and callers:
+
+- save_user(account_name: str, profile: Dict[str, Any])
+  - Wraps upsert_user_profile. Preferred API: upsert_user_profile(UserProfile).
+
+- load_user(account_name: str) -> Optional[Dict[str, Any]]
+  - Wraps get_user_profile and returns the older dict shape.
+  - Preferred API: get_user_profile(account_name) -> UserProfile.
+
+- rename_chat_session(session_id: str, friendly_name: str)
+  - Compatibility alias that delegates to update_chat_session.
+
+Notes and caveats
+
+- StoragePaths determines file locations; pass a StoragePaths instance when
+  constructing JsonFileStorage.
+- Timestamps are stored/parsed as ISO8601; the implementation accepts trailing
+  "Z" and naive timestamps (assumed UTC).
+- Missing resources are signaled via Python exceptions (not sentinel return
+  values) in some methods; callers should handle FileNotFoundError/ValueError.
