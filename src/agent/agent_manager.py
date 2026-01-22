@@ -1,8 +1,11 @@
 import json
+import logging
 from pathlib import Path
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Any
 
 from .agent import Agent
+
+logger = logging.getLogger(__name__)
 
 
 class AgentManager:
@@ -27,24 +30,59 @@ class AgentManager:
         return any(agent.name == name for agent in self.agents)
 
     def load_agents(self) -> None:
+        """Load agents from the configured JSON file.
+
+        Loading is robust: the file must parse as JSON, but individual agent
+        configurations are validated on a per-item basis. A single malformed
+        agent entry will not prevent other agents from loading.
+        """
         try:
             if not self.path.exists():
+                logger.info("Agents file does not exist at %s; starting with empty agent list", self.path)
                 self.agents = []
                 return
 
             with self.path.open("r", encoding="utf-8") as f:
-                raw_agents = json.load(f)
+                raw = json.load(f)
 
-            self.agents = [Agent.from_dict(a) for a in raw_agents]
+            # Expect a list of agent dicts; be tolerant of a single dict (wrap it)
+            if isinstance(raw, dict):
+                logger.warning("Agents file %s contains a JSON object; expected a list. Attempting to load single agent.", self.path)
+                raw_agents = [raw]
+            elif isinstance(raw, list):
+                raw_agents = raw
+            else:
+                logger.error("Unexpected JSON structure in %s: expected list or object, got %s", self.path, type(raw))
+                self.agents = []
+                return
+
+            loaded_agents: List[Agent] = []
+            for idx, a in enumerate(raw_agents):
+                try:
+                    agent = Agent.from_dict(a)
+                    loaded_agents.append(agent)
+                except Exception as e:
+                    # Log and continue with other agents
+                    logger.exception("Failed to load agent at index %d from %s: %s", idx, self.path, e)
+
+            self.agents = loaded_agents
+            logger.info("Loaded %d agent(s) from %s", len(self.agents), self.path)
+
+        except json.JSONDecodeError as e:
+            logger.error("Invalid JSON in agents file %s: %s", self.path, e)
+            self.agents = []
         except Exception as e:
-            # For now, keep simple logging; can be wired to app logger later
-            print(f"Error loading agents from {self.path}: {e}")
+            logger.exception("Error loading agents from %s: %s", self.path, e)
             self.agents = []
 
     def save_agents(self) -> None:
         data = [agent.to_dict() for agent in self.agents]
-        with self.path.open("w", encoding="utf-8") as f:
-            json.dump(data, f, indent=2, ensure_ascii=False)
+        try:
+            with self.path.open("w", encoding="utf-8") as f:
+                json.dump(data, f, indent=2, ensure_ascii=False)
+            logger.info("Saved %d agent(s) to %s", len(self.agents), self.path)
+        except Exception:
+            logger.exception("Failed to save agents to %s", self.path)
 
     def get_agent_names(self) -> List[str]:
         return [agent.name for agent in self.agents]
