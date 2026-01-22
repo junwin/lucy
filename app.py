@@ -324,20 +324,28 @@ def build_prompt():
         # default from agent config
         context_type = my_agent.context_type if my_agent else "hybrid"
 
-    prompt_builder = PromptBuilder()
+    try:
+        # PromptBuilder is DI-based and requires agent_manager/config/storage.
+        # Resolve it from the container (preferred) or construct with deps.
+        prompt_builder = container.get(PromptBuilder)
+    except Exception:
+        prompt_builder = PromptBuilder(agent_manager=agent_manager, config=config, storage=storage)
 
-    prompt = prompt_builder.build_prompt(
-        content_text=question,
-        conversation_id=conversationId,
-        agent_name=agentName,
-        account_name=accountName,
-        context_type=context_type,
-        max_prompt_chars=payload.get("maxPromptChars", 6000),
-        context_name=context_name,
-        extra_system_messages=extra_system_messages,
-    )
-
-    return jsonify(prompt)
+    try:
+        prompt = prompt_builder.build_prompt(
+            content_text=question,
+            conversation_id=conversationId,
+            agent_name=agentName,
+            account_name=accountName,
+            context_type=context_type,
+            max_prompt_chars=payload.get("maxPromptChars", 6000),
+            context_name=context_name,
+            extra_system_messages=extra_system_messages,
+        )
+        return jsonify(prompt)
+    except Exception as e:
+        logging.exception("Error in /prompt_builder")
+        return jsonify({"error": str(e)}), 500
 
 
 @app.route("/chats", methods=["POST"])

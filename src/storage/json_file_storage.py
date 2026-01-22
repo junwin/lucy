@@ -1,6 +1,7 @@
 # ==============================================================================
 # FILE: src/storage/json_file_storage.py
 # JSON-backed storage implementation for Lucy.
+# NOTE: contexts are now persisted as Markdown (.md) with YAML frontmatter.
 # ==============================================================================
 
 import json
@@ -25,6 +26,9 @@ from .models import (
     DocumentRef,
     EmbeddingRecord,
 )
+
+import yaml
+import re
 
 
 def _now_utc() -> datetime:
@@ -61,7 +65,32 @@ def _parse_dt_utc(dt_str: str) -> datetime:
 
 
 class JsonFileStorage(Storage):
-    """JSON-backed storage implementation for Lucy."""
+    """JSON-backed storage implementation for Lucy.
+
+    Notes:
+      - Per-account chat metadata includes an index file at <chats>/<account>/index.json
+        which maps session_id -> metadata. The index schema produced by
+        create_chat_session() is:
+
+        {
+          "<session_id>": {
+              "friendly_name": "...",
+              "agent_name": "...",
+              "account_name": "...",
+              "updated_at": "2023-...",
+              "include_in_context": true
+          },
+          ...
+        }
+
+      - Contexts were previously stored as JSON files under
+        contexts/<account>/<context_id>.json. They are now stored as
+        Markdown files (<context_id>.md) with YAML frontmatter. Frontmatter
+        keys map into ContextState.data (excluding 'text'); the Markdown body
+        is stored in data['text']. The ContextState.updated_at timestamp is
+        taken from the frontmatter 'updated_at' if present, otherwise from
+        the file's mtime.
+    """
 
     def __init__(self, storage_paths: StoragePaths):
 
@@ -77,6 +106,13 @@ class JsonFileStorage(Storage):
         tmp_path = path.with_suffix(".tmp")
         with open(tmp_path, "w", encoding="utf-8") as f:
             json.dump(data, f, indent=2, ensure_ascii=False)
+        os.replace(tmp_path, path)
+
+    def _atomic_write_text(self, path: Path, text: str) -> None:
+        """Write text (e.g. Markdown) atomically."""
+        tmp_path = path.with_suffix(".tmp")
+        with open(tmp_path, "w", encoding="utf-8") as f:
+            f.write(text)
         os.replace(tmp_path, path)
 
     def _load_json(self, path: Path) -> Optional[Dict[str, Any]]:
@@ -163,8 +199,36 @@ class JsonFileStorage(Storage):
         return session
 
     def find_chat_sessions_by_friendly_name(self, account_name: str, agent_name: str, friendly_name: str, limit: int = 20) -> List[ChatSession]:
-        sessions = self.list_chat_sessions(account_name=account_name, agent_name=agent_name, limit=500)
-        matches = [s for s in sessions if (s.friendly_name or "").lower() == friendly_name.lower()]
+        """Resolve sessions with a matching friendly_name for an account + agent.
+
+        Logic:
+          1. Prefer the per-account index.json for fast lookup when available.
+          2. Fall back to scanning chat files if the index is missing or corrupt.
+          3. Return matches sorted by updated_at (descending) to break ties.
+        """
+        index_path = self.storage_paths.chats / account_name / "index.json"
+        matches: List[ChatSession] = []
+
+        index = self._load_json(index_path)
+        if index:
+            # index is expected to be a mapping: session_id -> {friendly_name, agent_name, account_name, updated_at, include_in_context}
+            for sid, meta in index.items():
+                if not isinstance(meta, dict):
+                    # Skip unexpected legacy formats
+                    continue
+                if meta.get("agent_name") != agent_name:
+                    continue
+                if (meta.get("friendly_name") or "").lower() == friendly_name.lower():
+                    session = self.get_chat_session(sid)
+                    if session:
+                        matches.append(session)
+        else:
+            # Fallback: scan chat files
+            sessions = self.list_chat_sessions(account_name=account_name, agent_name=agent_name, limit=500)
+            matches = [s for s in sessions if (s.friendly_name or "").lower() == friendly_name.lower()]
+
+        # Tie-breaker: most recently updated first
+        matches.sort(key=lambda s: s.updated_at, reverse=True)
         return matches[:limit]
 
     # ----------------------------------------------------------------------
@@ -368,7 +432,8 @@ class JsonFileStorage(Storage):
             return
 
         account_name = session.account_name
-        chat_dir = self.storage_paths / account_name
+        # Ensure we use the chats path provided by StoragePaths (was a bug previously)
+        chat_dir = self.storage_paths.chats / account_name
         chat_path = chat_dir / f"{session_id}.json"
 
         # Remove the chat file if it exists
@@ -515,16 +580,69 @@ class JsonFileStorage(Storage):
     # ----------------------------------------------------------------------
 
     def get_context(self, account_name: str, context_id: str) -> Optional[ContextState]:
-        path = self.storage_paths.contexts / account_name / f"{context_id}.json"
-        data = self._load_json(path)
-        if not data:
+        """Load a context from Markdown (.md) with YAML frontmatter.
+
+        Frontmatter keys map into ContextState.data (excluding 'text'), and the
+        Markdown body is stored as data['text']. The ContextState.updated_at is
+        sourced from frontmatter['updated_at'] if present; otherwise the file's
+        modification time is used.
+        """
+        path = self.storage_paths.contexts / account_name / f"{context_id}.md"
+        if not path.exists():
             return None
 
+        try:
+            text = path.read_text(encoding="utf-8")
+        except Exception as e:
+            logging.error("Failed to read context file %s: %s", path, e)
+            return None
+
+        fm = {}
+        body = ""
+        m = re.match(r"^---\s*\n(.*?)\n---\s*\n(.*)\Z", text, re.S)
+        if m:
+            fm_text = m.group(1)
+            body = m.group(2)
+            try:
+                loaded = yaml.safe_load(fm_text)
+                if isinstance(loaded, dict):
+                    fm = loaded
+                else:
+                    fm = {}
+            except Exception as e:
+                logging.warning("Failed to parse YAML frontmatter for %s: %s", path, e)
+                fm = {}
+        else:
+            # No frontmatter; treat whole file as body
+            body = text
+
+        # Map frontmatter keys into context.data (excluding 'text'), and body into 'text'
+        data: Dict[str, Any] = {}
+        for k, v in (fm or {}).items():
+            data[k] = v
+
+        data["text"] = body
+
+        # Determine updated_at: prefer frontmatter 'updated_at' if present; else mtime
+        updated_at = None
+        if "updated_at" in fm:
+            try:
+                updated_at = _parse_dt_utc(fm.get("updated_at") or "")
+            except Exception:
+                updated_at = None
+
+        if updated_at is None:
+            try:
+                mtime = path.stat().st_mtime
+                updated_at = datetime.fromtimestamp(mtime, tz=timezone.utc)
+            except Exception:
+                updated_at = _now_utc()
+
         return ContextState(
-            id=data["id"],
-            account_name=data["account_name"],
-            data=data["data"],
-            updated_at=_parse_dt_utc(data.get("updated_at", "")),
+            id=context_id,
+            account_name=account_name,
+            data=data,
+            updated_at=updated_at,
         )
 
     def get_or_create_context(
@@ -536,8 +654,7 @@ class JsonFileStorage(Storage):
     ) -> ContextState:
         """Load a context; if missing, create and save it immediately.
 
-        This supports the "context_name" flow where the client can reference a
-        durable project state without pre-creating it.
+        When creating a new context, default_data is merged onto default fields.
         """
         existing = self.get_context(account_name=account_name, context_id=context_id)
         if existing is not None:
@@ -547,6 +664,7 @@ class JsonFileStorage(Storage):
             "context_name": context_id,
             "agreed": False,
             "tasklist_status": "draft",
+            "text": "",
         }
         if default_data:
             # Allow caller to override/extend defaults
@@ -562,6 +680,13 @@ class JsonFileStorage(Storage):
         return ctx
 
     def save_context(self, context: ContextState) -> None:
+        """Persist a ContextState as Markdown (.md) with YAML frontmatter.
+
+        Frontmatter contains all keys from context.data except 'text'. The
+        Markdown body contains context.data.get('text', ''). The file's
+        modification time is set to context.updated_at (UTC) to preserve the
+        timestamp.
+        """
         path = self.storage_paths.contexts / context.account_name
         self._ensure_dir(path)
 
@@ -571,28 +696,103 @@ class JsonFileStorage(Storage):
         else:
             updated = updated.astimezone(timezone.utc)
 
-        data = {
-            "id": context.id,
-            "account_name": context.account_name,
-            "data": context.data,
-            "updated_at": updated.isoformat(),
-        }
+        # Frontmatter: all keys from context.data except 'text'
+        fm: Dict[str, Any] = {}
+        for k, v in context.data.items():
+            if k == "text":
+                continue
+            # Ensure that tasklist remains a plain dict when present
+            fm[k] = v
 
-        self._atomic_write(path / f"{context.id}.json", data)
+        try:
+            fm_yaml = yaml.safe_dump(fm, sort_keys=False, allow_unicode=True)
+        except Exception:
+            # Fallback: ensure YAML serialization doesn't crash
+            fm_yaml = yaml.safe_dump({}, sort_keys=False, allow_unicode=True)
+
+        body = context.data.get("text", "") or ""
+
+        # Compose Markdown with YAML frontmatter
+        content = f"---\n{fm_yaml}---\n{body}"
+
+        target = path / f"{context.id}.md"
+        # Write atomically
+        self._atomic_write_text(target, content)
+
+        # Preserve updated_at via file mtime so get_context can read it when needed
+        try:
+            ts = updated.timestamp()
+            os.utime(target, (ts, ts))
+        except Exception:
+            # Not critical; file will just have current mtime
+            pass
 
     def list_context_names(self, account_name: str) -> List[str]:
-        """List context names (filename stems) for an account in sorted order."""
+        """List context names (filename stems) for an account in sorted order.
+
+        Only .md files are considered.
+        """
         ctx_dir = self.storage_paths.contexts / account_name
         if not ctx_dir.exists() or not ctx_dir.is_dir():
             return []
 
         names: List[str] = []
-        for p in ctx_dir.glob("*.json"):
+        for p in ctx_dir.glob("*.md"):
             # filename stem without suffix
             names.append(p.stem)
 
         names.sort()
         return names
+
+    def migrate_context_json_to_md(self) -> None:
+        """Migration helper: convert existing contexts/*.json → *.md.
+
+        This will iterate accounts and for each <id>.json file create a
+        corresponding <id>.md file if one does not already exist. It preserves
+        the original 'data' dict and the updated_at timestamp (if present) by
+        setting the md file mtime.
+        """
+        base = self.storage_paths.contexts
+        if not base.exists():
+            return
+
+        for account_dir in base.iterdir():
+            if not account_dir.is_dir():
+                continue
+            for json_file in account_dir.glob("*.json"):
+                try:
+                    data = self._load_json(json_file)
+                    if not data:
+                        continue
+                    ctx_id = data.get("id") or json_file.stem
+                    md_path = account_dir / f"{ctx_id}.md"
+                    if md_path.exists():
+                        # Skip if md already present
+                        continue
+
+                    ctx_data = data.get("data", {})
+                    # Ensure text key exists
+                    if "text" not in ctx_data:
+                        ctx_data["text"] = ""
+
+                    updated_at = None
+                    if data.get("updated_at"):
+                        try:
+                            updated_at = _parse_dt_utc(data.get("updated_at"))
+                        except Exception:
+                            updated_at = None
+
+                    ctx = ContextState(
+                        id=ctx_id,
+                        account_name=account_dir.name,
+                        data=ctx_data,
+                        updated_at=updated_at or _now_utc(),
+                    )
+
+                    # Use save_context to write md
+                    self.save_context(ctx)
+                except Exception as e:
+                    logging.error("Failed migrating %s: %s", json_file, e)
 
     # ----------------------------------------------------------------------
     # DOCUMENTS
@@ -704,8 +904,8 @@ class JsonFileStorage(Storage):
 
         # Tokenize query into lowercase terms
         # terms = [t for t in query.lower().split() if t.strip()]
-        if not terms:
-            return docs[:limit]
+        if not terms or terms.count == 0:
+            return []
 
         scored: List[Tuple[DocumentRef, int]] = []
 

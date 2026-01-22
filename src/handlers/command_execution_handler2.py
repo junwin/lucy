@@ -16,6 +16,7 @@ class CommandExecutionHandler2(HandlerV2):
       - Callers specify either:
           (A) location="sandbox", working_directory="<relative under code sandbox base>"
           (B) location="external", external_root="<named root>", working_directory="<relative under that root>"
+      - Option A (explicit): callers must pass working_directory="." to mean the root of the chosen base.
       - STRICT schema: required must include every key in properties.
     """
 
@@ -66,7 +67,8 @@ class CommandExecutionHandler2(HandlerV2):
                     "working_directory": {
                         "type": "string",
                         "description": (
-                            "Working directory relative to the chosen location (no leading /, no ..)."
+                            "Working directory relative to the chosen location (no leading /, no ..). "
+                            "Use '.' to run in the root of the chosen base directory."
                         ),
                     },
                     "timeout_seconds": {
@@ -216,13 +218,12 @@ class CommandExecutionHandler2(HandlerV2):
         if not isinstance(success_exit_codes, list) or not all(isinstance(x, int) for x in success_exit_codes):
             success_exit_codes = [0]
 
-
         try:
             rc, out_raw, err_raw = self._execute_script(command, resolved_dir, timeout=int(timeout_seconds))
 
             out = self._truncate(out_raw)
             err = self._truncate(err_raw)
-            
+
         except Exception as e:
             logging.exception("execute_command failed")
             return {
@@ -334,8 +335,11 @@ class CommandExecutionHandler2(HandlerV2):
 
         norm_rel = os.path.normpath(path_in)
 
-        if norm_rel in ("", ".", ".."):
-            return "", "working_directory must not be empty or point to current/parent directory"
+        # Option A (explicit): allow '.' to mean the base directory itself.
+        if norm_rel in ("", ".."):
+            return "", "working_directory must not be empty or point to parent directory"
+        if norm_rel == ".":
+            return ".", ""
 
         parts = [p for p in norm_rel.split(os.path.sep) if p]
         if os.path.altsep:
@@ -379,7 +383,7 @@ class CommandExecutionHandler2(HandlerV2):
             timeout=timeout,
         )
         return completed.returncode, completed.stdout or "", completed.stderr or ""
-    
+
     MAX_OUTPUT_CHARS = 10_000  # conservative, well under tool limits
 
     def _truncate(self, text: str, limit: int = MAX_OUTPUT_CHARS) -> str:
