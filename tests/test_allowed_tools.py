@@ -3,7 +3,7 @@ import logging
 from src.agent.agent import Agent
 
 
-def test_allowed_tools_none_all_tools(make_proc, registry, llm_adapter):
+def test_allowed_tools_none_no_tools(make_proc, registry, llm_adapter):
     registry._tool_defs = [{"name": "t1"}, {"name": "t2"}, {"name": "t3"}]
 
     proc = make_proc(registry=registry, llm_adapter=llm_adapter)
@@ -12,9 +12,9 @@ def test_allowed_tools_none_all_tools(make_proc, registry, llm_adapter):
 
     resp = proc.process_message(primary_agent=agent, account={"accountId": "acct"}, message="hi")
 
-    # ensure the LLM was called with all tools
+    # ensure the LLM was called with no tools
     called_tools = llm_adapter.call_model.call_args.kwargs.get("tools")
-    assert called_tools == registry._tool_defs
+    assert called_tools == []
 
 
 def test_allowed_tools_empty_no_tools(make_proc, registry, llm_adapter):
@@ -49,7 +49,7 @@ def test_allowed_tools_unknown_names_logged_and_ignored(make_proc, registry, llm
 
     proc = make_proc(registry=registry, llm_adapter=llm_adapter)
 
-    agent = Agent(name="a", allowed_tools=["t2", "nope"], save_responses=False) 
+    agent = Agent(name="a", allowed_tools=["t2", "nope"], save_responses=False)
 
     resp = proc.process_message(primary_agent=agent, account={"accountId": "acct"}, message="hi")
 

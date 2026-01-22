@@ -527,18 +527,16 @@ class FunctionCallingProcessor(MessageProcessorInterface):
             )
 
             # Get the global tool definitions from the registry. We'll filter this
-            # list according to the agent.allowed_tools (phase 2 enhancement).
+            # list according to the agent.allowed_tools.
             function_defs = self.registry.tools()
 
-            # Filtering rules:
-            # - allowed_tools is None => allow all tools (backwards compatible)
+            # Filtering rules (strict intersection):
+            # - allowed_tools missing/None => allow no tools
             # - allowed_tools == [] => allow no tools
             # - otherwise => allow only tools whose name appears in allowed_tools
             allowed = getattr(primary_agent, "allowed_tools", None)
 
-            if allowed is None:
-                filtered_function_defs = function_defs
-            elif len(allowed) == 0:
+            if not allowed:
                 filtered_function_defs = []
             else:
                 # Ensure allowed is a list, preserve order from function_defs
