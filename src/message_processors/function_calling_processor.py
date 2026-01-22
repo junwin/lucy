@@ -526,12 +526,43 @@ class FunctionCallingProcessor(MessageProcessorInterface):
                 extra_system_messages=[],
             )
 
+            # Get the global tool definitions from the registry. We'll filter this
+            # list according to the agent.allowed_tools (phase 2 enhancement).
             function_defs = self.registry.tools()
+
+            # Filtering rules:
+            # - allowed_tools is None => allow all tools (backwards compatible)
+            # - allowed_tools == [] => allow no tools
+            # - otherwise => allow only tools whose name appears in allowed_tools
+            allowed = getattr(primary_agent, "allowed_tools", None)
+
+            if allowed is None:
+                filtered_function_defs = function_defs
+            elif len(allowed) == 0:
+                filtered_function_defs = []
+            else:
+                # Ensure allowed is a list, preserve order from function_defs
+                try:
+                    allowed_list = list(allowed)
+                except Exception:
+                    allowed_list = []
+
+                available_names = [fd.get("name") for fd in function_defs]
+                unknown = [n for n in allowed_list if n not in available_names]
+                if unknown:
+                    logging.warning(
+                        "FunctionCallingProcessor: agent '%s' has unknown allowed_tools entries: %s; ignoring",
+                        getattr(primary_agent, "name", "<unknown>"),
+                        unknown,
+                    )
+
+                allowed_set = set([n for n in allowed_list if n in available_names])
+                filtered_function_defs = [fd for fd in function_defs if fd.get("name") in allowed_set]
 
             response_text = self._run_llm_loop(
                 ctx=ctx,
                 prompt_messages=prompt_messages,
-                function_defs=function_defs,
+                function_defs=filtered_function_defs,
                 primary_agent=primary_agent,
                 secondary_agent=secondary_agent,
                 processor_factory=processor_factory,
