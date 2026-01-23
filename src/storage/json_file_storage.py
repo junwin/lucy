@@ -803,10 +803,10 @@ class JsonFileStorage(Storage):
         account_name: str,
         kind: Optional[str] = None,
         tag: Optional[str] = None,
-        limit: int = 100,
+        select_limit: int = 100,
     ) -> List[DocumentRef]:
 
-        logging.debug("list_documents called: account=%s kind=%s tag=%r limit=%s", account_name, kind, tag, limit)
+        logging.debug("list_documents called: account=%s kind=%s tag=%r select_limit=%s", account_name, kind, tag, select_limit)
 
         doc_dir = self.storage_paths.documents / account_name
         if not doc_dir.exists():
@@ -826,7 +826,7 @@ class JsonFileStorage(Storage):
 
             docs.append(self._doc_dict_to_ref(data))
 
-        return docs[:limit]
+        return docs[:select_limit]
 
     def get_document(self, document_id: str) -> Optional[DocumentRef]:
         docs_dir = self.storage_paths.documents
@@ -895,7 +895,7 @@ class JsonFileStorage(Storage):
             account_name=account_name,
             kind=kind,
             tag=tag,
-            limit=1000,  # upper bound of candidates to score
+            select_limit=100,  # upper bound of candidates to score
         )
 
         myKwUtil = Keywords()

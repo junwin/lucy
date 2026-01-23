@@ -19,14 +19,19 @@ Notes:
 - Use --dry-run to preview actions without writing files.
 
 This script assumes the repository layout where contexts live under
-data/contexts/<account>/*.json. It performs safe (atomic) writes and will not
-clobber existing .md files unless --overwrite is provided.
+data/contexts/<account>/*.json by default. You can override the contexts root
+explicitly with --contexts-root, or set a storage base path and namespace via
+--base-path and --storage-namespace (or the LUCY_STORAGE_ROOT / LUCY_STORAGE_NAMESPACE
+environment variables). When using --base-path, the contexts root will be
+constructed as: <base-path>/<storage-namespace>/contexts (or <base-path>/contexts
+if no storage-namespace is provided).
 
 Usage examples:
   python scripts/migrate_contexts_json_to_md.py --dry-run
   python scripts/migrate_contexts_json_to_md.py --overwrite
   python scripts/migrate_contexts_json_to_md.py --keep-original
-  python scripts/migrate_contexts_json_to_md.py --overwrite --contexts-root /home/junwin/lucy_storage/data/contexts
+  python scripts/migrate_contexts_json_to_md.py --overwrite --contexts-root /path/to/data/contexts
+  python scripts/migrate_contexts_json_to_md.py --base-path /mnt/lucy_storage --storage-namespace data
 
 There is a small built-in self-check you can run with --self-test which will
 create temporary files and verify basic conversion behavior.
@@ -242,7 +247,9 @@ def _self_test() -> bool:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Migrate context JSON files to Markdown with YAML frontmatter")
-    parser.add_argument('--contexts-root', default='data/contexts', help='Path to contexts root (default: data/contexts)')
+    parser.add_argument('--contexts-root', default=None, help='Path to contexts root (default: <base-path>/<storage-namespace>/contexts or <base-path>/contexts if no namespace)')
+    parser.add_argument('--base-path', default=os.environ.get('LUCY_STORAGE_ROOT', 'data'), help='Storage base path (can also be set via LUCY_STORAGE_ROOT env var). Default: data')
+    parser.add_argument('--storage-namespace', default=os.environ.get('LUCY_STORAGE_NAMESPACE', ''), help='Storage namespace under base-path (optional)')
     parser.add_argument('--overwrite', action='store_true', help='Overwrite existing .md files')
 
     group = parser.add_mutually_exclusive_group()
@@ -260,7 +267,18 @@ def main(argv: list[str] | None = None) -> int:
         success = _self_test()
         return 0 if success else 2
 
-    base = Path(args.contexts_root)
+    # Determine contexts root. Priority:
+    # 1) --contexts-root explicit
+    # 2) derive from --base-path and --storage-namespace: <base-path>/<storage-namespace>/contexts
+    # 3) fallback to <base-path>/contexts
+    if args.contexts_root:
+        base = Path(args.contexts_root)
+    else:
+        base_path = Path(args.base_path)
+        if args.storage_namespace:
+            base = base_path / args.storage_namespace / 'contexts'
+        else:
+            base = base_path / 'contexts'
 
     files = find_json_context_files(base)
     if not files:

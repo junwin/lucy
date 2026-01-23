@@ -6,12 +6,20 @@ set -euo pipefail
 #   ./scripts/demo_endpoints.sh
 #   BASE_URL=http://localhost:5000 ./scripts/demo_endpoints.sh
 #   CONVERSATION_ID=... ./scripts/demo_endpoints.sh
+#
+# Environment and defaults:
+#   BASE_URL - base API URL (default http://localhost:5000)
+#   AGENT_NAME - agent name (default: lucy)
+#   ACCOUNT_NAME - account name (default: current user)
+#   CONTEXT_NAME - context name (default: lucyproject)
+#   CONVERSATION_ID - optional conversation id
 
 BASE_URL="${BASE_URL:-http://localhost:5000}"
 AGENT_NAME="${AGENT_NAME:-lucy}"
-ACCOUNT_NAME="${ACCOUNT_NAME:-junwin}"
+# Default ACCOUNT_NAME to the current user if not provided
+ACCOUNT_NAME="${ACCOUNT_NAME:-$(id -un)}"
 CONTEXT_NAME="${CONTEXT_NAME:-lucyproject}"
-CONVERSATION_ID="${CONVERSATION_ID:-4ca5f862-813f-4f9c-a11c-4810909aa544}"
+CONVERSATION_ID="${CONVERSATION_ID:-}"
 
 # If you run the server with SSL, use:
 #   BASE_URL=https://localhost:5000

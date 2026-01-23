@@ -14,8 +14,9 @@ class Task:
     - No Pydantic
     - No persistence/serialization
 
-    The boundary module is responsible for validating and converting to/from
-    dicts stored in ContextState.data['tasklist'].
+    Validation, conversion to/from dicts, and persistence are handled by
+    the surrounding application code (for example task-list handlers or a
+    persistence/adapter layer) rather than by this domain object.
     """
 
     id: int

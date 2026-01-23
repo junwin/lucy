@@ -145,7 +145,7 @@ class Storage(ABC):
         account_name: str,
         kind: Optional[str] = None,
         tag: Optional[str] = None,
-        limit: int = 100,
+        select_limit: int = 100,
     ) -> List[DocumentRef]:
         """List known documents for an account."""
         pass

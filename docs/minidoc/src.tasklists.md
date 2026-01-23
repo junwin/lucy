@@ -4,67 +4,110 @@ tags:
   - src.tasklists
   - Task
   - TaskList
-  - TaskModel
-  - TaskListModel
-  - tasklist_boundary
+  - task_states
 ---
 
 # src.tasklists
 
-Task list domain objects plus a strict boundary layer for validating and persisting tasklists inside `ContextState.data["tasklist"]`.
+Task list domain objects and shared state constants.
 
-## What lives in this module now
-
-### Domain (plain dataclasses, no persistence)
+This minidoc reflects the current code in:
 
 - `src/tasklists/task.py`
-  - `Task`
-    - Fields: `id: int`, `title: str`, `state: str`, `result: dict|None`, `error: str|None`, `meta: dict`
-
 - `src/tasklists/task_list.py`
-  - `TaskList`
-    - Fields: `schema_version: int = 1`, `state: str`, `tasks_list: list[Task]`
-    - Helpers: `tasks()`, `get_task(id)`, `next_id()`, `add_task(task)`, `update_task_state(id, new_state)`, `set_task_result(id, result, new_state=None, error=None)`
-
 - `src/tasklists/task_states.py`
-  - Constants for task list states and task states (e.g. `TASK_LIST_STATE_CREATED`, `TASK_STATE_PENDING`, etc.)
 
-### Boundary (Pydantic validation + dict-only persistence)
+## Domain objects
 
-- `src/tasklists/tasklist_boundary.py`
-  - `TaskModel` (Pydantic)
-    - `extra="forbid"`
-    - Enforces:
-      - `id` must be a real `int` (no numeric strings, no bool)
-      - `result` must be `dict | None`
-      - `meta` must be `dict`
-  - `TaskListModel` (Pydantic)
-    - `extra="forbid"`
-    - Enforces:
-      - `schema_version == 1`
-      - task ids are unique
-  - `load_tasklist(context: ContextState) -> TaskList | None`
-    - Reads `context.data["tasklist"]`
-    - Requires dict-only storage
-    - Returns `None` if no tasklist is present
-    - Raises `ValueError("Invalid tasklist in context: ...")` on validation errors
-  - `save_tasklist(context: ContextState, tasklist: TaskList) -> None`
-    - Writes a plain dict into `context.data["tasklist"]`
+### `src/tasklists/task.py`
 
-## Package exports
+#### `Task` (dataclass)
+A single task/step in a task list.
 
-`src/tasklists/__init__.py` exports:
+Fields:
 
-- Domain: `Task`, `TaskList`
-- Boundary: `TaskModel`, `TaskListModel`, `load_tasklist`, `save_tasklist`
+- `id: int`
+- `title: str`
+- `state: str = TASK_STATE_PENDING`
+- `result: dict[str, Any] | None = None`
+- `error: str | None = None`
+- `meta: dict[str, Any] = {}`
 
-## Backward compatibility shims
+Notes:
 
-These remain to reduce breakage for older imports, but are deprecated:
+- This is a **domain object only** (no Pydantic).
+- The docstring mentions a “boundary module” for validation/persistence, but that is **not part of the files covered by this minidoc**.
 
-- `src/tasklists/tasklist_interface.py`
-  - `AbstractTask`, `AbstractTaskList` Protocols (compatibility only)
+### `src/tasklists/task_list.py`
 
-- `src/tasklists/file_tasklist.py`
-  - `FileTask` and `FileTaskList` are aliases to `Task` and `TaskList`
-  - No file/JSON persistence remains here
+#### `TaskList` (dataclass)
+A collection of `Task` objects plus a small amount of domain behavior.
+
+Fields:
+
+- `schema_version: int = 1`
+- `state: str = TASK_LIST_STATE_CREATED`
+- `tasks: list[Task] = []`
+
+Domain helpers / behavior:
+
+- `task_list() -> Iterable[Task]`
+  - Returns a copy of the internal list (`list(self.tasks)`).
+- `get_task(id: int) -> Task | None`
+- `next_id() -> int`
+  - Returns `1` if empty, else `max(id) + 1`.
+- `add_task(task: Task) -> None`
+  - Upserts by `task.id` (replaces existing task with same id, else appends).
+- `update_task_state(id: int, new_state: str) -> None`
+  - No-op if task id not found.
+- `set_task_result(id: int, result: dict, *, new_state: str | None = None, error: str | None = None) -> None`
+  - No-op if task id not found.
+  - Sets `task.result`.
+  - Sets `task.error` only if `error is not None`.
+  - Sets `task.state` only if `new_state is not None`.
+
+## Shared state constants
+
+### `src/tasklists/task_states.py`
+
+Task list states:
+
+- `TASK_LIST_STATE_CREATED = "Created"`
+- `TASK_LIST_STATE_RUNNING = "Running"`
+- `TASK_LIST_STATE_COMPLETED = "Completed"`
+- `TASK_LIST_STATE_FAILED = "Failed"`
+
+Task states:
+
+- `TASK_STATE_PENDING = "Pending"`
+- `TASK_STATE_RUNNING = "Running"`
+- `TASK_STATE_COMPLETED = "Completed"`
+- `TASK_STATE_COMPLETED_WITH_ERRORS = "Completed (with errors)"`
+- `TASK_STATE_FAILED = "Failed"`
+- `TASK_STATE_BLOCKED = "Blocked"`
+
+## Persistence
+
+`TaskList` currently includes **simple JSON helpers**:
+
+- `TaskList.to_json() -> str`
+- `TaskList.from_json(json_str: str) -> TaskList`
+
+These serialize/deserialize a structure like:
+
+```json
+{
+  "schema_version": 1,
+  "state": "Created",
+  "tasks": [
+    {
+      "id": 1,
+      "title": "Run pytest",
+      "state": "Completed",
+      "result": {"exit_code": 0},
+      "error": null,
+      "meta": {"command": "pytest"}
+    }
+  ]
+}
+```
