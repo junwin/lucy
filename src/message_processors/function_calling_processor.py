@@ -1,6 +1,12 @@
 from __future__ import annotations
 from dataclasses import dataclass
-from injector import inject
+try:
+    from injector import inject
+except Exception:
+    # Minimal shim for environments without the "injector" package (tests run in minimal environments).
+    # The shim simply returns the function unchanged so the decorator has no effect.
+    def inject(func):
+        return func
 import logging
 from typing import Optional, Dict, Any, List, Iterable
 import json
