@@ -15,6 +15,9 @@ class TaskList:
     schema_version: int = 1
     state: str = TASK_LIST_STATE_CREATED
     tasks: List[Task] = field(default_factory=list)
+    # Persisted runs metadata keyed by run_id. This is stored alongside the
+    # tasklist dict so automation processors can create/resume runs.
+    runs: Dict[str, Any] = field(default_factory=dict)
 
     # -----------------
     # Domain behavior
