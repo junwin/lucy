@@ -257,6 +257,9 @@ pip install -r requirements.txt
 # Optional: language models used by some components
 python -m spacy download en_core_web_sm
 python -m spacy download es_core_news_sm
+
+# Optional: NLTK data used by some components (Lucy will auto-download on first run)
+python -c "import nltk; nltk.download('punkt')"
 ```
 
 ### 3. Run the app

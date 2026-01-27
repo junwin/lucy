@@ -16,6 +16,7 @@ class CommandExecutionHandler2(HandlerV2):
       - Callers specify either:
           (A) location="sandbox", working_directory="<relative under code sandbox base>"
           (B) location="external", external_root="<named root>", working_directory="<relative under that root>"
+      - Option A (explicit): callers must pass working_directory="." to mean the root of the chosen base.
       - STRICT schema: required must include every key in properties.
     """
 
@@ -40,6 +41,8 @@ class CommandExecutionHandler2(HandlerV2):
                 "If you need shell features (pipes, redirection, compound/conditional commands), wrap the entire command in a shell invocation, e.g. `bash -lc '\"...\"'`. "
                 "Example: `bash -lc '\"grep -R \"pattern\" . | sed -n \'1,10p\"'` will run a shell so pipes and redirects work. "
                 "(bash is available in the environment.) "
+                "Commands MUST be non-interactive and MUST terminate. "
+                "Do NOT call `bash` or `python3` with no arguments (they will wait for stdin and time out). "
                 "Paths are always relative. "
                 "location='sandbox' uses code_sandbox_path; location='external' uses external_root."
             ),
@@ -66,7 +69,8 @@ class CommandExecutionHandler2(HandlerV2):
                     "working_directory": {
                         "type": "string",
                         "description": (
-                            "Working directory relative to the chosen location (no leading /, no ..)."
+                            "Working directory relative to the chosen location (no leading /, no ..). "
+                            "Use '.' to run in the root of the chosen base directory."
                         ),
                     },
                     "timeout_seconds": {
@@ -131,6 +135,25 @@ class CommandExecutionHandler2(HandlerV2):
                 "command": command,
                 "working_directory": working_directory_in,
             }
+        
+        # Reject interactive shells / REPLs that will hang waiting for stdin.
+        if self._is_bare_interactive(command):
+            return {
+                "ok": False,
+                "tool": self.NAME,
+                "error": (
+                    f"Refusing interactive command that would wait for stdin: {command!r}. "
+                    "Provide a terminating command. Examples: "
+                    "`python3 path/to/script.py [args]`, "
+                    "`python3 -c \"print('hi')\"`, "
+                    "`bash -lc \"<your command>\"`."
+                ),
+                "location": location,
+                "external_root": external_root,
+                "command": command,
+                "working_directory": working_directory_in,
+            }
+
 
         # Validate relative working_directory
         norm_wd, err = self._validate_and_normalize_relative_path(working_directory_in)
@@ -216,13 +239,12 @@ class CommandExecutionHandler2(HandlerV2):
         if not isinstance(success_exit_codes, list) or not all(isinstance(x, int) for x in success_exit_codes):
             success_exit_codes = [0]
 
-
         try:
             rc, out_raw, err_raw = self._execute_script(command, resolved_dir, timeout=int(timeout_seconds))
 
             out = self._truncate(out_raw)
             err = self._truncate(err_raw)
-            
+
         except Exception as e:
             logging.exception("execute_command failed")
             return {
@@ -251,7 +273,7 @@ class CommandExecutionHandler2(HandlerV2):
             result_str = f"error {rc}\nSTDOUT:\n{out}\nSTDERR:\n{err}"
 
         return {
-            "ok": rc == 0,
+            "ok": ok,
             "tool": self.NAME,
             "location": location,
             "external_root": external_root,
@@ -334,8 +356,11 @@ class CommandExecutionHandler2(HandlerV2):
 
         norm_rel = os.path.normpath(path_in)
 
-        if norm_rel in ("", ".", ".."):
-            return "", "working_directory must not be empty or point to current/parent directory"
+        # Option A (explicit): allow '.' to mean the base directory itself.
+        if norm_rel in ("", ".."):
+            return "", "working_directory must not be empty or point to parent directory"
+        if norm_rel == ".":
+            return ".", ""
 
         parts = [p for p in norm_rel.split(os.path.sep) if p]
         if os.path.altsep:
@@ -379,7 +404,7 @@ class CommandExecutionHandler2(HandlerV2):
             timeout=timeout,
         )
         return completed.returncode, completed.stdout or "", completed.stderr or ""
-    
+
     MAX_OUTPUT_CHARS = 10_000  # conservative, well under tool limits
 
     def _truncate(self, text: str, limit: int = MAX_OUTPUT_CHARS) -> str:
@@ -392,3 +417,27 @@ class CommandExecutionHandler2(HandlerV2):
             + "\n\n[... output truncated ...]\n\n"
             + text[-limit // 2 :]
         )
+
+    INTERACTIVE_BARE = {"python", "python3", "bash", "sh", "zsh"}
+
+    def _is_bare_interactive(self, command: str) -> bool:
+        try:
+            parts = shlex.split(command, posix=(os.name != "nt"))
+        except Exception:
+            # If it can't be parsed, treat it as unsafe / reject early
+            return True
+
+        if not parts:
+            return True
+
+        prog = parts[0]
+
+        # `python3` alone / `bash` alone
+        if prog in self.INTERACTIVE_BARE and len(parts) == 1:
+            return True
+
+        # `bash` without -c/-lc is very likely interactive (waiting on stdin)
+        if prog == "bash" and not any(p in ("-c", "-lc") for p in parts[1:]):
+            return True
+
+        return False

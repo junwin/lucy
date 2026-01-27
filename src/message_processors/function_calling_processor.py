@@ -150,6 +150,22 @@ class FunctionCallingProcessor(MessageProcessorInterface):
             wrapped.append(_ToolCall(name=tool_name, call_id=str(tool_call_id or ""), arguments_raw=args_raw))
         return wrapped
 
+    def _get_environment_system_messages(self) -> List[str]:
+        """Return server-wide environment prompt injection messages.
+
+        Config key: environment_prompt_block
+
+        - Missing/empty => []
+        - Non-empty string => one system message containing the full block
+        """
+
+        env_block = self.config.get("environment_prompt_block", "")
+        if not isinstance(env_block, str) or not env_block.strip():
+            return []
+
+        # Keep as a single structured block to preserve formatting.
+        return [env_block.strip()]
+
 
     def _execute_simple_tasklist(
         self,
@@ -515,6 +531,10 @@ class FunctionCallingProcessor(MessageProcessorInterface):
         )
 
         try:
+            extra_system_messages = self._get_environment_system_messages()
+            if extra_system_messages:
+                logging.debug("FunctionCallingProcessor: injecting %d environment system message(s) from environment_prompt_block", len(extra_system_messages))
+
             prompt_messages = self.prompt_builder.build_prompt(
                 content_text=message,
                 conversation_id=ctx.conversation_id,
@@ -523,15 +543,44 @@ class FunctionCallingProcessor(MessageProcessorInterface):
                 context_type=ctx.context_type,
                 max_prompt_chars=6000,
                 context_name=ctx.context_name,
-                extra_system_messages=[],
+                extra_system_messages=extra_system_messages,
             )
 
+            # Get the global tool definitions from the registry. We'll filter this
+            # list according to the agent.allowed_tools.
             function_defs = self.registry.tools()
+
+            # Filtering rules (strict intersection):
+            # - allowed_tools missing/None => allow no tools
+            # - allowed_tools == [] => allow no tools
+            # - otherwise => allow only tools whose name appears in allowed_tools
+            allowed = getattr(primary_agent, "allowed_tools", None)
+
+            if not allowed:
+                filtered_function_defs = []
+            else:
+                # Ensure allowed is a list, preserve order from function_defs
+                try:
+                    allowed_list = list(allowed)
+                except Exception:
+                    allowed_list = []
+
+                available_names = [fd.get("name") for fd in function_defs]
+                unknown = [n for n in allowed_list if n not in available_names]
+                if unknown:
+                    logging.warning(
+                        "FunctionCallingProcessor: agent '%s' has unknown allowed_tools entries: %s; ignoring",
+                        getattr(primary_agent, "name", "<unknown>"),
+                        unknown,
+                    )
+
+                allowed_set = set([n for n in allowed_list if n in available_names])
+                filtered_function_defs = [fd for fd in function_defs if fd.get("name") in allowed_set]
 
             response_text = self._run_llm_loop(
                 ctx=ctx,
                 prompt_messages=prompt_messages,
-                function_defs=function_defs,
+                function_defs=filtered_function_defs,
                 primary_agent=primary_agent,
                 secondary_agent=secondary_agent,
                 processor_factory=processor_factory,

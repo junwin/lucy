@@ -59,29 +59,16 @@ def get_document_context(
     # before calling this helper.
     if not hasattr(storage, "search_documents_poor_man"):
         return []
+    
+    results = storage.search_documents_poor_man(
+        account_name=account_name,
+        query=query,
+        kind=kind,
+        limit=limit,
+        tag=docs_tag,
+    )
 
-    if docs_tag is not None:
-        # Strict tag-based listing: use list_documents to filter the eligible
-        # documents. This guarantees we only consider documents that expose
-        # the requested tag. We respect `kind` and `limit` here.
-        if not hasattr(storage, "list_documents"):
-            return []
 
-        results = storage.list_documents(
-            account_name=account_name,
-            kind=kind,
-            tag=docs_tag,
-            limit=limit,
-        )
-    else:
-        # Backwards-compatible behaviour: use the poor-man search which
-        # scores documents based on the free-text query.
-        results = storage.search_documents_poor_man(
-            account_name=account_name,
-            query=query,
-            kind=kind,
-            limit=limit,
-        )
 
     contexts: List[Dict[str, Any]] = []
 

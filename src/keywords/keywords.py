@@ -12,6 +12,33 @@ from datetime import datetime
 from spacy.lang.en import STOP_WORDS
 import re
 
+
+def ensure_nltk_data(*, logger=None) -> None:
+    """Ensure required NLTK datasets are available.
+
+    We auto-download on first run to avoid a common new-machine failure mode.
+    """
+
+    required = ["punkt"]
+
+    for pkg in required:
+        try:
+            # punkt is stored under tokenizers/punkt
+            if pkg == "punkt":
+                nltk.data.find("tokenizers/punkt")
+            else:
+                nltk.data.find(pkg)
+        except LookupError:
+            if logger:
+                logger.info("NLTK data '%s' not found; downloading...", pkg)
+            nltk.download(pkg, quiet=True)
+            # Re-check so we fail loudly if download did not work
+            if pkg == "punkt":
+                nltk.data.find("tokenizers/punkt")
+            else:
+                nltk.data.find(pkg)
+
+
 class Keywords:
     """
     The Keywords class is responsible for managing the keywords, where a keyword is a
@@ -23,6 +50,7 @@ class Keywords:
         language_code (str): The language code to be used for text processing.
         nlp (spacy.lang): The spacy NLP model loaded based on the language code.
     """
+
     def __init__(self, language_code="en"):
         self.language_code = language_code
         self.nlp = None
@@ -34,12 +62,12 @@ class Keywords:
                 self.nlp = spacy.load("es_core_news_sm")
             else:
                 self.nlp = spacy.load("en_core_web_sm")
-            # Check for NLTK data
-            nltk.data.find("tokenizers/punkt")
-        except LookupError:
-            raise RuntimeError("NLTK data not found. Please run nltk.download('punkt') manually.")
+
+            # Ensure NLTK data is present (auto-download on first run)
+            ensure_nltk_data()
+
         except Exception as e:
-            raise RuntimeError(f"Failed to load spaCy model: {e}")
+            raise RuntimeError(f"Failed to initialize NLP dependencies: {e}")
 
     def extract_from_content(self, content: str, top_n: int = 10) -> List[str]:
         return self.extract_keywords(content, top_n)
@@ -47,7 +75,6 @@ class Keywords:
     def extract_keywords(self, content: str, top_n: int = 10) -> List[str]:
         if 'request keywords:' in content:
             return self.get_specified_keywords(content)
-        
 
         doc = self.nlp(content.lower())
 
@@ -66,7 +93,6 @@ class Keywords:
         keywords = [w for w, _ in word_frequency.most_common(top_n)]
         return keywords
 
-
     def get_specified_keywords(self, input_str: str) -> List[str]:
         match = re.search('```(.*?)```', input_str, re.S)
         if match:
@@ -76,21 +102,21 @@ class Keywords:
             return []
 
     def compare_keyword_lists_semantic_similarity(self, keywords1: List[str], keywords2: List[str]) -> float:
-        t1 = self.concatenate_keywords(keywords1)   
+        t1 = self.concatenate_keywords(keywords1)
         t2 = self.concatenate_keywords(keywords2)
-        similarity = self.compare_semantic_similarity(t1, t2 )
+        similarity = self.compare_semantic_similarity(t1, t2)
         return round(similarity, 6)
-    
+
     def compare_semantic_similarity(self, text1: str, text2: str) -> float:
         vectorizer = TfidfVectorizer()
         tfidf_matrix = vectorizer.fit_transform([text1, text2])
         similarity = cosine_similarity(tfidf_matrix[0:1], tfidf_matrix[1:2])
-        return round(similarity[0][0],6)
-    
+        return round(similarity[0][0], 6)
+
     def compare_keywords(self, set1: set, set2: set, operator: str = "and") -> bool:
         set1 = set(set1)  # Convert to set if not already a set
         set2 = set(set2)  # Convert to set if not already a set
-        
+
         if operator == "and":
             return set1 == set2
         elif operator == "or":
