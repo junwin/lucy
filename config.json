@@ -6,7 +6,8 @@
     "repos": "/home/junwin/src/repos",
     "obsidian": "/home/junwin/obsidian/test",
     "sandbox_cmd": "/home/junwin/sandbox",
-    "lucy_data_files": "/home/junwin/lucy_storage"
+    "lucy_data_files": "/home/junwin/lucy_storage",
+    "pictures": "/home/junwin/Pictures"
   },
   "agents_path": "static/data/agents.json",
   "code_sandbox_path": "/home/junwin/src",
