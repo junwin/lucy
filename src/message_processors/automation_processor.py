@@ -15,6 +15,7 @@ from src.prompt_builders.prompt_builder_interface import PromptBuilderInterface
 from src.storage.base import Storage
 from src.tasklists.task_list import TaskList
 from src.tasklists.task import Task
+from src.tasklists.task_list import TaskListStorage
 from src.tasklists.task_states import (
     TASK_STATE_PENDING,
     TASK_STATE_RUNNING,
