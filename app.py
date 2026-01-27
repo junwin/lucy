@@ -309,7 +309,7 @@ def build_prompt():
         context_name = str(context_name).strip() or None
 
     # allow optional list of extra system messages
-    extra_system_messages = payload.get("extraSystemMessages") or []
+    extra_system_messages = payload.get("extraSystemMessages") or ["my system Message"]
     if not isinstance(extra_system_messages, list):
         extra_system_messages = [str(extra_system_messages)]
 
