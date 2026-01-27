@@ -4,7 +4,7 @@
   "external_roots": {
     "repo_lucy": "/home/junwin/src/repos/lucy",
     "repos": "/home/junwin/src/repos",
-    "obsidian": "/home/junwin/obsidian/test",
+    "obsidian": "/home/junwin/Documents/mynotes",
     "sandbox_cmd": "/home/junwin/sandbox",
     "lucy_data_files": "/home/junwin/lucy_storage",
     "pictures": "/home/junwin/Pictures"
