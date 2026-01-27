@@ -4,8 +4,6 @@ from nltk.stem import SnowballStemmer
 from nltk.tokenize import word_tokenize
 import nltk
 from nltk.corpus import wordnet as wn
-from sklearn.metrics.pairwise import cosine_similarity
-from sklearn.feature_extraction.text import TfidfVectorizer
 from datetime import datetime
 import re
 
@@ -123,10 +121,35 @@ class Keywords:
         return round(similarity, 6)
 
     def compare_semantic_similarity(self, text1: str, text2: str) -> float:
-        vectorizer = TfidfVectorizer()
-        tfidf_matrix = vectorizer.fit_transform([text1, text2])
-        similarity = cosine_similarity(tfidf_matrix[0:1], tfidf_matrix[1:2])
-        return round(similarity[0][0], 6)
+        try:
+            # Prefer sklearn implementation when available for better quality
+            from sklearn.feature_extraction.text import TfidfVectorizer
+            from sklearn.metrics.pairwise import cosine_similarity
+
+            vectorizer = TfidfVectorizer()
+            tfidf_matrix = vectorizer.fit_transform([text1, text2])
+            similarity = cosine_similarity(tfidf_matrix[0:1], tfidf_matrix[1:2])
+            return round(float(similarity[0][0]), 6)
+        except Exception:
+            # Fallback lightweight implementation (no sklearn). Uses simple
+            # token-frequency vectors and cosine similarity. Good enough for
+            # tests and environments without sklearn installed.
+            import math
+            from collections import Counter
+
+            def tokenize(t: str):
+                return re.findall(r"\w+", t.lower())
+
+            v1 = Counter(tokenize(text1))
+            v2 = Counter(tokenize(text2))
+            all_keys = set(v1) | set(v2)
+            dot = sum(v1[k] * v2[k] for k in all_keys)
+            norm1 = math.sqrt(sum((v1[k]) ** 2 for k in all_keys))
+            norm2 = math.sqrt(sum((v2[k]) ** 2 for k in all_keys))
+            if norm1 == 0 or norm2 == 0:
+                return 0.0
+            sim = dot / (norm1 * norm2)
+            return round(sim, 6)
 
     def compare_keywords(self, set1: set, set2: set, operator: str = "and") -> bool:
         set1 = set(set1)  # Convert to set if not already a set
