@@ -21,7 +21,6 @@ For a high-level view of the architecture, see:
 From the project root:
 
 ```bash
-cd src/repos/lucy
 python main.py --agentName lucy --accountName junwin --friendlyName talisker
 ```
 
@@ -145,9 +144,95 @@ Context is shared information that can be used by one or more agents when buildi
 
 A simple project-level context for this repo lives at:
 
-- `data/contexts/junwin/lucyproject.json`
+- `data/contexts/junwin/lucyproject.md`
 
-When the `lucyproject` context is selected for account `junwin`, its `data["text"]` is added as additional system context for the conversation.
+When the `lucyproject` context is selected for account `junwin`, its `data["text"]` (the Markdown body) and any frontmatter keys are available to the PromptBuilder and agents as additional system/context content.
+
+Note: there is no `src/context` package in this repository. The request/context helper lives at `src/request_context.py` and the JSON/MD persistence logic is implemented in `src/storage/json_file_storage.py` (see the "Context / Whiteboard" section there).
+
+---
+
+## Automation: runs, storage layout, and JSON payloads (developer notes)
+
+This project includes an AutomationProcessor that can:
+
+- Create a run record for a task list stored inside a context.
+- Resume an existing run when a run id is supplied.
+- Persist run and task state back into storage after every state change so runs can be resumed or inspected.
+
+Where automation data lives
+
+- Context files are stored as Markdown with YAML frontmatter under the storage root calculated by StoragePaths. The canonical location is:
+
+  <storage_root>/<storage_namespace>/contexts/<account_name>/<context_id>.md
+
+  - Frontmatter keys map into ContextState.data (except the Markdown body, which is placed in data['text']).
+  - The task list must be available at context.data['tasklist'] (a serialized TaskList dict or JSON string).
+  - Automation run metadata is stored inside the tasklist under a top-level `runs` key (a dict keyed by run_id).
+
+- Chat sessions continue to live under:
+
+  <storage_root>/<storage_namespace>/chats/<account_name>/<session_id>.json
+
+  See `src/storage/json_file_storage.py` and `src/storage_paths/storage_paths.py` for details.
+
+How runs are created and resumed
+
+- The AutomationProcessor (src/message_processors/automation_processor.py) accepts either free-text commands or a small JSON payload in the message body.
+
+- Free-text examples:
+  - "run tasks single step"
+  - "run tasks multi-step"
+
+- JSON payload example (create a new run or resume if run_id provided):
+
+```json
+{
+  "action": "run",
+  "mode": "single-step",   // or "multi-step"
+  "id": "optional-run-id", // or "run_id"
+  "name": "friendly name for this run"
+}
+```
+
+- Behavior:
+  - If `id`/`run_id` is provided and that id exists in tasklist.runs, the processor will attempt to resume that run.
+  - If no run id is provided, a new run id is created (of the form `run-<ISO timestamp>`) and a run metadata object is attached to tasklist.runs.
+  - The run metadata object contains at least: id, name, state (created/running/completed/failed), created_at, updated_at, executed_count.
+
+Persistence and safety
+
+- The processor updates task and run states in memory and serializes the whole tasklist back into context.data['tasklist'] on every state change.
+- After each change it calls storage.save_context(ctx) so the on-disk context (the Markdown file) is updated atomically. This allows resuming runs if the process restarts.
+- Context frontmatter remains a plain dict; the TaskList is saved in the body/frontmatter as a serialized dict so tools that read contexts can find `tasklist` under context.data.
+
+Where to look in the code
+
+- AutomationProcessor implementation: `src/message_processors/automation_processor.py` (run creation/resume logic and persistence).
+- Storage and context persistence: `src/storage/json_file_storage.py` (get_context, save_context, migration helpers).
+- Storage path resolver: `src/storage_paths/storage_paths.py`.
+
+Tests and development guidance
+
+- Unit tests for the AutomationProcessor live at `tests/test_automation_processor.py`.
+  - These tests assert mode parsing, missing-context behavior, and basic persistence expectations.
+
+- To run tests locally:
+
+```bash
+# from the project root
+python -m pytest -q
+```
+
+- If you add/adjust behavior for runs, add tests that cover:
+  - Creating a new run (no run_id provided) and verifying tasklist.runs contains the new run.
+  - Resuming an existing run by providing run_id and asserting continued processing.
+  - Persistence after each task state change (e.g., simulate failure between steps and assert save_context was called).
+
+Documentation updates
+
+- If you modify where run metadata (tasklist.runs) is stored, update `docs/message_processors.md` and `docs/storage.md`.
+- If you change the context file schema, update `src/storage/json_file_storage.py` (and the migration helper `migrate_context_json_to_md`) and the docs.
 
 ---
 
@@ -225,7 +310,6 @@ Lucy includes a simple CLI that talks to the same `/ask` logic. This is useful f
 From the project root:
 
 ```bash
-cd src/repos/lucy
 python main.py --agentName lucy --accountName junwin
 ```
 
@@ -307,5 +391,3 @@ This is optional and only needed if you expose an HTTPS endpoint locally.
 - `docs/architecture_overview.md` – high-level architecture and components.
 - `docs/storage.md` – storage model, chat sessions, messages, and context.
 - `docs/ask_request_handler.md` – `/ask` request/response flow and session handling.
-
-These docs are the best place to start if you are modifying or extending Lucy.

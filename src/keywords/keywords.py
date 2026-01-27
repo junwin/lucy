@@ -1,6 +1,5 @@
 from typing import List, Dict, Set
 from collections import Counter
-from annotated_types import doc
 from nltk.stem import SnowballStemmer
 from nltk.tokenize import word_tokenize
 import nltk
