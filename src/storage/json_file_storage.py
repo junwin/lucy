@@ -795,6 +795,63 @@ class JsonFileStorage(Storage):
                     logging.error("Failed migrating %s: %s", json_file, e)
 
     # ----------------------------------------------------------------------
+    # Tasklist templates (simple CRUD)
+    # ----------------------------------------------------------------------
+
+    def _tasklists_dir(self, account_name: str) -> Path:
+        # store tasklist templates under documents/<account>/tasklists/
+        d = self.storage_paths.documents / account_name / "tasklists"
+        return d
+
+    def list_tasklists(self, account_name: str) -> List[str]:
+        d = self._tasklists_dir(account_name)
+        if not d.exists() or not d.is_dir():
+            return []
+
+        ids: List[str] = []
+        for p in d.glob("*.json"):
+            ids.append(p.stem)
+
+        ids.sort()
+        return ids
+
+    def get_tasklist(self, account_name: str, tasklist_id: str) -> Optional[Dict[str, Any]]:
+        path = self._tasklists_dir(account_name) / f"{tasklist_id}.json"
+        data = self._load_json(path)
+        return data
+
+    def save_tasklist(self, account_name: str, tasklist_id: str, tasklist: Any) -> None:
+        # Accept dict-like or JSON string
+        d = self._tasklists_dir(account_name)
+        self._ensure_dir(d)
+
+        if isinstance(tasklist, str):
+            try:
+                payload = json.loads(tasklist)
+            except Exception:
+                # If it's a plain string that isn't JSON, store as {'value': str}
+                payload = {"value": tasklist}
+        elif isinstance(tasklist, dict):
+            payload = tasklist
+        else:
+            # Try to coerce to dict via __dict__ if possible
+            try:
+                payload = dict(tasklist)
+            except Exception:
+                payload = {"value": str(tasklist)}
+
+        # Ensure we persist plain JSON object
+        self._atomic_write(d / f"{tasklist_id}.json", payload)
+
+    def delete_tasklist(self, account_name: str, tasklist_id: str) -> None:
+        path = self._tasklists_dir(account_name) / f"{tasklist_id}.json"
+        try:
+            if path.exists():
+                path.unlink()
+        except Exception as e:
+            logging.error("Failed to delete tasklist %s: %s", path, e)
+
+    # ----------------------------------------------------------------------
     # DOCUMENTS
     # ----------------------------------------------------------------------
 
