@@ -63,24 +63,20 @@ class TaskList:
     # Persistence (bone-headed)
     # -----------------
 
-    def to_json(self) -> str:
+    def to_dict(self) -> Dict[str, Any]:
+        """Serialize TaskList → plain dict (suitable for JSON encoding).
+
+        Prefer this over to_json() in storage/boundary layers.
         """
-        Serialize TaskList → JSON string.
-        """
-        data = {
+        return {
             "schema_version": self.schema_version,
             "state": self.state,
             "tasks": [asdict(task) for task in self.tasks],
         }
-        return json.dumps(data, indent=2)
 
     @classmethod
-    def from_json(cls, json_str: str) -> "TaskList":
-        """
-        Deserialize JSON string → TaskList.
-        """
-        data = json.loads(json_str)
-
+    def from_dict(cls, data: Dict[str, Any]) -> "TaskList":
+        """Deserialize plain dict → TaskList."""
         tasks = [Task(**task_dict) for task_dict in data.get("tasks", [])]
 
         return cls(
@@ -88,3 +84,17 @@ class TaskList:
             state=data.get("state", TASK_LIST_STATE_CREATED),
             tasks=tasks,
         )
+
+    def to_json(self) -> str:
+        """
+        Serialize TaskList → JSON string.
+        """
+        return json.dumps(self.to_dict(), indent=2)
+
+    @classmethod
+    def from_json(cls, json_str: str) -> "TaskList":
+        """
+        Deserialize JSON string → TaskList.
+        """
+        data = json.loads(json_str)
+        return cls.from_dict(data)
