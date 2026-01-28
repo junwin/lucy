@@ -1,7 +1,17 @@
 # container_config.py
 
-from injector import Injector
-from injector import Module, provider, singleton
+# injector is optional for unit tests that only exercise Flask endpoints.
+try:
+    from injector import Injector
+    from injector import Module, provider, singleton
+except ModuleNotFoundError:  # pragma: no cover
+    Injector = None  # type: ignore
+    class Module:  # type: ignore
+        pass
+    def provider(fn):  # type: ignore
+        return fn
+    def singleton(fn):  # type: ignore
+        return fn
 
 from src.config_manager import ConfigManager
 from src.agent import AgentManager
@@ -126,6 +136,8 @@ class EndpointHandlersModule(Module):
 
 
 def configure_container():
+    if Injector is None:  # pragma: no cover
+        return None
     container = Injector(
         [
             AgentManagerModule(),

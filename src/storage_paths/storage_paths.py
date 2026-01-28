@@ -32,6 +32,10 @@ class StoragePaths:
         return self.base / "documents"
 
     @property
+    def tasklists(self) -> Path:
+        return self.base / "tasklists"
+
+    @property
     def users(self) -> Path:
         return self.base / "users"
 

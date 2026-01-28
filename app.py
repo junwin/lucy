@@ -18,6 +18,10 @@ from src.container_config import container
 from src.config_manager import ConfigManager
 from src.prompt_builders.prompt_builder import PromptBuilder
 from src.message_endpoints.ask_request_handler import AskRequestHandler
+from src.tasklists.tasklist_validation import (
+    canonicalize_tasklist_dict,
+    validate_tasklist_id,
+)
 
 
 # -----------------------------------------------------------------------------
@@ -278,6 +282,108 @@ def list_context_names():
     except Exception:
         logging.exception(
             "/context/names: failed to list context names for account=%s", account_name
+        )
+        return jsonify({"error": "An error occurred"}), 500
+
+
+
+
+# -----------------------------------------------------------------------------
+# TaskLists CRUD (Span 3)
+# -----------------------------------------------------------------------------
+
+
+@app.route("/tasklists", methods=["GET"])
+def list_tasklists():
+    account_name = (request.args.get("accountName") or "").strip()
+    if not account_name:
+        return jsonify({"error": "Missing accountName"}), 400
+
+    try:
+        ids = storage.list_tasklists(account_name)
+        return jsonify(ids), 200
+    except Exception:
+        logging.exception("/tasklists: failed to list tasklists for account=%s", account_name)
+        return jsonify({"error": "An error occurred"}), 500
+
+
+@app.route("/tasklists/<tasklist_id>", methods=["GET"])
+def get_tasklist(tasklist_id: str):
+    account_name = (request.args.get("accountName") or "").strip()
+    if not account_name:
+        return jsonify({"error": "Missing accountName"}), 400
+
+    try:
+        validate_tasklist_id(tasklist_id)
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+
+    try:
+        d = storage.get_tasklist(account_name, tasklist_id)
+        if d is None:
+            return jsonify({"error": "TaskList not found"}), 404
+        d = canonicalize_tasklist_dict(tasklist_id, d)
+        return jsonify(d), 200
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+    except Exception:
+        logging.exception(
+            "/tasklists/<id>: failed to get tasklist for account=%s id=%s",
+            account_name,
+            tasklist_id,
+        )
+        return jsonify({"error": "An error occurred"}), 500
+
+
+@app.route("/tasklists/<tasklist_id>", methods=["PUT"])
+def put_tasklist(tasklist_id: str):
+    account_name = (request.args.get("accountName") or "").strip()
+    if not account_name:
+        return jsonify({"error": "Missing accountName"}), 400
+
+    try:
+        validate_tasklist_id(tasklist_id)
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+
+    payload = request.get_json(silent=True)
+    if payload is None:
+        return jsonify({"error": "Invalid JSON body"}), 400
+
+    try:
+        d = canonicalize_tasklist_dict(tasklist_id, payload)
+        storage.save_tasklist(account_name, tasklist_id, d)
+        return jsonify({"ok": True}), 200
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+    except Exception:
+        logging.exception(
+            "/tasklists/<id>: failed to save tasklist for account=%s id=%s",
+            account_name,
+            tasklist_id,
+        )
+        return jsonify({"error": "An error occurred"}), 500
+
+
+@app.route("/tasklists/<tasklist_id>", methods=["DELETE"])
+def delete_tasklist(tasklist_id: str):
+    account_name = (request.args.get("accountName") or "").strip()
+    if not account_name:
+        return jsonify({"error": "Missing accountName"}), 400
+
+    try:
+        validate_tasklist_id(tasklist_id)
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+
+    try:
+        storage.delete_tasklist(account_name, tasklist_id)
+        return jsonify({"ok": True}), 200
+    except Exception:
+        logging.exception(
+            "/tasklists/<id>: failed to delete tasklist for account=%s id=%s",
+            account_name,
+            tasklist_id,
         )
         return jsonify({"error": "An error occurred"}), 500
 
