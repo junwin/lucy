@@ -5,8 +5,6 @@ import logging
 from datetime import datetime, timezone
 from typing import Any, Dict, Optional, Tuple
 
-from injector import inject
-
 from src.agent import Agent
 from src.config_manager import ConfigManager
 from src.handlers.handler_registry import HandlerRegistry
@@ -173,7 +171,6 @@ class AutomationProcessor(MessageProcessorInterface):
     This processor does not use context for tasklist access.
     """
 
-    @inject
     def __init__(
         self,
         config: ConfigManager,

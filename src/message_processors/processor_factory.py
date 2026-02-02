@@ -1,12 +1,22 @@
 # src/message_processors/processor_factory.py
 from __future__ import annotations
-from abc import ABC, abstractmethod
-from src.message_processors.message_processor_interface import MessageProcessorInterface
+
+"""ProcessorFactory
+
+Important: keep imports lazy.
+
+We previously imported processors at module import time, which can create
+circular-import problems (e.g. AutomationProcessor -> ProcessorFactory ->
+FunctionCallingProcessor -> ...).
+
+Also important: processors must be constructed via Injector so required
+dependencies are provided. Do not call processor constructors directly.
+"""
+
+from abc import ABC
+from importlib import import_module
 
 from injector import inject, Injector
-
-from src.message_processors.function_calling_processor import FunctionCallingProcessor
-from src.message_processors.automation_processor import AutomationProcessor
 
 
 class ProcessorFactory(ABC):
@@ -19,14 +29,25 @@ class ProcessorFactory(ABC):
     def __init__(self, injector: Injector):
         self.injector = injector
 
-        self._registry = {
-            "function_calling_processor": FunctionCallingProcessor,
-            "automation_processor": AutomationProcessor,
+        # Map names to import paths. We resolve these lazily in get().
+        self._registry: dict[str, str] = {
+            "function_calling_processor": (
+                "src.message_processors.function_calling_processor.FunctionCallingProcessor"
+            ),
+            "automation_processor": (
+                "src.message_processors.automation_processor.AutomationProcessor"
+            ),
         }
 
     def get(self, processor_name: str):
         key = (processor_name or "").strip().lower()
-        cls = self._registry.get(key)
-        if not cls:
-            raise ValueError(f"Unknown message_processor '{processor_name}'")
+        import_path = self._registry.get(key)
+        if not import_path:
+            raise ValueError(f"Unknown message_processor {processor_name}")
+
+        module_name, class_name = import_path.rsplit(".", 1)
+        module = import_module(module_name)
+        cls = getattr(module, class_name)
+
+        # Always construct via Injector so required dependencies are provided.
         return self.injector.get(cls)

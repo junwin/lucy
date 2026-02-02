@@ -13,6 +13,8 @@ class TaskList:
     schema_version: int = 1
     state: str = TASK_LIST_STATE_CREATED
     tasks: List[Task] = field(default_factory=list)
+    # Arbitrary metadata for callers (agent/session info, etc.)
+    meta: Dict[str, Any] = field(default_factory=dict)
 
     # -----------------
     # Domain behavior
@@ -73,12 +75,18 @@ class TaskList:
         if not getattr(self, "id", None):
             raise ValueError("TaskList.id is required for serialization")
 
-        return {
+        d: Dict[str, Any] = {
             "schema_version": int(self.schema_version),
             "id": str(self.id),
             "state": self.state,
             "tasks": [task.to_dict() for task in self.tasks],
         }
+
+        # Persist/round-trip arbitrary metadata (agent/session info, etc.)
+        # Always include it to keep the boundary stable.
+        d["meta"] = dict(self.meta or {})
+
+        return d
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any], id: Optional[str] = None) -> "TaskList":
@@ -115,11 +123,18 @@ class TaskList:
 
         tasks = [Task.from_dict(task_dict) for task_dict in data.get("tasks", [])]
 
+        meta = data.get("meta", {})
+        if meta is None:
+            meta = {}
+        if not isinstance(meta, dict):
+            raise ValueError("meta must be a dict")
+
         return cls(
             id=final_id,
             schema_version=sv,
             state=data.get("state", TASK_LIST_STATE_CREATED),
             tasks=tasks,
+            meta=meta,
         )
 
     def to_json(self) -> str:
