@@ -69,3 +69,18 @@ def test_id_mismatch_rejected(tmp_path):
         pass
     else:
         raise AssertionError("Expected ValueError for id mismatch")
+
+
+def test_save_and_get_tasklist_with_meta(tmp_path):
+    storage = make_storage(tmp_path)
+    payload = {"schema_version": 1, "state": "Created", "tasks": [], "meta": {"supervisor_agent": "super", "notes": "from test"}}
+    storage.save_tasklist("alice", "tlmeta", payload)
+
+    ids = storage.list_tasklists("alice")
+    assert ids == ["tlmeta"]
+
+    data = storage.get_tasklist("alice", "tlmeta")
+    assert isinstance(data, dict)
+    assert data["id"] == "tlmeta"
+    assert data["meta"]["supervisor_agent"] == "super"
+    assert data["meta"]["notes"] == "from test"

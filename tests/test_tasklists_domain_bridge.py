@@ -13,7 +13,7 @@ def test_round_trip_to_dict_and_from_dict():
     d = tl.to_dict()
 
     # exact top-level JSON shape
-    assert set(d.keys()) == {"schema_version", "id", "state", "tasks"}
+    assert set(d.keys()) == {"schema_version", "id", "state", "tasks", "meta"}
     assert d["schema_version"] == 1
     assert d["id"] == "list-123"
     assert d["state"] == "Running"
@@ -57,3 +57,18 @@ def test_to_dict_always_includes_id():
     tl = TaskList(id="abc", tasks=[t])
     d = tl.to_dict()
     assert "id" in d and d["id"] == "abc"
+
+
+def test_meta_roundtrip_in_model():
+    # Task-level meta and TaskList-level meta should be preserved through to_dict/from_dict
+    t1 = Task(id=1, title="T1", meta={"task_meta": "v"})
+    tl = TaskList(id="list-meta", tasks=[t1], meta={"supervisor_agent": "super", "notes": "x"})
+
+    d = tl.to_dict()
+    assert "meta" in d
+    assert d["meta"] == {"supervisor_agent": "super", "notes": "x"}
+    assert d["tasks"][0]["meta"] == {"task_meta": "v"}
+
+    tl2 = TaskList.from_dict(d)
+    assert tl2.meta == tl.meta
+    assert tl2.tasks[0].meta == t1.meta

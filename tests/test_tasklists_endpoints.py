@@ -21,33 +21,44 @@ def client(monkeypatch):
 def test_put_get_list_delete_happy_path(client):
     c, storage = client
 
-    # PUT
+    # PUT with meta
     storage.save_tasklist.return_value = None
+    payload = {
+        "schema_version": 1,
+        "state": "Created",
+        "tasks": [],
+        "meta": {"supervisor_agent": "super", "notes": "from test"},
+    }
     resp = c.put(
         "/tasklists/demo?accountName=john",
-        json={"schema_version": 1, "state": "Created", "tasks": []},
+        json=payload,
     )
     assert resp.status_code == 200
     assert resp.get_json() == {"ok": True}
 
-    # Ensure server injected id
+    # Ensure server injected id and preserved meta
     storage.save_tasklist.assert_called_once()
     args, _kwargs = storage.save_tasklist.call_args
     assert args[0] == "john"
     assert args[1] == "demo"
     saved = args[2]
     assert saved["id"] == "demo"
+    # meta should be passed through
+    assert "meta" in saved and saved["meta"]["supervisor_agent"] == "super"
 
-    # GET
+    # GET should return meta in the response
     storage.get_tasklist.return_value = {
         "schema_version": 1,
         "id": "demo",
         "state": "Created",
         "tasks": [],
+        "meta": {"supervisor_agent": "super", "notes": "from storage"},
     }
     resp = c.get("/tasklists/demo?accountName=john")
     assert resp.status_code == 200
-    assert resp.get_json()["id"] == "demo"
+    body = resp.get_json()
+    assert body["id"] == "demo"
+    assert "meta" in body and body["meta"]["supervisor_agent"] == "super"
 
     # LIST
     storage.list_tasklists.return_value = ["demo"]
