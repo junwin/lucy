@@ -69,7 +69,7 @@
     "name": "nelly",
     "language_code": "en-US",
     "context_type": "hybrid",
-    "max_prompt_conversations": 0,
+    "max_prompt_conversations": 2,
     "max_prompt_documents": 2,
     "temperature": 1,
     "save_responses": true,
