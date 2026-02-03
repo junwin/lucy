@@ -3,6 +3,7 @@ import json
 import shlex
 import subprocess
 import logging
+import re
 from typing import Any, Dict, Tuple
 
 from src.config_manager import ConfigManager
@@ -154,6 +155,20 @@ class CommandExecutionHandler2(HandlerV2):
                 "working_directory": working_directory_in,
             }
 
+        # Detect shell-only syntax that requires a shell to interpret (pipes, redirects, heredoc, &&, ||, ;, $(), backticks, etc.)
+        if self._contains_shell_syntax(command):
+            return {
+                "ok": False,
+                "tool": self.NAME,
+                "error": (
+                    "Command appears to contain shell-only syntax (pipes, redirects, heredoc/<<, &&, ||, ;, $(), backticks, etc.). "
+                    "These require a shell to interpret. Wrap the entire command in a shell invocation, e.g. `bash -lc \"your full command here\"`."
+                ),
+                "location": location,
+                "external_root": external_root,
+                "command": command,
+                "working_directory": working_directory_in,
+            }
 
         # Validate relative working_directory
         norm_wd, err = self._validate_and_normalize_relative_path(working_directory_in)
@@ -441,3 +456,15 @@ class CommandExecutionHandler2(HandlerV2):
             return True
 
         return False
+
+    def _contains_shell_syntax(self, command: str) -> bool:
+        """
+        Detect characters/sequences that are only meaningful to a shell and which will
+        not be handled by subprocess.run(shell=False). This is conservative and may
+        reject some commands where the characters appear inside quoted literals, but
+        that's acceptable: callers should wrap complex commands in `bash -lc`.
+        """
+        # common shell operators
+        patterns = [r"\|\|", r"&&", r"\|", r";", r">>", r">", r"<<", r"<", r"\$\(", r"`", r"2>", r"2>>"]
+        combined = "|".join(f"({p})" for p in patterns)
+        return re.search(combined, command) is not None
