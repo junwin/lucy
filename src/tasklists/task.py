@@ -63,7 +63,18 @@ class Task:
         try:
             tid = int(tid)
         except Exception as exc:
-            raise ValueError("Task.id must be an integer") from exc
+            # Allow string-like ids that contain digits (e.g. 't0') by extracting digits.
+            if isinstance(tid, str):
+                digits = "".join(ch for ch in tid if ch.isdigit())
+                if digits:
+                    try:
+                        tid = int(digits)
+                    except Exception:
+                        raise ValueError("Task.id must be an integer") from exc
+                else:
+                    raise ValueError("Task.id must be an integer") from exc
+            else:
+                raise ValueError("Task.id must be an integer") from exc
 
         if not isinstance(title, str):
             raise ValueError("Task.title must be a string")
