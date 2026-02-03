@@ -273,6 +273,15 @@ class AutomationProcessor(MessageProcessorInterface):
         executed_count = 0
         last_task_name = ""
 
+        # Try to obtain a FunctionCallingProcessor from the factory if available.
+        function_processor = None
+        try:
+            if processor_factory and hasattr(processor_factory, "get"):
+                function_processor = processor_factory.get("function_calling_processor")
+        except Exception:
+            logger.exception("Failed to obtain function_calling_processor from processor_factory; falling back to no-op execution")
+            function_processor = None
+
         while True:
             idx, task = _find_next_pending_task(tasklist)
             if task is None or idx is None:
@@ -317,49 +326,66 @@ class AutomationProcessor(MessageProcessorInterface):
                     f"error='Failed to persist RUNNING checkpoint: {e}'"
                 )
 
-            placeholder_result = {
-                "timestamp": _now_utc().isoformat(),
-                "note": "Placeholder result. External tool execution disabled for Part 1+2.",
-                "intended_action": {
-                    "task": last_task_name,
-                    "mode": mode,
-                },
-            }
-
-            logger.info(
-                "AutomationProcessor intended action (no-op): task=%s index=%s mode=%s",
-                last_task_name,
-                idx,
-                mode,
-            )
+            # Execute the task using the FunctionCallingProcessor if available;
+            # otherwise attach a placeholder result.
+            task_result = None
+            task_error = None
+            try:
+                if function_processor is not None:
+                    # Use the Agent object passed in (do not create new agents).
+                    task_message = getattr(task, "title", None) or (task.get("title") if isinstance(task, dict) else "")
+                    response = function_processor.process_message(
+                        primary_agent=primary_agent,
+                        account=account,
+                        message=task_message,
+                        conversation_id=conversation_id,
+                        context_name=context_name,
+                        secondary_agent=secondary_agent,
+                        processor_factory=processor_factory,
+                    )
+                    task_result = {"timestamp": _now_utc().isoformat(), "output": response}
+                else:
+                    task_result = {
+                        "timestamp": _now_utc().isoformat(),
+                        "note": "Placeholder result. External tool execution disabled for Part 1+2.",
+                        "intended_action": {"task": last_task_name, "mode": mode},
+                    }
+            except Exception as e:
+                logger.exception("Task execution failed for task=%s", last_task_name)
+                task_error = str(e)
 
             try:
                 if isinstance(task, dict):
-                    task["result"] = placeholder_result
+                    task["result"] = task_result
+                    if task_error is not None:
+                        task["error"] = task_error
                 else:
                     if hasattr(task, "result"):
-                        setattr(task, "result", placeholder_result)
+                        setattr(task, "result", task_result)
+                    if task_error is not None and hasattr(task, "error"):
+                        setattr(task, "error", task_error)
             except Exception:
-                logger.exception("Failed attaching placeholder result")
+                logger.exception("Failed attaching result/error to task")
 
+            # Set final state based on whether execution raised an error.
             try:
-                _set_task_state(task, TASK_STATE_COMPLETED)
-            except Exception:
-                logger.exception("Failed setting task completed")
-                overall_state = "failed"
-                try:
+                if task_error is None:
+                    _set_task_state(task, TASK_STATE_COMPLETED)
+                else:
                     _set_task_state(task, TASK_STATE_FAILED)
-                except Exception:
-                    logger.exception("Failed setting task failed")
+                    overall_state = "failed"
+            except Exception:
+                logger.exception("Failed setting task completed/failed")
+                overall_state = "failed"
 
             executed_count += 1
 
-            # Persist after each task.
+            # Persist after each task (COMPLETED or FAILED checkpoint).
             try:
                 serialized = _serialize_tasklist(tasklist)
                 self.storage.save_tasklist(account_name, tasklist_id, serialized)
             except Exception as e:
-                logger.exception("Failed persisting tasklist")
+                logger.exception("Failed persisting tasklist after task execution")
                 overall_state = "failed"
                 # Attempt to persist the failed state
                 try:
