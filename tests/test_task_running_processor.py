@@ -252,3 +252,106 @@ def test_no_pending_tasks_returns_message_and_does_not_persist():
     # If there are no pending tasks, AP may still persist the tasklist end-state.
     save_calls = [c for c in storage.calls if c[0] == "save"]
     assert len(save_calls) == 1
+
+
+# New tests for multi-step execution and resume semantics
+
+def make_tasklist_with_three_tasks(id="tl3"):
+    t1 = Task(id=1, title="Task One", state=TASK_STATE_PENDING)
+    t2 = Task(id=2, title="Task Two", state=TASK_STATE_PENDING)
+    t3 = Task(id=3, title="Task Three", state=TASK_STATE_PENDING)
+    return TaskList(id=id, tasks=[t1, t2, t3])
+
+
+def test_multi_step_executes_all_tasks():
+    tl = make_tasklist_with_three_tasks()
+    storage = RecordingStorage({("acct", "multi"): tl.to_dict()})
+
+    proc = AutomationProcessor(
+        config=DummyConfig(),
+        registry=DummyRegistry(),
+        storage=storage,
+        prompt_builder=DummyPromptBuilder(),
+    )
+
+    agent = make_agent()
+    account = {"accountId": "acct"}
+    msg = json.dumps({"action": "run", "tasklist_id": "multi", "mode": "multi-step"})
+
+    out = proc.process_message(primary_agent=agent, account=account, message=msg, context_name="ctx", processor_factory=FakeProcessorFactory(behaviour="success"))
+
+    # Should have executed all three tasks
+    assert "executed=3" in out
+    # Final persisted state should have all tasks completed
+    save_calls = [c for c in storage.calls if c[0] == "save"]
+    assert len(save_calls) >= 1
+    _, _, _, last_serialized = save_calls[-1]
+    tasks = last_serialized.get("tasks")
+    assert all(t.get("state") == TASK_STATE_COMPLETED for t in tasks)
+
+
+def test_resume_single_step_executes_only_next_pending():
+    # Prepare tasklist where first is completed, others pending
+    t1 = Task(id=1, title="T1", state=TASK_STATE_COMPLETED)
+    t2 = Task(id=2, title="T2", state=TASK_STATE_PENDING)
+    t3 = Task(id=3, title="T3", state=TASK_STATE_PENDING)
+    tl = TaskList(id="resume1", tasks=[t1, t2, t3])
+    storage = RecordingStorage({("acct", "resume1"): tl.to_dict()})
+
+    proc = AutomationProcessor(
+        config=DummyConfig(),
+        registry=DummyRegistry(),
+        storage=storage,
+        prompt_builder=DummyPromptBuilder(),
+    )
+
+    agent = make_agent()
+    account = {"accountId": "acct"}
+
+    # Run single-step: should execute only the next pending (t2)
+    msg = json.dumps({"action": "run", "tasklist_id": "resume1", "mode": "single-step"})
+    out = proc.process_message(primary_agent=agent, account=account, message=msg, context_name="ctx", processor_factory=FakeProcessorFactory(behaviour="success"))
+    assert "executed=1" in out
+
+    # Check persisted state: t2 completed, t3 still pending
+    _, _, _, last_serialized = [c for c in storage.calls if c[0] == "save"][-1]
+    tasks = last_serialized.get("tasks")
+    assert tasks[0].get("state") == TASK_STATE_COMPLETED
+    assert tasks[1].get("state") == TASK_STATE_COMPLETED
+    assert tasks[2].get("state") == TASK_STATE_PENDING
+
+    # Now run again single-step: should execute t3
+    out2 = proc.process_message(primary_agent=agent, account=account, message=msg, context_name="ctx", processor_factory=FakeProcessorFactory(behaviour="success"))
+    assert "executed=1" in out2
+    _, _, _, last_serialized2 = [c for c in storage.calls if c[0] == "save"][-1]
+    tasks2 = last_serialized2.get("tasks")
+    assert tasks2[2].get("state") == TASK_STATE_COMPLETED
+
+
+def test_resume_multi_step_finishes_remaining_tasks():
+    # Prepare tasklist where first is completed, others pending
+    t1 = Task(id=1, title="T1", state=TASK_STATE_COMPLETED)
+    t2 = Task(id=2, title="T2", state=TASK_STATE_PENDING)
+    t3 = Task(id=3, title="T3", state=TASK_STATE_PENDING)
+    tl = TaskList(id="resume2", tasks=[t1, t2, t3])
+    storage = RecordingStorage({("acct", "resume2"): tl.to_dict()})
+
+    proc = AutomationProcessor(
+        config=DummyConfig(),
+        registry=DummyRegistry(),
+        storage=storage,
+        prompt_builder=DummyPromptBuilder(),
+    )
+
+    agent = make_agent()
+    account = {"accountId": "acct"}
+
+    # Run multi-step: should execute remaining two tasks
+    msg = json.dumps({"action": "run", "tasklist_id": "resume2", "mode": "multi-step"})
+    out = proc.process_message(primary_agent=agent, account=account, message=msg, context_name="ctx", processor_factory=FakeProcessorFactory(behaviour="success"))
+    assert "executed=2" in out
+
+    # Final persisted state: all tasks completed
+    _, _, _, last_serialized = [c for c in storage.calls if c[0] == "save"][-1]
+    tasks = last_serialized.get("tasks")
+    assert all(t.get("state") == TASK_STATE_COMPLETED for t in tasks)
