@@ -4,7 +4,13 @@ import json
 import logging
 from datetime import datetime, timezone
 from typing import Any, Dict, Optional, Tuple
-
+try:
+    from injector import inject
+except Exception:
+    # Minimal shim for environments without the "injector" package (tests run in minimal environments).
+    # The shim simply returns the function unchanged so the decorator has no effect.
+    def inject(func):
+        return func
 from src.agent import Agent
 from src.config_manager import ConfigManager
 from src.handlers.handler_registry import HandlerRegistry
@@ -23,6 +29,7 @@ from src.tasklists.task_states import (
     TASK_LIST_STATE_RUNNING,
 )
 
+from src.llm.adapter_interface import LLMAdapter
 
 logger = logging.getLogger(__name__)
 
@@ -173,17 +180,22 @@ class AutomationProcessor(MessageProcessorInterface):
     This processor does not use context for tasklist access.
     """
 
+    @inject
     def __init__(
         self,
         config: ConfigManager,
-        registry: "HandlerRegistry",
+        registry: HandlerRegistry,
         storage: Storage,
         prompt_builder: PromptBuilderInterface,
+        llm_adapter: LLMAdapter,
     ):
         self.config = config
         self.registry = registry
         self.storage = storage
         self.prompt_builder = prompt_builder
+        self.llm_adapter = llm_adapter
+
+
 
     def process_message(
         self,

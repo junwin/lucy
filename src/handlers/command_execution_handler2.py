@@ -463,7 +463,28 @@ class CommandExecutionHandler2(HandlerV2):
         not be handled by subprocess.run(shell=False). This is conservative and may
         reject some commands where the characters appear inside quoted literals, but
         that's acceptable: callers should wrap complex commands in `bash -lc`.
+
+        However, if the caller already wrapped the entire command in a `bash -c` or
+        `bash -lc` invocation, don't treat shell metacharacters as errors — the
+        wrapper indicates the user intentionally used the shell.
         """
+        # If command is already wrapped with `bash -c` or `bash -lc`, allow it.
+        try:
+            parts = shlex.split(command, posix=(os.name != "nt"))
+        except Exception:
+            # If parsing fails, be conservative and report that shell syntax is present
+            return True
+
+        if parts:
+            prog = os.path.basename(parts[0])
+            # allow '/bin/bash' as well as 'bash'
+            if prog == "bash":
+                # If any of the early args include -c or -lc, assume the rest is a shell command
+                # and don't try to detect shell metacharacters ourselves.
+                for p in parts[1:3]:
+                    if p in ("-c", "-lc"):
+                        return False
+
         # common shell operators
         patterns = [r"\|\|", r"&&", r"\|", r";", r">>", r">", r"<<", r"<", r"\$\(", r"`", r"2>", r"2>>"]
         combined = "|".join(f"({p})" for p in patterns)

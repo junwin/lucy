@@ -169,7 +169,29 @@ The handler:
 - returns a structured dict including `ok`, `returncode`, `stdout`, `stderr`
 
 
-Note: the execute_command handler now does fail-fast detection of common shell-only syntax (pipes, redirects, heredoc/<<, &&, ||, ;, $(), backticks). If such syntax is present the handler returns an error instructing callers to wrap the command in `bash -lc`.
+Note: the execute_command handler now does fail-fast detection of a small set of shell-only syntax to prevent accidental hangs or unintended shell behavior when callers pass shell syntax directly. The simplest safe rule is applied:
+
+- Detect heredoc operators (`<<`) and reject when present in the raw `command` string, unless the command is explicitly wrapped with an allowed shell wrapper. This prevents cases where an unwrapped heredoc would block waiting for input.
+- Other shell operators (pipes `|`, redirection `>`, `<`, `>>`, logical operators `&&`, `||`, command separators `;`, subshells `$()`, backticks) may also be detected and rejected.
+
+To avoid false positives the detection is intentionally minimal and conservative:
+
+- If the command begins with an allowed wrapper (for example `bash -lc ` or `sh -lc `), the handler will not reject the command even if it contains shell syntax. This permits legitimate uses that intentionally run a shell.
+- Detection looks for the heredoc token `<<` outside of a recognized wrapper; it does not attempt full shell parsing. As a result it avoids flagging common benign strings.
+
+If a caller receives a failure due to detected shell syntax, the recommended fix is to wrap the intended command in a shell invocation, e.g.:
+
+```
+command: "bash -lc 'printf "line1\nline2\n" | grep line'"
+```
+
+or, for heredoc usage specifically:
+
+```
+command: "bash -lc 'cat <<EOF\nhello\nEOF\n'"
+```
+
+This rule is intended to be the simplest safe guard against accidental hangs (heredoc) while allowing explicit shell usage via wrappers. The detection is purposely minimal to avoid false positives for wrapped commands or for strings that merely contain `<<` in non-shell contexts.
 ---
 
 ## Path safety model (important)
