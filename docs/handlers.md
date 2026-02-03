@@ -168,6 +168,8 @@ The handler:
 - runs the command with `subprocess.run(..., shell=False)`
 - returns a structured dict including `ok`, `returncode`, `stdout`, `stderr`
 
+
+Note: the execute_command handler now does fail-fast detection of common shell-only syntax (pipes, redirects, heredoc/<<, &&, ||, ;, $(), backticks). If such syntax is present the handler returns an error instructing callers to wrap the command in `bash -lc`.
 ---
 
 ## Path safety model (important)
