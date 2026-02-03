@@ -14,6 +14,7 @@ from src.storage.base import Storage
 from src.tasklists.task_list import TaskList
 from src.tasklists.task_states import (
     TASK_STATE_COMPLETED,
+    TASK_STATE_FAILED,
     TASK_STATE_PENDING,
     TASK_STATE_RUNNING,
     TASK_LIST_STATE_COMPLETED,
@@ -275,10 +276,7 @@ class AutomationProcessor(MessageProcessorInterface):
         while True:
             idx, task = _find_next_pending_task(tasklist)
             if task is None or idx is None:
-                try:
-                    tasklist.state = TASK_LIST_STATE_COMPLETED
-                except Exception:
-                    logger.exception("Failed setting task list completed")
+                # Nothing to do.
                 overall_state = "completed"
                 break
 
@@ -296,6 +294,28 @@ class AutomationProcessor(MessageProcessorInterface):
                 _set_task_state(task, TASK_STATE_RUNNING)
             except Exception:
                 logger.exception("Failed setting task running")
+
+            # Persist checkpoint: task is now RUNNING.
+            try:
+                serialized = _serialize_tasklist(tasklist)
+                self.storage.save_tasklist(account_name, tasklist_id, serialized)
+            except Exception as e:
+                logger.exception("Failed persisting tasklist (RUNNING checkpoint)")
+                overall_state = "failed"
+                try:
+                    _set_task_state(task, TASK_STATE_FAILED)
+                except Exception:
+                    logger.exception("Failed setting task failed after persist error")
+                # Attempt to persist the failed state too (best-effort)
+                try:
+                    serialized = _serialize_tasklist(tasklist)
+                    self.storage.save_tasklist(account_name, tasklist_id, serialized)
+                except Exception:
+                    logger.exception("Failed persisting tasklist after setting task FAILED")
+                return (
+                    f"[AutomationProcessor] mode={mode} state=failed task='{last_task_name}' "
+                    f"error='Failed to persist RUNNING checkpoint: {e}'"
+                )
 
             placeholder_result = {
                 "timestamp": _now_utc().isoformat(),
@@ -327,6 +347,10 @@ class AutomationProcessor(MessageProcessorInterface):
             except Exception:
                 logger.exception("Failed setting task completed")
                 overall_state = "failed"
+                try:
+                    _set_task_state(task, TASK_STATE_FAILED)
+                except Exception:
+                    logger.exception("Failed setting task failed")
 
             executed_count += 1
 
@@ -337,6 +361,12 @@ class AutomationProcessor(MessageProcessorInterface):
             except Exception as e:
                 logger.exception("Failed persisting tasklist")
                 overall_state = "failed"
+                # Attempt to persist the failed state
+                try:
+                    serialized = _serialize_tasklist(tasklist)
+                    self.storage.save_tasklist(account_name, tasklist_id, serialized)
+                except Exception:
+                    logger.exception("Failed persisting tasklist after failure")
                 return (
                     f"[AutomationProcessor] mode={mode} state=failed task='{last_task_name}' "
                     f"error='Failed to persist task state: {e}'"
@@ -350,6 +380,11 @@ class AutomationProcessor(MessageProcessorInterface):
 
         # Final persist to ensure final list state saved.
         try:
+            if overall_state == "completed":
+                try:
+                    tasklist.state = TASK_LIST_STATE_COMPLETED
+                except Exception:
+                    logger.exception("Failed setting tasklist state to COMPLETED")
             serialized = _serialize_tasklist(tasklist)
             self.storage.save_tasklist(account_name, tasklist_id, serialized)
         except Exception:

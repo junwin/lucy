@@ -69,9 +69,12 @@ def test_single_step_executes_one_and_persists():
 
     assert "mode=single-step" in out
     assert "executed=1" in out
-    # should have persisted after executing the one task and once more final persist
+    # Step 3.3 persistence checkpoints:
+    # - persist after setting task RUNNING
+    # - persist after setting task COMPLETED
+    # - final persist (tasklist state)
     save_calls = [c for c in storage.calls if c[0] == "save"]
-    assert len(save_calls) == 2
+    assert len(save_calls) == 3
 
     # ensure the stored tasklist now marks first task as completed but second remains pending
     persisted = storage.store[("test-account", "tl1")]
@@ -103,8 +106,10 @@ def test_multi_step_executes_all_and_completes():
     assert "state=completed" in out
 
     save_calls = [c for c in storage.calls if c[0] == "save"]
-    # two saves (one per task) + final persist
-    assert len(save_calls) == 3
+    # Step 3.3 persistence checkpoints:
+    # - for each task: persist after RUNNING and after COMPLETED (2 * tasks)
+    # - final persist (tasklist state)
+    assert len(save_calls) == 5
 
     persisted = storage.store[("acct", "t2")]
     persisted_tasks = persisted.get("tasks")

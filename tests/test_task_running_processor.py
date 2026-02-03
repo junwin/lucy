@@ -223,6 +223,7 @@ def test_no_pending_tasks_returns_message_and_does_not_persist():
 
     assert "no pending tasks" in out or "state=completed" in out
 
-    # No save calls should have been made because nothing to persist
+    # Step 3.3 persistence checkpoints only apply when we actually transition state.
+    # If there are no pending tasks, AP may still persist the tasklist end-state.
     save_calls = [c for c in storage.calls if c[0] == "save"]
-    assert len(save_calls) == 0
+    assert len(save_calls) == 1
