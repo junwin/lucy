@@ -113,6 +113,29 @@ def make_tasklist_with_two_tasks(id="tl1"):
     return tl
 
 
+# New helper: a simple processor factory that can return a fake
+# function_calling_processor for testing success and failure paths.
+class FakeProcessorFactory:
+    def __init__(self, behaviour="success"):
+        # behaviour: 'success' | 'failure' | 'none'
+        self.behaviour = behaviour
+
+    def get(self, name: str):
+        if name != "function_calling_processor":
+            return None
+
+        class FakeFunctionProcessor:
+            def __init__(self, behaviour):
+                self.behaviour = behaviour
+
+            def process_message(self, *, primary_agent, account, message, conversation_id, context_name, secondary_agent=None, processor_factory=None):
+                if self.behaviour == "success":
+                    return "fake-success-output"
+                raise RuntimeError("simulated execution failure")
+
+        return FakeFunctionProcessor(self.behaviour)
+
+
 def test_marks_task_running_and_persists_before_execution():
     tl = make_tasklist_with_two_tasks()
     storage = RecordingStorage({("acct", "tl1"): tl.to_dict()})
@@ -128,7 +151,8 @@ def test_marks_task_running_and_persists_before_execution():
     account = {"accountId": "acct"}
     msg = json.dumps({"action": "run", "tasklist_id": "tl1", "mode": "single-step"})
 
-    out = proc.process_message(primary_agent=agent, account=account, message=msg, context_name="ctx")
+    # use a processor factory that returns no function processor (None)
+    out = proc.process_message(primary_agent=agent, account=account, message=msg, context_name="ctx", processor_factory=FakeProcessorFactory(behaviour="none"))
 
     # Expect that processor indicated single-step execution
     assert "mode=single-step" in out
@@ -149,7 +173,7 @@ def test_marks_task_running_and_persists_before_execution():
     assert found_running_snapshot, "Expected a persisted snapshot with task state RUNNING"
 
 
-def test_on_simulated_success_marks_completed_and_persists():
+def test_on_simulated_success_marks_completed_and_persists_using_function_processor():
     tl = make_tasklist_with_two_tasks()
     storage = RecordingStorage({("acct", "suc"): tl.to_dict()})
 
@@ -164,7 +188,8 @@ def test_on_simulated_success_marks_completed_and_persists():
     account = {"accountId": "acct"}
     msg = json.dumps({"action": "run", "tasklist_id": "suc", "mode": "single-step"})
 
-    out = proc.process_message(primary_agent=agent, account=account, message=msg, context_name="ctx")
+    # provide a fake processor factory whose function_calling_processor returns success
+    out = proc.process_message(primary_agent=agent, account=account, message=msg, context_name="ctx", processor_factory=FakeProcessorFactory(behaviour="success"))
 
     assert "executed=1" in out
 
@@ -176,10 +201,9 @@ def test_on_simulated_success_marks_completed_and_persists():
     assert tasks[0].get("state") == TASK_STATE_COMPLETED
 
 
-def test_on_simulated_failure_marks_failed_and_persists():
+def test_on_simulated_failure_marks_failed_and_persists_using_function_processor():
     tl = make_tasklist_with_two_tasks()
-    # configure storage to fail on the first save call to simulate failure during persist
-    storage = RecordingStorage({("acct", "fail"): tl.to_dict()}, fail_on_save=True, fail_on_save_count=1)
+    storage = RecordingStorage({("acct", "fail"): tl.to_dict()})
 
     proc = AutomationProcessor(
         config=DummyConfig(),
@@ -192,12 +216,13 @@ def test_on_simulated_failure_marks_failed_and_persists():
     account = {"accountId": "acct"}
     msg = json.dumps({"action": "run", "tasklist_id": "fail", "mode": "single-step"})
 
-    out = proc.process_message(primary_agent=agent, account=account, message=msg, context_name="ctx")
+    # provide a fake processor factory whose function_calling_processor raises
+    out = proc.process_message(primary_agent=agent, account=account, message=msg, context_name="ctx", processor_factory=FakeProcessorFactory(behaviour="failure"))
 
     # Expect processor reported a failure state
     assert "state=failed" in out or "Failed to persist" in out
 
-    # Even if persistence failed, the processor should have attempted a save
+    # The processor should have attempted at least one save (the RUNNING checkpoint)
     save_calls = [c for c in storage.calls if c[0] == "save"]
     assert len(save_calls) >= 1
 
