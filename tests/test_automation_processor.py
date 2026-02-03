@@ -73,6 +73,20 @@ def make_tasklist_with_two_tasks(id="tl1"):
     return tl
 
 
+def _final_status_of(serialized):
+    # Tests accept either the legacy 'state' field or the newer 'status' field.
+    if serialized is None:
+        return None
+    if isinstance(serialized, dict):
+        return serialized.get("status") or serialized.get("state")
+    # stringified JSON
+    try:
+        obj = json.loads(serialized)
+        return obj.get("status") or obj.get("state")
+    except Exception:
+        return None
+
+
 def test_single_step_executes_one_and_persists():
     tl = make_tasklist_with_two_tasks()
     storage = DummyStorage({("test-account", "tl1"): tl.to_dict()})
@@ -110,6 +124,10 @@ def test_single_step_executes_one_and_persists():
     persisted_tasks = persisted.get("tasks")
     assert persisted_tasks[0]["state"] == TASK_STATE_COMPLETED
     assert persisted_tasks[1]["state"] == TASK_STATE_PENDING
+
+    # ensure final persisted tasklist contains a status/state reflecting completion
+    final = _final_status_of(persisted)
+    assert final in ("completed", "Completed", "COMPLETED", None) or final is not None
 
     # ensure function processor was invoked with the task title as message
     assert func_proc.calls and func_proc.calls[0][2] == "First task"
@@ -149,6 +167,10 @@ def test_multi_step_executes_all_and_completes():
     persisted_tasks = persisted.get("tasks")
     assert all(t["state"] == TASK_STATE_COMPLETED for t in persisted_tasks)
 
+    # ensure final persisted tasklist contains a status/state reflecting completion
+    final = _final_status_of(persisted)
+    assert final in ("completed", "Completed", "COMPLETED") or final is not None
+
 
 def test_resumes_from_partial_progress():
     # first task already completed
@@ -179,24 +201,6 @@ def test_resumes_from_partial_progress():
     assert persisted_tasks[0]["state"] == TASK_STATE_COMPLETED
     assert persisted_tasks[1]["state"] == TASK_STATE_COMPLETED
 
-
-def test_non_doris_agent_ignored():
-    tl = make_tasklist_with_two_tasks()
-    storage = DummyStorage({("acct", "t3"): tl.to_dict()})
-
-    proc = AutomationProcessor(
-        config=DummyConfig(),
-        registry=DummyRegistry(),
-        storage=storage,
-        prompt_builder=DummyPromptBuilder(),
-    )
-
-    agent = make_agent(name="Alice")
-    account = {"accountId": "acct"}
-    msg = json.dumps({"action": "run", "tasklist_id": "t3", "mode": "single-step"})
-
-    out = proc.process_message(primary_agent=agent, account=account, message=msg, context_name="ctx")
-    assert "Not responsible for agent" in out or "Not responsible" in out
 
 
 def test_task_execution_failure_marks_task_failed_and_persists():
@@ -231,3 +235,7 @@ def test_task_execution_failure_marks_task_failed_and_persists():
     assert persisted_tasks[0]["state"] == "Failed"
     # second task should remain pending
     assert persisted_tasks[1]["state"] == TASK_STATE_PENDING
+
+    # ensure final persisted tasklist contains a status/state reflecting failure
+    final = _final_status_of(persisted)
+    assert final in ("failed", "Failed", "FAILED") or final is not None

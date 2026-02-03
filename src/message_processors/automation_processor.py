@@ -19,6 +19,7 @@ from src.tasklists.task_states import (
     TASK_STATE_RUNNING,
     TASK_LIST_STATE_COMPLETED,
     TASK_LIST_STATE_CREATED,
+    TASK_LIST_STATE_FAILED,
     TASK_LIST_STATE_RUNNING,
 )
 
@@ -196,9 +197,7 @@ class AutomationProcessor(MessageProcessorInterface):
         processor_factory: Optional[Any] = None,
     ) -> str:
         agent_name = (getattr(primary_agent, "name", "") or "").lower().strip()
-        if agent_name != "doris":
-            logger.debug("AutomationProcessor ignoring agent=%s", agent_name)
-            return f"[AutomationProcessor] Not responsible for agent '{agent_name}'."
+
 
         # Keep context_name requirement for compatibility with the processor interface,
         # but do not use it for tasklist access.
@@ -315,12 +314,24 @@ class AutomationProcessor(MessageProcessorInterface):
                     _set_task_state(task, TASK_STATE_FAILED)
                 except Exception:
                     logger.exception("Failed setting task failed after persist error")
-                # Attempt to persist the failed state too (best-effort)
+                # Ensure tasklist end-state is marked FAILED and persisted before returning
+                try:
+                    tasklist.state = TASK_LIST_STATE_FAILED
+                except Exception:
+                    logger.exception("Failed setting tasklist state to FAILED after persist error")
                 try:
                     serialized = _serialize_tasklist(tasklist)
                     self.storage.save_tasklist(account_name, tasklist_id, serialized)
                 except Exception:
                     logger.exception("Failed persisting tasklist after setting task FAILED")
+                # Structured log
+                logger.info(
+                    "AutomationProcessor end tasklist_id=%s task_id=%s mode=%s outcome=%s",
+                    tasklist_id,
+                    task_id_log,
+                    mode,
+                    overall_state,
+                )
                 return (
                     f"[AutomationProcessor] mode={mode} state=failed task='{last_task_name}' "
                     f"error='Failed to persist RUNNING checkpoint: {e}'"
@@ -387,12 +398,24 @@ class AutomationProcessor(MessageProcessorInterface):
             except Exception as e:
                 logger.exception("Failed persisting tasklist after task execution")
                 overall_state = "failed"
-                # Attempt to persist the failed state
+                # Ensure tasklist end-state is marked FAILED and persisted before returning
+                try:
+                    tasklist.state = TASK_LIST_STATE_FAILED
+                except Exception:
+                    logger.exception("Failed setting tasklist state to FAILED after persist error")
                 try:
                     serialized = _serialize_tasklist(tasklist)
                     self.storage.save_tasklist(account_name, tasklist_id, serialized)
                 except Exception:
                     logger.exception("Failed persisting tasklist after failure")
+                # Structured log
+                logger.info(
+                    "AutomationProcessor end tasklist_id=%s task_id=%s mode=%s outcome=%s",
+                    tasklist_id,
+                    task_id_log,
+                    mode,
+                    overall_state,
+                )
                 return (
                     f"[AutomationProcessor] mode={mode} state=failed task='{last_task_name}' "
                     f"error='Failed to persist task state: {e}'"
@@ -411,10 +434,28 @@ class AutomationProcessor(MessageProcessorInterface):
                     tasklist.state = TASK_LIST_STATE_COMPLETED
                 except Exception:
                     logger.exception("Failed setting tasklist state to COMPLETED")
+            elif overall_state == "failed":
+                try:
+                    tasklist.state = TASK_LIST_STATE_FAILED
+                except Exception:
+                    logger.exception("Failed setting tasklist state to FAILED")
             serialized = _serialize_tasklist(tasklist)
             self.storage.save_tasklist(account_name, tasklist_id, serialized)
         except Exception:
             logger.exception("Failed final persist")
+
+        # Structured final log for observability
+        try:
+            task_id_log = getattr(task, "id", None) or (task.get("id") if isinstance(task, dict) else None)
+            logger.info(
+                "AutomationProcessor end tasklist_id=%s task_id=%s mode=%s outcome=%s",
+                tasklist_id,
+                task_id_log,
+                mode,
+                overall_state,
+            )
+        except Exception:
+            logger.exception("Failed logging final automation outcome")
 
         current_task_part = f"task='{last_task_name}'" if last_task_name else "task='(none)'"
         return f"[AutomationProcessor] mode={mode} state={overall_state} {current_task_part} executed={executed_count}"
