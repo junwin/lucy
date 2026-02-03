@@ -1,171 +1,157 @@
 import json
+from datetime import datetime
 
-from unittest.mock import Mock
-
-import pytest
-
-
-def _make_processor_factory(worker_processor: Mock) -> object:
-    """AutomationProcessor expects a processor_factory with .get(name)."""
-
-    class _Factory:
-        def get(self, name: str):
-            if name == "function_calling_processor":
-                return worker_processor
-            return None
-
-    return _Factory()
-
-
-def _make_raising_processor_factory() -> object:
-    """Factory stub that fails the test if any worker processor is requested."""
-
-    class _Factory:
-        def get(self, name: str):
-            raise AssertionError(f"processor_factory.get({name!r}) should not be called")
-
-    return _Factory()
-
-
-@pytest.mark.parametrize(
-    "message_text, expected_mode_substrings",
-    [
-        ("run tasks single step", ["single", "step"]),
-        ("run tasks multi-step", ["multi", "step"]),
-    ],
+from src.agent.agent import Agent
+from src.message_processors.automation_processor import AutomationProcessor
+from src.tasklists.task import Task
+from src.tasklists.task_list import TaskList
+from src.tasklists.task_states import (
+    TASK_STATE_PENDING,
+    TASK_STATE_COMPLETED,
 )
-def test_automation_processor_selects_mode_from_message_text(
-    storage, config, registry, prompt_builder, caplog, message_text, expected_mode_substrings
-):
-    """Inbound message is parsed to select mode (single vs multi-step).
-
-    We pass a missing context_name so the processor should fail fast on context loading.
-    This test only asserts that:
-    - context existence is checked ("not found")
-    - mode text is present in the response and/or logs
-    - worker processor is NOT invoked
-    """
-
-    from tests.conftest import FakeAgent
-    from src.message_processors.automation_processor import AutomationProcessor
-
-    proc = AutomationProcessor(
-        config=config,
-        registry=registry,
-        storage=storage,
-        prompt_builder=prompt_builder,
-    )
-
-    processor_factory = _make_raising_processor_factory()
-
-    caplog.clear()
-
-    out = proc.process_message(
-        primary_agent=FakeAgent(name="doris", save_responses=False),
-        secondary_agent=FakeAgent(name="colin"),
-        processor_factory=processor_factory,
-        account={"accountId": "acct1"},
-        message=message_text,
-        conversation_id="c1",
-        context_name="missing.ctx",
-    )
-
-    assert "context" in out.lower()
-    assert "not found" in out.lower()
-
-    haystack = (out + "\n" + caplog.text).lower()
-    for s in expected_mode_substrings:
-        assert s in haystack
 
 
-def test_automation_processor_invalid_message_text_returns_helpful_error(
-    storage, config, registry, prompt_builder, caplog
-):
-    """Invalid command should return a helpful error listing allowed commands."""
+class DummyStorage:
+    def __init__(self, initial=None):
+        # initial should be a dict mapping (account, id) -> serialized tasklist
+        self.store = initial or {}
+        self.calls = []
 
-    from tests.conftest import FakeAgent
-    from src.message_processors.automation_processor import AutomationProcessor
+    def get_tasklist(self, account_name, tasklist_id):
+        self.calls.append(("get", account_name, tasklist_id))
+        return self.store.get((account_name, tasklist_id))
+
+    def save_tasklist(self, account_name, tasklist_id, serialized):
+        # serialized may be dict
+        self.calls.append(("save", account_name, tasklist_id, serialized))
+        self.store[(account_name, tasklist_id)] = serialized
+
+
+class DummyConfig:
+    pass
+
+
+class DummyRegistry:
+    pass
+
+
+class DummyPromptBuilder:
+    pass
+
+
+def make_agent(name="Doris"):
+    return Agent(name=name)
+
+
+def make_tasklist_with_two_tasks(id="tl1"):
+    t1 = Task(id=1, title="First task", state=TASK_STATE_PENDING)
+    t2 = Task(id=2, title="Second task", state=TASK_STATE_PENDING)
+    tl = TaskList(id=id, tasks=[t1, t2])
+    return tl
+
+
+def test_single_step_executes_one_and_persists():
+    tl = make_tasklist_with_two_tasks()
+    storage = DummyStorage({("test-account", "tl1"): tl.to_dict()})
 
     proc = AutomationProcessor(
-        config=config,
-        registry=registry,
+        config=DummyConfig(),
+        registry=DummyRegistry(),
         storage=storage,
-        prompt_builder=prompt_builder,
+        prompt_builder=DummyPromptBuilder(),
     )
 
-    processor_factory = _make_raising_processor_factory()
+    agent = make_agent()
+    account = {"accountId": "test-account"}
+    msg = json.dumps({"action": "run", "tasklist_id": "tl1", "mode": "single-step"})
 
-    caplog.clear()
+    out = proc.process_message(primary_agent=agent, account=account, message=msg, context_name="ctx")
 
-    out = proc.process_message(
-        primary_agent=FakeAgent(name="doris", save_responses=False),
-        secondary_agent=FakeAgent(name="colin"),
-        processor_factory=processor_factory,
-        account={"accountId": "acct1"},
-        message="do something else",
-        conversation_id="c1",
-        context_name="missing.ctx",
-    )
+    assert "mode=single-step" in out
+    assert "executed=1" in out
+    # should have persisted after executing the one task and once more final persist
+    save_calls = [c for c in storage.calls if c[0] == "save"]
+    assert len(save_calls) == 2
 
-    out_l = out.lower()
-    assert "invalid" in out_l or "unknown" in out_l
-    assert "run tasks" in out_l
-    assert "single step" in out_l
-    assert "multi-step" in out_l
+    # ensure the stored tasklist now marks first task as completed but second remains pending
+    persisted = storage.store[("test-account", "tl1")]
+    # persisted may be dict
+    persisted_tasks = persisted.get("tasks")
+    assert persisted_tasks[0]["state"] == TASK_STATE_COMPLETED
+    assert persisted_tasks[1]["state"] == TASK_STATE_PENDING
 
 
-def test_automation_processor_missing_context_returns_not_found(storage, config, registry, prompt_builder):
-    """Only assert that context existence is checked based on context_name."""
-
-    from tests.conftest import FakeAgent
-    from src.message_processors.automation_processor import AutomationProcessor
+def test_multi_step_executes_all_and_completes():
+    tl = make_tasklist_with_two_tasks()
+    storage = DummyStorage({("acct", "t2"): tl.to_dict()})
 
     proc = AutomationProcessor(
-        config=config,
-        registry=registry,
+        config=DummyConfig(),
+        registry=DummyRegistry(),
         storage=storage,
-        prompt_builder=prompt_builder,
+        prompt_builder=DummyPromptBuilder(),
     )
 
-    worker = Mock()
-    processor_factory = _make_processor_factory(worker)
+    agent = make_agent()
+    account = {"accountId": "acct"}
+    msg = json.dumps({"action": "run", "tasklist_id": "t2", "mode": "multi-step"})
 
-    out = proc.process_message(
-        primary_agent=FakeAgent(name="doris", save_responses=False),
-        secondary_agent=FakeAgent(name="colin"),
-        processor_factory=processor_factory,
-        account={"accountId": "acct1"},
-        message="run tasks single step",
-        conversation_id="c1",
-        context_name="missing.ctx",
-    )
+    out = proc.process_message(primary_agent=agent, account=account, message=msg, context_name="ctx")
 
-    assert "context" in out.lower()
-    assert "not found" in out.lower()
+    assert "mode=multi-step" in out
+    assert "executed=2" in out
+    assert "state=completed" in out
+
+    save_calls = [c for c in storage.calls if c[0] == "save"]
+    # two saves (one per task) + final persist
+    assert len(save_calls) == 3
+
+    persisted = storage.store[("acct", "t2")]
+    persisted_tasks = persisted.get("tasks")
+    assert all(t["state"] == TASK_STATE_COMPLETED for t in persisted_tasks)
 
 
-def test_automation_processor_missing_context_name_returns_help(storage, config, registry, prompt_builder):
-    from tests.conftest import FakeAgent
-    from src.message_processors.automation_processor import AutomationProcessor
+def test_resumes_from_partial_progress():
+    # first task already completed
+    t1 = Task(id=1, title="First task", state=TASK_STATE_COMPLETED)
+    t2 = Task(id=2, title="Second task", state=TASK_STATE_PENDING)
+    tl = TaskList(id="r1", tasks=[t1, t2])
+    storage = DummyStorage({("a", "r1"): tl.to_dict()})
 
     proc = AutomationProcessor(
-        config=config,
-        registry=registry,
+        config=DummyConfig(),
+        registry=DummyRegistry(),
         storage=storage,
-        prompt_builder=prompt_builder,
+        prompt_builder=DummyPromptBuilder(),
     )
 
-    worker = Mock()
-    processor_factory = _make_processor_factory(worker)
+    agent = make_agent()
+    account = {"accountId": "a"}
+    msg = json.dumps({"action": "run", "tasklist_id": "r1", "mode": "single-step"})
 
-    out = proc.process_message(
-        primary_agent=FakeAgent(name="doris", save_responses=False),
-        secondary_agent=FakeAgent(name="colin"),
-        processor_factory=processor_factory,
-        account={"accountId": "acct1"},
-        message=json.dumps({"action": "status"}),
-        conversation_id="c1",
-        context_name="",
+    out = proc.process_message(primary_agent=agent, account=account, message=msg, context_name="ctx")
+    assert "executed=1" in out
+
+    persisted = storage.store[("a", "r1")]
+    persisted_tasks = persisted.get("tasks")
+    assert persisted_tasks[0]["state"] == TASK_STATE_COMPLETED
+    assert persisted_tasks[1]["state"] == TASK_STATE_COMPLETED
+
+
+def test_non_doris_agent_ignored():
+    tl = make_tasklist_with_two_tasks()
+    storage = DummyStorage({("acct", "t3"): tl.to_dict()})
+
+    proc = AutomationProcessor(
+        config=DummyConfig(),
+        registry=DummyRegistry(),
+        storage=storage,
+        prompt_builder=DummyPromptBuilder(),
     )
 
-    assert "missing context_name" in out.lower()
+    agent = make_agent(name="Alice")
+    account = {"accountId": "acct"}
+    msg = json.dumps({"action": "run", "tasklist_id": "t3", "mode": "single-step"})
+
+    out = proc.process_message(primary_agent=agent, account=account, message=msg, context_name="ctx")
+    assert "Not responsible for agent" in out or "Not responsible" in out

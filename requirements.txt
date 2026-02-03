@@ -24,3 +24,4 @@ injector
 snowballstemmer
 nltk
 openai
+annotated-types==0.5.0

@@ -4,7 +4,7 @@
   "external_roots": {
     "repo_lucy": "/home/junwin/src/repos/lucy",
     "repos": "/home/junwin/src/repos",
-    "obsidian": "/home/junwin/obsidian/test",
+    "obsidian": "/home/junwin/Documents/mynotes",
     "sandbox_cmd": "/home/junwin/sandbox",
     "lucy_data_files": "/home/junwin/lucy_storage",
     "pictures": "/home/junwin/Pictures"
@@ -22,7 +22,7 @@
   "debug": true,
   "credential_path": "/home/junwin/credential",
   "elapsed_new_session_seconds": 600,
-  "max_tool_result_chars": 40000,
+  "max_tool_result_chars": 64000,
 
   "environment_prompt_block": "ENVIRONMENT\n- Model: Raspberry Pi 5 Model B Rev 1.1\n- OS: Debian GNU/Linux 12 (bookworm)\n- Arch: aarch64\n- Bits: 64"
 }

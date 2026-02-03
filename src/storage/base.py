@@ -140,6 +140,30 @@ class Storage(ABC):
         return []
 
     @abstractmethod
+    def list_tasklists(self, account_name: str) -> List[str]:
+        """Return a list of persisted tasklist ids for an account.
+
+        Minimal contract: return an empty list when none exist. Results should
+        be stable and deterministic (sorted ascending).
+        """
+        pass
+
+    @abstractmethod
+    def get_tasklist(self, account_name: str, tasklist_id: str) -> Optional[Dict[str, Any]]:
+        """Return a persisted tasklist (plain dict) or None if missing."""
+        pass
+
+    @abstractmethod
+    def save_tasklist(self, account_name: str, tasklist_id: str, tasklist: Any) -> None:
+        """Persist a tasklist model (dict or JSON string) for the account."""
+        pass
+
+    @abstractmethod
+    def delete_tasklist(self, account_name: str, tasklist_id: str) -> None:
+        """Delete a persisted tasklist. Must be idempotent: no error if missing."""
+        pass
+
+    @abstractmethod
     def list_documents(
         self,
         account_name: str,

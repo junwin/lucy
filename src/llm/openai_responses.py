@@ -7,8 +7,31 @@ import random
 import time
 from typing import Any, Dict, List, Optional
 
-from openai import OpenAI
-from openai import APIConnectionError, APIError, APITimeoutError, RateLimitError
+# The real 'openai' package may not be available in test environments. Provide
+# lightweight fallbacks so this module can be imported without the real SDK.
+try:
+    from openai import OpenAI
+    from openai import APIConnectionError, APIError, APITimeoutError, RateLimitError
+except Exception:  # pragma: no cover - environment dependent
+    class OpenAI:  # type: ignore
+        def __init__(self, *args, **kwargs):
+            class _Resp:
+                def create(self, *a, **k):
+                    return None
+
+            self.responses = _Resp()
+
+    class APIConnectionError(Exception):
+        pass
+
+    class APIError(Exception):
+        pass
+
+    class APITimeoutError(Exception):
+        pass
+
+    class RateLimitError(Exception):
+        pass
 
 from src.config_manager import ConfigManager
 

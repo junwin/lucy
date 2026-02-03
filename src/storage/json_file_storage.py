@@ -12,9 +12,11 @@ from pathlib import Path
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
 from src.keywords.keywords import Keywords
-from src.storage_paths.storage_paths import StoragePaths  
- 
-from flask import sessions
+from src.storage_paths.storage_paths import StoragePaths
+from src.tasklists.tasklist_validation import (
+    validate_tasklist_id,
+    canonicalize_tasklist_dict,
+)
 
 from .base import Storage
 from .models import (
@@ -62,6 +64,7 @@ def _parse_dt_utc(dt_str: str) -> datetime:
         dt = dt.astimezone(timezone.utc)
 
     return dt
+
 
 
 class JsonFileStorage(Storage):
@@ -795,6 +798,92 @@ class JsonFileStorage(Storage):
                     logging.error("Failed migrating %s: %s", json_file, e)
 
     # ----------------------------------------------------------------------
+    # Tasklists (simple CRUD)
+    # ----------------------------------------------------------------------
+
+    def _tasklists_dir(self, account_name: str) -> Path:
+        # store tasklist templates under documents/<account>/tasklists/
+        d = self.storage_paths.tasklists / account_name
+        return d
+
+    def _tasklist_path(self, account_name: str, tasklist_id: str) -> Path:
+        """Return a resolved, safe Path for a tasklist JSON file using StoragePaths.resolve_relative.
+
+        This ensures user-supplied account names or ids cannot escape the
+        storage namespace.
+        """
+        validate_tasklist_id(tasklist_id)
+        # Build a relative path under base and resolve via storage_paths
+        rel = f"tasklists/{account_name}/{tasklist_id}.json"
+        return self.storage_paths.resolve_relative(rel)
+
+    def list_tasklists(self, account_name: str) -> List[str]:
+        d = self._tasklists_dir(account_name)
+        if not d.exists() or not d.is_dir():
+            return []
+
+        ids: List[str] = []
+        for p in d.glob("*.json"):
+            ids.append(p.stem)
+
+        ids.sort()
+        return ids
+
+    def get_tasklist(self, account_name: str, tasklist_id: str) -> Optional[Dict[str, Any]]:
+        validate_tasklist_id(tasklist_id)
+        path = self._tasklist_path(account_name, tasklist_id)
+        data = self._load_json(path)
+        return data
+
+    def save_tasklist(self, account_name: str, tasklist_id: str, tasklist: Any) -> None:
+        """Save a tasklist object atomically.
+
+        Validation rules:
+          - tasklist_id must be a simple filename (no separators)
+          - if the payload contains an 'id' field it must match tasklist_id
+          - if the payload lacks 'id', it will be set to tasklist_id
+        """
+        validate_tasklist_id(tasklist_id)
+
+        # Accept dict-like or JSON string
+        if isinstance(tasklist, str):
+            try:
+                payload = json.loads(tasklist)
+            except Exception:
+                # If it's a plain string that isn't JSON, store as {'value': str}
+                payload = {"value": tasklist}
+        elif isinstance(tasklist, dict):
+            payload = tasklist.copy()
+        else:
+            # Try to coerce to dict via __dict__ if possible
+            try:
+                payload = dict(tasklist)
+            except Exception:
+                payload = {"value": str(tasklist)}
+
+        # Ensure payload has an 'id' matching tasklist_id
+        if "id" in payload and payload["id"] != tasklist_id:
+            raise ValueError("tasklist id mismatch between path and payload")
+        payload["id"] = tasklist_id
+        payload.setdefault("schema_version", 1)
+        payload.setdefault("tasks", [])
+
+        path = self._tasklist_path(account_name, tasklist_id)
+        # Ensure parent dir exists
+        self._ensure_dir(path.parent)
+        # Write atomically
+        self._atomic_write(path, payload)
+
+    def delete_tasklist(self, account_name: str, tasklist_id: str) -> None:
+        validate_tasklist_id(tasklist_id)
+        path = self._tasklist_path(account_name, tasklist_id)
+        try:
+            if path.exists():
+                path.unlink()
+        except Exception as e:
+            logging.error("Failed to delete tasklist %s: %s", path, e)
+
+    # ----------------------------------------------------------------------
     # DOCUMENTS
     # ----------------------------------------------------------------------
 
@@ -904,7 +993,7 @@ class JsonFileStorage(Storage):
 
         # Tokenize query into lowercase terms
         # terms = [t for t in query.lower().split() if t.strip()]
-        if not terms or terms.count == 0:
+        if not terms:
             return []
 
         scored: List[Tuple[DocumentRef, int]] = []
@@ -939,7 +1028,7 @@ class JsonFileStorage(Storage):
 
     def upsert_embedding(self, record: EmbeddingRecord) -> None:
         path = (
-            self.base_path
+            self.storage_paths.base
             / "embeddings"
             / record.account_name
             / record.namespace
@@ -974,7 +1063,7 @@ class JsonFileStorage(Storage):
         filter: Optional[Dict[str, Any]] = None,
     ) -> List[Tuple[EmbeddingRecord, float]]:
 
-        path = self.base_path / "embeddings" / account_name / namespace
+        path = self.storage_paths.base / "embeddings" / account_name / namespace
         if not path.exists():
             return []
 
