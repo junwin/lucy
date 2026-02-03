@@ -37,6 +37,11 @@ class ProcessorFactory(ABC):
             "automation_processor": (
                 "src.message_processors.automation_processor.AutomationProcessor"
             ),
+            # New scaffold processor (Step 3.1). This is behind an unused
+            # processor name so existing behaviour is unchanged.
+            "task_running_processor": (
+                "src.message_processors.task_running_processor.TaskRunningProcessor"
+            ),
         }
 
     def get(self, processor_name: str):
