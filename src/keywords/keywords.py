@@ -7,6 +7,21 @@ from nltk.corpus import wordnet as wn
 from datetime import datetime
 import re
 
+CODELIKE_RE = re.compile(r"""
+    (/[^\s]+) |                # paths like /home/...
+    ([a-zA-Z0-9_-]+\.[a-z0-9]+) # filenames like config_manager.py
+""", re.VERBOSE)
+
+SYMBOL_RE = re.compile(r"^[=+\-*/<>:;,.()\[\]{}|\\]+$")
+
+DEFAULT_CUSTOM_EXCLUDE = {
+    # your recurring repo/chat noise:
+    "src", "repo_lucy", "file", "load", "task", "tasklist", "tasklists",
+    "summarize", "relative", "config_manager.py",
+    # chatty verbs (if you keep VERB):
+    "let", "use", "add", "want", "suppose",
+}
+
 # Import spaCy lazily inside _initialize_nlp_model to avoid requiring the
 # heavy dependency at import time. Tests monkeypatch _initialize_nlp_model so
 # they don't need spaCy; provide a default STOP_WORDS set here so tests can
@@ -93,16 +108,36 @@ class Keywords:
 
         tokens = [t for t in doc if not t.is_punct and not t.is_space]
 
+        # for t in tokens:
+        #    if t.text in {"obsidian_importer", "indexed_records"}:
+        #        print(t.text, t.pos_, t.lemma_)
+
         # POS filter first (optional order)
-        tokens = [t for t in tokens if t.pos_ in {"PROPN", "NOUN", "VERB"}]
+        tokens = [t for t in tokens if t.pos_ in {"PROPN", "NOUN"}]
 
         # Lemmatize
         lemmas = [t.lemma_.lower() for t in tokens]
 
-        # Now stop-word filter on lemmas (not token.text)
-        lemmas = [l for l in lemmas if l not in STOP_WORDS and l.strip()]
 
-        word_frequency = Counter(lemmas)
+        cleaned = []
+        for l in lemmas:
+            if not l.strip():
+                continue
+            if l in STOP_WORDS or l in DEFAULT_CUSTOM_EXCLUDE:
+                continue
+            if len(l) < 2:                 # drops "d"
+                continue
+            if SYMBOL_RE.match(l):         # drops "=" and friends
+                continue
+            if CODELIKE_RE.search(l):      # drops /paths and filenames
+                continue
+            cleaned.append(l)
+
+
+        # Now stop-word filter on lemmas (not token.text)
+        # lemmas = [l for l in lemmas if l not in STOP_WORDS and l.strip()]
+
+        word_frequency = Counter(cleaned)
         keywords = [w for w, _ in word_frequency.most_common(top_n)]
         return keywords
 

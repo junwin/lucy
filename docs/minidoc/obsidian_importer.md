@@ -1,6 +1,6 @@
 ---
 tags:
-  - obsidian_importer
+  - obsidian_import
   - lucyproject
   - indexed_records
 ---
