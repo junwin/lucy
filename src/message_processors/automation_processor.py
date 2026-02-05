@@ -187,7 +187,7 @@ class AutomationProcessor(MessageProcessorInterface):
         registry: HandlerRegistry,
         storage: Storage,
         prompt_builder: PromptBuilderInterface,
-        llm_adapter: LLMAdapter,
+        llm_adapter: Optional[LLMAdapter] = None,
     ):
         self.config = config
         self.registry = registry
