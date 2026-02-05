@@ -19,6 +19,7 @@ from src.handlers.command_execution_handler2 import CommandExecutionHandler2
 from src.handlers.scrape_web_page_handler2 import ScrapeWebPageHandler2
 from src.handlers.web_search_handler2 import WebSearchHandler2
 from src.handlers.plan_tasks_handler import PlanTasksHandler
+from src.handlers.tasklists_manage_handler import TasklistsManageHandler
 
 logger = logging.getLogger(__name__)
 
@@ -60,6 +61,8 @@ def build_registry() -> HandlerRegistry:
 
     # Task planning handler (should be lightweight)
     reg.register(PlanTasksHandler)
+    # Tasklist management (CRUD)
+    reg.register(TasklistsManageHandler)
 
     logger.info("Handler registry built with %d handlers.", len(reg.tool_names()))
     return reg
