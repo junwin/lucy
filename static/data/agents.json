@@ -22,7 +22,7 @@
       "plan_tasks",
       "scrape_web_page",
       "web_search_handler",
-      "tasklists.manage"
+      "tasklists_manage"
     ]
   },
   {
@@ -48,7 +48,7 @@
       "plan_tasks",
       "scrape_web_page",
       "web_search_handler",
-      "tasklists.manage"
+      "tasklists_manage"
     ]
   },
   {
