@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+import uuid
 from datetime import datetime, timezone
 from typing import Any, Dict, Optional, Tuple
 
@@ -107,7 +108,11 @@ class TaskListManager:
             elif isinstance(t, dict):
                 # ensure id present
                 if "id" not in t:
-                    t["id"] = i
+                    # new Task ids are UUID strings; prefer generating a UUID
+                    # rather than using integer ids which were used in older
+                    # versions. Task.from_dict can still migrate integer ids but
+                    # creating UUIDs here keeps new tasklists consistent.
+                    t["id"] = str(uuid.uuid4())
                 t_objs.append(Task.from_dict(t))
             else:
                 raise TypeError("tasks must be Task or dict")
