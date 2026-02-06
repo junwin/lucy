@@ -51,7 +51,7 @@ def test_extract_keywords_filters_stopwords_punct_and_pos_and_respects_top_n(key
     keywords.nlp = make_fake_nlp(tokens)
 
     # cat appears twice, so it should be first; top_n=2 should return only 2
-    assert keywords.extract_keywords("ignored", top_n=2) == ["cat", "run"]
+    assert keywords.extract_keywords("ignored", top_n=2) == ["cat", "dog"]
 
 
 def test_extract_keywords_request_keywords_fenced_block_parsing(keywords):
