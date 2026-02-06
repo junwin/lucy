@@ -14,7 +14,7 @@ def test_round_trip_to_dict_and_from_dict():
 
     # exact top-level JSON shape
     assert set(d.keys()) == {"schema_version", "id", "state", "tasks", "meta"}
-    assert d["schema_version"] == 1
+    assert d["schema_version"] == 2
     assert d["id"] == "list-123"
     assert d["state"] == "Running"
     assert isinstance(d["tasks"], list)
@@ -47,7 +47,7 @@ def test_from_dict_requires_id_unless_provided():
 
 
 def test_from_dict_rejects_unknown_schema_version():
-    data = {"schema_version": 2, "id": "x", "state": "Created", "tasks": []}
+    data = {"schema_version": 3, "id": "x", "state": "Created", "tasks": []}
     with pytest.raises(ValueError):
         TaskList.from_dict(data)
 
