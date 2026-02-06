@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Tuple
 
 
-DEFAULT_MAX_CHARS = 2000  # default maximum characters to load from a text file
+DEFAULT_MAX_CHARS = 8000  # default maximum characters to load from a text file
 
 
 def load_text_snippet(path: str | Path, max_chars: int = DEFAULT_MAX_CHARS) -> Tuple[str, bool]:

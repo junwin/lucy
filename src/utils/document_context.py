@@ -15,7 +15,7 @@ def get_document_context(
     kind: str | None = None,
     docs_tag: str | None = None,
     limit: int = 3,
-    max_chars: int = 2000,
+    max_chars: int = 6000,
 ) -> List[Dict[str, Any]]:
     """Retrieve simple context snippets from documents for a query.
 
