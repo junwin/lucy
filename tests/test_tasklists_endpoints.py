@@ -8,7 +8,7 @@ import pytest
 @pytest.fixture()
 def client(monkeypatch):
     # Import the module (creates the Flask app + global storage)
-    import src.repos.lucy.app as lucy_app
+    import app as lucy_app
 
     fake_storage = Mock()
     monkeypatch.setattr(lucy_app, "storage", fake_storage)

@@ -1,40 +1,67 @@
-"""Package-level helpers for tasklist persistence boundary.
+"""Package-level helpers and re-exports for the tasklists domain.
 
-This module re-exports the simple boundary functions used by higher-level
-application code. The boundary works with plain Python structures (TaskListModel
-~ dict) and delegates to tasklist_boundary which converts to/from the domain
-TaskList and persists via TaskListStorage.
+This module exposes the domain dataclasses (Task, TaskList) and a small
+helper TaskListManager. It also provides convenience boundary functions which
+operate on plain Python structures (dict) when a Storage instance is supplied.
 
-Functions:
-- get_tasklist(account_name, tasklist_id) -> dict | None
-- save_tasklist(account_name, tasklist_id, tasklist_model) -> None
-- list_tasklist_ids(account_name) -> list[str]
+Note: modifying other modules is out of scope for this task. These helpers
+accept an explicit `storage` argument to avoid depending on global application
+state (app.container). Callers in higher-level code can pass the configured
+Storage instance.
 """
 from __future__ import annotations
 
 from typing import Any, Dict, List, Optional
 
+from .task import Task
+from .task_list import TaskList
+from .tasklist_manager import TaskListManager
 
-__all__ = ["get_tasklist", "save_tasklist", "list_tasklist_ids"]
+__all__ = [
+    "Task",
+    "TaskList",
+    "TaskListManager",
+    "get_tasklist",
+    "save_tasklist",
+    "list_tasklist_ids",
+]
 
 
-def get_tasklist(account_name: str, tasklist_id: str) -> Optional[Dict[str, Any]]:
-    """Load a persisted tasklist template and return a TaskListModel (plain dict).
+def get_tasklist(account_name: str, tasklist_id: str, storage=None) -> Optional[Dict[str, Any]]:
+    """Load a persisted tasklist and return a plain dict (TaskListModel).
+
+    Parameters:
+    - account_name: storage account namespace
+    - tasklist_id: id of the tasklist
+    - storage: optional Storage instance implementing get_tasklist
 
     Returns None when the template does not exist.
+
+    The storage argument is required; when not provided a RuntimeError is raised
+    to make dependency requirements explicit.
     """
-    return _get_tasklist(account_name, tasklist_id)
+    if storage is None:
+        raise RuntimeError("storage argument is required")
+    return storage.get_tasklist(account_name, tasklist_id)
 
 
-def save_tasklist(account_name: str, tasklist_id: str, tasklist_model: Any) -> None:
+def save_tasklist(account_name: str, tasklist_id: str, tasklist_model: Any, storage=None) -> None:
     """Save a TaskListModel (plain dict) as a template for the account.
 
-    The boundary will create directories as needed. tasklist_model may be a
-    dict-like object or a JSON string.
+    The storage argument is required; when not provided a RuntimeError is
+    raised.
     """
-    return _save_tasklist(account_name, tasklist_id, tasklist_model)
+    if storage is None:
+        raise RuntimeError("storage argument is required")
+    return storage.save_tasklist(account_name, tasklist_id, tasklist_model)
 
 
-def list_tasklist_ids(account_name: str) -> List[str]:
-    """Return list of template ids for the given account (may be empty)."""
-    return _list_tasklist_ids(account_name)
+def list_tasklist_ids(account_name: str, storage=None) -> List[str]:
+    """Return list of template ids for the given account (may be empty).
+
+    The storage argument is required; when not provided a RuntimeError is
+    raised.
+    """
+    if storage is None:
+        raise RuntimeError("storage argument is required")
+    return storage.list_tasklists(account_name)

@@ -13,6 +13,7 @@ from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
 from src.keywords.keywords import Keywords
 from src.storage_paths.storage_paths import StoragePaths
+from src.tasklists.task_list import TaskList, Task  
 from src.tasklists.tasklist_validation import (
     validate_tasklist_id,
     canonicalize_tasklist_dict,
@@ -833,7 +834,10 @@ class JsonFileStorage(Storage):
         validate_tasklist_id(tasklist_id)
         path = self._tasklist_path(account_name, tasklist_id)
         data = self._load_json(path)
-        return data
+        tl: TaskList 
+        # tl = TaskList.from_json(data) if data else None
+        tl = TaskList.from_dict(data) if data else None
+        return tl.to_dict() if tl else None
 
     def save_tasklist(self, account_name: str, tasklist_id: str, tasklist: Any) -> None:
         """Save a tasklist object atomically.

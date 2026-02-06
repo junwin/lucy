@@ -316,7 +316,7 @@ def get_tasklist(tasklist_id: str):
     try:
         validate_tasklist_id(tasklist_id)
     except ValueError as e:
-        return jsonify({"error": str(e)}), 400
+        return jsonify({"error": str(e)}), 404
 
     try:
         d = storage.get_tasklist(account_name, tasklist_id)
@@ -326,13 +326,13 @@ def get_tasklist(tasklist_id: str):
         return jsonify(d), 200
     except ValueError as e:
         return jsonify({"error": str(e)}), 400
-    except Exception:
+    except Exception as e:
         logging.exception(
             "/tasklists/<id>: failed to get tasklist for account=%s id=%s",
             account_name,
             tasklist_id,
         )
-        return jsonify({"error": "An error occurred"}), 500
+        return jsonify({"error": "An error occurred", "details": str(e) }), 500
 
 
 @app.route("/tasklists/<tasklist_id>", methods=["PUT"])
@@ -344,18 +344,18 @@ def put_tasklist(tasklist_id: str):
     try:
         validate_tasklist_id(tasklist_id)
     except ValueError as e:
-        return jsonify({"error": str(e)}), 400
+        return jsonify({"error": str(e)}), 404
 
     payload = request.get_json(silent=True)
     if payload is None:
-        return jsonify({"error": "Invalid JSON body"}), 400
+        return jsonify({"error": "Invalid JSON body"}), 404
 
     try:
         d = canonicalize_tasklist_dict(tasklist_id, payload)
         storage.save_tasklist(account_name, tasklist_id, d)
         return jsonify({"ok": True}), 200
     except ValueError as e:
-        return jsonify({"error": str(e)}), 400
+        return jsonify({"error": str(e)}), 404
     except Exception:
         logging.exception(
             "/tasklists/<id>: failed to save tasklist for account=%s id=%s",
