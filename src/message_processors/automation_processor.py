@@ -18,6 +18,7 @@ from src.message_processors.message_processor_interface import MessageProcessorI
 from src.prompt_builders.prompt_builder_interface import PromptBuilderInterface
 from src.storage.base import Storage
 from src.tasklists.task_list import TaskList
+from src.tasklists.task import Task
 from src.tasklists.task_states import (
     TASK_STATE_COMPLETED,
     TASK_STATE_FAILED,
@@ -123,7 +124,7 @@ def _coerce_tasklist(tasklist: Any) -> Tuple[Optional[TaskList], Optional[str]]:
 def _find_next_pending_task(tasklist: TaskList) -> Tuple[Optional[int], Optional[Any]]:
     """Return (index, task) for the next pending task."""
 
-    tasks = getattr(tasklist, "tasks", None) or []
+    tasks = tasklist.tasks
     for idx, task in enumerate(tasks):
         state = getattr(task, "state", None)
         if state == TASK_STATE_PENDING:
@@ -264,18 +265,16 @@ class AutomationProcessor(MessageProcessorInterface):
         logger.debug("Incoming message preview: %s", _safe_preview(message, 800))
 
         try:
-            raw = self.storage.get_tasklist(account_name, tasklist_id)
+            tasklist = self.storage.get_tasklist(account_name, tasklist_id)
         except Exception as e:
             logger.exception("Failed loading tasklist from storage")
             return f"[AutomationProcessor] mode={mode} tasklist_id={tasklist_id} not found: {e}"
 
-        tasklist, err = _coerce_tasklist(raw)
-        if err or tasklist is None:
-            return f"[AutomationProcessor] mode={mode} {err}"
+
 
         # Mark list state running if it was created.
         try:
-            if getattr(tasklist, "state", None) == TASK_LIST_STATE_CREATED:
+            if tasklist.state == TASK_LIST_STATE_CREATED:
                 tasklist.state = TASK_LIST_STATE_RUNNING
         except Exception:
             logger.exception("Failed updating task list state")
@@ -317,8 +316,7 @@ class AutomationProcessor(MessageProcessorInterface):
 
             # Persist checkpoint: task is now RUNNING.
             try:
-                serialized = _serialize_tasklist(tasklist)
-                self.storage.save_tasklist(account_name, tasklist_id, serialized)
+                self.storage.save_tasklist(account_name, tasklist_id, tasklist)
             except Exception as e:
                 logger.exception("Failed persisting tasklist (RUNNING checkpoint)")
                 overall_state = "failed"

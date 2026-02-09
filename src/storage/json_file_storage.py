@@ -14,10 +14,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from src.keywords.keywords import Keywords
 from src.storage_paths.storage_paths import StoragePaths
 from src.tasklists.task_list import TaskList, Task  
-from src.tasklists.tasklist_validation import (
-    validate_tasklist_id,
-    canonicalize_tasklist_dict,
-)
+
 
 from .base import Storage
 from .models import (
@@ -813,7 +810,6 @@ class JsonFileStorage(Storage):
         This ensures user-supplied account names or ids cannot escape the
         storage namespace.
         """
-        validate_tasklist_id(tasklist_id)
         # Build a relative path under base and resolve via storage_paths
         rel = f"tasklists/{account_name}/{tasklist_id}.json"
         return self.storage_paths.resolve_relative(rel)
@@ -830,8 +826,8 @@ class JsonFileStorage(Storage):
         ids.sort()
         return ids
 
-    def get_tasklist(self, account_name: str, tasklist_id: str) -> Optional[Dict[str, Any]]:
-        validate_tasklist_id(tasklist_id)
+    def get_tasklist(self, account_name: str, tasklist_id: str) -> Optional[TaskList]:
+        
         path = self._tasklist_path(account_name, tasklist_id)
         data = self._load_json(path)
         tl: TaskList 
@@ -839,11 +835,10 @@ class JsonFileStorage(Storage):
         tl = TaskList.from_dict(data) if data else None
         return tl.to_dict() if tl else None
 
-    def save_tasklist(self, account_name: str, tasklist_id: str, tasklist: Any) -> None:
+    def save_tasklist(self, account_name: str, tasklist_id: str, tasklist: TaskList) -> None:
         """Save a tasklist object atomically.
 
         """
-        #validate_tasklist_id(tasklist_id)
 
         # Accept dict-like or JSON string
 
@@ -858,7 +853,7 @@ class JsonFileStorage(Storage):
         self._atomic_write(path, tl.to_dict())
 
     def delete_tasklist(self, account_name: str, tasklist_id: str) -> None:
-        validate_tasklist_id(tasklist_id)
+
         path = self._tasklist_path(account_name, tasklist_id)
         try:
             if path.exists():

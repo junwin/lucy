@@ -8,7 +8,7 @@ from src.config_manager import ConfigManager
 from src.handlers.handler_v2 import HandlerV2
 from src.storage.json_file_storage import JsonFileStorage
 from src.storage_paths.storage_paths import StoragePaths
-from src.tasklists.tasklist_validation import canonicalize_tasklist_dict
+from src.tasklists.task_list import TaskList
 
 logger = logging.getLogger(__name__)
 
@@ -168,53 +168,18 @@ class TasklistsManageHandler(HandlerV2):
                             "tasklist_id": tasklist_id,
                             "error": {"code": "invalid_payload", "message": "tasklist is not valid JSON"},
                         }
-                elif isinstance(payload, dict):
-                    payload_obj = payload
-                else:
-                    # try to coerce
-                    try:
-                        payload_obj = dict(payload)
-                    except Exception:
-                        return {
-                            "ok": False,
-                            "tool": self.NAME,
-                            "action": "put",
-                            "tasklist_id": tasklist_id,
-                            "error": {
-                                "code": "invalid_payload",
-                                "message": "tasklist must be an object or JSON string",
-                            },
-                        }
+                
 
-                # Validate / canonicalize
-                try:
-                    canonical = canonicalize_tasklist_dict(tasklist_id, payload_obj)
-                except Exception as e:
-                    return {
-                        "ok": False,
-                        "tool": self.NAME,
-                        "action": "put",
-                        "tasklist_id": tasklist_id,
-                        "error": {"code": "validation_error", "message": str(e)},
-                    }
-
-                if validate_only:
-                    return {
-                        "ok": True,
-                        "tool": self.NAME,
-                        "action": "put",
-                        "tasklist_id": tasklist_id,
-                        "tasklist": canonical,
-                    }
+                
 
                 # persist
-                self.storage.save_tasklist(account_name, tasklist_id, canonical)
+                self.storage.save_tasklist(account_name, tasklist_id, payload)
                 return {
                     "ok": True,
                     "tool": self.NAME,
                     "action": "put",
                     "tasklist_id": tasklist_id,
-                    "tasklist": canonical,
+                    "tasklist": payload,
                 }
 
         except Exception as e:

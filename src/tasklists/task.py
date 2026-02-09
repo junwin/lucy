@@ -5,29 +5,24 @@ import uuid
 from dataclasses import dataclass, field
 from typing import Any, Dict, Optional
 
-try:
-    from pydantic import BaseModel, TypeAdapter, ConfigDict, ValidationError, Field  # type: ignore
-    _HAS_PYDANTIC = True
-except Exception:
-    _HAS_PYDANTIC = False
+from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, ValidationError
 
 from .task_states import TASK_STATE_PENDING
 
 
-# --- module-level pydantic boundary (fast, strict) ---
-if _HAS_PYDANTIC:
-    class _TaskModel(BaseModel):
-        model_config = ConfigDict(extra="forbid")
+class _TaskModel(BaseModel):
+    model_config = ConfigDict(extra="forbid")
 
-        id: uuid.UUID
-        title: str
-        instructions: str
-        state: str = TASK_STATE_PENDING
-        result: Optional[Dict[str, Any]] = None
-        error: Optional[str] = None
-        meta: Dict[str, Any] = Field(default_factory=dict)
+    id: uuid.UUID
+    title: str
+    instructions: str
+    state: str = TASK_STATE_PENDING
+    result: Optional[Dict[str, Any]] = None
+    error: Optional[str] = None
+    meta: Dict[str, Any] = Field(default_factory=dict)
 
-    _TASK_ADAPTER = TypeAdapter(_TaskModel)
+
+_TASK_ADAPTER = TypeAdapter(_TaskModel)
 
 
 @dataclass(init=False)
@@ -43,17 +38,15 @@ class Task:
     def __init__(
         self,
         id: Any,
-        title: Optional[str] = None,
-        instructions: Optional[str] = None,
+        title: str,
+        instructions: str,
         *,
         state: str = TASK_STATE_PENDING,
         result: Optional[Dict[str, Any]] = None,
         error: Optional[str] = None,
         meta: Optional[Dict[str, Any]] = None,
     ) -> None:
-        if title is None or instructions is None:
-            raise TypeError("Task requires both 'title' and 'instructions'")
-
+        # Normalize/validate id
         try:
             uid = id if isinstance(id, uuid.UUID) else uuid.UUID(str(id))
             self.id = str(uid)
@@ -77,84 +70,33 @@ class Task:
 
     def to_dict(self) -> Dict[str, Any]:
         return {
-            "id": str(self.id),
-            "title": str(self._title),
-            "instructions": str(self.instructions),
-            "state": str(self.state),
-            "result": self.result if self.result is not None else None,
-            "error": self.error if self.error is not None else None,
-            "meta": dict(self.meta) if self.meta is not None else {},
+            "id": self.id,
+            "title": self._title,
+            "instructions": self.instructions,
+            "state": self.state,
+            "result": self.result,
+            "error": self.error,
+            "meta": dict(self.meta or {}),
         }
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "Task":
         if not isinstance(data, dict):
             raise TypeError("Task.from_dict expects a dict")
-
-        payload = dict(data)
-
-        # If pydantic is available, it already handles:
-        # - required fields
-        # - extra fields (forbid)
-        # - UUID validation
-        if _HAS_PYDANTIC:
-            try:
-                validated = _TASK_ADAPTER.validate_python(payload)
-            except ValidationError as exc:
-                raise ValueError(f"Task validation error: {exc}") from exc
-
-            return cls(
-                id=validated.id,
-                title=validated.title,
-                instructions=validated.instructions,
-                state=validated.state,
-                result=validated.result,
-                error=validated.error,
-                meta=validated.meta,
-            )
-
-        # Fallback minimal checks (no pydantic)
-        allowed = {"id", "title", "instructions", "state", "result", "error", "meta"}
-        extra_keys = set(payload.keys()) - allowed
-        if extra_keys:
-            raise ValueError(f"Unknown Task fields: {sorted(extra_keys)}")
-
-        if "title" not in payload:
-            raise ValueError("Missing required Task field: 'title'")
-        if "instructions" not in payload:
-            raise ValueError("Missing required Task field: 'instructions'")
-
-        raw_id = payload["id"]
-        title = payload["title"]
-        instr = payload["instructions"]
-
-        if not isinstance(title, str):
-            raise ValueError("Task.title must be a string")
-        if not isinstance(instr, str):
-            raise ValueError("Task.instructions must be a string")
-
-        state = payload.get("state", TASK_STATE_PENDING) or TASK_STATE_PENDING
-        if not isinstance(state, str):
-            raise ValueError("Task.state must be a string")
-
-        result = payload.get("result")
-        if result is not None and not isinstance(result, dict):
-            raise ValueError("Task.result must be a dict or null")
-
-        error = payload.get("error")
-        if error is not None and not isinstance(error, str):
-            raise ValueError("Task.error must be a string or null")
-
-        meta = payload.get("meta", {}) or {}
-        if not isinstance(meta, dict):
-            raise ValueError("Task.meta must be a dict")
-
         try:
-            tid = str(uuid.UUID(str(raw_id)))
-        except Exception as exc:
-            raise ValueError("Task.id must be a valid UUID string") from exc
+            v = _TASK_ADAPTER.validate_python(data)
+        except ValidationError as exc:
+            raise ValueError(f"Task validation error: {exc}") from exc
 
-        return cls(id=tid, title=title, instructions=instr, state=state, result=result, error=error, meta=meta)
+        return cls(
+            id=v.id,
+            title=v.title,
+            instructions=v.instructions,
+            state=v.state,
+            result=v.result,
+            error=v.error,
+            meta=v.meta,
+        )
 
     def to_json(self) -> str:
         return json.dumps(self.to_dict(), separators=(",", ":"))

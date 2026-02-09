@@ -3,6 +3,8 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
+from src.tasklists.task import Task
+from src.tasklists.task_list import TaskList
 
 from .models import (
     ChatMessage,
@@ -149,12 +151,12 @@ class Storage(ABC):
         pass
 
     @abstractmethod
-    def get_tasklist(self, account_name: str, tasklist_id: str) -> Optional[Dict[str, Any]]:
+    def get_tasklist(self, account_name: str, tasklist_id: str) -> Optional[TaskList]:
         """Return a persisted tasklist (plain dict) or None if missing."""
         pass
 
     @abstractmethod
-    def save_tasklist(self, account_name: str, tasklist_id: str, tasklist: Any) -> None:
+    def save_tasklist(self, account_name: str, tasklist_id: str, tasklist: TaskList) -> None:
         """Persist a tasklist model (dict or JSON string) for the account."""
         pass
 

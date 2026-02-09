@@ -18,10 +18,7 @@ from src.container_config import container
 from src.config_manager import ConfigManager
 from src.prompt_builders.prompt_builder import PromptBuilder
 from src.message_endpoints.ask_request_handler import AskRequestHandler
-from src.tasklists.tasklist_validation import (
-    canonicalize_tasklist_dict,
-    validate_tasklist_id,
-)
+
 
 
 # -----------------------------------------------------------------------------
@@ -313,10 +310,6 @@ def get_tasklist(tasklist_id: str):
     if not account_name:
         return jsonify({"error": "Missing accountName"}), 400
 
-    try:
-        validate_tasklist_id(tasklist_id)
-    except ValueError as e:
-        return jsonify({"error": str(e)}), 404
 
     try:
         d = storage.get_tasklist(account_name, tasklist_id)
@@ -341,10 +334,6 @@ def put_tasklist(tasklist_id: str):
     if not account_name:
         return jsonify({"error": "Missing accountName"}), 400
 
-    #try:
-    #    validate_tasklist_id(tasklist_id)
-    #except ValueError as e:
-    #    return jsonify({"error": str(e)}), 404
 
     payload = request.get_json(silent=True)
     if payload is None:
@@ -371,10 +360,7 @@ def delete_tasklist(tasklist_id: str):
     if not account_name:
         return jsonify({"error": "Missing accountName"}), 400
 
-    try:
-        validate_tasklist_id(tasklist_id)
-    except ValueError as e:
-        return jsonify({"error": str(e)}), 400
+
 
     try:
         storage.delete_tasklist(account_name, tasklist_id)
