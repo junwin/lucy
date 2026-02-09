@@ -7,7 +7,7 @@ from src.tasklists.task_states import TASK_STATE_PENDING
 
 
 def test_task_unknown_key_rejection():
-    data = {"id": "1", "instructions": "Do something", "extra": "not-allowed"}
+    data = {"id": str(uuid.uuid4()), "title": "T", "instructions": "Do something", "extra": "not-allowed"}
     try:
         Task.from_dict(data)
         assert False, "Expected ValueError for unknown keys"
@@ -16,7 +16,7 @@ def test_task_unknown_key_rejection():
 
 
 def test_task_missing_required_fields():
-    data = {"id": "1"}
+    data = {"id": str(uuid.uuid4()), "title": "Only title"}
     try:
         Task.from_dict(data)
         assert False, "Expected ValueError for missing required fields"
@@ -25,50 +25,38 @@ def test_task_missing_required_fields():
 
 
 def test_migration_v1_title_and_int_id_converted():
-    # v1 shape: numeric id, title, status
+    # v1 shape is no longer supported by the strict loader; expect rejection
     v1 = {
         "schema_version": 1,
         "id": "tl-v1",
         "tasks": [{"id": 42, "title": "Old Task", "status": "pending"}],
     }
 
-    tl = TaskList.from_dict(v1)
-    assert tl.schema_version == 1
-    assert tl.id == "tl-v1"
-    assert len(tl.tasks) == 1
-    t = tl.tasks[0]
-    assert t.instructions == "Old Task"
-    assert isinstance(t.id, str)
-    # numeric id should have been converted to a UUID-like string
     try:
-        uuid.UUID(t.id)
-    except Exception:
-        assert False, "Expected task id to be UUID string after migration"
+        TaskList.from_dict(v1)
+        assert False, "Expected ValueError for unsupported schema_version 1"
+    except ValueError as e:
+        assert "Unsupported TaskList schema_version" in str(e) or "schema_version" in str(e)
 
 
 def test_migration_v1_unknown_fields_moved_to_meta_when_allowed():
+    # Legacy migration and allow_legacy_meta behavior has been removed; ensure v1 is rejected
     v1 = {
         "schema_version": 1,
         "id": "tl-v1b",
         "tasks": [{"id": 7, "title": "T", "status": "pending", "foo": "bar"}],
     }
 
-    # When allow_legacy_meta=False, this should raise due to unknown key
     try:
-        TaskList.from_dict(v1, allow_legacy_meta=False)
-        assert False, "Expected ValueError for unknown task key when legacy meta not allowed"
+        TaskList.from_dict(v1)
+        assert False, "Expected ValueError for unsupported schema_version 1"
     except ValueError:
         pass
 
-    # When allowed, unknown keys should be moved into task.meta
-    tl = TaskList.from_dict(v1, allow_legacy_meta=True)
-    t = tl.tasks[0]
-    assert t.meta.get("foo") == "bar"
-
 
 def test_round_trip_dump_load():
-    t1 = Task(id=1, instructions="First", state=TASK_STATE_PENDING)
-    t2 = Task(id=2, instructions="Second", state=TASK_STATE_PENDING)
+    t1 = Task(id=str(uuid.uuid4()), title="First", instructions="First instr", state=TASK_STATE_PENDING)
+    t2 = Task(id=str(uuid.uuid4()), title="Second", instructions="Second instr", state=TASK_STATE_PENDING)
     tl = TaskList(id="round-1", tasks=[t1, t2], meta={"a": 1})
 
     serialized = tl.to_dict()
@@ -80,10 +68,13 @@ def test_round_trip_dump_load():
     assert loaded.id == tl.id
     assert loaded.meta == tl.meta
     assert len(loaded.tasks) == 2
-    # Tasks ids should be strings (UUIDs) not integers
+    # Tasks ids should be strings (UUIDs)
     for orig, new in zip(tl.tasks, loaded.tasks):
         assert isinstance(new.id, str)
+        # should be parseable as UUID
+        uuid.UUID(new.id)
         assert new.instructions == orig.instructions
+        assert new.title == orig.title
         assert new.state == orig.state
 
     # Round-trip Json

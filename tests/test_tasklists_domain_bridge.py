@@ -5,8 +5,8 @@ import pytest
 
 
 def test_round_trip_to_dict_and_from_dict():
-    t1 = Task(id=1, title="First task")
-    t2 = Task(id=2, title="Second task", state="Done", result={"ok": True})
+    t1 = Task(id="11111111-1111-1111-1111-111111111111", title="First task", instructions="Do first thing")
+    t2 = Task(id="22222222-2222-2222-2222-222222222222", title="Second task", instructions="Do second thing", state="Done", result={"ok": True})
 
     tl = TaskList(id="list-123", tasks=[t1, t2], state="Running")
 
@@ -35,7 +35,7 @@ def test_round_trip_to_dict_and_from_dict():
 
 
 def test_from_dict_requires_id_unless_provided():
-    data = {"schema_version": 1, "state": "Created", "tasks": []}
+    data = {"schema_version": 2, "state": "Created", "tasks": []}
 
     with pytest.raises(ValueError):
         TaskList.from_dict(data)
@@ -53,7 +53,7 @@ def test_from_dict_rejects_unknown_schema_version():
 
 
 def test_to_dict_always_includes_id():
-    t = Task(id=1, title="T")
+    t = Task(id="33333333-3333-3333-3333-333333333333", title="T", instructions="Do T")
     tl = TaskList(id="abc", tasks=[t])
     d = tl.to_dict()
     assert "id" in d and d["id"] == "abc"
@@ -61,7 +61,7 @@ def test_to_dict_always_includes_id():
 
 def test_meta_roundtrip_in_model():
     # Task-level meta and TaskList-level meta should be preserved through to_dict/from_dict
-    t1 = Task(id=1, title="T1", meta={"task_meta": "v"})
+    t1 = Task(id="44444444-4444-4444-4444-444444444444", title="T1", instructions="do t1", meta={"task_meta": "v"})
     tl = TaskList(id="list-meta", tasks=[t1], meta={"supervisor_agent": "super", "notes": "x"})
 
     d = tl.to_dict()

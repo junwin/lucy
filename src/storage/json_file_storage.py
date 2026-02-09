@@ -842,41 +842,20 @@ class JsonFileStorage(Storage):
     def save_tasklist(self, account_name: str, tasklist_id: str, tasklist: Any) -> None:
         """Save a tasklist object atomically.
 
-        Validation rules:
-          - tasklist_id must be a simple filename (no separators)
-          - if the payload contains an 'id' field it must match tasklist_id
-          - if the payload lacks 'id', it will be set to tasklist_id
         """
-        validate_tasklist_id(tasklist_id)
+        #validate_tasklist_id(tasklist_id)
 
         # Accept dict-like or JSON string
-        if isinstance(tasklist, str):
-            try:
-                payload = json.loads(tasklist)
-            except Exception:
-                # If it's a plain string that isn't JSON, store as {'value': str}
-                payload = {"value": tasklist}
-        elif isinstance(tasklist, dict):
-            payload = tasklist.copy()
-        else:
-            # Try to coerce to dict via __dict__ if possible
-            try:
-                payload = dict(tasklist)
-            except Exception:
-                payload = {"value": str(tasklist)}
 
-        # Ensure payload has an 'id' matching tasklist_id
-        if "id" in payload and payload["id"] != tasklist_id:
-            raise ValueError("tasklist id mismatch between path and payload")
-        payload["id"] = tasklist_id
-        payload.setdefault("schema_version", 1)
-        payload.setdefault("tasks", [])
+        tl =  TaskList.from_json(json.dumps(tasklist))  # normalize and validate via JSON round-trip
+        
+
 
         path = self._tasklist_path(account_name, tasklist_id)
         # Ensure parent dir exists
         self._ensure_dir(path.parent)
         # Write atomically
-        self._atomic_write(path, payload)
+        self._atomic_write(path, tl.to_dict())
 
     def delete_tasklist(self, account_name: str, tasklist_id: str) -> None:
         validate_tasklist_id(tasklist_id)

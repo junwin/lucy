@@ -29,9 +29,8 @@ class TaskListManager:
     """Helper for creating, loading, persisting and running TaskLists.
 
     Responsibilities (minimal):
-    - Support tasklist-level meta (supervisor_agent, worker_agent) when
-      persisting tasklists. These are stored as top-level keys alongside the
-      TaskList dict so existing TaskList.from_dict/from_json remain compatible.
+    - Persist tasklists and support passing a nested `meta` dict when
+      persisting. Older top-level legacy meta keys are no longer emitted.
     - Run tasklists one-by-one, persisting after each task, and support
       resuming from the last incomplete task.
 
@@ -49,12 +48,13 @@ class TaskListManager:
     # -----------------
 
     def _serialize_tasklist(self, tasklist: TaskList, meta: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        # Use TaskList.to_json to produce canonical tasklist dict, then attach
+        # provided meta under a nested 'meta' key. We no longer emit legacy
+        # top-level keys for supervisor/worker agents.
         d = json.loads(tasklist.to_json())
         if meta:
-            # shallow copy of meta keys at top-level so older code can ignore them
-            for k, v in meta.items():
-                if v is not None:
-                    d[k] = v
+            # attach nested meta key
+            d["meta"] = {k: v for k, v in meta.items() if v is not None}
         return d
 
     def save_tasklist(self, account_name: str, tasklist_id: str, tasklist: TaskList, *, meta: Optional[Dict[str, Any]] = None) -> None:
@@ -80,12 +80,11 @@ class TaskListManager:
             logger.warning("Unsupported tasklist type from storage: %s", type(raw))
             return None, {}
 
-        # extract meta fields if present
-        meta_keys = ["supervisor_agent", "worker_agent"]
+        # Previously we extracted legacy top-level meta keys (supervisor_agent,
+        # worker_agent) and returned them separately. Under the strict schema
+        # we expect meta to live under the 'meta' key in the TaskList dict. We
+        # therefore do not perform any top-level legacy mapping here.
         meta: Dict[str, Any] = {}
-        for k in meta_keys:
-            if k in data:
-                meta[k] = data.pop(k)
 
         try:
             tl = TaskList.from_dict(data)
@@ -106,20 +105,21 @@ class TaskListManager:
             if isinstance(t, Task):
                 t_objs.append(t)
             elif isinstance(t, dict):
-                # ensure id present
+                # Under the strict Task schema we require callers provide an
+                # explicit 'id' for each task which must be a valid UUID
+                # string (Task.from_dict will validate). We do not generate
+                # new UUIDs here for missing ids.
                 if "id" not in t:
-                    # new Task ids are UUID strings; prefer generating a UUID
-                    # rather than using integer ids which were used in older
-                    # versions. Task.from_dict can still migrate integer ids but
-                    # creating UUIDs here keeps new tasklists consistent.
-                    t["id"] = str(uuid.uuid4())
+                    raise TypeError("Task dicts must include an 'id' (UUID string)")
                 t_objs.append(Task.from_dict(t))
             else:
                 raise TypeError("tasks must be Task or dict")
 
         tl = TaskList(id=tasklist_id, tasks=t_objs)
         meta = {"supervisor_agent": supervisor_agent, "worker_agent": worker_agent}
-        self.save_tasklist(account_name, tasklist_id, tl, meta=meta)
+        # Only include meta if not empty
+        meta = {k: v for k, v in meta.items() if v is not None}
+        self.save_tasklist(account_name, tasklist_id, tl, meta=meta if meta else None)
         return tl
 
     # -----------------

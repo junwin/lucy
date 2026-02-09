@@ -1,14 +1,3 @@
-"""Package-level helpers and re-exports for the tasklists domain.
-
-This module exposes the domain dataclasses (Task, TaskList) and a small
-helper TaskListManager. It also provides convenience boundary functions which
-operate on plain Python structures (dict) when a Storage instance is supplied.
-
-Note: modifying other modules is out of scope for this task. These helpers
-accept an explicit `storage` argument to avoid depending on global application
-state (app.container). Callers in higher-level code can pass the configured
-Storage instance.
-"""
 from __future__ import annotations
 
 from typing import Any, Dict, List, Optional

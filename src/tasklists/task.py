@@ -6,9 +6,7 @@ from dataclasses import dataclass, field
 from typing import Any, Dict, Optional
 
 try:
-    # Pydantic is optional in some environments; when available we use its
-    # TypeAdapter boundary for strict validation (extra fields forbidden).
-    from pydantic import BaseModel, TypeAdapter, ConfigDict, ValidationError  # type: ignore
+    from pydantic import BaseModel, TypeAdapter, ConfigDict, ValidationError, Field  # type: ignore
     _HAS_PYDANTIC = True
 except Exception:
     _HAS_PYDANTIC = False
@@ -16,49 +14,54 @@ except Exception:
 from .task_states import TASK_STATE_PENDING
 
 
+# --- module-level pydantic boundary (fast, strict) ---
+if _HAS_PYDANTIC:
+    class _TaskModel(BaseModel):
+        model_config = ConfigDict(extra="forbid")
+
+        id: uuid.UUID
+        title: str
+        instructions: str
+        state: str = TASK_STATE_PENDING
+        result: Optional[Dict[str, Any]] = None
+        error: Optional[str] = None
+        meta: Dict[str, Any] = Field(default_factory=dict)
+
+    _TASK_ADAPTER = TypeAdapter(_TaskModel)
+
+
 @dataclass(init=False)
 class Task:
-    """Domain Task dataclass.
-
-    Notes:
-    - Domain object remains a lightweight dataclass.
-    - Validation and boundary checks are performed via a Pydantic
-      model/TypeAdapter at the edges (from_dict/from_json) when available.
-    """
-
     id: str
     instructions: str
     state: str = TASK_STATE_PENDING
     result: Optional[Dict[str, Any]] = None
     error: Optional[str] = None
     meta: Dict[str, Any] = field(default_factory=dict)
+    _title: str
 
     def __init__(
         self,
         id: Any,
+        title: Optional[str] = None,
         instructions: Optional[str] = None,
         *,
-        title: Optional[str] = None,
         state: str = TASK_STATE_PENDING,
         result: Optional[Dict[str, Any]] = None,
         error: Optional[str] = None,
         meta: Optional[Dict[str, Any]] = None,
     ) -> None:
-        # Prefer explicit instructions, fall back to legacy title
-        if instructions is None and title is not None:
-            instructions = title
+        if title is None or instructions is None:
+            raise TypeError("Task requires both 'title' and 'instructions'")
 
-        if instructions is None:
-            raise TypeError("Task requires 'instructions' (or legacy 'title')")
+        try:
+            uid = id if isinstance(id, uuid.UUID) else uuid.UUID(str(id))
+            self.id = str(uid)
+        except Exception as exc:
+            raise TypeError("Task.id must be a valid UUID string or uuid.UUID") from exc
 
-        # Normalize id: accept ints (legacy) by creating deterministic UUID
-        if isinstance(id, int):
-            id = str(uuid.uuid5(uuid.NAMESPACE_OID, str(id)))
-        else:
-            id = str(id)
-
-        self.id = id
-        self.instructions = instructions
+        self._title = str(title)
+        self.instructions = str(instructions)
         self.state = state or TASK_STATE_PENDING
         self.result = result
         self.error = error
@@ -66,15 +69,16 @@ class Task:
 
     @property
     def title(self) -> str:
-        return self.instructions
+        return self._title
 
     @title.setter
     def title(self, v: str) -> None:
-        self.instructions = v
+        self._title = v
 
     def to_dict(self) -> Dict[str, Any]:
         return {
             "id": str(self.id),
+            "title": str(self._title),
             "instructions": str(self.instructions),
             "state": str(self.state),
             "result": self.result if self.result is not None else None,
@@ -83,86 +87,49 @@ class Task:
         }
 
     @classmethod
-    def from_dict(
-        cls,
-        data: Dict[str, Any],
-        *,
-        allow_legacy: bool = True,
-        allow_legacy_meta: bool = False,
-    ) -> "Task":
+    def from_dict(cls, data: Dict[str, Any]) -> "Task":
         if not isinstance(data, dict):
             raise TypeError("Task.from_dict expects a dict")
 
         payload = dict(data)
-        legacy = False
-        if "title" in payload or "status" in payload or isinstance(payload.get("id"), int) or "name" in payload:
-            legacy = True
 
-        if legacy and not allow_legacy:
-            raise ValueError("Legacy Task shape detected; set allow_legacy=True to permit migration")
-
-        # Map legacy keys
-        if "title" in payload:
-            payload.setdefault("instructions", payload.pop("title"))
-        if "name" in payload:
-            payload.setdefault("instructions", payload.pop("name"))
-        if "status" in payload:
-            payload.setdefault("state", payload.pop("status"))
-
-        # Normalize id
-        raw_id = payload.get("id")
-        if isinstance(raw_id, int):
-            payload["id"] = str(uuid.uuid5(uuid.NAMESPACE_OID, str(raw_id)))
-        elif isinstance(raw_id, str):
-            payload["id"] = raw_id
-
-        # Allowed keys
-        allowed = {"id", "instructions", "state", "result", "error", "meta"}
-        extra_keys = set(payload.keys()) - allowed
-        if extra_keys:
-            if legacy and allow_legacy_meta:
-                meta = dict(payload.get("meta") or {})
-                for k in list(extra_keys):
-                    meta[k] = payload.pop(k)
-                payload["meta"] = meta
-                extra_keys = set()
-            else:
-                raise ValueError(f"Unknown Task fields: {sorted(extra_keys)}")
-
-        # If pydantic is available, use TypeAdapter with extra=forbid for strict validation
+        # If pydantic is available, it already handles:
+        # - required fields
+        # - extra fields (forbid)
+        # - UUID validation
         if _HAS_PYDANTIC:
-            class _TaskModel(BaseModel):
-                model_config = ConfigDict(extra="forbid")
-
-                id: str
-                instructions: str
-                state: str = TASK_STATE_PENDING
-                result: Optional[Dict[str, Any]] = None
-                error: Optional[str] = None
-                meta: Dict[str, Any] = {}
-
             try:
-                ta = TypeAdapter(_TaskModel)
-                validated = ta.validate_python(payload)
+                validated = _TASK_ADAPTER.validate_python(payload)
             except ValidationError as exc:
                 raise ValueError(f"Task validation error: {exc}") from exc
 
             return cls(
-                id=str(validated.id),
-                instructions=str(validated.instructions),
-                state=str(validated.state),
+                id=validated.id,
+                title=validated.title,
+                instructions=validated.instructions,
+                state=validated.state,
                 result=validated.result,
                 error=validated.error,
-                meta=validated.meta or {},
+                meta=validated.meta,
             )
 
-        # Fallback validation when pydantic not available
-        try:
-            tid = payload["id"]
-            instr = payload["instructions"]
-        except KeyError as exc:
-            raise ValueError(f"Missing required Task field: {exc}") from exc
+        # Fallback minimal checks (no pydantic)
+        allowed = {"id", "title", "instructions", "state", "result", "error", "meta"}
+        extra_keys = set(payload.keys()) - allowed
+        if extra_keys:
+            raise ValueError(f"Unknown Task fields: {sorted(extra_keys)}")
 
+        if "title" not in payload:
+            raise ValueError("Missing required Task field: 'title'")
+        if "instructions" not in payload:
+            raise ValueError("Missing required Task field: 'instructions'")
+
+        raw_id = payload["id"]
+        title = payload["title"]
+        instr = payload["instructions"]
+
+        if not isinstance(title, str):
+            raise ValueError("Task.title must be a string")
         if not isinstance(instr, str):
             raise ValueError("Task.instructions must be a string")
 
@@ -178,19 +145,16 @@ class Task:
         if error is not None and not isinstance(error, str):
             raise ValueError("Task.error must be a string or null")
 
-        meta = payload.get("meta", {})
-        if meta is None:
-            meta = {}
+        meta = payload.get("meta", {}) or {}
         if not isinstance(meta, dict):
             raise ValueError("Task.meta must be a dict")
 
-        # Normalize id: if integer-like, convert to deterministic UUID string
-        if isinstance(tid, int):
-            tid = str(uuid.uuid5(uuid.NAMESPACE_OID, str(tid)))
-        else:
-            tid = str(tid)
+        try:
+            tid = str(uuid.UUID(str(raw_id)))
+        except Exception as exc:
+            raise ValueError("Task.id must be a valid UUID string") from exc
 
-        return cls(id=tid, instructions=instr, state=state, result=result, error=error, meta=meta)
+        return cls(id=tid, title=title, instructions=instr, state=state, result=result, error=error, meta=meta)
 
     def to_json(self) -> str:
         return json.dumps(self.to_dict(), separators=(",", ":"))
