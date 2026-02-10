@@ -18,6 +18,8 @@ from src.container_config import container
 from src.config_manager import ConfigManager
 from src.prompt_builders.prompt_builder import PromptBuilder
 from src.message_endpoints.ask_request_handler import AskRequestHandler
+from src.tasklists.task import Task
+from src.tasklists.task_list import TaskList    
 
 
 
@@ -335,13 +337,17 @@ def put_tasklist(tasklist_id: str):
         return jsonify({"error": "Missing accountName"}), 400
 
 
+
     payload = request.get_json(silent=True)
     if payload is None:
         return jsonify({"error": "Invalid JSON body"}), 404
 
     try:
         #d = canonicalize_tasklist_dict(tasklist_id, payload)
-        storage.save_tasklist(account_name, tasklist_id, payload)
+        print(type(payload), payload)
+
+        tl = TaskList.from_dict(payload)
+        storage.save_tasklist(account_name, tasklist_id, tl)
         return jsonify({"ok": True}), 200
     except ValueError as e:
         return jsonify({"error": str(e)}), 404

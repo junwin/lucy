@@ -160,8 +160,8 @@ def _parse_json_command(message: str) -> Tuple[Optional[dict], Optional[str]]:
 
     try:
         obj = json.loads(raw)
-    except Exception:
-        return None, None
+    except Exception as e :
+        return None, f"Invalid JSON: {e}"
 
     if not isinstance(obj, dict):
         return None, "JSON command must be an object."
@@ -276,8 +276,8 @@ class AutomationProcessor(MessageProcessorInterface):
         try:
             if tasklist.state == TASK_LIST_STATE_CREATED:
                 tasklist.state = TASK_LIST_STATE_RUNNING
-        except Exception:
-            logger.exception("Failed updating task list state")
+        except Exception as e :
+            logger.exception("Failed updating task list state", exc_info=e)
 
         overall_state = "running"
         executed_count = 0

@@ -3,8 +3,11 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
-from src.tasklists.task import Task
-from src.tasklists.task_list import TaskList
+
+# Use the tasklists compatibility layer which exposes the appropriate
+# Task/TaskList types (legacy dataclasses or Pydantic models) so storage
+# implementations don't have to import from deep paths.
+from src.tasklists import Task, TaskList
 
 from .models import (
     ChatMessage,

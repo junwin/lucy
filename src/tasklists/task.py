@@ -5,24 +5,7 @@ import uuid
 from dataclasses import dataclass, field
 from typing import Any, Dict, Optional
 
-from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, ValidationError
-
 from .task_states import TASK_STATE_PENDING
-
-
-class _TaskModel(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    id: uuid.UUID
-    title: str
-    instructions: str
-    state: str = TASK_STATE_PENDING
-    result: Optional[Dict[str, Any]] = None
-    error: Optional[str] = None
-    meta: Dict[str, Any] = Field(default_factory=dict)
-
-
-_TASK_ADAPTER = TypeAdapter(_TaskModel)
 
 
 @dataclass(init=False)
@@ -46,7 +29,7 @@ class Task:
         error: Optional[str] = None,
         meta: Optional[Dict[str, Any]] = None,
     ) -> None:
-        # Normalize/validate id
+        # Normalize/validate id (keep behavior: normalize to UUID string)
         try:
             uid = id if isinstance(id, uuid.UUID) else uuid.UUID(str(id))
             self.id = str(uid)
@@ -81,21 +64,31 @@ class Task:
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "Task":
+        # Strict loader: expect a dict and only allowed keys
         if not isinstance(data, dict):
             raise TypeError("Task.from_dict expects a dict")
-        try:
-            v = _TASK_ADAPTER.validate_python(data)
-        except ValidationError as exc:
-            raise ValueError(f"Task validation error: {exc}") from exc
+
+        allowed = {"id", "title", "instructions", "state", "result", "error", "meta"}
+        unknown = set(data.keys()) - allowed
+        if unknown:
+            raise ValueError(f"Unknown Task fields: {sorted(list(unknown))}")
+
+        # Required fields
+        if "id" not in data:
+            raise ValueError("Missing required Task field: id")
+        if "title" not in data:
+            raise ValueError("Missing required Task field: title")
+        if "instructions" not in data:
+            raise ValueError("Missing required Task field: instructions")
 
         return cls(
-            id=v.id,
-            title=v.title,
-            instructions=v.instructions,
-            state=v.state,
-            result=v.result,
-            error=v.error,
-            meta=v.meta,
+            id=data["id"],
+            title=data["title"],
+            instructions=data["instructions"],
+            state=data.get("state", TASK_STATE_PENDING),
+            result=data.get("result"),
+            error=data.get("error"),
+            meta=data.get("meta"),
         )
 
     def to_json(self) -> str:

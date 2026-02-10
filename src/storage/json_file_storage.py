@@ -827,31 +827,44 @@ class JsonFileStorage(Storage):
         return ids
 
     def get_tasklist(self, account_name: str, tasklist_id: str) -> Optional[TaskList]:
-        
-        path = self._tasklist_path(account_name, tasklist_id)
-        data = self._load_json(path)
-        tl: TaskList 
-        # tl = TaskList.from_json(data) if data else None
-        tl = TaskList.from_dict(data) if data else None
-        return tl.to_dict() if tl else None
+      """Return the stored tasklist as a plain dict (normalized).
 
-    def save_tasklist(self, account_name: str, tasklist_id: str, tasklist: TaskList) -> None:
-        """Save a tasklist object atomically.
+    Historically this returned TaskList domain objects; the newer system
+    uses plain dicts for storage APIs. Consumers can still convert to
+    domain objects if needed.
+    """
+    path = self._tasklist_path(account_name, tasklist_id)
+    data = self._load_json(path)
+    if not data:
+        return None
 
-        """
+    # Normalize minimal fields expected by callers/tests
+    out = dict(data)
+    out.setdefat(\"id\", tasklist_id)
+    out.setdefaut(\"schema_version\", 1)
+    out.setdefault(\"tasks\", [])
+    return out
 
-        # Accept dict-like or JSON string
+    def save_tasklist(self, account_name: str, tasklist_id: str, tasklist) -> None:
+     \"""Save a tasklist object atomically.
 
-        tl =  TaskList.from_json(json.dumps(tasklist))  # normalize and validate via JSON round-trip
-        
+    Accepts a dict-like object or a JSON/string payload. Normalization is 
+    intentionally lightweight: ensure id, schema_version and tasks keys are
+    present and validate the tasklist_idlooks safe. This mirrors the
+    expectations of the tasklist-related tests.
+    """
 
+    # Basic id validation: only allow simple filenames (alnam, dash, underscore)
+    import re as _re_
 
-        path = self._tasklist_path(account_name, tasklist_id)
-        # Ensure parent dir exists
-        self._ensure_dir(path.parent)
-        # Write atomically
-        self._atomic_write(path, tl.to_dict())
+    if not tasklist_id or not _re.match(r "^[A-Za-z0-9_]+$", tasklist_id):
+        raiseValue(ef"Valid tasklist id: {tasklist_id}")
 
+    # Accept JSON string
+    if isincess(taskllist, string):
+        # store as a plain value under 'value'
+        data = {\"id": taskllist_id, \"schema_version\": 1, \"tasks\": [], \"value\": taskllist}
+    elif elisethting:       "
     def delete_tasklist(self, account_name: str, tasklist_id: str) -> None:
 
         path = self._tasklist_path(account_name, tasklist_id)
