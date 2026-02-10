@@ -5,71 +5,45 @@ import uuid
 from dataclasses import dataclass, field
 from typing import Any, Dict, Iterable, List, Optional
 
-try:
-    from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, ValidationError
-except Exception:  # pragma: no cover - fallback for environments without pydantic
-    # Minimal shim so the package can be imported in environments where
-    # pydantic is not installed (tests run in constrained CI).
-    class BaseModel:  # type: ignore
-        pass
+from pydantic import BaseModel, Field, field_validator
 
-    class ConfigDict(dict):  # type: ignore
-        pass
-
-    def Field(*args, **kwargs):  # type: ignore
-        return None
-
-    class ValidationError(Exception):
-        pass
-
-    class TypeAdapter:  # very small shim
-        def __init__(self, model):
-            self.model = model
-
-        def validate_python(self, payload: dict):
-            # Return a simple object with attributes populated from the dict.
-            class _V:
-                pass
-
-            v = _V()
-            # Provide some reasonable defaults
-            v.schema_version = payload.get("schema_version")
-            v.id = payload.get("id")
-            v.state = payload.get("state", "Created")
-            v.tasks = payload.get("tasks", [])
-            v.meta = payload.get("meta", {})
-            v.current_task_id = payload.get("current_task_id")
-            v.name = payload.get("name")
-            return v
-
-from .task import Task
+from .task import Task, _TaskModel
 from .task_states import TASK_LIST_STATE_CREATED
 
 
 class _TaskListModel(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    schema_version: int = 2
+    schema_version: int
     id: str
-    state: str = TASK_LIST_STATE_CREATED
-    tasks: List[Dict[str, Any]] = Field(default_factory=list)  # Task.from_dict validates each
+    name: str
+    description: str
+    state: Optional[str] = TASK_LIST_STATE_CREATED
+    tasks: List[_TaskModel] = Field(default_factory=list)
     meta: Dict[str, Any] = Field(default_factory=dict)
     current_task_id: Optional[str] = None
-    name: Optional[str] = None
 
+    model_config = {"extra": "forbid"}
 
-_TASKLIST_ADAPTER = TypeAdapter(_TaskListModel)
+    @field_validator("schema_version")
+    @classmethod
+    def check_schema_version(cls, v):
+        try:
+            if int(v) != 1:
+                raise ValueError("schema_version must be 1")
+        except Exception:
+            raise ValueError("schema_version must be an int equal to 1")
+        return int(v)
 
 
 @dataclass
 class TaskList:
     id: str
-    schema_version: int = 2
+    name: str
+    description: str
+    schema_version: int = 1
     state: str = TASK_LIST_STATE_CREATED
     tasks: List[Task] = field(default_factory=list)
     meta: Dict[str, Any] = field(default_factory=dict)
     current_task_id: Optional[str] = None
-    name: Optional[str] = None
 
     def __post_init__(self) -> None:
         # Keep id flexible for readers/tests. Persist IDs as strings but
@@ -78,13 +52,18 @@ class TaskList:
         # path.
         self.id = str(self.id)
 
-        # Enforce schema_version == 2
+        # Enforce schema_version == 1
         try:
             self.schema_version = int(self.schema_version)
         except Exception as exc:
             raise TypeError("TaskList.schema_version must be an int") from exc
-        if self.schema_version != 2:
+        if self.schema_version != 1:
             raise ValueError(f"Unsupported TaskList schema_version: {self.schema_version}")
+
+        if not self.name:
+            raise ValueError("TaskList.name is required")
+        if not self.description:
+            raise ValueError("TaskList.description is required")
 
         # Normalize meta/tasks/current_task_id
         if self.meta is None:
@@ -158,13 +137,13 @@ class TaskList:
             "schema_version": int(self.schema_version),
             "id": str(self.id),
             "state": self.state,
+            "name": str(self.name),
+            "description": str(self.description),
             "tasks": [task.to_dict() for task in self.tasks],
             "meta": dict(self.meta or {}),
         }
         if self.current_task_id is not None:
             d["current_task_id"] = str(self.current_task_id)
-        if self.name is not None:
-            d["name"] = str(self.name)
         return d
 
     @classmethod
@@ -176,30 +155,36 @@ class TaskList:
         if id is not None and "id" not in payload:
             payload["id"] = id
 
-        # Quick reject unsupported schema versions before deep validation
-        sv = payload.get("schema_version")
         try:
-            if sv is None or int(sv) != 2:
-                raise ValueError(f"Unsupported TaskList schema_version: {sv}")
-        except Exception:
-            raise ValueError(f"Unsupported TaskList schema_version: {sv}")
-
-        try:
-            validated = _TASKLIST_ADAPTER.validate_python(payload)
-        except ValidationError as exc:
+            validated = _TaskListModel.model_validate(payload)
+        except Exception as exc:
             raise ValueError(f"TaskList validation error: {exc}") from exc
 
-        # Validate/load tasks strictly using Task.from_dict
-        tasks: List[Task] = [Task.from_dict(t) for t in validated.tasks]
+        # Build Task domain objects from validated tasks
+        tasks: List[Task] = []
+        for t in validated.tasks:
+            # t is an instance of _TaskModel
+            tasks.append(
+                Task(
+                    id=t.id,
+                    name=t.name,
+                    instructions=t.instructions,
+                    state=t.state or None,
+                    result=t.result,
+                    error=t.error,
+                    meta=t.meta,
+                )
+            )
 
         return cls(
             id=str(validated.id),
             schema_version=int(validated.schema_version),
-            state=str(validated.state),
+            state=str(validated.state) if validated.state is not None else TASK_LIST_STATE_CREATED,
             tasks=tasks,
             meta=dict(validated.meta or {}),
             current_task_id=str(validated.current_task_id) if validated.current_task_id else None,
-            name=validated.name,
+            name=str(validated.name),
+            description=str(validated.description),
         )
 
     def to_json(self) -> str:

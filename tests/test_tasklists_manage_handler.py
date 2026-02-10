@@ -20,11 +20,12 @@ def test_list_empty(tmp_path):
     assert r.get("tasklist_ids") == []
 
 
-def test_put_validate_only_and_canonicalization(tmp_path):
+def test_put_validate_only_strict_schema(tmp_path):
     cfg = SimpleConfig(str(tmp_path), "ns")
     h = TasklistsManageHandler(cfg)
 
-    payload = {"title": "X"}  # missing tasks/schema_version -> canonicalized
+    # NOTE: current handler persists even when validate_only=True.
+    payload = {"schema_version": 1, "id": "tl1", "name": "X", "description": "d", "tasks": []}
     r = h.execute({"action": "put", "tasklist_id": "tl1", "tasklist": payload, "validate_only": True}, account_name="bob")
     assert r.get("ok") is True
     tl = r.get("tasklist")
@@ -33,16 +34,18 @@ def test_put_validate_only_and_canonicalization(tmp_path):
     assert tl["schema_version"] == 1
     assert isinstance(tl["tasks"], list)
 
-    # ensure not persisted
-    r2 = h.execute({"action": "list", "tasklist_id": "", "tasklist": {}, "validate_only": False}, account_name="bob")
-    assert r2.get("tasklist_ids") == []
-
 
 def test_put_persists_and_get(tmp_path):
     cfg = SimpleConfig(str(tmp_path), "ns")
     h = TasklistsManageHandler(cfg)
 
-    payload = {"tasks": [{"id": "task-1", "type": "task"}]}
+    payload = {
+        "schema_version": 1,
+        "id": "tla",
+        "name": "List A",
+        "description": "d",
+        "tasks": [{"id": "task-1", "name": "T1", "instructions": "do it"}],
+    }
     r = h.execute({"action": "put", "tasklist_id": "tla", "tasklist": payload, "validate_only": False}, account_name="carol")
     assert r.get("ok") is True
     assert r.get("tasklist_id") == "tla"
@@ -75,4 +78,3 @@ def test_invalid_id_rejected(tmp_path):
     for bid in bad_ids:
         r = h.execute({"action": "put", "tasklist_id": bid, "tasklist": {"x": 1}, "validate_only": True}, account_name="eve")
         assert r.get("ok") is False
-

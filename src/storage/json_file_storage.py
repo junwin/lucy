@@ -14,6 +14,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from src.keywords.keywords import Keywords
 from src.storage_paths.storage_paths import StoragePaths
 from src.tasklists.task_list import TaskList, Task  
+from src.tasklists.service import TaskListService
 
 
 from .base import Storage
@@ -96,6 +97,7 @@ class JsonFileStorage(Storage):
     def __init__(self, storage_paths: StoragePaths):
 
         self.storage_paths = storage_paths
+        self._tasklist_service = TaskListService()
 
 
     # ----------------------------------------------------------------------
@@ -825,73 +827,30 @@ class JsonFileStorage(Storage):
 
         ids.sort()
         return ids
-    def get_tasklist(self, account_name: str, tasklist_id: str) -> Optional[TaskList]:
-        """Return the stored tasklist as a plain dict (normalized).
 
-        Historically this returned TaskList domain objects; the newer system
-        uses plain dicts for storage APIs. Consumers can still convert to
-        domain objects if needed.
-        """
+    def get_tasklist(self, account_name: str, tasklist_id: str) -> Optional[TaskList]:
+        """Load a tasklist from storage using TaskListService."""
+
         path = self._tasklist_path(account_name, tasklist_id)
-        data = self._load_json(path)
-        if not data:
+        try:
+            return self._tasklist_service.load(str(path))
+        except FileNotFoundError:
             return None
 
-        # Normalize minimal fields expected by callers/tests
-        out = dict(data)
-        out.setdefault("id", tasklist_id)
-        out.setdefault("schema_version", 1)
-        out.setdefault("tasks", [])
-        return out
-
-    def save_tasklist(self, account_name: str, tasklist_id: str, tasklist) -> None:
-        """Save a tasklist object atomically.
-
-        Accepts a dict-like object or a JSON/string payload. Normalization is
-        intentionally lightweight: ensure id, schema_version and tasks keys are
-        present and validate the tasklist_id looks safe. This mirrors the
-        expectations of the tasklist-related tests.
-        """
+    def save_tasklist(self, account_name: str, tasklist_name: str, tasklist: TaskList) -> None:
+        """Save a tasklist to storage using TaskListService."""
 
         # Basic id validation: only allow simple filenames (alnum, dash, underscore)
         import re as _re
 
-        if not tasklist_id or not _re.match(r"^[A-Za-z0-9_-]+$", tasklist_id):
-            raise ValueError(f"Invalid tasklist id: {tasklist_id!r}")
+        if not tasklist_name or not _re.match(r"^[A-Za-z0-9_-]+$", tasklist_name):
+            raise ValueError(f"Invalid tasklist name: {tasklist_name!r}")
 
-        # Accept JSON string
-        if isinstance(tasklist, str):
-            # store as a plain value under 'value'
-            data = {"id": tasklist_id, "schema_version": 1, "tasks": [], "value": tasklist}
-        elif isinstance(tasklist, dict):
-            data = dict(tasklist)  # copy
-            # If caller provided an id, it must match the path id
-            if "id" in data and data["id"] != tasklist_id:
-                raise ValueError("tasklist id mismatch")
-            data["id"] = tasklist_id
-            data.setdefault("schema_version", 1)
-            data.setdefault("tasks", [])
-        else:
-            # Try serializing pydantic / domain objects to JSON first
-            try:
-                js = json.dumps(tasklist)
-                data = json.loads(js)
-                if not isinstance(data, dict):
-                    data = {"id": tasklist_id, "schema_version": 1, "tasks": [], "value": data}
-                else:
-                    if "id" in data and data["id"] != tasklist_id:
-                        raise ValueError("tasklist id mismatch")
-                    data.setdefault("id", tasklist_id)
-                    data.setdefault("schema_version", 1)
-                    data.setdefault("tasks", [])
-            except Exception:
-                raise ValueError("Unsupported tasklist payload")
+        tl = TaskList.from_dict(tasklist) if isinstance(tasklist, dict) else tasklist
 
-        path = self._tasklist_path(account_name, tasklist_id)
-        # Ensure parent dir exists
+        path = self._tasklist_path(account_name, tasklist_name)
         self._ensure_dir(path.parent)
-        # Write atomically
-        self._atomic_write(path, data)
+        self._tasklist_service.save(str(path), tl)
 
     def delete_tasklist(self, account_name: str, tasklist_id: str) -> None:
 
@@ -1025,6 +984,7 @@ class JsonFileStorage(Storage):
                 str(v).lower() for v in (doc.metadata or {}).values()
             )
 
+        
             blob = " ".join([title_text, tags_text, metadata_text])
             blob = myKwUtil.extract_keywords(blob, top_n=50)    
 

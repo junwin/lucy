@@ -7,7 +7,7 @@ from src.tasklists.task_states import TASK_STATE_PENDING
 
 
 def test_task_unknown_key_rejection():
-    data = {"id": str(uuid.uuid4()), "title": "T", "instructions": "Do something", "extra": "not-allowed"}
+    data = {"id": str(uuid.uuid4()), "name": "T", "instructions": "Do something", "extra": "not-allowed"}
     try:
         Task.from_dict(data)
         assert False, "Expected ValueError for unknown keys"
@@ -16,7 +16,7 @@ def test_task_unknown_key_rejection():
 
 
 def test_task_missing_required_fields():
-    data = {"id": str(uuid.uuid4()), "title": "Only title"}
+    data = {"id": str(uuid.uuid4()), "name": "Only name"}
     try:
         Task.from_dict(data)
         assert False, "Expected ValueError for missing required fields"
@@ -25,7 +25,7 @@ def test_task_missing_required_fields():
 
 
 def test_migration_v1_title_and_int_id_converted():
-    # v1 shape is no longer supported by the strict loader; expect rejection
+    # legacy/v1 shapes are not supported by the strict loader; expect rejection
     v1 = {
         "schema_version": 1,
         "id": "tl-v1",
@@ -34,9 +34,9 @@ def test_migration_v1_title_and_int_id_converted():
 
     try:
         TaskList.from_dict(v1)
-        assert False, "Expected ValueError for unsupported schema_version 1"
+        assert False, "Expected ValueError for invalid v1 task shape"
     except ValueError as e:
-        assert "Unsupported TaskList schema_version" in str(e) or "schema_version" in str(e)
+        assert "Unknown Task fields" in str(e) or "Unsupported TaskList" in str(e) or "validation" in str(e).lower()
 
 
 def test_migration_v1_unknown_fields_moved_to_meta_when_allowed():
@@ -49,19 +49,19 @@ def test_migration_v1_unknown_fields_moved_to_meta_when_allowed():
 
     try:
         TaskList.from_dict(v1)
-        assert False, "Expected ValueError for unsupported schema_version 1"
+        assert False, "Expected ValueError for unsupported v1 shape"
     except ValueError:
         pass
 
 
 def test_round_trip_dump_load():
-    t1 = Task(id=str(uuid.uuid4()), title="First", instructions="First instr", state=TASK_STATE_PENDING)
-    t2 = Task(id=str(uuid.uuid4()), title="Second", instructions="Second instr", state=TASK_STATE_PENDING)
-    tl = TaskList(id="round-1", tasks=[t1, t2], meta={"a": 1})
+    t1 = Task(id=str(uuid.uuid4()), name="First", instructions="First instr", state=TASK_STATE_PENDING)
+    t2 = Task(id=str(uuid.uuid4()), name="Second", instructions="Second instr", state=TASK_STATE_PENDING)
+    tl = TaskList(id="round-1", tasks=[t1, t2], meta={"a": 1}, name="demo", description="d")
 
     serialized = tl.to_dict()
-    # Ensure serialization contains schema_version 2
-    assert serialized.get("schema_version") == 2
+    # Ensure serialization contains schema_version 1
+    assert serialized.get("schema_version") == 1
 
     # Load back
     loaded = TaskList.from_dict(serialized)
@@ -74,7 +74,7 @@ def test_round_trip_dump_load():
         # should be parseable as UUID
         uuid.UUID(new.id)
         assert new.instructions == orig.instructions
-        assert new.title == orig.title
+        assert new.name == orig.name
         assert new.state == orig.state
 
     # Round-trip Json

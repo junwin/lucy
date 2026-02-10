@@ -154,17 +154,17 @@ class Storage(ABC):
         pass
 
     @abstractmethod
-    def get_tasklist(self, account_name: str, tasklist_id: str) -> Optional[TaskList]:
+    def get_tasklist(self, account_name: str, tasklist_name: str) -> Optional[TaskList]:
         """Return a persisted tasklist (plain dict) or None if missing."""
         pass
 
     @abstractmethod
-    def save_tasklist(self, account_name: str, tasklist_id: str, tasklist: TaskList) -> None:
+    def save_tasklist(self, account_name: str, tasklist_name: str, tasklist: TaskList) -> None:
         """Persist a tasklist model (dict or JSON string) for the account."""
         pass
 
     @abstractmethod
-    def delete_tasklist(self, account_name: str, tasklist_id: str) -> None:
+    def delete_tasklist(self, account_name: str, tasklist_name: str) -> None:
         """Delete a persisted tasklist. Must be idempotent: no error if missing."""
         pass
 

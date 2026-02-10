@@ -118,8 +118,8 @@ class TasklistsManageHandler(HandlerV2):
                         "action": "get",
                         "error": {"code": "missing_id", "message": "tasklist_id is required for get"},
                     }
-                data = self.storage.get_tasklist(account_name, tasklist_id)
-                if data is None:
+                tl = self.storage.get_tasklist(account_name, tasklist_id)
+                if tl is None:
                     return {
                         "ok": False,
                         "tool": self.NAME,
@@ -132,7 +132,7 @@ class TasklistsManageHandler(HandlerV2):
                     "tool": self.NAME,
                     "action": "get",
                     "tasklist_id": tasklist_id,
-                    "tasklist": data,
+                    "tasklist": tl.to_dict() if hasattr(tl, "to_dict") else tl,
                 }
 
             if action == "delete":
@@ -160,6 +160,7 @@ class TasklistsManageHandler(HandlerV2):
                 if isinstance(payload, str):
                     try:
                         payload_obj = json.loads(payload)
+                        payload = payload_obj
                     except Exception:
                         return {
                             "ok": False,
@@ -168,12 +169,22 @@ class TasklistsManageHandler(HandlerV2):
                             "tasklist_id": tasklist_id,
                             "error": {"code": "invalid_payload", "message": "tasklist is not valid JSON"},
                         }
-                
 
-                
+                # Validate payload shape by constructing a TaskList (will raise on invalid)
+                try:
+                    TaskList.from_dict(payload)
+                except Exception as e:
+                    return {
+                        "ok": False,
+                        "tool": self.NAME,
+                        "action": "put",
+                        "tasklist_id": tasklist_id,
+                        "error": {"code": "invalid_tasklist", "message": str(e)},
+                    }
 
-                # persist
-                self.storage.save_tasklist(account_name, tasklist_id, payload)
+                if not validate_only:
+                    self.storage.save_tasklist(account_name, tasklist_id, payload)
+
                 return {
                     "ok": True,
                     "tool": self.NAME,

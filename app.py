@@ -306,76 +306,69 @@ def list_tasklists():
         return jsonify({"error": "An error occurred"}), 500
 
 
-@app.route("/tasklists/<tasklist_id>", methods=["GET"])
-def get_tasklist(tasklist_id: str):
+@app.route("/tasklists/<tasklist_name>", methods=["GET"])
+def get_tasklist(tasklist_name: str):
     account_name = (request.args.get("accountName") or "").strip()
     if not account_name:
         return jsonify({"error": "Missing accountName"}), 400
 
-
     try:
-        d = storage.get_tasklist(account_name, tasklist_id)
-        if d is None:
+        tl = storage.get_tasklist(account_name, tasklist_name)
+        if tl is None:
             return jsonify({"error": "TaskList not found"}), 404
-        # d = canonicalize_tasklist_dict(tasklist_id, d)
-        return jsonify(d), 200
+
+        return jsonify(tl.to_dict()), 200
     except ValueError as e:
         return jsonify({"error": str(e)}), 400
     except Exception as e:
         logging.exception(
-            "/tasklists/<id>: failed to get tasklist for account=%s id=%s",
+            "/tasklists/<name>: failed to get tasklist for account=%s name=%s",
             account_name,
-            tasklist_id,
-        )
-        return jsonify({"error": "An error occurred", "details": str(e) }), 500
-
-
-@app.route("/tasklists/<tasklist_id>", methods=["PUT"])
-def put_tasklist(tasklist_id: str):
-    account_name = (request.args.get("accountName") or "").strip()
-    if not account_name:
-        return jsonify({"error": "Missing accountName"}), 400
-
-
-
-    payload = request.get_json(silent=True)
-    if payload is None:
-        return jsonify({"error": "Invalid JSON body"}), 404
-
-    try:
-        #d = canonicalize_tasklist_dict(tasklist_id, payload)
-        print(type(payload), payload)
-
-        tl = TaskList.from_dict(payload)
-        storage.save_tasklist(account_name, tasklist_id, tl)
-        return jsonify({"ok": True}), 200
-    except ValueError as e:
-        return jsonify({"error": str(e)}), 404
-    except Exception as e:
-        logging.exception(
-            "/tasklists/<id>: failed to save tasklist for account=%s id=%s",
-            account_name,
-            tasklist_id,
+            tasklist_name,
         )
         return jsonify({"error": "An error occurred", "details": str(e)}), 500
 
 
-@app.route("/tasklists/<tasklist_id>", methods=["DELETE"])
-def delete_tasklist(tasklist_id: str):
+@app.route("/tasklists/<tasklist_name>", methods=["PUT"])
+def put_tasklist(tasklist_name: str):
     account_name = (request.args.get("accountName") or "").strip()
     if not account_name:
         return jsonify({"error": "Missing accountName"}), 400
 
-
+    payload = request.get_json(silent=True)
+    if payload is None:
+        return jsonify({"error": "Invalid JSON body"}), 400
 
     try:
-        storage.delete_tasklist(account_name, tasklist_id)
+        # Replace semantics: caller must send the full tasklist JSON.
+        # Storage expects a TaskList (or a dict that can be coerced into one).
+        storage.save_tasklist(account_name, tasklist_name, payload)
+        return jsonify({"ok": True}), 200
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+    except Exception as e:
+        logging.exception(
+            "/tasklists/<name>: failed to save tasklist for account=%s name=%s",
+            account_name,
+            tasklist_name,
+        )
+        return jsonify({"error": "An error occurred", "details": str(e)}), 500
+
+
+@app.route("/tasklists/<tasklist_name>", methods=["DELETE"])
+def delete_tasklist(tasklist_name: str):
+    account_name = (request.args.get("accountName") or "").strip()
+    if not account_name:
+        return jsonify({"error": "Missing accountName"}), 400
+
+    try:
+        storage.delete_tasklist(account_name, tasklist_name)
         return jsonify({"ok": True}), 200
     except Exception:
         logging.exception(
-            "/tasklists/<id>: failed to delete tasklist for account=%s id=%s",
+            "/tasklists/<name>: failed to delete tasklist for account=%s name=%s",
             account_name,
-            tasklist_id,
+            tasklist_name,
         )
         return jsonify({"error": "An error occurred"}), 500
 
