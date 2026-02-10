@@ -825,46 +825,74 @@ class JsonFileStorage(Storage):
 
         ids.sort()
         return ids
-
     def get_tasklist(self, account_name: str, tasklist_id: str) -> Optional[TaskList]:
-      """Return the stored tasklist as a plain dict (normalized).
+        """Return the stored tasklist as a plain dict (normalized).
 
-    Historically this returned TaskList domain objects; the newer system
-    uses plain dicts for storage APIs. Consumers can still convert to
-    domain objects if needed.
-    """
-    path = self._tasklist_path(account_name, tasklist_id)
-    data = self._load_json(path)
-    if not data:
-        return None
+        Historically this returned TaskList domain objects; the newer system
+        uses plain dicts for storage APIs. Consumers can still convert to
+        domain objects if needed.
+        """
+        path = self._tasklist_path(account_name, tasklist_id)
+        data = self._load_json(path)
+        if not data:
+            return None
 
-    # Normalize minimal fields expected by callers/tests
-    out = dict(data)
-    out.setdefat(\"id\", tasklist_id)
-    out.setdefaut(\"schema_version\", 1)
-    out.setdefault(\"tasks\", [])
-    return out
+        # Normalize minimal fields expected by callers/tests
+        out = dict(data)
+        out.setdefault("id", tasklist_id)
+        out.setdefault("schema_version", 1)
+        out.setdefault("tasks", [])
+        return out
 
     def save_tasklist(self, account_name: str, tasklist_id: str, tasklist) -> None:
-     \"""Save a tasklist object atomically.
+        """Save a tasklist object atomically.
 
-    Accepts a dict-like object or a JSON/string payload. Normalization is 
-    intentionally lightweight: ensure id, schema_version and tasks keys are
-    present and validate the tasklist_idlooks safe. This mirrors the
-    expectations of the tasklist-related tests.
-    """
+        Accepts a dict-like object or a JSON/string payload. Normalization is
+        intentionally lightweight: ensure id, schema_version and tasks keys are
+        present and validate the tasklist_id looks safe. This mirrors the
+        expectations of the tasklist-related tests.
+        """
 
-    # Basic id validation: only allow simple filenames (alnam, dash, underscore)
-    import re as _re_
+        # Basic id validation: only allow simple filenames (alnum, dash, underscore)
+        import re as _re
 
-    if not tasklist_id or not _re.match(r "^[A-Za-z0-9_]+$", tasklist_id):
-        raiseValue(ef"Valid tasklist id: {tasklist_id}")
+        if not tasklist_id or not _re.match(r"^[A-Za-z0-9_-]+$", tasklist_id):
+            raise ValueError(f"Invalid tasklist id: {tasklist_id!r}")
 
-    # Accept JSON string
-    if isincess(taskllist, string):
-        # store as a plain value under 'value'
-        data = {\"id": taskllist_id, \"schema_version\": 1, \"tasks\": [], \"value\": taskllist}
-    elif elisethting:       "
+        # Accept JSON string
+        if isinstance(tasklist, str):
+            # store as a plain value under 'value'
+            data = {"id": tasklist_id, "schema_version": 1, "tasks": [], "value": tasklist}
+        elif isinstance(tasklist, dict):
+            data = dict(tasklist)  # copy
+            # If caller provided an id, it must match the path id
+            if "id" in data and data["id"] != tasklist_id:
+                raise ValueError("tasklist id mismatch")
+            data["id"] = tasklist_id
+            data.setdefault("schema_version", 1)
+            data.setdefault("tasks", [])
+        else:
+            # Try serializing pydantic / domain objects to JSON first
+            try:
+                js = json.dumps(tasklist)
+                data = json.loads(js)
+                if not isinstance(data, dict):
+                    data = {"id": tasklist_id, "schema_version": 1, "tasks": [], "value": data}
+                else:
+                    if "id" in data and data["id"] != tasklist_id:
+                        raise ValueError("tasklist id mismatch")
+                    data.setdefault("id", tasklist_id)
+                    data.setdefault("schema_version", 1)
+                    data.setdefault("tasks", [])
+            except Exception:
+                raise ValueError("Unsupported tasklist payload")
+
+        path = self._tasklist_path(account_name, tasklist_id)
+        # Ensure parent dir exists
+        self._ensure_dir(path.parent)
+        # Write atomically
+        self._atomic_write(path, data)
+
     def delete_tasklist(self, account_name: str, tasklist_id: str) -> None:
 
         path = self._tasklist_path(account_name, tasklist_id)
