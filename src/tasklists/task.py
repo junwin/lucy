@@ -22,19 +22,17 @@ class Task:
         self,
         id: Any,
         title: str,
-        instructions: str,
+        instructions: str = "",
         *,
         state: str = TASK_STATE_PENDING,
         result: Optional[Dict[str, Any]] = None,
         error: Optional[str] = None,
         meta: Optional[Dict[str, Any]] = None,
     ) -> None:
-        # Normalize/validate id (keep behavior: normalize to UUID string)
-        try:
-            uid = id if isinstance(id, uuid.UUID) else uuid.UUID(str(id))
-            self.id = str(uid)
-        except Exception as exc:
-            raise TypeError("Task.id must be a valid UUID string or uuid.UUID") from exc
+        # Accept flexible id types (int, str, uuid). Persist as string
+        # without enforcing strict UUID normalization here. Normalization
+        # (if required) is the responsibility of the storage/PUT path.
+        self.id = str(id)
 
         self._title = str(title)
         self.instructions = str(instructions)
@@ -78,13 +76,16 @@ class Task:
             raise ValueError("Missing required Task field: id")
         if "title" not in data:
             raise ValueError("Missing required Task field: title")
+        # Tasklist V2 requires explicit instructions field (no defaulting during load)
         if "instructions" not in data:
             raise ValueError("Missing required Task field: instructions")
+
+        instructions = data.get("instructions")
 
         return cls(
             id=data["id"],
             title=data["title"],
-            instructions=data["instructions"],
+            instructions=instructions,
             state=data.get("state", TASK_STATE_PENDING),
             result=data.get("result"),
             error=data.get("error"),

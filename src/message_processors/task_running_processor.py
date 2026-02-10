@@ -10,7 +10,6 @@ from src.message_processors.message_processor_interface import MessageProcessorI
 from src.agent.agent import Agent
 from src.message_processors.types import AccountDict
 from src.storage.base import Storage
-from src.tasklists.task_list import TaskList
 from src.tasklists.task_states import TASK_STATE_PENDING
 
 
@@ -33,10 +32,35 @@ def _parse_json_command(message: str) -> Tuple[Optional[dict], Optional[str]]:
     return obj, None
 
 
-def _find_next_pending_task(tasklist: TaskList) -> Tuple[Optional[int], Optional[Any]]:
-    tasks = getattr(tasklist, "tasks", None) or []
+def _find_next_pending_in_serialized(raw: Any) -> Tuple[Optional[int], Optional[dict]]:
+    """Find the next pending task in a serialized tasklist.
+
+    This helper operates on the persisted representation (dict/list/json string)
+    and intentionally avoids any normalization. Normalization/validation is
+    performed only on PUT operations; readers should be tolerant.
+    """
+    tasks = None
+    if isinstance(raw, dict):
+        tasks = raw.get("tasks") or []
+    elif isinstance(raw, str):
+        try:
+            obj = json.loads(raw)
+        except Exception:
+            return None, None
+        tasks = obj.get("tasks") or []
+    elif isinstance(raw, list):
+        tasks = raw
+    else:
+        return None, None
+
     for idx, task in enumerate(tasks):
-        state = getattr(task, "state", None)
+        # task may be a dict or an object with 'state' attribute
+        state = None
+        if isinstance(task, dict):
+            state = task.get("state")
+        else:
+            state = getattr(task, "state", None)
+
         if state == TASK_STATE_PENDING:
             return idx, task
     return None, None
@@ -116,21 +140,19 @@ class TaskRunningProcessor(MessageProcessorInterface):
         if not raw:
             return f"[TaskRunningProcessor] tasklist={tasklist_id} not found"
 
-        # coerce to TaskList
-        try:
-            if isinstance(raw, dict):
-                tasklist = TaskList.from_dict(raw, id=raw.get("id") or tasklist_id)
-            elif isinstance(raw, str):
-                tasklist = TaskList.from_json(raw)
-            else:
-                return "[TaskRunningProcessor] Unsupported persisted tasklist format"
-        except Exception as e:
-            logger.exception("Failed parsing persisted tasklist")
-            return f"[TaskRunningProcessor] Failed to parse stored tasklist: {e}"
-
-        idx, task = _find_next_pending_task(tasklist)
+        # Operate on the raw persisted representation. Do not perform
+        # normalization/validation here — that is the responsibility of
+        # the manager on PUT. This keeps readers tolerant of older/varied
+        # persisted formats.
+        idx, task = _find_next_pending_in_serialized(raw)
         if task is None:
             return f"[TaskRunningProcessor] mode={mode} no pending tasks"
 
-        task_name = getattr(task, "title", None) or getattr(task, "name", None) or f"task#{idx}"
+        # task may be a dict or domain object
+        task_name = None
+        if isinstance(task, dict):
+            task_name = task.get("title") or task.get("name")
+        else:
+            task_name = getattr(task, "title", None) or getattr(task, "name", None)
+        task_name = task_name or f"task#{idx}"
         return f"[TaskRunningProcessor] mode={mode} next_task_index={idx} next_task_name='{task_name}'"
