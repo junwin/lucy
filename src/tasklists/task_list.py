@@ -176,11 +176,20 @@ class TaskList:
         if id is not None and "id" not in payload:
             payload["id"] = id
 
+        # Quick reject unsupported schema versions before deep validation
+        sv = payload.get("schema_version")
+        try:
+            if sv is None or int(sv) != 2:
+                raise ValueError(f"Unsupported TaskList schema_version: {sv}")
+        except Exception:
+            raise ValueError(f"Unsupported TaskList schema_version: {sv}")
+
         try:
             validated = _TASKLIST_ADAPTER.validate_python(payload)
         except ValidationError as exc:
             raise ValueError(f"TaskList validation error: {exc}") from exc
 
+        # Validate/load tasks strictly using Task.from_dict
         tasks: List[Task] = [Task.from_dict(t) for t in validated.tasks]
 
         return cls(
