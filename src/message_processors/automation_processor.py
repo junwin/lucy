@@ -4,6 +4,7 @@ import json
 import logging
 from datetime import datetime, timezone
 from typing import Any, Dict, Optional, Tuple, TYPE_CHECKING
+
 try:
     from injector import inject
 except Exception:
@@ -11,17 +12,22 @@ except Exception:
     # The shim simply returns the function unchanged so the decorator has no effect.
     def inject(func):
         return func
+
 from src.agent import Agent
 from src.config_manager import ConfigManager
 from src.handlers.handler_registry import HandlerRegistry
 from src.message_processors.message_processor_interface import MessageProcessorInterface
 from src.prompt_builders.prompt_builder_interface import PromptBuilderInterface
+from src.storage.base import Storage
+from src.storage.models import ChatMessage
+
 # Avoid importing Storage at module import time because storage.__init__ may import
 # storage backends that depend on optional packages (pydantic). Use TYPE_CHECKING for typing only.
 if TYPE_CHECKING:
     from src.storage.base import Storage
 
-from src.tasklists import TaskList, Task, TaskModel, TaskListModel  # compatibility layer
+from src.tasklists.task import Task
+from src.tasklists.task_list import TaskList
 from src.tasklists.task_states import (
     TASK_STATE_COMPLETED,
     TASK_STATE_FAILED,
@@ -103,134 +109,18 @@ def _parse_execution_mode_from_text(message: str) -> str:
     return "single-step"
 
 
-def _coerce_tasklist(tasklist: Any) -> Tuple[Optional[Any], Optional[str]]:
-    """Accept a stored tasklist in several shapes and return a usable object.
+def _find_next_pending_task(tasklist: TaskList) -> Tuple[Optional[int], Optional[Task]]:
+    """Return (index, task) for the next pending task."""
 
-    Returns (tasklist_or_dict, error_message)
-    """
-
-    if tasklist is None:
-        return None, "No tasklist present."
-
-    # If a JSON string was stored, parse it.
-    try:
-        if isinstance(tasklist, str):
-            parsed = json.loads(tasklist)
-            return parsed, None
-    except Exception as e:
-        logger.exception("Failed to parse stored tasklist JSON")
-        return None, f"Failed to parse tasklist JSON: {e}"
-
-    # If it's already a dict or an object, return as-is; callers will handle dict vs object.
-    if isinstance(tasklist, dict):
-        return tasklist, None
-
-    # For pydantic models or legacy classes, return as-is
-    return tasklist, None
-
-
-def _find_next_pending_task(tasklist: Any) -> Tuple[Optional[int], Optional[Any]]:
-    """Return (index, task) for the next pending task.
-
-    Supports both dict-shaped tasklists (with 'tasks' list) and object models
-    with a 'tasks' attribute.
-    """
-    tasks = None
-    if isinstance(tasklist, dict):
-        tasks = tasklist.get("tasks") or []
-    else:
-        tasks = getattr(tasklist, "tasks", []) or []
-
+    tasks = tasklist.tasks or []
     for idx, task in enumerate(tasks):
-        # task may be dict or model
-        state = None
-        if isinstance(task, dict):
-            state = task.get("state")
-        else:
-            state = getattr(task, "state", None)
-        if state == TASK_STATE_PENDING:
+        if task.state == TASK_STATE_PENDING:
             return idx, task
     return None, None
 
 
-def _set_task_state(task: Any, state: str) -> None:
-    """Set task.state safely for pydantic models or dicts."""
-
-    if isinstance(task, dict):
-        task["state"] = state
-    else:
-        try:
-            setattr(task, "state", state)
-        except Exception:
-            # Some models may be immutable; fallback to setting in __dict__ if possible
-            try:
-                task.__dict__["state"] = state  # type: ignore
-            except Exception:
-                raise
-
-
-def _serialize_tasklist(tasklist: Any) -> Dict[str, Any]:
-    """Serialize TaskList-like object to a plain dict for persistence."""
-
-    if tasklist is None:
-        raise ValueError("Cannot serialize None tasklist")
-
-    # If it's already a dict, return a shallow copy.
-    if isinstance(tasklist, dict):
-        return dict(tasklist)
-
-    # Pydantic v2 models expose model_dump
-    if hasattr(tasklist, "model_dump"):
-        try:
-            return tasklist.model_dump()
-        except Exception:
-            pass
-
-    # Legacy TaskList may expose to_json
-    if hasattr(tasklist, "to_json"):
-        try:
-            return json.loads(tasklist.to_json())
-        except Exception:
-            pass
-
-    # Fallback: try to build a dict from attributes
-    result: Dict[str, Any] = {}
-    for attr in ("id", "state", "tasks", "meta", "current_task_id", "name"):
-        if hasattr(tasklist, attr):
-            val = getattr(tasklist, attr)
-            # If tasks is list of models, convert each to dict if possible
-            if attr == "tasks" and isinstance(val, list):
-                serialized_tasks = []
-                for t in val:
-                    if isinstance(t, dict):
-                        serialized_tasks.append(dict(t))
-                    elif hasattr(t, "model_dump"):
-                        try:
-                            serialized_tasks.append(t.model_dump())
-                        except Exception:
-                            serialized_tasks.append(vars(t))
-                    elif hasattr(t, "to_json"):
-                        try:
-                            serialized_tasks.append(json.loads(t.to_json()))
-                        except Exception:
-                            serialized_tasks.append(vars(t))
-                    else:
-                        try:
-                            serialized_tasks.append(vars(t))
-                        except Exception:
-                            serialized_tasks.append(str(t))
-                result["tasks"] = serialized_tasks
-            else:
-                result[attr] = val
-
-    # Ensure id exists if present as attribute
-    if not result and hasattr(tasklist, "__dict__"):
-        try:
-            result = dict(getattr(tasklist, "__dict__", {}))
-        except Exception:
-            pass
-
-    return result
+def _set_task_state(task: Task, state: str) -> None:
+    task.state = state
 
 
 def _parse_json_command(message: str) -> Tuple[Optional[dict], Optional[str]]:
@@ -245,7 +135,7 @@ def _parse_json_command(message: str) -> Tuple[Optional[dict], Optional[str]]:
 
     try:
         obj = json.loads(raw)
-    except Exception as e :
+    except Exception as e:
         return None, f"Invalid JSON: {e}"
 
     if not isinstance(obj, dict):
@@ -271,7 +161,7 @@ class AutomationProcessor(MessageProcessorInterface):
         self,
         config: ConfigManager,
         registry: HandlerRegistry,
-        storage: Any,
+        storage: Storage,
         prompt_builder: PromptBuilderInterface,
         llm_adapter: Optional[LLMAdapter] = None,
     ):
@@ -280,8 +170,6 @@ class AutomationProcessor(MessageProcessorInterface):
         self.storage = storage
         self.prompt_builder = prompt_builder
         self.llm_adapter = llm_adapter
-
-
 
     def process_message(
         self,
@@ -295,7 +183,6 @@ class AutomationProcessor(MessageProcessorInterface):
         processor_factory: Optional[Any] = None,
     ) -> str:
         agent_name = (getattr(primary_agent, "name", "") or "").lower().strip()
-
 
         # Keep context_name requirement for compatibility with the processor interface,
         # but do not use it for tasklist access.
@@ -350,31 +237,29 @@ class AutomationProcessor(MessageProcessorInterface):
         logger.debug("Incoming message preview: %s", _safe_preview(message, 800))
 
         try:
-            # storage.get_tasklist may return dict, model or legacy object; _coerce_tasklist will
-            # normalize for in-process use.
             raw_tasklist = self.storage.get_tasklist(account_name, tasklist_id)
         except Exception as e:
             logger.exception("Failed loading tasklist from storage")
             return f"[AutomationProcessor] mode={mode} tasklist_id={tasklist_id} not found: {e}"
 
-        tasklist, err = _coerce_tasklist(raw_tasklist)
-        if err:
-            return f"[AutomationProcessor] Failed to load tasklist: {err}"
+        if not isinstance(raw_tasklist, TaskList):
+            return (
+                "[AutomationProcessor] Storage returned an unexpected tasklist type. "
+                "Expected TaskList."
+            )
 
-        # For compatibility, tasklist may be a dict or model/object. Update state via helpers.
+        tasklist: TaskList = raw_tasklist
+
         try:
-            state_attr = tasklist.get("state") if isinstance(tasklist, dict) else getattr(tasklist, "state", None)
-            if state_attr == TASK_LIST_STATE_CREATED:
-                if isinstance(tasklist, dict):
-                    tasklist["state"] = TASK_LIST_STATE_RUNNING
-                else:
-                    setattr(tasklist, "state", TASK_LIST_STATE_RUNNING)
-        except Exception as e :
+            if tasklist.state == TASK_LIST_STATE_CREATED:
+                tasklist.state = TASK_LIST_STATE_RUNNING
+        except Exception as e:
             logger.exception("Failed updating task list state", exc_info=e)
 
-        overall_state = "running"
+        overall_state = TASK_LIST_STATE_RUNNING
         executed_count = 0
         last_task_name = ""
+        warning_messages: list[str] = []
 
         # Try to obtain a FunctionCallingProcessor from the factory if available.
         function_processor = None
@@ -382,25 +267,25 @@ class AutomationProcessor(MessageProcessorInterface):
             if processor_factory and hasattr(processor_factory, "get"):
                 function_processor = processor_factory.get("function_calling_processor")
         except Exception:
-            logger.exception("Failed to obtain function_calling_processor from processor_factory; falling back to no-op execution")
+            logger.exception(
+                "Failed to obtain function_calling_processor from processor_factory; falling back to no-op execution"
+            )
             function_processor = None
 
         while True:
             idx, task = _find_next_pending_task(tasklist)
             if task is None or idx is None:
                 # Nothing to do.
-                overall_state = "completed"
+                overall_state = TASK_LIST_STATE_COMPLETED
                 break
 
-            last_task_name = (
-                getattr(task, "title", None)
-                or getattr(task, "name", None)
-                or (task.get("file_path") if isinstance(task, dict) else None)
-                or f"task#{idx}"
-            )
+            last_task_name = task.name or f"task#{idx}"
 
-            task_id_log = getattr(task, "id", None) or (task.get("id") if isinstance(task, dict) else None)
-            logger.info("AutomationProcessor executing task id=%s name=%s", task_id_log, last_task_name)
+            logger.info(
+                "AutomationProcessor executing task id=%s name=%s",
+                task.id,
+                last_task_name,
+            )
 
             try:
                 _set_task_state(task, TASK_STATE_RUNNING)
@@ -409,33 +294,29 @@ class AutomationProcessor(MessageProcessorInterface):
 
             # Persist checkpoint: task is now RUNNING.
             try:
-                serialized_checkpoint = _serialize_tasklist(tasklist)
-                self.storage.save_tasklist(account_name, tasklist_id, json.loads(json.dumps(serialized_checkpoint)))
+                self.storage.save_tasklist(account_name, tasklist_id, tasklist.to_dict())
             except Exception as e:
                 logger.exception("Failed persisting tasklist (RUNNING checkpoint)")
-                overall_state = "failed"
+                overall_state = TASK_LIST_STATE_FAILED
                 try:
                     _set_task_state(task, TASK_STATE_FAILED)
                 except Exception:
                     logger.exception("Failed setting task failed after persist error")
+
                 # Ensure tasklist end-state is marked FAILED and persisted before returning
                 try:
-                    if isinstance(tasklist, dict):
-                        tasklist["state"] = TASK_LIST_STATE_FAILED
-                    else:
-                        setattr(tasklist, "state", TASK_LIST_STATE_FAILED)
+                    tasklist.state = TASK_LIST_STATE_FAILED
                 except Exception:
                     logger.exception("Failed setting tasklist state to FAILED after persist error")
                 try:
-                    serialized = _serialize_tasklist(tasklist)
-                    self.storage.save_tasklist(account_name, tasklist_id, json.loads(json.dumps(serialized)))
+                    self.storage.save_tasklist(account_name, tasklist_id, tasklist.to_dict())
                 except Exception:
                     logger.exception("Failed persisting tasklist after setting task FAILED")
-                # Structured log
+
                 logger.info(
                     "AutomationProcessor end tasklist_id=%s task_id=%s mode=%s outcome=%s",
                     tasklist_id,
-                    task_id_log,
+                    task.id,
                     mode,
                     overall_state,
                 )
@@ -450,18 +331,26 @@ class AutomationProcessor(MessageProcessorInterface):
             task_error = None
             try:
                 if function_processor is not None:
-                    # Use the Agent object passed in (do not create new agents).
-                    task_message = getattr(task, "title", None) or (task.get("title") if isinstance(task, dict) else "")
-                    response = function_processor.process_message(
-                        primary_agent=primary_agent,
-                        account=account,
-                        message=task_message,
-                        conversation_id=conversation_id,
-                        context_name=context_name,
-                        secondary_agent=secondary_agent,
-                        processor_factory=processor_factory,
-                    )
-                    task_result = {"timestamp": _now_utc().isoformat(), "output": response}
+                    task_message = (task.instructions or "").strip()
+                    if not task_message:
+                        warning_messages.append(
+                            f"Task '{last_task_name}' has no instructions; marking completed with warning."
+                        )
+                        task_result = {
+                            "timestamp": _now_utc().isoformat(),
+                            "warning": "Task has no instructions. Provide task.instructions to execute.",
+                        }
+                    else:
+                        response = function_processor.process_message(
+                            primary_agent=primary_agent,
+                            account=account,
+                            message=task_message,
+                            conversation_id=conversation_id,
+                            context_name=context_name,
+                            secondary_agent=secondary_agent,
+                            processor_factory=processor_factory,
+                        )
+                        task_result = {"timestamp": _now_utc().isoformat(), "output": response}
                 else:
                     task_result = {
                         "timestamp": _now_utc().isoformat(),
@@ -473,15 +362,9 @@ class AutomationProcessor(MessageProcessorInterface):
                 task_error = str(e)
 
             try:
-                if isinstance(task, dict):
-                    task["result"] = task_result
-                    if task_error is not None:
-                        task["error"] = task_error
-                else:
-                    if hasattr(task, "result"):
-                        setattr(task, "result", task_result)
-                    if task_error is not None and hasattr(task, "error"):
-                        setattr(task, "error", task_error)
+                task.result = task_result
+                if task_error is not None:
+                    task.error = task_error
             except Exception:
                 logger.exception("Failed attaching result/error to task")
 
@@ -491,38 +374,34 @@ class AutomationProcessor(MessageProcessorInterface):
                     _set_task_state(task, TASK_STATE_COMPLETED)
                 else:
                     _set_task_state(task, TASK_STATE_FAILED)
-                    overall_state = "failed"
+                    overall_state = TASK_LIST_STATE_FAILED
             except Exception:
                 logger.exception("Failed setting task completed/failed")
-                overall_state = "failed"
+                overall_state = TASK_LIST_STATE_FAILED
 
             executed_count += 1
 
             # Persist after each task (COMPLETED or FAILED checkpoint).
             try:
-                serialized = _serialize_tasklist(tasklist)
-                self.storage.save_tasklist(account_name, tasklist_id, json.loads(json.dumps(serialized)))
+                self.storage.save_tasklist(account_name, tasklist_id, tasklist.to_dict())
             except Exception as e:
                 logger.exception("Failed persisting tasklist after task execution")
-                overall_state = "failed"
+                overall_state = TASK_LIST_STATE_FAILED
+
                 # Ensure tasklist end-state is marked FAILED and persisted before returning
                 try:
-                    if isinstance(tasklist, dict):
-                        tasklist["state"] = TASK_LIST_STATE_FAILED
-                    else:
-                        setattr(tasklist, "state", TASK_LIST_STATE_FAILED)
+                    tasklist.state = TASK_LIST_STATE_FAILED
                 except Exception:
                     logger.exception("Failed setting tasklist state to FAILED after persist error")
                 try:
-                    serialized = _serialize_tasklist(tasklist)
-                    self.storage.save_tasklist(account_name, tasklist_id, json.loads(json.dumps(serialized)))
+                    self.storage.save_tasklist(account_name, tasklist_id, tasklist.to_dict())
                 except Exception:
                     logger.exception("Failed persisting tasklist after failure")
-                # Structured log
+
                 logger.info(
                     "AutomationProcessor end tasklist_id=%s task_id=%s mode=%s outcome=%s",
                     tasklist_id,
-                    task_id_log,
+                    task.id,
                     mode,
                     overall_state,
                 )
@@ -531,7 +410,7 @@ class AutomationProcessor(MessageProcessorInterface):
                     f"error='Failed to persist task state: {e}'"
                 )
 
-            if overall_state == "failed":
+            if overall_state == TASK_LIST_STATE_FAILED:
                 break
 
             if mode != "multi-step":
@@ -539,34 +418,27 @@ class AutomationProcessor(MessageProcessorInterface):
 
         # Final persist to ensure final list state saved.
         try:
-            if overall_state == "completed":
+            if overall_state == TASK_LIST_STATE_COMPLETED:
                 try:
-                    if isinstance(tasklist, dict):
-                        tasklist["state"] = TASK_LIST_STATE_COMPLETED
-                    else:
-                        setattr(tasklist, "state", TASK_LIST_STATE_COMPLETED)
+                    tasklist.state = TASK_LIST_STATE_COMPLETED
                 except Exception:
                     logger.exception("Failed setting tasklist state to COMPLETED")
-            elif overall_state == "failed":
+            elif overall_state == TASK_LIST_STATE_FAILED:
                 try:
-                    if isinstance(tasklist, dict):
-                        tasklist["state"] = TASK_LIST_STATE_FAILED
-                    else:
-                        setattr(tasklist, "state", TASK_LIST_STATE_FAILED)
+                    tasklist.state = TASK_LIST_STATE_FAILED
                 except Exception:
                     logger.exception("Failed setting tasklist state to FAILED")
-            serialized = _serialize_tasklist(tasklist)
-            self.storage.save_tasklist(account_name, tasklist_id, json.loads(json.dumps(serialized)))
+
+            self.storage.save_tasklist(account_name, tasklist_id, tasklist.to_dict())
         except Exception:
             logger.exception("Failed final persist")
 
         # Structured final log for observability
         try:
-            task_id_log = getattr(task, "id", None) or (task.get("id") if isinstance(task, dict) else None)
             logger.info(
                 "AutomationProcessor end tasklist_id=%s task_id=%s mode=%s outcome=%s",
                 tasklist_id,
-                task_id_log,
+                task.id if task else None,
                 mode,
                 overall_state,
             )
@@ -574,4 +446,10 @@ class AutomationProcessor(MessageProcessorInterface):
             logger.exception("Failed logging final automation outcome")
 
         current_task_part = f"task='{last_task_name}'" if last_task_name else "task='(none)'"
-        return f"[AutomationProcessor] mode={mode} state={overall_state} {current_task_part} executed={executed_count}"
+        warning_part = (
+            f" warnings={json.dumps(warning_messages)}" if warning_messages else ""
+        )
+        return (
+            f"[AutomationProcessor] mode={mode} state={tasklist.state} {current_task_part} "
+            f"executed={executed_count}{warning_part}"
+        )
