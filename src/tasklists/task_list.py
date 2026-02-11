@@ -16,6 +16,7 @@ class _TaskListModel(BaseModel):
     id: str
     name: str
     description: str
+    general_instructions: str = ""
     state: Optional[str] = TASK_LIST_STATE_CREATED
     tasks: List[_TaskModel] = Field(default_factory=list)
     meta: Dict[str, Any] = Field(default_factory=dict)
@@ -44,6 +45,7 @@ class TaskList:
     tasks: List[Task] = field(default_factory=list)
     meta: Dict[str, Any] = field(default_factory=dict)
     current_task_id: Optional[str] = None
+    general_instructions: str = ""
 
     def __post_init__(self) -> None:
         # Keep id flexible for readers/tests. Persist IDs as strings but
@@ -79,6 +81,11 @@ class TaskList:
         if self.current_task_id is not None:
             # keep as string
             self.current_task_id = str(self.current_task_id)
+
+        if self.general_instructions is None:
+            self.general_instructions = ""
+        if not isinstance(self.general_instructions, str):
+            raise TypeError("TaskList.general_instructions must be a str")
 
     # -----------------
     # Domain behavior
@@ -142,8 +149,12 @@ class TaskList:
             "tasks": [task.to_dict() for task in self.tasks],
             "meta": dict(self.meta or {}),
         }
+        # include current_task_id only if present
         if self.current_task_id is not None:
             d["current_task_id"] = str(self.current_task_id)
+        # include general_instructions only when non-empty to maintain backward compatibility
+        if self.general_instructions:
+            d["general_instructions"] = str(self.general_instructions)
         return d
 
     @classmethod
@@ -185,6 +196,7 @@ class TaskList:
             current_task_id=str(validated.current_task_id) if validated.current_task_id else None,
             name=str(validated.name),
             description=str(validated.description),
+            general_instructions=str(validated.general_instructions) if validated.general_instructions is not None else "",
         )
 
     def to_json(self) -> str:

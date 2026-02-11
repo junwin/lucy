@@ -38,6 +38,7 @@ class TaskListService:
         description: str,
         *,
         meta: Optional[Dict[str, Any]] = None,
+        general_instructions: str = "",
     ) -> TaskList:
         return TaskList(
             id=str(uuid.uuid4()),
@@ -47,6 +48,7 @@ class TaskListService:
             description=description,
             tasks=[],
             meta=meta or {},
+            general_instructions=general_instructions,
         )
 
     def save(self, path: str, tasklist: TaskList) -> None:

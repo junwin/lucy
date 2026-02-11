@@ -331,7 +331,30 @@ class AutomationProcessor(MessageProcessorInterface):
             task_error = None
             try:
                 if function_processor is not None:
-                    task_message = (task.instructions or "").strip()
+                    # Build the message for the task execution.
+                    # Order:
+                    # 1) tasklist.general_instructions
+                    # 2) task.instructions
+                    # 3) task.meta fields (format: name = value)
+                    message_parts = []
+
+                    general_instructions = (getattr(tasklist, "general_instructions", "") or "").strip()
+                    if general_instructions:
+                        message_parts.append(general_instructions)
+
+                    task_instructions = (task.instructions or "").strip()
+                    if task_instructions:
+                        message_parts.append(task_instructions)
+
+                    meta = task.meta or {}
+                    if isinstance(meta, dict) and meta:
+                        for k, v in meta.items():
+                            key = str(k).strip()
+                            if not key:
+                                continue
+                            message_parts.append(f"{key} = {v}")
+
+                    task_message = "\n".join(message_parts).strip()
                     if not task_message:
                         warning_messages.append(
                             f"Task '{last_task_name}' has no instructions; marking completed with warning."
