@@ -78,3 +78,32 @@ def test_invalid_id_rejected(tmp_path):
     for bid in bad_ids:
         r = h.execute({"action": "put", "tasklist_id": bid, "tasklist": {"x": 1}, "validate_only": True}, account_name="eve")
         assert r.get("ok") is False
+
+def test_put_rejects_uuid_mismatch_on_replace(tmp_path):
+    cfg = SimpleConfig(str(tmp_path), ns)
+    h = TasklistsManageHandler(cfg)
+
+    # First write
+    payload1 = {schema_version: 1, id: uuid-1, name: X, description: d, tasks: []}
+    r1 = h.execute({action: put, tasklist_id: tl1, tasklist: payload1, validate_only: False}, account_name=bob)
+    assert r1.get(ok) is True
+
+    # Replace with different UUID should be rejected
+    payload2 = {schema_version: 1, id: uuid-2, name: X, description: d, tasks: []}
+    r2 = h.execute({action: put, tasklist_id: tl1, tasklist: payload2, validate_only: False}, account_name=bob)
+    assert r2.get(ok) is False
+    assert r2.get(error, {}).get(code) == tasklist_uuid_mismatch
+
+
+def test_put_requires_uuid_on_replace(tmp_path):
+    cfg = SimpleConfig(str(tmp_path), ns)
+    h = TasklistsManageHandler(cfg)
+
+    payload1 = {schema_version: 1, id: uuid-1, name: X, description: d, tasks: []}
+    r1 = h.execute({action: put, tasklist_id: tl1, tasklist: payload1, validate_only: False}, account_name=bob)
+    assert r1.get(ok) is True
+
+    payload2 = {schema_version: 1, name: X, description: d, tasks: []}
+    r2 = h.execute({action: put, tasklist_id: tl1, tasklist: payload2, validate_only: False}, account_name=bob)
+    assert r2.get(ok) is False
+    assert r2.get(error, {}).get(code) == missing_tasklist_uuid
