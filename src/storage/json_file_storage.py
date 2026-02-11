@@ -13,10 +13,9 @@ from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
 from src.keywords.keywords import Keywords
 from src.storage_paths.storage_paths import StoragePaths
-from src.tasklists.tasklist_validation import (
-    validate_tasklist_id,
-    canonicalize_tasklist_dict,
-)
+from src.tasklists.task_list import TaskList, Task  
+from src.tasklists.service import TaskListService
+
 
 from .base import Storage
 from .models import (
@@ -98,6 +97,7 @@ class JsonFileStorage(Storage):
     def __init__(self, storage_paths: StoragePaths):
 
         self.storage_paths = storage_paths
+        self._tasklist_service = TaskListService()
 
 
     # ----------------------------------------------------------------------
@@ -812,7 +812,6 @@ class JsonFileStorage(Storage):
         This ensures user-supplied account names or ids cannot escape the
         storage namespace.
         """
-        validate_tasklist_id(tasklist_id)
         # Build a relative path under base and resolve via storage_paths
         rel = f"tasklists/{account_name}/{tasklist_id}.json"
         return self.storage_paths.resolve_relative(rel)
@@ -829,53 +828,32 @@ class JsonFileStorage(Storage):
         ids.sort()
         return ids
 
-    def get_tasklist(self, account_name: str, tasklist_id: str) -> Optional[Dict[str, Any]]:
-        validate_tasklist_id(tasklist_id)
-        path = self._tasklist_path(account_name, tasklist_id)
-        data = self._load_json(path)
-        return data
-
-    def save_tasklist(self, account_name: str, tasklist_id: str, tasklist: Any) -> None:
-        """Save a tasklist object atomically.
-
-        Validation rules:
-          - tasklist_id must be a simple filename (no separators)
-          - if the payload contains an 'id' field it must match tasklist_id
-          - if the payload lacks 'id', it will be set to tasklist_id
-        """
-        validate_tasklist_id(tasklist_id)
-
-        # Accept dict-like or JSON string
-        if isinstance(tasklist, str):
-            try:
-                payload = json.loads(tasklist)
-            except Exception:
-                # If it's a plain string that isn't JSON, store as {'value': str}
-                payload = {"value": tasklist}
-        elif isinstance(tasklist, dict):
-            payload = tasklist.copy()
-        else:
-            # Try to coerce to dict via __dict__ if possible
-            try:
-                payload = dict(tasklist)
-            except Exception:
-                payload = {"value": str(tasklist)}
-
-        # Ensure payload has an 'id' matching tasklist_id
-        if "id" in payload and payload["id"] != tasklist_id:
-            raise ValueError("tasklist id mismatch between path and payload")
-        payload["id"] = tasklist_id
-        payload.setdefault("schema_version", 1)
-        payload.setdefault("tasks", [])
+    def get_tasklist(self, account_name: str, tasklist_id: str) -> Optional[TaskList]:
+        """Load a tasklist from storage using TaskListService."""
 
         path = self._tasklist_path(account_name, tasklist_id)
-        # Ensure parent dir exists
+        try:
+            return self._tasklist_service.load(str(path))
+        except FileNotFoundError:
+            return None
+
+    def save_tasklist(self, account_name: str, tasklist_name: str, tasklist: TaskList) -> None:
+        """Save a tasklist to storage using TaskListService."""
+
+        # Basic id validation: only allow simple filenames (alnum, dash, underscore)
+        import re as _re
+
+        if not tasklist_name or not _re.match(r"^[A-Za-z0-9_-]+$", tasklist_name):
+            raise ValueError(f"Invalid tasklist name: {tasklist_name!r}")
+
+        tl = TaskList.from_dict(tasklist) if isinstance(tasklist, dict) else tasklist
+
+        path = self._tasklist_path(account_name, tasklist_name)
         self._ensure_dir(path.parent)
-        # Write atomically
-        self._atomic_write(path, payload)
+        self._tasklist_service.save(str(path), tl)
 
     def delete_tasklist(self, account_name: str, tasklist_id: str) -> None:
-        validate_tasklist_id(tasklist_id)
+
         path = self._tasklist_path(account_name, tasklist_id)
         try:
             if path.exists():
@@ -1006,6 +984,7 @@ class JsonFileStorage(Storage):
                 str(v).lower() for v in (doc.metadata or {}).values()
             )
 
+        
             blob = " ".join([title_text, tags_text, metadata_text])
             blob = myKwUtil.extract_keywords(blob, top_n=50)    
 

@@ -1,20 +1,91 @@
+from __future__ import annotations
+
+import json
+import uuid
 from dataclasses import dataclass, field
 from typing import Any, Dict, Iterable, List, Optional
-import json
 
-from .task import Task
+from pydantic import BaseModel, Field, field_validator
+
+from .task import Task, _TaskModel
 from .task_states import TASK_LIST_STATE_CREATED
+
+
+class _TaskListModel(BaseModel):
+    schema_version: int
+    id: str
+    name: str
+    description: str
+    general_instructions: str = ""
+    state: Optional[str] = TASK_LIST_STATE_CREATED
+    tasks: List[_TaskModel] = Field(default_factory=list)
+    meta: Dict[str, Any] = Field(default_factory=dict)
+    current_task_id: Optional[str] = None
+
+    model_config = {"extra": "forbid"}
+
+    @field_validator("schema_version")
+    @classmethod
+    def check_schema_version(cls, v):
+        try:
+            if int(v) != 1:
+                raise ValueError("schema_version must be 1")
+        except Exception:
+            raise ValueError("schema_version must be an int equal to 1")
+        return int(v)
 
 
 @dataclass
 class TaskList:
-    # id is required in-memory and always persisted in to_dict
     id: str
+    name: str
+    description: str
     schema_version: int = 1
     state: str = TASK_LIST_STATE_CREATED
     tasks: List[Task] = field(default_factory=list)
-    # Arbitrary metadata for callers (agent/session info, etc.)
     meta: Dict[str, Any] = field(default_factory=dict)
+    current_task_id: Optional[str] = None
+    general_instructions: str = ""
+
+    def __post_init__(self) -> None:
+        # Keep id flexible for readers/tests. Persist IDs as strings but
+        # avoid strict UUID normalization on read/creation. Normalization
+        # and stricter validation are the responsibility of the storage/PUT
+        # path.
+        self.id = str(self.id)
+
+        # Enforce schema_version == 1
+        try:
+            self.schema_version = int(self.schema_version)
+        except Exception as exc:
+            raise TypeError("TaskList.schema_version must be an int") from exc
+        if self.schema_version != 1:
+            raise ValueError(f"Unsupported TaskList schema_version: {self.schema_version}")
+
+        if not self.name:
+            raise ValueError("TaskList.name is required")
+        if not self.description:
+            raise ValueError("TaskList.description is required")
+
+        # Normalize meta/tasks/current_task_id
+        if self.meta is None:
+            self.meta = {}
+        if not isinstance(self.meta, dict):
+            raise TypeError("TaskList.meta must be a dict")
+
+        if self.tasks is None:
+            self.tasks = []
+        if not isinstance(self.tasks, list):
+            raise TypeError("TaskList.tasks must be a list")
+
+        if self.current_task_id is not None:
+            # keep as string
+            self.current_task_id = str(self.current_task_id)
+
+        if self.general_instructions is None:
+            self.general_instructions = ""
+        if not isinstance(self.general_instructions, str):
+            raise TypeError("TaskList.general_instructions must be a str")
 
     # -----------------
     # Domain behavior
@@ -23,16 +94,14 @@ class TaskList:
     def task_list(self) -> Iterable[Task]:
         return list(self.tasks)
 
-    def get_task(self, id: int) -> Optional[Task]:
+    def get_task(self, id: str) -> Optional[Task]:
         for t in self.tasks:
-            if t.id == id:
+            if str(t.id) == str(id):
                 return t
         return None
 
-    def next_id(self) -> int:
-        if not self.tasks:
-            return 1
-        return max(t.id for t in self.tasks) + 1
+    def next_id(self) -> str:
+        return str(uuid.uuid4())
 
     def add_task(self, task: Task) -> None:
         for i, existing in enumerate(self.tasks):
@@ -41,14 +110,14 @@ class TaskList:
                 return
         self.tasks.append(task)
 
-    def update_task_state(self, id: int, new_state: str) -> None:
+    def update_task_state(self, id: str, new_state: str) -> None:
         t = self.get_task(id)
         if t:
             t.state = new_state
 
     def set_task_result(
         self,
-        id: int,
+        id: str,
         result: Dict[str, Any],
         *,
         new_state: Optional[str] = None,
@@ -68,81 +137,71 @@ class TaskList:
     # -----------------
 
     def to_dict(self) -> Dict[str, Any]:
-        """Serialize TaskList -> plain dict (suitable for JSON encoding).
-
-        Prefer this over to_json() in storage/boundary layers.
-        """
-        if not getattr(self, "id", None):
+        if not self.id:
             raise ValueError("TaskList.id is required for serialization")
 
         d: Dict[str, Any] = {
             "schema_version": int(self.schema_version),
             "id": str(self.id),
             "state": self.state,
+            "name": str(self.name),
+            "description": str(self.description),
             "tasks": [task.to_dict() for task in self.tasks],
+            "meta": dict(self.meta or {}),
         }
-
-        # Persist/round-trip arbitrary metadata (agent/session info, etc.)
-        # Always include it to keep the boundary stable.
-        d["meta"] = dict(self.meta or {})
-
+        # include current_task_id only if present
+        if self.current_task_id is not None:
+            d["current_task_id"] = str(self.current_task_id)
+        # include general_instructions only when non-empty to maintain backward compatibility
+        if self.general_instructions:
+            d["general_instructions"] = str(self.general_instructions)
         return d
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any], id: Optional[str] = None) -> "TaskList":
-        """Deserialize plain dict -> TaskList.
-
-        Rules:
-        - Accept only schema_version == 1. If absent, default to 1.
-        - The resulting TaskList must have an id. If the input dict does not
-          include an 'id', the caller may provide one via the `id` parameter.
-          Otherwise a ValueError is raised.
-        """
         if not isinstance(data, dict):
             raise TypeError("TaskList.from_dict expects a dict")
 
-        sv = data.get("schema_version", 1)
-        if sv is None:
-            sv = 1
+        payload = dict(data)
+        if id is not None and "id" not in payload:
+            payload["id"] = id
+
         try:
-            sv = int(sv)
-        except Exception:
-            raise ValueError("Invalid schema_version")
-        if sv != 1:
-            raise ValueError(f"Unsupported TaskList schema_version: {sv}")
+            validated = _TaskListModel.model_validate(payload)
+        except Exception as exc:
+            raise ValueError(f"TaskList validation error: {exc}") from exc
 
-        # determine id
-        id_in_data = data.get("id")
-        final_id = None
-        if id_in_data is not None:
-            final_id = str(id_in_data)
-        elif id is not None:
-            final_id = str(id)
-        else:
-            raise ValueError("TaskList id is required (provide in dict or via id=)")
-
-        tasks = [Task.from_dict(task_dict) for task_dict in data.get("tasks", [])]
-
-        meta = data.get("meta", {})
-        if meta is None:
-            meta = {}
-        if not isinstance(meta, dict):
-            raise ValueError("meta must be a dict")
+        # Build Task domain objects from validated tasks
+        tasks: List[Task] = []
+        for t in validated.tasks:
+            # t is an instance of _TaskModel
+            tasks.append(
+                Task(
+                    id=t.id,
+                    name=t.name,
+                    instructions=t.instructions,
+                    state=t.state or None,
+                    result=t.result,
+                    error=t.error,
+                    meta=t.meta,
+                )
+            )
 
         return cls(
-            id=final_id,
-            schema_version=sv,
-            state=data.get("state", TASK_LIST_STATE_CREATED),
+            id=str(validated.id),
+            schema_version=int(validated.schema_version),
+            state=str(validated.state) if validated.state is not None else TASK_LIST_STATE_CREATED,
             tasks=tasks,
-            meta=meta,
+            meta=dict(validated.meta or {}),
+            current_task_id=str(validated.current_task_id) if validated.current_task_id else None,
+            name=str(validated.name),
+            description=str(validated.description),
+            general_instructions=str(validated.general_instructions) if validated.general_instructions is not None else "",
         )
 
     def to_json(self) -> str:
-        """Serialize TaskList -> JSON string."""
         return json.dumps(self.to_dict(), indent=2)
 
     @classmethod
     def from_json(cls, json_str: str) -> "TaskList":
-        """Deserialize JSON string -> TaskList."""
-        data = json.loads(json_str)
-        return cls.from_dict(data)
+        return cls.from_dict(json.loads(json_str))

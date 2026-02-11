@@ -4,6 +4,11 @@ from abc import ABC, abstractmethod
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
 
+# Use the tasklists compatibility layer which exposes the appropriate
+# Task/TaskList types (legacy dataclasses or Pydantic models) so storage
+# implementations don't have to import from deep paths.
+from src.tasklists import Task, TaskList
+
 from .models import (
     ChatMessage,
     ChatSession,
@@ -149,17 +154,17 @@ class Storage(ABC):
         pass
 
     @abstractmethod
-    def get_tasklist(self, account_name: str, tasklist_id: str) -> Optional[Dict[str, Any]]:
+    def get_tasklist(self, account_name: str, tasklist_name: str) -> Optional[TaskList]:
         """Return a persisted tasklist (plain dict) or None if missing."""
         pass
 
     @abstractmethod
-    def save_tasklist(self, account_name: str, tasklist_id: str, tasklist: Any) -> None:
+    def save_tasklist(self, account_name: str, tasklist_name: str, tasklist: TaskList) -> None:
         """Persist a tasklist model (dict or JSON string) for the account."""
         pass
 
     @abstractmethod
-    def delete_tasklist(self, account_name: str, tasklist_id: str) -> None:
+    def delete_tasklist(self, account_name: str, tasklist_name: str) -> None:
         """Delete a persisted tasklist. Must be idempotent: no error if missing."""
         pass
 

@@ -4,105 +4,92 @@ import json
 from dataclasses import dataclass, field
 from typing import Any, Dict, Optional
 
+from pydantic import BaseModel, Field
+
 from .task_states import TASK_STATE_PENDING
 
 
-@dataclass
+class _TaskModel(BaseModel):
+    id: str
+    name: str
+    instructions: str
+    state: Optional[str] = TASK_STATE_PENDING
+    result: Optional[Dict[str, Any]] = None
+    error: Optional[str] = None
+    meta: Dict[str, Any] = Field(default_factory=dict)
+
+    model_config = {"extra": "forbid"}
+
+
+@dataclass(init=False)
 class Task:
-    """A single task/step in a task list.
-
-    Domain object only:
-    - No Pydantic
-    - No persistence/serialization (originally)
-
-    We add simple, explicit serialization helpers here so surrounding
-    layers (storage adapters, HTTP handlers, tests) can convert domain
-    objects to/from plain JSON-friendly dicts without coupling to the
-    persistence implementation.
-    """
-
-    id: int
-    title: str
+    id: str
+    name: str
+    instructions: str = ""
     state: str = TASK_STATE_PENDING
     result: Optional[Dict[str, Any]] = None
     error: Optional[str] = None
     meta: Dict[str, Any] = field(default_factory=dict)
 
-    def to_dict(self) -> Dict[str, Any]:
-        """Return a JSON-serializable dict representation of the Task.
+    def __init__(
+        self,
+        id: Any,
+        name: str,
+        instructions: str = "",
+        *,
+        state: str = TASK_STATE_PENDING,
+        result: Optional[Dict[str, Any]] = None,
+        error: Optional[str] = None,
+        meta: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        # Accept flexible id types (int, str, uuid). Persist as string
+        self.id = str(id)
 
-        The representation is intentionally simple and stable so storage
-        layers and HTTP handlers can rely on the shape.
-        """
+        self.name = str(name)
+        self.instructions = str(instructions)
+        self.state = state or TASK_STATE_PENDING
+        self.result = result
+        self.error = error
+        self.meta = meta or {}
+
+    def to_dict(self) -> Dict[str, Any]:
         return {
-            "id": int(self.id),
-            "title": str(self.title),
-            "state": str(self.state),
-            "result": self.result if self.result is not None else None,
-            "error": self.error if self.error is not None else None,
-            "meta": dict(self.meta) if self.meta is not None else {},
+            "id": self.id,
+            "name": self.name,
+            "instructions": self.instructions,
+            "state": self.state,
+            "result": self.result,
+            "error": self.error,
+            "meta": dict(self.meta or {}),
         }
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "Task":
-        """Construct a Task from a dict produced by to_dict or from external input.
-
-        Performs minimal validation and type coercion while keeping the
-        object lightweight. Raises TypeError or ValueError on invalid input.
-        """
+        # Validate strictly via Pydantic model then construct the dataclass
         if not isinstance(data, dict):
             raise TypeError("Task.from_dict expects a dict")
 
         try:
-            tid = data["id"]
-            title = data["title"]
-        except KeyError as exc:
-            raise ValueError(f"Missing required Task field: {exc}") from exc
-
-        # Coerce and validate basic types
-        try:
-            tid = int(tid)
+            validated = _TaskModel.model_validate(data)
         except Exception as exc:
-            raise ValueError("Task.id must be an integer") from exc
+            # propagate a clearer ValueError for callers
+            raise ValueError(f"Task validation error: {exc}") from exc
 
-        if not isinstance(title, str):
-            raise ValueError("Task.title must be a string")
-
-        state = data.get("state", TASK_STATE_PENDING)
-        if state is None:
-            state = TASK_STATE_PENDING
-        if not isinstance(state, str):
-            raise ValueError("Task.state must be a string")
-
-        result = data.get("result")
-        if result is not None and not isinstance(result, dict):
-            raise ValueError("Task.result must be a dict or null")
-
-        error = data.get("error")
-        if error is not None and not isinstance(error, str):
-            raise ValueError("Task.error must be a string or null")
-
-        meta = data.get("meta", {})
-        if meta is None:
-            meta = {}
-        if not isinstance(meta, dict):
-            raise ValueError("Task.meta must be a dict")
-
-        return cls(id=tid, title=title, state=state, result=result, error=error, meta=meta)
+        return cls(
+            id=validated.id,
+            name=validated.name,
+            instructions=validated.instructions,
+            state=validated.state or TASK_STATE_PENDING,
+            result=validated.result,
+            error=validated.error,
+            meta=validated.meta,
+        )
 
     def to_json(self) -> str:
-        """Return a compact JSON string for the task.
-
-        Uses the to_dict representation.
-        """
         return json.dumps(self.to_dict(), separators=(",", ":"))
 
     @classmethod
     def from_json(cls, s: str) -> "Task":
-        """Construct a Task from a JSON string.
-
-        Raises ValueError if the JSON is invalid or required fields missing.
-        """
         try:
             data = json.loads(s)
         except json.JSONDecodeError as exc:

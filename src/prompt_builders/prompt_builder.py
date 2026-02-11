@@ -112,7 +112,7 @@ class PromptBuilder(PromptBuilderInterface):
                     kind="obsidian_note",
                     docs_tag=docs_tag,
                     limit=3,
-                    max_chars=2000,
+                    max_chars=9000,
                 )
                 if doc_contexts:
                     doc_lines: List[str] = [
