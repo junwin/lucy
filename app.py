@@ -19,8 +19,17 @@ from src.config_manager import ConfigManager
 from src.prompt_builders.prompt_builder import PromptBuilder
 from src.message_endpoints.ask_request_handler import AskRequestHandler
 from src.tasklists.task import Task
-from src.tasklists.task_list import TaskList    
-
+from src.tasklists.task_list import TaskList
+from src.http_endpoints.agents_endpoints import (
+    get_agents_impl,
+)
+from src.http_endpoints.context_endpoints import (
+    list_context_names_impl,
+    list_tasklists_impl,
+    get_tasklist_impl,
+    put_tasklist_impl,
+    delete_tasklist_impl,
+)
 
 
 # -----------------------------------------------------------------------------
@@ -273,16 +282,8 @@ def list_context_names():
     """
 
     account_name = (request.args.get("accountName") or "").strip()
-    if not account_name:
-        return jsonify({"error": "Missing accountName"}), 400
-
-    try:
-        return jsonify(storage.list_context_names(account_name)), 200
-    except Exception:
-        logging.exception(
-            "/context/names: failed to list context names for account=%s", account_name
-        )
-        return jsonify({"error": "An error occurred"}), 500
+    body, status = list_context_names_impl(storage, account_name)
+    return jsonify(body), status
 
 
 
@@ -295,92 +296,36 @@ def list_context_names():
 @app.route("/tasklists", methods=["GET"])
 def list_tasklists():
     account_name = (request.args.get("accountName") or "").strip()
-    if not account_name:
-        return jsonify({"error": "Missing accountName"}), 400
-
-    try:
-        ids = storage.list_tasklists(account_name)
-        return jsonify(ids), 200
-    except Exception:
-        logging.exception("/tasklists: failed to list tasklists for account=%s", account_name)
-        return jsonify({"error": "An error occurred"}), 500
+    body, status = list_tasklists_impl(storage, account_name)
+    return jsonify(body), status
 
 
 @app.route("/tasklists/<tasklist_name>", methods=["GET"])
 def get_tasklist(tasklist_name: str):
     account_name = (request.args.get("accountName") or "").strip()
-    if not account_name:
-        return jsonify({"error": "Missing accountName"}), 400
-
-    try:
-        tl = storage.get_tasklist(account_name, tasklist_name)
-        if tl is None:
-            return jsonify({"error": "TaskList not found"}), 404
-
-        return jsonify(tl.to_dict()), 200
-    except ValueError as e:
-        return jsonify({"error": str(e)}), 400
-    except Exception as e:
-        logging.exception(
-            "/tasklists/<name>: failed to get tasklist for account=%s name=%s",
-            account_name,
-            tasklist_name,
-        )
-        return jsonify({"error": "An error occurred", "details": str(e)}), 500
+    body, status = get_tasklist_impl(storage, account_name, tasklist_name)
+    return jsonify(body), status
 
 
 @app.route("/tasklists/<tasklist_name>", methods=["PUT"])
 def put_tasklist(tasklist_name: str):
     account_name = (request.args.get("accountName") or "").strip()
-    if not account_name:
-        return jsonify({"error": "Missing accountName"}), 400
-
     payload = request.get_json(silent=True)
-    if payload is None:
-        return jsonify({"error": "Invalid JSON body"}), 400
-
-    try:
-        # Replace semantics: caller must send the full tasklist JSON.
-        # Storage expects a TaskList (or a dict that can be coerced into one).
-        storage.save_tasklist(account_name, tasklist_name, payload)
-        return jsonify({"ok": True}), 200
-    except ValueError as e:
-        return jsonify({"error": str(e)}), 400
-    except Exception as e:
-        logging.exception(
-            "/tasklists/<name>: failed to save tasklist for account=%s name=%s",
-            account_name,
-            tasklist_name,
-        )
-        return jsonify({"error": "An error occurred", "details": str(e)}), 500
+    body, status = put_tasklist_impl(storage, account_name, tasklist_name, payload)
+    return jsonify(body), status
 
 
 @app.route("/tasklists/<tasklist_name>", methods=["DELETE"])
 def delete_tasklist(tasklist_name: str):
     account_name = (request.args.get("accountName") or "").strip()
-    if not account_name:
-        return jsonify({"error": "Missing accountName"}), 400
-
-    try:
-        storage.delete_tasklist(account_name, tasklist_name)
-        return jsonify({"ok": True}), 200
-    except Exception:
-        logging.exception(
-            "/tasklists/<name>: failed to delete tasklist for account=%s name=%s",
-            account_name,
-            tasklist_name,
-        )
-        return jsonify({"error": "An error occurred"}), 500
+    body, status = delete_tasklist_impl(storage, account_name, tasklist_name)
+    return jsonify(body), status
 
 
 @app.route("/agents", methods=["GET"])
 def get_agents():
-    try:
-        agents = agent_manager.get_available_agents()
-        return jsonify([a.to_dict() for a in agents])
-    except Exception as e:
-        logging.exception("Error in /agents")
-        return jsonify({"error": str(e)}), 500
+    body, status = get_agents_impl(agent_manager)
+    return jsonify(body), status
 
 
 @app.route("/prompt_builder", methods=["POST"])
