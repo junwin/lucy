@@ -1,73 +1,73 @@
 ---
 tags:
   - handler
-  - handlerv2
+  - base
   - handlerregistry
-  - getkeywordshandler
-  - str
-  - websearchhandler2
-  - root
-  - interface
-  - implementation
-  - command
+  - doc
+  - source
+  - handlerv2
+  - register
+  - def
+  - schemahandlerv2
+  - resultenvelope
   - src/handlers
 ---
 
 # `src/handlers`
 
 ## Purpose
-- Defines the tool/handler layer used by the Function Calling Processor (FCP).
-- Provides a common handler interface (`HandlerV2`) and a registry (`HandlerRegistry`) to register and expose tools.
-- Includes concrete `HandlerV2` implementations for file IO, command execution, web scraping/search, keyword extraction, task planning, and tasklist management.
+Tool/handler layer. Defines the `HandlerV2` contract, a `HandlerRegistry` to register and instantiate handlers, and concrete handler implementations for file IO, command execution, web scraping/search, keywords, planning, and tasklist management.
 
 ## Source files
-- `src/handlers/__init__.py` (package exports; lazy import for optional `GetKeywordsHandler`)
-- `src/handlers/handler.py` (legacy abstract `Handler`)
-- `src/handlers/handler_v2.py` (`HandlerV2` ABC)
-- `src/handlers/handler_registry.py` (`HandlerRegistry`)
-- `src/handlers/registry_bootstrap.py` (`build_registry()` registers available handlers)
-- `src/handlers/handler_utils.py` (shared helper utilities)
-- `src/handlers/schema_handler_v2.py` (schema-related handler)
-- `src/handlers/file_load_handler2.py` (`FileLoadHandler2`)
-- `src/handlers/file_save_handler.py` (`FileSaveHandler2`)
-- `src/handlers/command_execution_handler2.py` (`CommandExecutionHandler2`)
-- `src/handlers/scrape_web_page_handler2.py` (`ScrapeWebPageHandler2`)
-- `src/handlers/web_search_handler2.py` (`WebSearchHandler2`)
-- `src/handlers/get_keywords_handler.py` (`GetKeywordsHandler`; optional heavy NLP deps)
-- `src/handlers/plan_tasks_handler.py` (`PlanTasksHandler`)
-- `src/handlers/tasklists_manage_handler.py` (`TasklistsManageHandler`)
+- `src/handlers/__init__.py`
+- `src/handlers/command_execution_handler2.py`
+- `src/handlers/file_load_handler2.py`
+- `src/handlers/file_save_handler.py`
+- `src/handlers/get_keywords_handler.py`
+- `src/handlers/handler.py`
+- `src/handlers/handler_registry.py`
+- `src/handlers/handler_utils.py`
+- `src/handlers/handler_v2.py`
+- `src/handlers/plan_tasks_handler.py`
+- `src/handlers/registry_bootstrap.py`
+- `src/handlers/schema_handler_v2.py`
+- `src/handlers/scrape_web_page_handler2.py`
+- `src/handlers/tasklists_manage_handler.py`
+- `src/handlers/web_search_handler2.py`
 
 ## Key classes
-- `HandlerV2` (`src/handlers/handler_v2.py`)
-  - Contract for tool handlers: `name()`, `tool_def()`, `result_schema()` (optional), `execute(args, account_name)`.
-- `HandlerRegistry` (`src/handlers/handler_registry.py`)
-  - Stores handler classes by tool name, caches result schemas, exposes tool definitions, and instantiates handlers.
-- Concrete `HandlerV2` implementations
-  - `FileLoadHandler2`: safe relative-path file loading from storage/external roots.
-  - `FileSaveHandler2`: safe relative-path file saving to storage/external roots.
-  - `CommandExecutionHandler2`: safe command execution in sandbox/external roots.
-  - `ScrapeWebPageHandler2`: fetches and extracts text from a URL.
-  - `WebSearchHandler2`: web search tool (optional/config dependent).
-  - `GetKeywordsHandler`: keyword extraction via `src.keywords.keywords.Keywords`.
-  - `PlanTasksHandler`: creates a sequential task plan for a coding/refactoring goal.
-  - `TasklistsManageHandler`: list/get/put/delete persisted tasklists via `JsonFileStorage`.
+- **`HandlerV2`** (`handler_v2.py`): abstract base class for tool handlers.
+- **`HandlerRegistry`** (`handler_registry.py`): registers handler classes by tool name, exposes tool definitions, instantiates handlers, and caches result schemas.
+- **`SchemaHandlerV2`**, **`ResultEnvelope`**, **`ErrorCode`** (`schema_handler_v2.py`): schema/result envelope helpers (Pydantic-based).
+- Concrete `HandlerV2` implementations:
+  - `FileLoadHandler2`, `FileSaveHandler2`
+  - `CommandExecutionHandler2`
+  - `ScrapeWebPageHandler2`, `WebSearchHandler2`
+  - `GetKeywordsHandler`
+  - `PlanTasksHandler`, `TasklistsManageHandler`
 
-## Methods in the main service/base class
-### `HandlerV2` (base interface)
-- `@classmethod name() -> str`
-- `@classmethod tool_def() -> dict`
-- `@classmethod result_schema() -> dict | None`
-- `execute(args: dict, *, account_name: str = "auto") -> dict`
+## Dependencies
+- **stdlib:** `abc`, `enum`, `json`, `logging`, `os`, `re`, `shlex`, `subprocess`, `typing`
+- **third-party:** `pydantic` (schemas), `requests` (web search)
+- **internal:**
+  - `src.config_manager.ConfigManager`
+  - `src.keywords.keywords.Keywords`
+  - `src.storage.json_file_storage.JsonFileStorage`
+  - `src.storage_paths.storage_paths.StoragePaths`
+  - `src.tasklists.task_list.TaskList`
 
-### `HandlerRegistry` (main service)
-- `__init__()`
-- `register(handler_cls: Type[HandlerV2]) -> None`
-- `create(name: str, *, config: Any) -> HandlerV2`
-- `tools() -> list[dict]`
-- `tool_names() -> list[str]`
-- `result_schema(name: str) -> dict | None`
-- `all_result_schemas() -> dict[str, dict]`
+## Methods in the module service/base class
+### `HandlerRegistry` (`handler_registry.py`)
+- `__init__(self) -> None`
+- `register(self, handler_cls: Type[HandlerV2]) -> None`
+- `create(self, name: str, *, config: Any) -> HandlerV2`
+- `tools(self) -> List[Dict[str, Any]]`
+- `tool_names(self) -> List[str]`
+- `result_schema(self, name: str) -> Optional[Dict[str, Any]]`
+- `all_result_schemas(self) -> Dict[str, Dict[str, Any]]`
 
-### `build_registry()` (`src/handlers/registry_bootstrap.py`)
-- `build_registry() -> HandlerRegistry`
-  - Registers core handlers and conditionally registers optional handlers (`WebSearchHandler2`, `GetKeywordsHandler`).
+### Bootstrap
+- `build_registry() -> HandlerRegistry` (`registry_bootstrap.py`): registers core handlers and returns a ready-to-use registry.
+
+## Keywords (from `get_keywords`)
+`handler`, `base`, `handlerregistry`, `doc`, `source`, `handlerv2`, `register`, `def`, `schemahandlerv2`, `resultenvelope`

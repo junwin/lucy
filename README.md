@@ -16,29 +16,19 @@ For a high-level view of the architecture, see:
 
 ## Quick start
 
-### 1. Run Lucy (CLI mode)
+### 1. Run Lucy (HTTP server — recommended)
 
 From the project root:
 
 ```bash
-python main.py --agentName lucy --accountName junwin --friendlyName talisker
+python app.py
 ```
 
-Type a message at the prompt, for example:
+By default this starts the HTTP server. The main endpoint is `POST /ask`.
 
-```text
->> What can you do?
-```
+### 2. Call the HTTP `/ask` endpoint
 
-Lucy will:
-
-- Create a new chat session in storage (with a friendly name like `cli-YYYY-MM-DD`).
-- Call the OpenAI API via the configured message processor.
-- Store the conversation so you can inspect it later.
-
-### 2. Call the HTTP `/ask` endpoint directly (optional)
-
-If you have the HTTP server running (see `docs/architecture_overview.md` for details), you can send a request with `curl`:
+Send a request with `curl`:
 
 ```bash
 curl -X POST http://localhost:5000/ask \
@@ -85,6 +75,28 @@ curl -X POST http://localhost:5000/ask \
     "conversationId": "c0a8012e-1234-5678-9abc-def012345678"
   }'
 ```
+
+### 3. Run Lucy (CLI mode — optional)
+
+The CLI is useful for quick local testing, but most usage is expected to be via HTTP/REST.
+
+From the project root:
+
+```bash
+python main.py --agentName lucy --accountName junwin --friendlyName talisker
+```
+
+Type a message at the prompt, for example:
+
+```text
+>> What can you do?
+```
+
+Lucy will:
+
+- Create a new chat session in storage (with a friendly name like `cli-YYYY-MM-DD`).
+- Call the OpenAI API via the configured message processor.
+- Store the conversation so you can inspect it later.
 
 ---
 
@@ -217,11 +229,11 @@ Tests and development guidance
 - Unit tests for the AutomationProcessor live at `tests/test_automation_processor.py`.
   - These tests assert mode parsing, missing-context behavior, and basic persistence expectations.
 
-- To run tests locally:
+- To run tests locally (must be in a venv):
 
 ```bash
 # from the project root
-python -m pytest -q
+bash -lc "source .venv/bin/activate && pytest -q"
 ```
 
 - If you add/adjust behavior for runs, add tests that cover:
@@ -329,8 +341,8 @@ This is the recommended way to quickly test agents, storage, and message process
 ### 1. Create and activate a virtual environment
 
 ```bash
-python3 -m venv venv
-source venv/bin/activate  # On Windows: venv\\Scripts\\activate
+python3 -m venv .venv
+source .venv/bin/activate  # On Windows: .venv\\Scripts\\activate
 ```
 
 ### 2. Install dependencies
@@ -348,15 +360,17 @@ python -c "import nltk; nltk.download('punkt')"
 
 ### 3. Run the app
 
-The current entry point is `main.py`, which wires up the storage, agents, and message processors, and can expose HTTP endpoints and/or the CLI.
+HTTP server (recommended):
 
-For local CLI testing:
+```bash
+python app.py
+```
+
+CLI (optional):
 
 ```bash
 python main.py --agentName lucy --accountName junwin
 ```
-
-If you are running the HTTP server variant (Flask or similar), follow the instructions in `docs/architecture_overview.md` or the relevant server module. Older instructions that referenced `app.py` and Swagger UI may not match the current setup.
 
 ---
 

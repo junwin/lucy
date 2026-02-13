@@ -1,22 +1,22 @@
 ---
 tags:
   - agent
-  - bool
-  - agentmanager
+  - json
   - str
-  - doc
-  - source
-  - dataclass
   - configuration
-  - support
-  - mapping
+  - loading
+  - entry
+  - bool
+  - to_dict
+  - agentmanager
+  - definition
   - src/agent
 ---
 
-# `src/agent` mini doc
+# `src/agent`
 
 ## Purpose
-Agent configuration models and a small manager for loading/saving agent definitions (JSON) and looking them up by name.
+Agent configuration model and manager for loading/saving agent definitions.
 
 ## Source files
 - `src/agent/agent.py`
@@ -27,30 +27,41 @@ Agent configuration models and a small manager for loading/saving agent definiti
 ### `Agent` (`src/agent/agent.py`)
 Dataclass representing an agent configuration.
 
-Notable behaviors:
-- Loads from raw dicts with legacy key mapping:
+Responsibilities:
+- Legacy field mapping:
   - `select_type` → `context_type`
   - `save_reposnses` → `save_responses`
-- Strict validation: unknown fields hard-fail that agent entry.
-- Type coercion for common config mistakes (ints, floats, bools, `allowed_tools`).
-- Tool allowlist check via `allows_tool()`.
+- Validation: unknown fields hard-fail that agent entry (so typos are caught)
+- Type coercion/validation:
+  - `allowed_tools`: `None` | `list[str]` | comma-separated `str`
+  - ints: `max_prompt_conversations`, `max_prompt_documents`, `max_function_call_iterations`
+  - `temperature`: float
+  - `save_responses`: bool
+- Serialization: `to_dict()`
 
 Key methods:
 - `from_dict(data: dict) -> Agent`
 - `to_dict() -> dict`
-- `allows_tool(tool_name: str) -> bool`
 
 ### `AgentManager` (`src/agent/agent_manager.py`)
-Loads/saves a list of `Agent` objects from a JSON file and provides lookup/list/upsert helpers.
+Service class that manages a collection of `Agent` objects stored in JSON.
 
-## Main service/base class methods
-### `AgentManager`
+Responsibilities:
+- Load agents from a JSON file (default `./agents.json`)
+- Robust loading: malformed agent entries are logged and skipped
+- Accepts JSON as either a list of agents or a single agent object
+
+Methods (service/base class):
 - `__init__(path: str = "./agents.json")`
-- `get_agent(name: str) -> Optional[Agent]`
-- `is_valid(name: str) -> bool`
 - `load_agents() -> None`
-  - Robust loading: JSON must parse, but individual bad agent entries are logged and skipped.
 - `save_agents() -> None`
-- `get_agent_names() -> List[str]`
-- `get_available_agents() -> List[Agent]`
-- `upsert_agent(agent: Agent) -> None` (in-memory only; does not auto-save)
+- `get_agent(name: str) -> Agent | None`
+- `is_valid(name: str) -> bool`
+- `get_agent_names() -> list[str]`
+- `get_available_agents() -> list[Agent]`
+- `upsert_agent(agent: Agent) -> None`
+
+## Dependencies
+- Standard library: `dataclasses`, `typing`, `logging`, `json`, `pathlib`
+- Internal:
+  - `src.agent.agent.Agent` (used by `AgentManager`)
