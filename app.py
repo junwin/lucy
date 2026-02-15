@@ -25,11 +25,15 @@ from src.http_endpoints.agents_endpoints import (
 )
 from src.http_endpoints.context_endpoints import (
     list_context_names_impl,
+)
+from src.http_endpoints.tasklist_endpoints import (
     list_tasklists_impl,
     get_tasklist_impl,
     put_tasklist_impl,
     delete_tasklist_impl,
 )
+from src.http_endpoints.prompt_builder_endpoints import build_prompt_impl
+from src.http_endpoints.documents_endpoints import search_documents_impl
 
 
 # -----------------------------------------------------------------------------
@@ -331,57 +335,8 @@ def get_agents():
 @app.route("/prompt_builder", methods=["POST"])
 def build_prompt():
     payload = request.get_json() or {}
-
-    question = payload.get("query", "")
-    agentName = (payload.get("agentName", "") or "").lower()
-    accountName = (payload.get("accountName", "") or "").lower()
-    # keep request field name for now, but map to context_type
-    context_type = payload.get("selectType", "") or payload.get("contextType", "")
-    conversationId = payload.get("conversationId", "")
-
-    # Optional: None means "no storage-based context"
-    context_name = payload.get("contextName") or payload.get("context_name")
-    if context_name is not None:
-        context_name = str(context_name).strip() or None
-
-    # allow optional list of extra system messages
-    extra_system_messages = payload.get("extraSystemMessages") or ["my system Message"]
-    if not isinstance(extra_system_messages, list):
-        extra_system_messages = [str(extra_system_messages)]
-
-    if not question or not agentName or not accountName:
-        return jsonify({"error": "Missing query, agentName, or accountName"}), 400
-
-    if not agent_manager.is_valid(agentName):
-        return jsonify({"error": "Invalid agentName"}), 400
-
-    my_agent = agent_manager.get_agent(agentName)
-    if not context_type:
-        # default from agent config
-        context_type = my_agent.context_type if my_agent else "hybrid"
-
-    try:
-        # PromptBuilder is DI-based and requires agent_manager/config/storage.
-        # Resolve it from the container (preferred) or construct with deps.
-        prompt_builder = container.get(PromptBuilder)
-    except Exception:
-        prompt_builder = PromptBuilder(agent_manager=agent_manager, config=config, storage=storage)
-
-    try:
-        prompt = prompt_builder.build_prompt(
-            content_text=question,
-            conversation_id=conversationId,
-            agent_name=agentName,
-            account_name=accountName,
-            context_type=context_type,
-            max_prompt_chars=payload.get("maxPromptChars", 6000),
-            context_name=context_name,
-            extra_system_messages=extra_system_messages,
-        )
-        return jsonify(prompt)
-    except Exception as e:
-        logging.exception("Error in /prompt_builder")
-        return jsonify({"error": str(e)}), 500
+    body, status = build_prompt_impl(agent_manager, storage, container, config, payload)
+    return jsonify(body), status
 
 
 @app.route("/chats", methods=["POST"])
@@ -559,51 +514,9 @@ def update_chat(session_id: str):
 
 @app.route("/documents/search", methods=["POST"])
 def search_documents():
-    """Search documents (e.g., Obsidian notes) using simple keyword matching."""
     data = request.get_json(silent=True) or {}
-
-    account_name = (data.get("account_name", "") or "").lower()
-    query = data.get("question") or data.get("q") or ""
-    kind = data.get("kind")
-    tag = data.get("tag")
-    limit = int(data.get("limit", 10))
-
-    if not account_name:
-        return jsonify({"error": "Missing account_name"}), 400
-    if not query.strip():
-        return jsonify({"error": "Missing query"}), 400
-
-    try:
-        if not hasattr(storage, "search_documents_poor_man"):
-            return jsonify(
-                {"error": "Document search not supported by this storage backend"}
-            ), 501
-
-        results = storage.search_documents_poor_man(
-            account_name=account_name,
-            query=query,
-            kind=kind,
-            limit=limit,
-            tag=tag,
-        )
-
-        return jsonify(
-            [
-                {
-                    "id": d.id,
-                    "account_name": d.account_name,
-                    "path": d.path,
-                    "kind": d.kind,
-                    "title": d.title,
-                    "tags": d.tags,
-                    "metadata": d.metadata,
-                }
-                for d in results
-            ]
-        )
-    except Exception as e:
-        logging.exception("Error in /documents/search")
-        return jsonify({"error": str(e)}), 500
+    body, status = search_documents_impl(storage, data)
+    return jsonify(body), status
 
 
 # NOTE:
