@@ -34,6 +34,14 @@ from src.http_endpoints.tasklist_endpoints import (
 )
 from src.http_endpoints.prompt_builder_endpoints import build_prompt_impl
 from src.http_endpoints.documents_endpoints import search_documents_impl
+from src.http_endpoints.chats_endpoints import (
+    post_chat_impl,
+    get_chats_impl,
+    get_chat_impl,
+    post_chat_message_impl,
+    delete_chat_impl,
+    update_chat_impl,
+)
 
 
 # -----------------------------------------------------------------------------
@@ -341,39 +349,9 @@ def build_prompt():
 
 @app.route("/chats", methods=["POST"])
 def post_chat():
-    agentName = (request.json.get("agentName", "") or "").lower()
-    accountName = (request.json.get("accountName", "") or "").lower()
-    friendly_name = request.json.get("friendlyName")
-    tags = request.json.get("tags")
-
-    if not agentName or not accountName:
-        return jsonify({"error": "Missing agentName or accountName"}), 400
-    if not agent_manager.is_valid(agentName):
-        return jsonify({"error": "Invalid agentName"}), 400
-
-    session = storage.create_chat_session(
-        account_name=accountName,
-        agent_name=agentName,
-        friendly_name=friendly_name,
-        tags=tags,
-    )
-
-    return jsonify(
-        {
-            "id": session.id,
-            "account_name": session.account_name,
-            "agent_name": session.agent_name,
-            "friendly_name": session.friendly_name,
-            "created_at": session.created_at.isoformat(),
-            "updated_at": session.updated_at.isoformat(),
-            "tags": session.tags,
-            "summary": session.summary,
-            "importance_score": session.importance_score,
-            "include_in_context": session.include_in_context,
-            "metadata": session.metadata,
-            "messages": [],
-        }
-    )
+    # Delegate to implementation function
+    body, status = post_chat_impl(storage, agent_manager, request.json or {})
+    return jsonify(body), status
 
 
 @app.route("/chats", methods=["GET"])
@@ -382,134 +360,35 @@ def get_chats():
     accountName = (request.args.get("accountName", "") or "").lower()
     limit = int(request.args.get("limit", "50"))
 
-    if not accountName:
-        return jsonify({"error": "Missing accountName"}), 400
-    if agentName and not agent_manager.is_valid(agentName):
-        return jsonify({"error": "Invalid agentName"}), 400
-
-    sessions = storage.list_chat_sessions(
-        account_name=accountName,
-        agent_name=agentName or None,
-        limit=limit,
-        before=None,
-    )
-
-    return jsonify(
-        [
-            {
-                "id": s.id,
-                "account_name": s.account_name,
-                "agent_name": s.agent_name,
-                "friendly_name": s.friendly_name,
-                "created_at": s.created_at.isoformat(),
-                "updated_at": s.updated_at.isoformat(),
-                "tags": s.tags,
-                "summary": s.summary,
-                "importance_score": s.importance_score,
-                "include_in_context": s.include_in_context,
-                "metadata": s.metadata,
-                "messages": [],
-            }
-            for s in sessions
-        ]
-    )
+    body, status = get_chats_impl(storage, agent_manager, agentName, accountName, limit)
+    return jsonify(body), status
 
 
 @app.route("/chats/<session_id>", methods=["GET"])
 def get_chat(session_id: str):
-    session = storage.get_chat_session(session_id)
-    if not session:
-        return jsonify({"error": "Chat not found"}), 404
-
-    return jsonify(
-        {
-            "id": session.id,
-            "account_name": session.account_name,
-            "agent_name": session.agent_name,
-            "friendly_name": session.friendly_name,
-            "created_at": session.created_at.isoformat(),
-            "updated_at": session.updated_at.isoformat(),
-            "tags": session.tags,
-            "summary": session.summary,
-            "importance_score": session.importance_score,
-            "include_in_context": session.include_in_context,
-            "metadata": session.metadata,
-            "messages": [
-                {
-                    "role": m.role,
-                    "content": m.content,
-                    "utc_timestamp": m.utc_timestamp.isoformat() if m.utc_timestamp else None,
-                    "metadata": m.metadata,
-                }
-                for m in session.messages
-            ],
-        }
-    )
+    body, status = get_chat_impl(storage, session_id)
+    return jsonify(body), status
 
 
 @app.route("/chats/<session_id>/messages", methods=["POST"])
 def post_chat_message(session_id: str):
     data = request.get_json() or {}
-    role = data.get("role")
-    content = data.get("content")
-    metadata = data.get("metadata") or {}
-
-    if not role or content is None:
-        return jsonify({"error": "Missing role or content"}), 400
-
-    msg = ChatMessage(role=role, content=content, metadata=metadata)
-
-    try:
-        storage.append_chat_message(session_id, msg)
-    except FileNotFoundError as e:
-        return jsonify({"error": str(e)}), 404
-
-    return jsonify({"status": "ok"})
+    body, status = post_chat_message_impl(storage, session_id, data)
+    return jsonify(body), status
 
 
 # New stubs for future chat management
 @app.route("/chats/<session_id>", methods=["DELETE"])
 def delete_chat(session_id: str):
-    """Delete a chat session."""
-    try:
-        session = storage.get_chat_session(session_id)
-        if not session:
-            return jsonify({"error": "Chat not found"}), 404
-
-        storage.delete_chat_session(session_id)
-        return jsonify({"ok": True}), 200
-    except Exception as e:
-        logging.exception("Failed to delete chat %s", session_id)
-        return jsonify({"ok": False, "error": str(e)}), 500
+    body, status = delete_chat_impl(storage, session_id)
+    return jsonify(body), status
 
 
 @app.route("/chats/<session_id>", methods=["PATCH"])
 def update_chat(session_id: str):
-    """Update chat metadata such as friendly_name or tags."""
     payload = request.get_json(silent=True) or {}
-
-    # Map JSON field names to storage method args
-    friendly_name = payload.get("friendlyName")
-    tags = payload.get("tags")
-    include_in_context = payload.get("include_in_context")
-    metadata = payload.get("metadata")
-
-    try:
-        session = storage.get_chat_session(session_id)
-        if not session:
-            return jsonify({"error": "Chat not found"}), 404
-
-        storage.update_chat_session(
-            session_id,
-            friendly_name=friendly_name,
-            tags=tags,
-            include_in_context=include_in_context,
-            metadata=metadata,
-        )
-        return jsonify({"ok": True}), 200
-    except Exception as e:
-        logging.exception("Failed to update chat %s", session_id)
-        return jsonify({"ok": False, "error": str(e)}), 500
+    body, status = update_chat_impl(storage, session_id, payload)
+    return jsonify(body), status
 
 
 @app.route("/documents/search", methods=["POST"])
