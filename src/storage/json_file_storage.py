@@ -147,61 +147,8 @@ class JsonFileStorage(Storage):
         friendly_name: Optional[str] = None,
         tags: Optional[List[str]] = None,
     ) -> ChatSession:
+        return chats.create_chat_session(self, account_name=account_name, agent_name=agent_name, friendly_name=friendly_name, tags=tags)
 
-        chat_id = str(uuid.uuid4())
-        now = _now_utc()
-
-        session = ChatSession(
-            id=chat_id,
-            account_name=account_name,
-            agent_name=agent_name,
-            friendly_name=friendly_name or f"Chat {chat_id[:8]}",
-            created_at=now,
-            updated_at=now,
-            messages=[],
-            tags=tags or [],
-            summary=None,
-            importance_score=0.5,
-            include_in_context=True,
-            metadata={},
-        )
-
-        chat_dir = self.storage_paths.chats / account_name
-        self._ensure_dir(chat_dir)
-
-        # Write JSON — Option A (sparse fields)
-        chat_data: Dict[str, Any] = {
-            "id": session.id,
-            "account_name": session.account_name,
-            "agent_name": session.agent_name,
-            "friendly_name": session.friendly_name,
-            "created_at": session.created_at.isoformat(),
-            "updated_at": session.updated_at.isoformat(),
-            "messages": [],
-            "tags": session.tags,
-            "importance_score": session.importance_score,
-            "include_in_context": session.include_in_context,
-        }
-        if session.summary is not None:
-            chat_data["summary"] = session.summary
-        if session.metadata:
-            chat_data["metadata"] = session.metadata
-
-        self._atomic_write(chat_dir / f"{chat_id}.json", chat_data)
-
-        # Update index
-        index_path = chat_dir / "index.json"
-        index = self._load_json(index_path) or {}
-        index[chat_id] = {
-            "friendly_name": session.friendly_name,
-            "agent_name": session.agent_name,
-            "account_name": session.account_name,
-            "updated_at": session.updated_at.isoformat(),
-            "include_in_context": session.include_in_context,
-        }
-        self._atomic_write(index_path, index)
-
-        return session
 
     def find_chat_sessions_by_friendly_name(self, account_name: str, agent_name: str, friendly_name: str, limit: int = 20) -> List[ChatSession]:
         return chats.find_chat_sessions_by_friendly_name(self, account_name, agent_name, friendly_name, limit)

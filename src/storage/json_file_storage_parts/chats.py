@@ -10,6 +10,7 @@ Keep this module free of heavy imports to avoid circular dependencies.
 
 from __future__ import annotations
 
+import uuid
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
@@ -153,3 +154,74 @@ def find_chat_sessions_by_friendly_name(
         if (s.friendly_name or "").strip().lower().find(q) != -1
     ]
     return matches[:limit]
+
+
+def create_chat_session(
+    self,
+    account_name: str,
+    agent_name: str,
+    friendly_name: Optional[str] = None,
+    tags: Optional[List[str]] = None,
+) -> ChatSession:
+
+    chat_id = str(uuid.uuid4())
+    now = _now_utc()
+
+    session = ChatSession(
+        id=chat_id,
+        account_name=account_name,
+        agent_name=agent_name,
+        friendly_name=friendly_name or f"Chat {chat_id[:8]}",
+        created_at=now,
+        updated_at=now,
+        messages=[],
+        tags=tags or [],
+        summary=None,
+        importance_score=0.5,
+        include_in_context=True,
+        metadata={},
+    )
+
+    chat_dir = self.storage_paths.chats / account_name
+    self._ensure_dir(chat_dir)
+
+    # Write JSON — Option A (sparse fields)
+    chat_data: Dict[str, Any] = {
+        "id": session.id,
+        "account_name": session.account_name,
+        "agent_name": session.agent_name,
+        "friendly_name": session.friendly_name,
+        "created_at": session.created_at.isoformat(),
+        "updated_at": session.updated_at.isoformat(),
+        "messages": [],
+        "tags": session.tags,
+        "importance_score": session.importance_score,
+        "include_in_context": session.include_in_context,
+    }
+    if session.summary is not None:
+        chat_data["summary"] = session.summary
+    if session.metadata:
+        chat_data["metadata"] = session.metadata
+
+    self._atomic_write(chat_dir / f"{chat_id}.json", chat_data)
+
+    # Update index
+    index_path = chat_dir / "index.json"
+    index = self._load_json(index_path) or {}
+    index[chat_id] = {
+        "friendly_name": session.friendly_name,
+        "agent_name": session.agent_name,
+        "account_name": session.account_name,
+        "updated_at": session.updated_at.isoformat(),
+        "include_in_context": session.include_in_context,
+    }
+    self._atomic_write(index_path, index)
+
+    return session
+
+def rename_chat_session(self, session_id: str, friendly_name: str) -> None:
+    """Backward-compatible API — delegates to update_chat_session()"""
+    # Keep behavior identical to the original method on JsonFileStorage: use
+    # the instance method update_chat_session which is still present on the
+    # class at this stage of the refactor.
+    self.update_chat_session(session_id, friendly_name=friendly_name)
