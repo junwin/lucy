@@ -31,6 +31,8 @@ from .models import (
 import yaml
 import re
 
+from src.storage.json_file_storage_parts import chats 
+
 
 def _now_utc() -> datetime:
     """Return an offset-aware datetime in UTC."""
@@ -202,58 +204,14 @@ class JsonFileStorage(Storage):
         return session
 
     def find_chat_sessions_by_friendly_name(self, account_name: str, agent_name: str, friendly_name: str, limit: int = 20) -> List[ChatSession]:
-        """Resolve sessions with a matching friendly_name for an account + agent.
-
-        Logic:
-          1. Prefer the per-account index.json for fast lookup when available.
-          2. Fall back to scanning chat files if the index is missing or corrupt.
-          3. Return matches sorted by updated_at (descending) to break ties.
-        """
-        index_path = self.storage_paths.chats / account_name / "index.json"
-        matches: List[ChatSession] = []
-
-        index = self._load_json(index_path)
-        if index:
-            # index is expected to be a mapping: session_id -> {friendly_name, agent_name, account_name, updated_at, include_in_context}
-            for sid, meta in index.items():
-                if not isinstance(meta, dict):
-                    # Skip unexpected legacy formats
-                    continue
-                if meta.get("agent_name") != agent_name:
-                    continue
-                if (meta.get("friendly_name") or "").lower() == friendly_name.lower():
-                    session = self.get_chat_session(sid)
-                    if session:
-                        matches.append(session)
-        else:
-            # Fallback: scan chat files
-            sessions = self.list_chat_sessions(account_name=account_name, agent_name=agent_name, limit=500)
-            matches = [s for s in sessions if (s.friendly_name or "").lower() == friendly_name.lower()]
-
-        # Tie-breaker: most recently updated first
-        matches.sort(key=lambda s: s.updated_at, reverse=True)
-        return matches[:limit]
+        return chats.find_chat_sessions_by_friendly_name(self, account_name, agent_name, friendly_name, limit)
 
     # ----------------------------------------------------------------------
 
     def get_chat_session(self, session_id: str) -> Optional[ChatSession]:
-        chats_dir = self.storage_paths.chats
-        if not chats_dir.exists():
-            return None
+        return chats.get_chat_session(self, session_id)
 
-        for account_dir in chats_dir.iterdir():
-            if not account_dir.is_dir():
-                continue
-
-            chat_path = account_dir / f"{session_id}.json"
-            if chat_path.exists():
-                data = self._load_json(chat_path)
-                if data:
-                    return self._chat_dict_to_session(data)
-
-        return None
-
-    # ----------------------------------------------------------------------
+    # ----------------------------------------------------------------------    # ----------------------------------------------------------------------
 
     def list_chat_sessions(
         self,
@@ -262,42 +220,13 @@ class JsonFileStorage(Storage):
         limit: int = 50,
         before: Optional[datetime] = None,
     ) -> List[ChatSession]:
-
-        
-        chat_dir = self.storage_paths.chats / account_name
-        if not chat_dir.exists():
-            return []
-
-        # Normalize 'before' to aware UTC if provided
-        if before is not None:
-            if before.tzinfo is None:
-                before = before.replace(tzinfo=timezone.utc)
-            else:
-                before = before.astimezone(timezone.utc)
-
-        sessions: List[ChatSession] = []
-
-        for chat_file in chat_dir.glob("*.json"):
-            if chat_file.name == "index.json":
-                continue
-
-            data = self._load_json(chat_file)
-            if not data:
-                continue
-
-            if agent_name and data.get("agent_name") != agent_name:
-                continue
-
-            if before:
-                updated_at = _parse_dt_utc(data.get("updated_at", ""))
-                if updated_at >= before:
-                    continue
-
-            sessions.append(self._chat_dict_to_session(data))
-
-        # All updated_at are now aware UTC → safe to compare
-        sessions.sort(key=lambda s: s.updated_at, reverse=True)
-        return sessions[:limit]
+        return chats.list_chat_sessions(
+            self,
+            account_name=account_name,
+            agent_name=agent_name,
+            limit=limit,
+            before=before,
+        )
 
     # ----------------------------------------------------------------------
 
@@ -464,30 +393,7 @@ class JsonFileStorage(Storage):
     def _chat_dict_to_session(self, data: Dict[str, Any]) -> ChatSession:
         """Convert stored JSON dict → ChatSession dataclass."""
 
-        messages = [
-            ChatMessage(
-                role=m["role"],
-                content=m["content"],
-                utc_timestamp=_parse_dt_utc(m.get("utc_timestamp", "")),
-                metadata=m.get("metadata", {}),
-            )
-            for m in data.get("messages", [])
-        ]
-
-        return ChatSession(
-            id=data["id"],
-            account_name=data["account_name"],
-            agent_name=data["agent_name"],
-            friendly_name=data.get("friendly_name"),
-            created_at=_parse_dt_utc(data.get("created_at", "")),
-            updated_at=_parse_dt_utc(data.get("updated_at", "")),
-            messages=messages,
-            tags=data.get("tags", []),
-            summary=data.get("summary"),
-            importance_score=data.get("importance_score", 0.5),
-            include_in_context=data.get("include_in_context", True),
-            metadata=data.get("metadata", {}),
-        )
+        return chats._chat_dict_to_session(self, data)
 
     # ----------------------------------------------------------------------
     # USER PROFILES
