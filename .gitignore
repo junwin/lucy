@@ -19,6 +19,7 @@ venv/
 env/
 ENV/
 .venv/
+.venv_test/
 
 /cypress/videos/
 /cypress/screenshots/
