@@ -179,7 +179,7 @@ class JsonFileStorage(Storage):
 
     def rename_chat_session(self, session_id: str, friendly_name: str) -> None:
         """Backward-compatible API — delegates to update_chat_session()"""
-        self.update_chat_session(session_id, friendly_name=friendly_name)
+        return chats.rename_chat_session(self, session_id, friendly_name)
 
     # ----------------------------------------------------------------------
 
