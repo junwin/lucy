@@ -31,6 +31,8 @@ from .models import (
 import yaml
 import re
 
+from src.storage.json_file_storage_parts import chats 
+
 
 def _now_utc() -> datetime:
     """Return an offset-aware datetime in UTC."""
@@ -145,115 +147,18 @@ class JsonFileStorage(Storage):
         friendly_name: Optional[str] = None,
         tags: Optional[List[str]] = None,
     ) -> ChatSession:
+        return chats.create_chat_session(self, account_name=account_name, agent_name=agent_name, friendly_name=friendly_name, tags=tags)
 
-        chat_id = str(uuid.uuid4())
-        now = _now_utc()
-
-        session = ChatSession(
-            id=chat_id,
-            account_name=account_name,
-            agent_name=agent_name,
-            friendly_name=friendly_name or f"Chat {chat_id[:8]}",
-            created_at=now,
-            updated_at=now,
-            messages=[],
-            tags=tags or [],
-            summary=None,
-            importance_score=0.5,
-            include_in_context=True,
-            metadata={},
-        )
-
-        chat_dir = self.storage_paths.chats / account_name
-        self._ensure_dir(chat_dir)
-
-        # Write JSON — Option A (sparse fields)
-        chat_data: Dict[str, Any] = {
-            "id": session.id,
-            "account_name": session.account_name,
-            "agent_name": session.agent_name,
-            "friendly_name": session.friendly_name,
-            "created_at": session.created_at.isoformat(),
-            "updated_at": session.updated_at.isoformat(),
-            "messages": [],
-            "tags": session.tags,
-            "importance_score": session.importance_score,
-            "include_in_context": session.include_in_context,
-        }
-        if session.summary is not None:
-            chat_data["summary"] = session.summary
-        if session.metadata:
-            chat_data["metadata"] = session.metadata
-
-        self._atomic_write(chat_dir / f"{chat_id}.json", chat_data)
-
-        # Update index
-        index_path = chat_dir / "index.json"
-        index = self._load_json(index_path) or {}
-        index[chat_id] = {
-            "friendly_name": session.friendly_name,
-            "agent_name": session.agent_name,
-            "account_name": session.account_name,
-            "updated_at": session.updated_at.isoformat(),
-            "include_in_context": session.include_in_context,
-        }
-        self._atomic_write(index_path, index)
-
-        return session
 
     def find_chat_sessions_by_friendly_name(self, account_name: str, agent_name: str, friendly_name: str, limit: int = 20) -> List[ChatSession]:
-        """Resolve sessions with a matching friendly_name for an account + agent.
-
-        Logic:
-          1. Prefer the per-account index.json for fast lookup when available.
-          2. Fall back to scanning chat files if the index is missing or corrupt.
-          3. Return matches sorted by updated_at (descending) to break ties.
-        """
-        index_path = self.storage_paths.chats / account_name / "index.json"
-        matches: List[ChatSession] = []
-
-        index = self._load_json(index_path)
-        if index:
-            # index is expected to be a mapping: session_id -> {friendly_name, agent_name, account_name, updated_at, include_in_context}
-            for sid, meta in index.items():
-                if not isinstance(meta, dict):
-                    # Skip unexpected legacy formats
-                    continue
-                if meta.get("agent_name") != agent_name:
-                    continue
-                if (meta.get("friendly_name") or "").lower() == friendly_name.lower():
-                    session = self.get_chat_session(sid)
-                    if session:
-                        matches.append(session)
-        else:
-            # Fallback: scan chat files
-            sessions = self.list_chat_sessions(account_name=account_name, agent_name=agent_name, limit=500)
-            matches = [s for s in sessions if (s.friendly_name or "").lower() == friendly_name.lower()]
-
-        # Tie-breaker: most recently updated first
-        matches.sort(key=lambda s: s.updated_at, reverse=True)
-        return matches[:limit]
+        return chats.find_chat_sessions_by_friendly_name(self, account_name, agent_name, friendly_name, limit)
 
     # ----------------------------------------------------------------------
 
     def get_chat_session(self, session_id: str) -> Optional[ChatSession]:
-        chats_dir = self.storage_paths.chats
-        if not chats_dir.exists():
-            return None
+        return chats.get_chat_session(self, session_id)
 
-        for account_dir in chats_dir.iterdir():
-            if not account_dir.is_dir():
-                continue
-
-            chat_path = account_dir / f"{session_id}.json"
-            if chat_path.exists():
-                data = self._load_json(chat_path)
-                if data:
-                    return self._chat_dict_to_session(data)
-
-        return None
-
-    # ----------------------------------------------------------------------
+    # ----------------------------------------------------------------------    # ----------------------------------------------------------------------
 
     def list_chat_sessions(
         self,
@@ -262,48 +167,19 @@ class JsonFileStorage(Storage):
         limit: int = 50,
         before: Optional[datetime] = None,
     ) -> List[ChatSession]:
-
-        
-        chat_dir = self.storage_paths.chats / account_name
-        if not chat_dir.exists():
-            return []
-
-        # Normalize 'before' to aware UTC if provided
-        if before is not None:
-            if before.tzinfo is None:
-                before = before.replace(tzinfo=timezone.utc)
-            else:
-                before = before.astimezone(timezone.utc)
-
-        sessions: List[ChatSession] = []
-
-        for chat_file in chat_dir.glob("*.json"):
-            if chat_file.name == "index.json":
-                continue
-
-            data = self._load_json(chat_file)
-            if not data:
-                continue
-
-            if agent_name and data.get("agent_name") != agent_name:
-                continue
-
-            if before:
-                updated_at = _parse_dt_utc(data.get("updated_at", ""))
-                if updated_at >= before:
-                    continue
-
-            sessions.append(self._chat_dict_to_session(data))
-
-        # All updated_at are now aware UTC → safe to compare
-        sessions.sort(key=lambda s: s.updated_at, reverse=True)
-        return sessions[:limit]
+        return chats.list_chat_sessions(
+            self,
+            account_name=account_name,
+            agent_name=agent_name,
+            limit=limit,
+            before=before,
+        )
 
     # ----------------------------------------------------------------------
 
     def rename_chat_session(self, session_id: str, friendly_name: str) -> None:
         """Backward-compatible API — delegates to update_chat_session()"""
-        self.update_chat_session(session_id, friendly_name=friendly_name)
+        return chats.rename_chat_session(self, session_id, friendly_name)
 
     # ----------------------------------------------------------------------
 
@@ -319,175 +195,31 @@ class JsonFileStorage(Storage):
         metadata: Optional[Dict[str, Any]] = None,
     ) -> None:
 
-        session = self.get_chat_session(session_id)
-        if not session:
-            raise ValueError(f"Session {session_id} not found")
-
-        chat_path = (
-            self.storage_paths.chats / session.account_name / f"{session_id}.json"
+        return chats.update_chat_session(
+            self,
+            session_id,
+            friendly_name=friendly_name,
+            tags=tags,
+            summary=summary,
+            importance_score=importance_score,
+            include_in_context=include_in_context,
+            metadata=metadata,
         )
-        data = self._load_json(chat_path)
-        if not data:
-            raise ValueError(f"No stored data for session {session_id}")
-
-        changed = False
-
-        if friendly_name is not None:
-            data["friendly_name"] = friendly_name
-            changed = True
-
-        if tags is not None:
-            data["tags"] = tags
-            changed = True
-
-        if summary is not None:
-            data["summary"] = summary
-            changed = True
-
-        if importance_score is not None:
-            data["importance_score"] = importance_score
-            changed = True
-
-        if include_in_context is not None:
-            data["include_in_context"] = include_in_context
-            changed = True
-
-        if metadata is not None:
-            if metadata:
-                data["metadata"] = metadata
-            else:
-                data.pop("metadata", None)  # Option A: remove empty
-            changed = True
-
-        if not changed:
-            return
-
-        data["updated_at"] = _now_utc().isoformat()
-        self._atomic_write(chat_path, data)
-
-        # Update index if friendly name changed
-        if friendly_name is not None:
-            index_path = (
-                self.storage_paths.chats / session.account_name / "index.json"
-            )
-            index = self._load_json(index_path) or {}
-            # Preserve existing structure if present, otherwise create new
-            existing = index.get(session_id)
-            if isinstance(existing, dict):
-                existing["friendly_name"] = friendly_name
-                existing["updated_at"] = data["updated_at"]
-                index[session_id] = existing
-            else:
-                index[session_id] = {
-                    "friendly_name": friendly_name,
-                    "agent_name": session.agent_name,
-                    "account_name": session.account_name,
-                    "updated_at": data["updated_at"],
-                    "include_in_context": data.get("include_in_context", True),
-                }
-            self._atomic_write(index_path, index)
 
     # ----------------------------------------------------------------------
 
     def append_chat_message(self, session_id: str, message: ChatMessage) -> None:
-        session = self.get_chat_session(session_id)
-        if not session:
-            raise FileNotFoundError(f"Session {session_id} not found")
-
-        chat_path = (
-            self.storage_paths.chats / session.account_name / f"{session_id}.json"
-        )
-        data = self._load_json(chat_path)
-        if not data:
-            raise FileNotFoundError(f"Chat JSON missing for {session_id}")
-
-        msg_ts = message.utc_timestamp or _now_utc()
-        # Normalize to UTC-aware in case something passed a naive datetime
-        if msg_ts.tzinfo is None:
-            msg_ts = msg_ts.replace(tzinfo=timezone.utc)
-        else:
-            msg_ts = msg_ts.astimezone(timezone.utc)
-
-        msg_data = {
-            "role": message.role,
-            "content": message.content,
-            "utc_timestamp": msg_ts.isoformat(),
-            "metadata": message.metadata,
-        }
-
-        data.setdefault("messages", []).append(msg_data)
-        data["updated_at"] = _now_utc().isoformat()
-
-        self._atomic_write(chat_path, data)
+        return chats.append_chat_message(self, session_id, message)
 
     # ----------------------------------------------------------------------
 
     def delete_chat_session(self, session_id: str) -> None:
-        """Delete a chat session and remove it from the per-account index.
-
-        This is best-effort and idempotent: if the session or files are
-        already gone, it will just return.
-        """
-        # First, locate the session to get account_name
-        session = self.get_chat_session(session_id)
-        if not session:
-            # Nothing to do
-            return
-
-        account_name = session.account_name
-        # Ensure we use the chats path provided by StoragePaths (was a bug previously)
-        chat_dir = self.storage_paths.chats / account_name
-        chat_path = chat_dir / f"{session_id}.json"
-
-        # Remove the chat file if it exists
-        try:
-            if chat_path.exists():
-                chat_path.unlink()
-        except Exception as e:
-            logging.error("Failed to delete chat file %s: %s", chat_path, e)
-
-        # Update index.json
-        index_path = chat_dir / "index.json"
-        index = self._load_json(index_path) or {}
-
-        if session_id in index:
-            index.pop(session_id, None)
-            try:
-                # If index becomes empty, you can either keep an empty file
-                # or delete it. We'll keep an empty file for now.
-                self._atomic_write(index_path, index)
-            except Exception as e:
-                logging.error("Failed to update chat index %s: %s", index_path, e)
-
-    # ----------------------------------------------------------------------
+        return chats.delete_chat_session(self, session_id)
 
     def _chat_dict_to_session(self, data: Dict[str, Any]) -> ChatSession:
         """Convert stored JSON dict → ChatSession dataclass."""
 
-        messages = [
-            ChatMessage(
-                role=m["role"],
-                content=m["content"],
-                utc_timestamp=_parse_dt_utc(m.get("utc_timestamp", "")),
-                metadata=m.get("metadata", {}),
-            )
-            for m in data.get("messages", [])
-        ]
-
-        return ChatSession(
-            id=data["id"],
-            account_name=data["account_name"],
-            agent_name=data["agent_name"],
-            friendly_name=data.get("friendly_name"),
-            created_at=_parse_dt_utc(data.get("created_at", "")),
-            updated_at=_parse_dt_utc(data.get("updated_at", "")),
-            messages=messages,
-            tags=data.get("tags", []),
-            summary=data.get("summary"),
-            importance_score=data.get("importance_score", 0.5),
-            include_in_context=data.get("include_in_context", True),
-            metadata=data.get("metadata", {}),
-        )
+        return chats._chat_dict_to_session(self, data)
 
     # ----------------------------------------------------------------------
     # USER PROFILES
