@@ -1,9 +1,10 @@
 import json
 import logging
+import shlex
 from typing import Any, Dict
 
 from src.config_manager import ConfigManager
-from src.handlers.handler_utils import get_base_path, execute_script
+from src.handlers.handler_utils import execute_script
 from src.handlers.handler_v2 import HandlerV2
 
 logger = logging.getLogger(__name__)
@@ -68,10 +69,9 @@ class ScrapeWebPageHandler2(HandlerV2):
 
         logger.info("Executing scrape for page_url: %s", page_url)
 
-        python_utils_path = self.config.get("python_utils_path")
-        base_path = get_base_path(self.config, account_name, python_utils_path)
-
-        command = f"python3 scrape.py {page_url}"
+        # Run from repo root so the script path is stable.
+        base_path = "."
+        command = f"python3 src/utils/scrape.py {shlex.quote(page_url)}"
 
         try:
             logger.debug("Executing command: %s", command)
@@ -84,8 +84,8 @@ class ScrapeWebPageHandler2(HandlerV2):
                 "tool": self.NAME,
                 "error": str(e),
                 "page_url": page_url,
-                "python_utils_path": python_utils_path,
                 "base_path": base_path,
+                "command": command,
             }
 
         return {
