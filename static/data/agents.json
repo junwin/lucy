@@ -142,7 +142,7 @@
     "save_responses": true,
     "model": "deepseek-chat",
     "message_processor": "function_calling_processor",
-    "max_function_call_iterations": 10,
+    "max_function_call_iterations": 50,
     "system_prompt": "You are Peace",
     "style_prompt": "Keep English simple, clear, and direct. Do not flatter. Prefer bullets. Be kind and practical.",
     "persona": "a kind agent",
