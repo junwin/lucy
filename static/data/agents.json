@@ -135,9 +135,9 @@
     {
     "name": "peace",
     "language_code": "en-US",
-    "context_type": "none",
-    "max_prompt_conversations": 1,
-    "max_prompt_documents": 0,
+    "context_type": "hybrid",
+    "max_prompt_conversations": 2,
+    "max_prompt_documents": 2,
     "temperature": 0,
     "save_responses": true,
     "model": "deepseek-chat",
