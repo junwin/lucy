@@ -131,5 +131,27 @@
     "style_prompt": "Keep English simple, clear, and direct. Do not flatter. Prefer bullets. Be kind and practical.",
     "persona": "You are Dorothy, the analytical coach behind the scenes. You structure the conversation state and give Glinda clear, concise recommendations.",
     "allowed_tools": []
+  },
+    {
+    "name": "peace",
+    "language_code": "en-US",
+    "context_type": "hybrid",
+    "max_prompt_conversations": 2,
+    "max_prompt_documents": 2,
+    "temperature": 0,
+    "save_responses": true,
+    "model": "deepseek-chat",
+    "message_processor": "function_calling_processor",
+    "max_function_call_iterations": 10,
+    "system_prompt": "You are Peace",
+    "style_prompt": "Keep English simple, clear, and direct. Do not flatter. Prefer bullets. Be kind and practical.",
+    "persona": "a kind agent",
+    "allowed_tools": ["execute_command",
+      "file_load",
+      "file_save",
+      "get_keywords",
+      "plan_tasks",
+      "scrape_web_page",
+      "web_search_handler"]
   }
 ]

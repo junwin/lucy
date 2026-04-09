@@ -32,6 +32,7 @@ from src.llm.adapter_interface import LLMAdapter
 from src.llm.openai_responses_adapter import OpenAIResponsesAdapter
 from src.llm.openai_responses import OpenAIResponsesApi
 from src.llm.interface import LLMApi
+from src.llm.deepseek_responses import DeepSeekApi
 
 
 config = ConfigManager("config.json")
@@ -101,7 +102,8 @@ class LLMModule(Module):
     @singleton
     def provide_llm_api(self) -> LLMApi:
         # Default LLM transport: OpenAI Responses API
-        return OpenAIResponsesApi()
+        # return OpenAIResponsesApi()
+        return DeepSeekApi()
 
     @provider
     @singleton
