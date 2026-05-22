@@ -30,9 +30,8 @@ from src.message_endpoints.ask_request_handler import AskRequestHandler
 
 from src.llm.adapter_interface import LLMAdapter
 from src.llm.openai_responses_adapter import OpenAIResponsesAdapter
-from src.llm.openai_responses import OpenAIResponsesApi
 from src.llm.interface import LLMApi
-from src.llm.deepseek_responses import DeepSeekApi
+from src.llm.router_api import RouterApi
 
 
 config = ConfigManager("config.json")
@@ -101,9 +100,9 @@ class LLMModule(Module):
     @provider
     @singleton
     def provide_llm_api(self) -> LLMApi:
-        # Default LLM transport: OpenAI Responses API
-        # return OpenAIResponsesApi()
-        return DeepSeekApi()
+        # RouterApi dispatches to the correct backend based on model name.
+        # Model names starting with "deepseek" → DeepSeekApi, else → OpenAIResponsesApi.
+        return RouterApi()
 
     @provider
     @singleton

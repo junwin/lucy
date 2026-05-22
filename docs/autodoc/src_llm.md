@@ -25,6 +25,7 @@ LLM abstraction layer. Defines a normalized interface (`LLMApi`) and adapter con
 - `src/llm/dto.py` (normalized DTOs: `ToolCall`, `LLMUsage`, `LLMResponse`)
 - `src/llm/openai_responses_adapter.py` (`OpenAIResponsesAdapter`)
 - `src/llm/openai_responses.py` (`OpenAIResponsesApi` + extraction helpers)
+- `src/llm/deepseek_responses.py` (`DeepSeekApi`)
 
 ## Key classes / protocols
 - **`LLMApi`** (`src/llm/interface.py`)
@@ -42,6 +43,11 @@ LLM abstraction layer. Defines a normalized interface (`LLMApi`) and adapter con
 - **`OpenAIResponsesApi`** (`src/llm/openai_responses.py`)
   - Implements `LLMApi` using the OpenAI Responses API.
   - Includes retry/backoff for common transient OpenAI errors.
+- **`DeepSeekApi`** (`src/llm/deepseek_responses.py`)
+  - Implements `LLMApi` using DeepSeek's OpenAI-compatible chat completions endpoint.
+  - Transforms OpenAI-shaped tool definitions to DeepSeek format.
+  - Manages conversation context manually (stores message history per `response_id`).
+  - Includes retry/backoff (reuses `_sleep_backoff` from `openai_responses.py`).
 
 ## Dependencies
 - **stdlib:** `typing`, `dataclasses`, `json`, `logging`, `os`, `random`, `time`
@@ -71,3 +77,12 @@ LLM abstraction layer. Defines a normalized interface (`LLMApi`) and adapter con
 - `format_tool_output(*, call_id, output) -> dict`
 - `get_text(response) -> str`
 - `get_response_id(response) -> str | None`
+
+### `DeepSeekApi` (concrete service)
+- `__init__(*, client=None, max_attempts=4, backoff_base=0.5, backoff_cap=8.0)`
+- `_build_default_client() -> OpenAI`
+- `_transform_tools_for_deepseek(tools) -> list[dict]`
+- `_convert_tool_calls_to_assistant_message(tool_calls) -> dict`
+- `_normalize_input_to_messages(input, previous_response_id, previous_tool_calls) -> list[dict]`
+- `_validate_and_fix_messages(messages) -> list[dict]`
+- `create_response(...) -> LLMResponse`

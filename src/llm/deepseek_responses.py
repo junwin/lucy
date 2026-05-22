@@ -16,7 +16,7 @@ import logging
 class DeepSeekApi(LLMApi):
     """DeepSeek API implementation using OpenAI-compatible endpoint."""
     
-    DEEPSEEK_BASE_URL = "https://api.deepseek.com/v1"
+    DEEPSEEK_BASE_URL = "https://api.deepseek.com"
     
     def __init__(
         self,
