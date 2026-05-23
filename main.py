@@ -33,6 +33,14 @@ parser.add_argument(
     default=["zzzzz"],
     help="the friendly name of the session",
 )
+parser.add_argument(
+    "--query",
+    metavar="query",
+    type=str,
+    nargs=1,
+    default=None,
+    help="a single query to process and then exit (non-interactive mode)",
+)
 args = parser.parse_args()
 
 
@@ -179,4 +187,21 @@ def ask(
 
 # Use command line arguments for agentName and accountName
 if __name__ == "__main__":
-    role_play(args.agentName[0], args.accountName[0], args.friendlyName[0])
+    agent_name = args.agentName[0]
+    account_name = args.accountName[0]
+    friendly_name = args.friendlyName[0]
+
+    if args.query is not None:
+        # Single-query mode: process one message and exit
+        query = args.query[0]
+        logger.info("Single-query mode: agent=%s account=%s query=%s", agent_name, account_name, query)
+        response, _ = ask(
+            message=query,
+            agent_name=agent_name,
+            account_name=account_name,
+            friendly_name=friendly_name,
+        )
+        print(response)
+    else:
+        # Interactive REPL mode
+        role_play(agent_name, account_name, friendly_name)

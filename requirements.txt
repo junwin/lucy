@@ -1,29 +1,37 @@
-aiohappyeyeballs==2.6.1
-blinker==1.6.2
-certifi==2022.12.7
-cloudpathlib==0.23.0
-cymem==2.0.13
-h11==0.16.0
-Jinja2==3.1.2
-joblib==1.5.2
-numpy==2.3.5
-pytest==9.0.2
-scikit-learn==1.7.2
-spacy==3.8.11
-spacy-loggers==1.0.5
-typing-inspection==0.4.2
-urllib3==1.26.15
-weasel==0.4.3
+# Core
+Flask==2.3.1
+flask-cors==6.0.2
+flask-swagger==0.2.14
+flask-swagger-ui==5.21.0
 Werkzeug==2.3.0
+injector==0.24.0
 PyYAML==6.0.3
-flask
-flask-swagger
-flask-cors
-flask-swagger-ui
-injector
-snowballstemmer
-nltk
-openai
-annotated-types==0.5.0
 
-beautifulsoup4
+# LLM / API
+openai==2.20.0
+httpx==0.28.1
+requests==2.32.5
+
+# Data / validation
+pydantic==2.9.0
+pydantic_core==2.23.2
+
+# NLP
+spacy==3.8.11
+nltk==3.9.2
+scikit-learn==1.7.2
+snowballstemmer==3.0.1
+
+# Web scraping
+beautifulsoup4==4.14.3
+
+# Utils
+cloudpathlib==0.23.0
+certifi==2022.12.7
+urllib3==1.26.15
+typing_extensions==4.15.0
+
+# Testing
+pytest==9.0.2
+pytest-cov==7.1.0
+coverage==7.14.0
