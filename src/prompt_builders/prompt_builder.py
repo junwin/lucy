@@ -10,6 +10,9 @@ from src.storage.base import Storage
 from src.prompt_builders.prompt_builder_interface import PromptBuilderInterface
 from src.utils.document_context import get_document_context
 
+from src.chat2.facade import Chat2Store
+from src.chat2.prompt_slice import get_last_n_events
+
 DEFAULT_PROMPT_BUDGET_TOKENS = 12000
 
 DEFAULT_SOURCE_BUDGETS = {
@@ -32,10 +35,12 @@ class PromptBuilder(PromptBuilderInterface):
         agent_manager: AgentManager,
         config: ConfigManager,
         storage: Storage,
+        chat2_store: Optional[Chat2Store] = None,
     ):
         self.agent_manager = agent_manager
         self.config = config
         self.storage = storage
+        self.chat2_store = chat2_store
 
     def build_prompt(
         self,
@@ -194,6 +199,31 @@ class PromptBuilder(PromptBuilderInterface):
         if max_conversations <= 0:
             return []
 
+        # --- Try chat2 first ---
+        if self.chat2_store is not None:
+            try:
+                if self.chat2_store.session_exists(conversation_id):
+                    events = self.chat2_store.stream_events(conversation_id)
+                    selected = get_last_n_events(events, max_conversations)
+                    if selected:
+                        return [
+                            {"role": e.role, "content": e.payload if isinstance(e.payload, str) else str(e.payload)}
+                            for e in selected
+                        ]
+                    # Session exists but no matching events — return empty, don't fall through to v1
+                    return []
+            except Exception as ex:
+                logging.warning(
+                    "PromptBuilder: chat2 history failed for session %s account=%s agent=%s: %s; "
+                    "falling back to v1",
+                    conversation_id,
+                    account_name,
+                    agent_name,
+                    ex,
+                )
+                # Fall through to v1
+
+        # --- Fall back to v1 ---
         try:
             session = self.storage.get_chat_session(conversation_id)
         except Exception as ex:

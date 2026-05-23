@@ -22,6 +22,9 @@ from src.agent import Agent
 
 from src.llm.adapter_interface import LLMAdapter
 
+from src.chat2.facade import Chat2Store
+from src.chat2.models import ChatEvent
+
 
 class ToolResultTooLargeError(Exception):
     """Raised when a tool result exceeds the configured max_tool_result_chars."""
@@ -61,12 +64,14 @@ class FunctionCallingProcessor(MessageProcessorInterface):
         storage: Storage,
         prompt_builder: PromptBuilderInterface,
         llm_adapter: LLMAdapter,
+        chat2_store: Optional[Chat2Store] = None,
     ):
         self.config = config
         self.registry = registry
         self.storage = storage
         self.prompt_builder = prompt_builder
         self.llm_adapter = llm_adapter
+        self.chat2_store = chat2_store
 
     # ------------------------------------------------------------------
     # Internal helpers
@@ -283,7 +288,6 @@ class FunctionCallingProcessor(MessageProcessorInterface):
 
 
 
-
     def _execute_tool_calls(
         self,
         *,
@@ -488,6 +492,78 @@ class FunctionCallingProcessor(MessageProcessorInterface):
         return response_text
 
     # ------------------------------------------------------------------
+    # Chat2 dual-write helpers
+    # ------------------------------------------------------------------
+
+    def _ensure_chat2_session(self, ctx: _ProcessorContext) -> None:
+        """Create a chat2 session if one doesn't exist for this conversation_id.
+
+        This is a no-op if chat2_store is not configured or the session already exists.
+        """
+        if self.chat2_store is None:
+            return
+        if self.chat2_store.session_exists(ctx.conversation_id):
+            return
+        try:
+            self.chat2_store.create_session(
+                user_id=ctx.account_id,
+                account_name=ctx.account_id,
+                agent_name=ctx.agent_name,
+                friendly_name=ctx.context_name or None,
+            )
+            logging.info(
+                "chat2: created session %s for account=%s agent=%s",
+                ctx.conversation_id,
+                ctx.account_id,
+                ctx.agent_name,
+            )
+        except Exception:
+            logging.exception(
+                "chat2: failed to create session %s for account=%s",
+                ctx.conversation_id,
+                ctx.account_id,
+            )
+
+    def _write_chat2_events(
+        self,
+        ctx: _ProcessorContext,
+        user_message: str,
+        assistant_response: str,
+    ) -> None:
+        """Dual-write user and assistant events to chat2 storage.
+
+        This is best-effort: failures are logged but not propagated.
+        """
+        if self.chat2_store is None:
+            return
+        try:
+            self._ensure_chat2_session(ctx)
+            user_event = ChatEvent(
+                role="user",
+                actor=ctx.account_id,
+                kind="user_message",
+                payload=user_message,
+                metadata={"agent": ctx.agent_name},
+            )
+            assistant_event = ChatEvent(
+                role="assistant",
+                actor=ctx.agent_name,
+                kind="assistant_message",
+                payload=assistant_response,
+                metadata={"agent": ctx.agent_name},
+            )
+            self.chat2_store.add_events(ctx.conversation_id, [user_event, assistant_event])
+            logging.info(
+                "chat2: dual-wrote user+assistant events for session=%s",
+                ctx.conversation_id,
+            )
+        except Exception:
+            logging.exception(
+                "chat2: failed to dual-write events for session=%s",
+                ctx.conversation_id,
+            )
+
+    # ------------------------------------------------------------------
     # Public API
     # ------------------------------------------------------------------
 
@@ -603,6 +679,8 @@ class FunctionCallingProcessor(MessageProcessorInterface):
                     ctx.conversation_id,
                     ChatMessage(role="assistant", content=response_text, metadata={"agent": ctx.agent_name}),
                 )
+                # Dual-write to chat2 (best-effort)
+                self._write_chat2_events(ctx, message, response_text)
 
             return response_text
 
