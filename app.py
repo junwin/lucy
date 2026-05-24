@@ -376,8 +376,7 @@ def build_prompt():
 
 @app.route("/chats", methods=["POST"])
 def post_chat():
-    # Delegate to implementation function with chat2_store
-    body, status = post_chat_impl(storage, agent_manager, request.json or {}, chat2_store=chat2_store)
+    body, status = post_chat_impl(chat2_store, agent_manager, request.json or {})
     return jsonify(body), status
 
 
@@ -387,34 +386,34 @@ def get_chats():
     accountName = (request.args.get("accountName", "") or "").lower()
     limit = int(request.args.get("limit", "50"))
 
-    body, status = get_chats_impl(storage, agent_manager, agentName, accountName, limit, chat2_store=chat2_store)
+    body, status = get_chats_impl(chat2_store, agent_manager, agentName, accountName, limit)
     return jsonify(body), status
 
 
 @app.route("/chats/<session_id>", methods=["GET"])
 def get_chat(session_id: str):
-    body, status = get_chat_impl(storage, session_id, chat2_store=chat2_store)
+    body, status = get_chat_impl(chat2_store, session_id)
     return jsonify(body), status
 
 
 @app.route("/chats/<session_id>/messages", methods=["POST"])
 def post_chat_message(session_id: str):
     data = request.get_json() or {}
-    body, status = post_chat_message_impl(storage, session_id, data, chat2_store=chat2_store)
+    body, status = post_chat_message_impl(chat2_store, session_id, data)
     return jsonify(body), status
 
 
 # New stubs for future chat management
 @app.route("/chats/<session_id>", methods=["DELETE"])
 def delete_chat(session_id: str):
-    body, status = delete_chat_impl(storage, session_id, chat2_store=chat2_store)
+    body, status = delete_chat_impl(chat2_store, session_id)
     return jsonify(body), status
 
 
 @app.route("/chats/<session_id>", methods=["PATCH"])
 def update_chat(session_id: str):
     payload = request.get_json(silent=True) or {}
-    body, status = update_chat_impl(storage, session_id, payload, chat2_store=chat2_store)
+    body, status = update_chat_impl(chat2_store, session_id, payload)
     return jsonify(body), status
 
 
