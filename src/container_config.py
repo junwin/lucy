@@ -153,12 +153,14 @@ class EndpointHandlersModule(Module):
         config: ConfigManager,
         storage: Storage,
         processor_factory: ProcessorFactory,
+        chat2_store: Chat2Store,
     ) -> AskRequestHandler:
         return AskRequestHandler(
             agent_manager=agent_manager,
             config=config,
             storage=storage,
             processor_factory=processor_factory,
+            chat2_store=chat2_store,
         )
 
 

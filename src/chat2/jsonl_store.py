@@ -32,6 +32,10 @@ def _events_key(session_id: str) -> StoreKey:
     return StoreKey(f"sessions/{session_id}/events.jsonl")
 
 
+def _sessions_prefix() -> StoreKey:
+    return StoreKey("sessions/")
+
+
 # ---------------------------------------------------------------------------
 # Session meta operations
 # ---------------------------------------------------------------------------
@@ -118,6 +122,55 @@ def delete_session(store: Chat2Primitives, session_id: str) -> None:
     """
     store.delete(_meta_key(session_id))
     store.delete(_events_key(session_id))
+
+
+def list_sessions(
+    store: Chat2Primitives,
+    *,
+    account_name: Optional[str] = None,
+    agent_name: Optional[str] = None,
+    limit: int = 50,
+) -> List[ChatSessionMeta]:
+    """List sessions, optionally filtered by account_name and/or agent_name.
+
+    Scans all keys under ``sessions/`` for ``meta.json`` files, reads each,
+    and returns the parsed metadata. Results are sorted by ``updated_at``
+    descending (most recent first) and capped at *limit*.
+
+    Args:
+        store: A Chat2Primitives implementation.
+        account_name: If set, only return sessions for this account.
+        agent_name: If set, only return sessions for this agent.
+        limit: Maximum number of sessions to return.
+
+    Returns:
+        List of ChatSessionMeta, newest first.
+    """
+    all_keys = store.list_keys(_sessions_prefix())
+    meta_keys = [k for k in all_keys if k.value.endswith("/meta.json")]
+
+    sessions: List[ChatSessionMeta] = []
+    for mk in meta_keys:
+        raw = store.read_text(mk)
+        if raw is None:
+            continue
+        try:
+            meta = ChatSessionMeta.model_validate_json(raw)
+        except Exception:
+            continue
+
+        # Apply filters
+        if account_name and meta.account_name != account_name:
+            continue
+        if agent_name and meta.agent_name != agent_name:
+            continue
+
+        sessions.append(meta)
+
+    # Sort by updated_at descending (most recent first)
+    sessions.sort(key=lambda s: s.updated_at, reverse=True)
+
+    return sessions[:limit]
 
 
 # ---------------------------------------------------------------------------
@@ -218,6 +271,7 @@ __all__ = [
     "get_session_meta",
     "update_session_meta",
     "delete_session",
+    "list_sessions",
     "append_event",
     "stream_events",
     "read_events",

@@ -19,6 +19,7 @@ from src.chat2.jsonl_store import (
     create_session,
     delete_session,
     get_session_meta,
+    list_sessions,
     read_events,
     reset_session_events,
     stream_events,
@@ -102,6 +103,25 @@ class Chat2Store:
     def session_exists(self, session_id: str) -> bool:
         """Check if a session exists."""
         return get_session_meta(self._store, session_id) is not None
+
+    def list_sessions(
+        self,
+        *,
+        account_name: Optional[str] = None,
+        agent_name: Optional[str] = None,
+        limit: int = 50,
+    ) -> List[ChatSessionMeta]:
+        """List sessions, optionally filtered.
+
+        Results are sorted by updated_at descending (most recent first)
+        and capped at *limit*.
+        """
+        return list_sessions(
+            self._store,
+            account_name=account_name,
+            agent_name=agent_name,
+            limit=limit,
+        )
 
     # ------------------------------------------------------------------
     # Event management

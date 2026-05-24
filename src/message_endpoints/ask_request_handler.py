@@ -8,6 +8,7 @@ from src.storage.base import Storage
 from src.message_processors.processor_factory import ProcessorFactory
 from src.message_processors.function_calling_processor import ToolHandlerError
 from src.storage.models import ChatMessage
+from src.chat2.facade import Chat2Store
 
 
 
@@ -29,12 +30,13 @@ class AskRequestHandler:
         config: ConfigManager,
         storage: Storage,
         processor_factory: ProcessorFactory,
- 
+        chat2_store: Optional[Chat2Store] = None,
     ) -> None:
         self.agent_manager = agent_manager
         self.config = config
         self.storage = storage
         self.processor_factory = processor_factory
+        self.chat2_store = chat2_store
         self.logger = logging.getLogger(__name__)
 
     def _maybe_autorun_tasklist(
@@ -271,6 +273,29 @@ class AskRequestHandler:
                             friendly_name,
                             conversationId,
                         )
+
+                        # Also create session in chat2
+                        if self.chat2_store is not None:
+                            try:
+                                self.chat2_store.create_session(
+                                    user_id=accountName,
+                                    account_name=accountName,
+                                    agent_name=agentName,
+                                    friendly_name=friendly_name,
+                                )
+                                self.logger.info(
+                                    "/ask: created chat2 session for account=%s agent=%s friendlyName=%s",
+                                    accountName,
+                                    agentName,
+                                    friendly_name,
+                                )
+                            except Exception:
+                                self.logger.exception(
+                                    "/ask: failed to create chat2 session account=%s agent=%s friendlyName=%s",
+                                    accountName,
+                                    agentName,
+                                    friendly_name,
+                                )
                     except Exception:
                         self.logger.exception(
                             "/ask: failed to create chat session account=%s agent=%s friendlyName=%s",
