@@ -253,6 +253,31 @@ def ask():
                                 account_name,
                                 agent_name,
                             )
+
+                            # Also create chat2 session with the same session_id
+                            if chat2_store is not None:
+                                try:
+                                    chat2_store.create_session(
+                                        user_id=account_name,
+                                        account_name=account_name,
+                                        agent_name=agent_name,
+                                        session_id=conv_id,
+                                        friendly_name=friendly_name,
+                                    )
+                                    logging.info(
+                                        "/ask: created chat2 session id=%s for friendlyName=%s account=%s agent=%s",
+                                        conv_id,
+                                        friendly_name,
+                                        account_name,
+                                        agent_name,
+                                    )
+                                except Exception:
+                                    logging.exception(
+                                        "/ask: failed to create chat2 session for friendlyName=%s account=%s agent=%s",
+                                        friendly_name,
+                                        account_name,
+                                        agent_name,
+                                    )
                         except Exception:
                             logging.exception(
                                 "/ask: failed to create chat session for friendlyName=%s account=%s agent=%s",

@@ -46,6 +46,7 @@ def create_session(
     account_name: str,
     agent_name: str,
     *,
+    session_id: Optional[str] = None,
     friendly_name: Optional[str] = None,
     tags: Optional[List[str]] = None,
     session_type: str = "user",
@@ -54,13 +55,16 @@ def create_session(
 ) -> ChatSessionMeta:
     """Create a new session and write its metadata.
 
+    If *session_id* is provided, use it instead of generating a new UUID.
+    This allows callers to keep session IDs consistent across storage layers.
+
     Returns the created ChatSessionMeta.
     """
     now = datetime.now(timezone.utc).replace(tzinfo=None)
-    session_id = str(uuid4())
+    sid = session_id or str(uuid4())
 
     meta = ChatSessionMeta(
-        session_id=session_id,
+        session_id=sid,
         user_id=user_id,
         account_name=account_name,
         agent_name=agent_name,
@@ -74,9 +78,9 @@ def create_session(
         metadata={},
     )
 
-    store.write_text(_meta_key(session_id), meta.model_dump_json())
+    store.write_text(_meta_key(sid), meta.model_dump_json())
     # Create empty events file so the session exists
-    store.write_text(_events_key(session_id), "")
+    store.write_text(_events_key(sid), "")
 
     return meta
 
