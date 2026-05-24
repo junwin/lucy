@@ -283,7 +283,6 @@ def make_proc(config, registry, storage, prompt_builder, llm_adapter) -> Callabl
         return FunctionCallingProcessor(
             config=overrides.get("config", config),
             registry=overrides.get("registry", registry),
-            storage=overrides.get("storage", storage),
             prompt_builder=overrides.get("prompt_builder", prompt_builder),
             llm_adapter=overrides.get("llm_adapter", llm_adapter),
         )

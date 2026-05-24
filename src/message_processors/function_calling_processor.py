@@ -16,8 +16,6 @@ from src.config_manager import ConfigManager
 from src.message_processors.message_processor_interface import MessageProcessorInterface
 from src.prompt_builders.prompt_builder_interface import PromptBuilderInterface
 from src.handlers.handler_registry import HandlerRegistry
-from src.storage.base import Storage
-from src.storage.models import ChatMessage
 from src.agent import Agent
 
 from src.llm.adapter_interface import LLMAdapter
@@ -61,14 +59,12 @@ class FunctionCallingProcessor(MessageProcessorInterface):
         self,
         config: ConfigManager,
         registry: HandlerRegistry,
-        storage: Storage,
         prompt_builder: PromptBuilderInterface,
         llm_adapter: LLMAdapter,
         chat2_store: Optional[Chat2Store] = None,
     ):
         self.config = config
         self.registry = registry
-        self.storage = storage
         self.prompt_builder = prompt_builder
         self.llm_adapter = llm_adapter
         self.chat2_store = chat2_store
@@ -492,45 +488,13 @@ class FunctionCallingProcessor(MessageProcessorInterface):
         return response_text
 
     # ------------------------------------------------------------------
-    # Session + Chat2 dual-write helpers
+    # Chat2 storage helpers (v1 removed — no backward compatibility)
     # ------------------------------------------------------------------
-
-    def _ensure_v1_session(self, ctx: _ProcessorContext) -> None:
-        """Create a v1 session if one doesn't exist for this conversation_id.
-
-        This is a no-op if the session already exists in v1 storage.
-        Best-effort: failures are logged but not propagated.
-        """
-        try:
-            existing = self.storage.get_chat_session(ctx.conversation_id)
-            if existing is not None:
-                return
-        except Exception:
-            pass
-
-        try:
-            self.storage.create_chat_session(
-                account_name=ctx.account_id,
-                agent_name=ctx.agent_name,
-                friendly_name=ctx.context_name or None,
-            )
-            logging.info(
-                "v1: created session %s for account=%s agent=%s",
-                ctx.conversation_id,
-                ctx.account_id,
-                ctx.agent_name,
-            )
-        except Exception:
-            logging.exception(
-                "v1: failed to create session %s for account=%s",
-                ctx.conversation_id,
-                ctx.account_id,
-            )
 
     def _ensure_chat2_session(self, ctx: _ProcessorContext) -> None:
         """Create a chat2 session if one doesn't exist for this conversation_id.
 
-        This is a no-op if chat2_store is not configured or the session already exists.
+        Best-effort: failures are logged but not propagated.
         """
         if self.chat2_store is None:
             return
@@ -556,20 +520,15 @@ class FunctionCallingProcessor(MessageProcessorInterface):
                 ctx.account_id,
             )
 
-    def _ensure_both_sessions(self, ctx: _ProcessorContext) -> None:
-        """Ensure the session exists in both v1 and chat2 storage."""
-        self._ensure_v1_session(ctx)
-        self._ensure_chat2_session(ctx)
-
     def _write_chat2_events(
         self,
         ctx: _ProcessorContext,
         user_message: str,
         assistant_response: str,
     ) -> None:
-        """Dual-write user and assistant events to chat2 storage.
+        """Write user and assistant events to chat2 storage.
 
-        This is best-effort: failures are logged but not propagated.
+        Best-effort: failures are logged but not propagated.
         """
         if self.chat2_store is None:
             return
@@ -591,12 +550,12 @@ class FunctionCallingProcessor(MessageProcessorInterface):
             )
             self.chat2_store.add_events(ctx.conversation_id, [user_event, assistant_event])
             logging.info(
-                "chat2: dual-wrote user+assistant events for session=%s",
+                "chat2: wrote user+assistant events for session=%s",
                 ctx.conversation_id,
             )
         except Exception:
             logging.exception(
-                "chat2: failed to dual-write events for session=%s",
+                "chat2: failed to write events for session=%s",
                 ctx.conversation_id,
             )
 
@@ -708,18 +667,7 @@ class FunctionCallingProcessor(MessageProcessorInterface):
             )
 
             if ctx.store_this_call and response_text:
-                # Ensure session exists in both stores before writing
-                self._ensure_both_sessions(ctx)
-
-                #self.storage.append_chat_message(
-                #    ctx.conversation_id,
-                #    ChatMessage(role="user", content=message, metadata={"agent": ctx.agent_name}),
-                #)
-                #self.storage.append_chat_message(
-                #    ctx.conversation_id,
-                #    ChatMessage(role="assistant", content=response_text, metadata={"agent": ctx.agent_name}),
-                #)
-                # Dual-write to chat2 (best-effort)
+                # Write to chat2 only (v1 removed — no backward compatibility)
                 self._write_chat2_events(ctx, message, response_text)
 
             return response_text
@@ -738,21 +686,8 @@ class FunctionCallingProcessor(MessageProcessorInterface):
             error_message = "I ran into an internal error while processing your request. The issue has been logged."
 
             try:
-                # Ensure session exists before writing error messages
-                self._ensure_both_sessions(ctx)
-
-                self.storage.append_chat_message(
-                    ctx.conversation_id,
-                    ChatMessage(role="user", content=message, metadata={"agent": ctx.agent_name}),
-                )
-                self.storage.append_chat_message(
-                    ctx.conversation_id,
-                    ChatMessage(
-                        role="assistant",
-                        content=error_message + f" (Details: {type(e).__name__})",
-                        metadata={"agent": ctx.agent_name, "error": True},
-                    ),
-                )
+                # Write error events to chat2 only
+                self._write_chat2_events(ctx, message, error_message + f" (Details: {type(e).__name__})")
             except Exception:
                 logging.exception(
                     "FunctionCallingProcessor: failed to store error conversation for session_id=%s",
