@@ -30,9 +30,11 @@ from src.message_endpoints.ask_request_handler import AskRequestHandler
 
 from src.llm.adapter_interface import LLMAdapter
 from src.llm.openai_responses_adapter import OpenAIResponsesAdapter
-from src.llm.openai_responses import OpenAIResponsesApi
 from src.llm.interface import LLMApi
-from src.llm.deepseek_responses import DeepSeekApi
+from src.llm.router_api import RouterApi
+
+from src.chat2.facade import Chat2Store
+from src.chat2.adapters.jfs_adapter import JfsChat2Primitives
 
 
 config = ConfigManager("config.json")
@@ -82,6 +84,18 @@ class StorageModule(Module):
 
         return JsonFileStorage(storage_paths)
 
+    @provider
+    @singleton
+    def provide_chat2_store(self, storage: Storage) -> Chat2Store:
+        """Provide a Chat2Store backed by the same JsonFileStorage.
+
+        Uses JfsChat2Primitives adapter to map chat2 logical keys to
+        filesystem paths under <storage_base>/chat2/. This is a parallel
+        storage layer — existing v1 code continues to use Storage directly.
+        """
+        adapter = JfsChat2Primitives(storage)
+        return Chat2Store(adapter)
+
 
 class HandlerRegistryModule(Module):
     @provider
@@ -93,17 +107,28 @@ class HandlerRegistryModule(Module):
 class PromptBuilderModule(Module):
     @provider
     @singleton
-    def provide_prompt_builder(self, pb: PromptBuilder) -> PromptBuilderInterface:
-        return pb
+    def provide_prompt_builder(
+        self,
+        agent_manager: AgentManager,
+        config: ConfigManager,
+        storage: Storage,
+        chat2_store: Chat2Store,
+    ) -> PromptBuilderInterface:
+        return PromptBuilder(
+            agent_manager=agent_manager,
+            config=config,
+            storage=storage,
+            chat2_store=chat2_store,
+        )
 
 
 class LLMModule(Module):
     @provider
     @singleton
     def provide_llm_api(self) -> LLMApi:
-        # Default LLM transport: OpenAI Responses API
-        # return OpenAIResponsesApi()
-        return DeepSeekApi()
+        # RouterApi dispatches to the correct backend based on model name.
+        # Model names starting with "deepseek" → DeepSeekApi, else → OpenAIResponsesApi.
+        return RouterApi()
 
     @provider
     @singleton
@@ -128,12 +153,14 @@ class EndpointHandlersModule(Module):
         config: ConfigManager,
         storage: Storage,
         processor_factory: ProcessorFactory,
+        chat2_store: Chat2Store,
     ) -> AskRequestHandler:
         return AskRequestHandler(
             agent_manager=agent_manager,
             config=config,
             storage=storage,
             processor_factory=processor_factory,
+            chat2_store=chat2_store,
         )
 
 
