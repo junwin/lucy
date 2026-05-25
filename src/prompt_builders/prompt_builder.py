@@ -199,7 +199,7 @@ class PromptBuilder(PromptBuilderInterface):
         if max_conversations <= 0:
             return []
 
-        # --- Try chat2 first ---
+        # --- Try chat2 only ---
         if self.chat2_store is not None:
             try:
                 if self.chat2_store.session_exists(conversation_id):
@@ -210,44 +210,21 @@ class PromptBuilder(PromptBuilderInterface):
                             {"role": e.role, "content": e.payload if isinstance(e.payload, str) else str(e.payload)}
                             for e in selected
                         ]
-                    # Session exists but no matching events — return empty, don't fall through to v1
+                    # Session exists but no matching events — return empty
                     return []
             except Exception as ex:
                 logging.warning(
                     "PromptBuilder: chat2 history failed for session %s account=%s agent=%s: %s; "
-                    "falling back to v1",
+                    "returning empty history",
                     conversation_id,
                     account_name,
                     agent_name,
                     ex,
                 )
-                # Fall through to v1
+                return []
 
-        # --- Fall back to v1 ---
-        try:
-            session = self.storage.get_chat_session(conversation_id)
-        except Exception as ex:
-            logging.warning(
-                "PromptBuilder: error loading chat session %s for account=%s agent=%s: %s",
-                conversation_id,
-                account_name,
-                agent_name,
-                ex,
-            )
-            return []
-
-        if not session:
-            logging.warning(
-                "PromptBuilder: no chat session found for session_id=%s account=%s agent=%s; "
-                "building prompt without history",
-                conversation_id,
-                account_name,
-                agent_name,
-            )
-            return []
-
-        msgs = session.messages[-max_conversations:]
-        return [{"role": m.role, "content": m.content} for m in msgs]
+        # No chat2 store configured — return empty history
+        return []
 
     def _get_context_state(self, account_name: str, context_name: str) -> Optional[Any]:
         """Return the ContextState object (or None) for the named context.

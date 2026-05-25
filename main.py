@@ -34,6 +34,14 @@ parser.add_argument(
     help="the friendly name of the session",
 )
 parser.add_argument(
+    "--contextName",
+    metavar="contextName",
+    type=str,
+    nargs=1,
+    default=None,
+    help="optional context name for storage-based context (e.g. a project name)",
+)
+parser.add_argument(
     "--query",
     metavar="query",
     type=str,
@@ -60,7 +68,7 @@ agent_manager.load_agents()
 ask_handler = container.get(AskRequestHandler)
 
 
-def role_play(agent_name: str, account_name: str, friendly_name: str) -> None:
+def role_play(agent_name: str, account_name: str, friendly_name: str, context_name: str | None = None) -> None:
     """Simple REPL for chatting with Lucy via the same logic as /ask.
 
     - On first message, we open a new chat session with a friendly name
@@ -90,7 +98,7 @@ def role_play(agent_name: str, account_name: str, friendly_name: str) -> None:
     # Use provided friendly_name if present, otherwise use default
     initial_friendly = (friendly_name.strip() if friendly_name and friendly_name.strip() else default_friendly)
 
-    logger.info("Starting CLI role_play: agent=%s account=%s friendly=%s", agent_name, account_name, initial_friendly)
+    logger.info("Starting CLI role_play: agent=%s account=%s friendly=%s context=%s", agent_name, account_name, initial_friendly, context_name)
 
     print(f"Lucy CLI - agent={agent_name}, account={account_name}, friendly_name={initial_friendly}")
     print("Type your message, or 'exit' to quit.")
@@ -117,6 +125,7 @@ def role_play(agent_name: str, account_name: str, friendly_name: str) -> None:
             account_name=account_name,
             conversation_id=conversation_id,
             friendly_name=initial_friendly,
+            context_name=context_name,
         )
 
         # If a new conversation_id was returned, store it for subsequent messages
@@ -133,6 +142,7 @@ def ask(
     account_name: str,
     conversation_id: str | None = None,
     friendly_name: str | None = None,
+    context_name: str | None = None,
 ) -> tuple[str, str | None]:
     """Call the same AskRequestHandler used by the /ask HTTP endpoint.
 
@@ -155,8 +165,10 @@ def ask(
         payload["conversationId"] = conversation_id
     if friendly_name:
         payload["friendlyName"] = friendly_name
+    if context_name:
+        payload["contextName"] = context_name
 
-    logger.info("Sending /ask payload: agent=%s account=%s conversationId=%s friendlyName=%s", agent_name, account_name, conversation_id, friendly_name)
+    logger.info("Sending /ask payload: agent=%s account=%s conversationId=%s friendlyName=%s contextName=%s", agent_name, account_name, conversation_id, friendly_name, context_name)
 
     status, body = ask_handler.handle(payload)
 
@@ -191,17 +203,23 @@ if __name__ == "__main__":
     account_name = args.accountName[0]
     friendly_name = args.friendlyName[0]
 
+    # Extract optional contextName
+    context_name = None
+    if args.contextName is not None:
+        context_name = args.contextName[0]
+
     if args.query is not None:
         # Single-query mode: process one message and exit
         query = args.query[0]
-        logger.info("Single-query mode: agent=%s account=%s query=%s", agent_name, account_name, query)
+        logger.info("Single-query mode: agent=%s account=%s context=%s query=%s", agent_name, account_name, context_name, query)
         response, _ = ask(
             message=query,
             agent_name=agent_name,
             account_name=account_name,
             friendly_name=friendly_name,
+            context_name=context_name,
         )
         print(response)
     else:
         # Interactive REPL mode
-        role_play(agent_name, account_name, friendly_name)
+        role_play(agent_name, account_name, friendly_name, context_name)

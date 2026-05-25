@@ -253,6 +253,31 @@ def ask():
                                 account_name,
                                 agent_name,
                             )
+
+                            # Also create chat2 session with the same session_id
+                            if chat2_store is not None:
+                                try:
+                                    chat2_store.create_session(
+                                        user_id=account_name,
+                                        account_name=account_name,
+                                        agent_name=agent_name,
+                                        session_id=conv_id,
+                                        friendly_name=friendly_name,
+                                    )
+                                    logging.info(
+                                        "/ask: created chat2 session id=%s for friendlyName=%s account=%s agent=%s",
+                                        conv_id,
+                                        friendly_name,
+                                        account_name,
+                                        agent_name,
+                                    )
+                                except Exception:
+                                    logging.exception(
+                                        "/ask: failed to create chat2 session for friendlyName=%s account=%s agent=%s",
+                                        friendly_name,
+                                        account_name,
+                                        agent_name,
+                                    )
                         except Exception:
                             logging.exception(
                                 "/ask: failed to create chat session for friendlyName=%s account=%s agent=%s",
@@ -351,8 +376,7 @@ def build_prompt():
 
 @app.route("/chats", methods=["POST"])
 def post_chat():
-    # Delegate to implementation function with chat2_store
-    body, status = post_chat_impl(storage, agent_manager, request.json or {}, chat2_store=chat2_store)
+    body, status = post_chat_impl(chat2_store, agent_manager, request.json or {})
     return jsonify(body), status
 
 
@@ -362,34 +386,34 @@ def get_chats():
     accountName = (request.args.get("accountName", "") or "").lower()
     limit = int(request.args.get("limit", "50"))
 
-    body, status = get_chats_impl(storage, agent_manager, agentName, accountName, limit, chat2_store=chat2_store)
+    body, status = get_chats_impl(chat2_store, agent_manager, agentName, accountName, limit)
     return jsonify(body), status
 
 
 @app.route("/chats/<session_id>", methods=["GET"])
 def get_chat(session_id: str):
-    body, status = get_chat_impl(storage, session_id, chat2_store=chat2_store)
+    body, status = get_chat_impl(chat2_store, session_id)
     return jsonify(body), status
 
 
 @app.route("/chats/<session_id>/messages", methods=["POST"])
 def post_chat_message(session_id: str):
     data = request.get_json() or {}
-    body, status = post_chat_message_impl(storage, session_id, data, chat2_store=chat2_store)
+    body, status = post_chat_message_impl(chat2_store, session_id, data)
     return jsonify(body), status
 
 
 # New stubs for future chat management
 @app.route("/chats/<session_id>", methods=["DELETE"])
 def delete_chat(session_id: str):
-    body, status = delete_chat_impl(storage, session_id, chat2_store=chat2_store)
+    body, status = delete_chat_impl(chat2_store, session_id)
     return jsonify(body), status
 
 
 @app.route("/chats/<session_id>", methods=["PATCH"])
 def update_chat(session_id: str):
     payload = request.get_json(silent=True) or {}
-    body, status = update_chat_impl(storage, session_id, payload, chat2_store=chat2_store)
+    body, status = update_chat_impl(chat2_store, session_id, payload)
     return jsonify(body), status
 
 

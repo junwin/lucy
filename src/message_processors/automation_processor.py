@@ -26,6 +26,9 @@ from src.storage.models import ChatMessage
 if TYPE_CHECKING:
     from src.storage.base import Storage
 
+from src.chat2.facade import Chat2Store
+from src.chat2.models import ChatEvent
+
 from src.tasklists.task import Task
 from src.tasklists.task_list import TaskList
 from src.tasklists.task_states import (
@@ -82,7 +85,7 @@ def _is_run_command(message: str) -> bool:
 
     # Free text
     text = raw.lower()
-    return ("run" in text or "execute" in text or "start" in text) and (
+    return (text in text or "execute" in text or "start" in text) and (
         "task" in text or "tasks" in text
     )
 
@@ -144,6 +147,32 @@ def _parse_json_command(message: str) -> Tuple[Optional[dict], Optional[str]]:
     return obj, None
 
 
+# ---------------------------------------------------------------------------
+# ChatEvent kind mapping
+# ---------------------------------------------------------------------------
+# ChatEvent.kind is a Literal restricted to:
+#   "user_message", "assistant_message", "assistant_tool_call",
+#   "tool_result", "system_note", "summary"
+#
+# Automation-specific kinds are mapped to valid ones, with the original
+# stored in metadata["automation_kind"].
+
+_AUTOMATION_KIND_MAP = {
+    "automation_command": "user_message",
+    "task_completed": "system_note",
+    "task_failed": "system_note",
+    "automation_summary": "summary",
+}
+
+
+def _map_chat2_kind(automation_kind: str) -> str:
+    """Map an automation-specific kind to a valid ChatEvent kind."""
+    return _AUTOMATION_KIND_MAP.get(automation_kind, "system_note")
+
+
+# ---------------------------------------------------------------------------
+
+
 class AutomationProcessor(MessageProcessorInterface):
     """Automation processor for running persisted task lists.
 
@@ -163,13 +192,98 @@ class AutomationProcessor(MessageProcessorInterface):
         registry: HandlerRegistry,
         storage: Storage,
         prompt_builder: PromptBuilderInterface,
+        chat2_store: Optional[Chat2Store] = None,
         llm_adapter: Optional[LLMAdapter] = None,
     ):
         self.config = config
         self.registry = registry
         self.storage = storage
         self.prompt_builder = prompt_builder
+        self.chat2_store = chat2_store
         self.llm_adapter = llm_adapter
+
+    # ------------------------------------------------------------------
+    # Chat2 event helpers
+    # ------------------------------------------------------------------
+
+    def _ensure_chat2_session(self, conversation_id: str, account_name: str, agent_name: str) -> None:
+        """Create a chat2 session if one doesn't exist for this conversation_id.
+
+        Best-effort: failures are logged but not propagated.
+        """
+        if self.chat2_store is None:
+            return
+        if self.chat2_store.session_exists(conversation_id):
+            return
+        try:
+            self.chat2_store.create_session(
+                user_id=account_name,
+                account_name=account_name,
+                agent_name=agent_name,
+                session_id=conversation_id,
+            )
+            logger.info(
+                "chat2: created session %s for account=%s agent=%s",
+                conversation_id,
+                account_name,
+                agent_name,
+            )
+        except Exception:
+            logger.exception(
+                "chat2: failed to create session %s for account=%s",
+                conversation_id,
+                account_name,
+            )
+
+    def _write_chat2_event(
+        self,
+        conversation_id: str,
+        account_name: str,
+        agent_name: str,
+        role: str,
+        kind: str,
+        payload: str,
+        metadata: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        """Write a single event to chat2 storage.
+
+        Best-effort: failures are logged but not propagated.
+        """
+        if self.chat2_store is None:
+            return
+        try:
+            self._ensure_chat2_session(conversation_id, account_name, agent_name)
+
+            # Map automation-specific kind to a valid ChatEvent kind.
+            mapped_kind = _map_chat2_kind(kind)
+            meta = dict(metadata or {})
+            # Preserve the original kind so consumers can distinguish automation events.
+            meta["automation_kind"] = kind
+
+            event = ChatEvent(
+                role=role,
+                actor=agent_name if role == "assistant" else account_name,
+                kind=mapped_kind,
+                payload=payload,
+                metadata=meta,
+            )
+            self.chat2_store.add_event(conversation_id, event)
+            logger.info(
+                "chat2: wrote %s event for session=%s kind=%s (mapped from %s)",
+                role,
+                conversation_id,
+                mapped_kind,
+                kind,
+            )
+        except Exception:
+            logger.exception(
+                "chat2: failed to write event for session=%s",
+                conversation_id,
+            )
+
+    # ------------------------------------------------------------------
+    # Main processing
+    # ------------------------------------------------------------------
 
     def process_message(
         self,
@@ -235,6 +349,17 @@ class AutomationProcessor(MessageProcessorInterface):
             mode,
         )
         logger.debug("Incoming message preview: %s", _safe_preview(message, 800))
+
+        # Write user command event to chat2
+        self._write_chat2_event(
+            conversation_id=conversation_id,
+            account_name=account_name,
+            agent_name=agent_name,
+            role="user",
+            kind="automation_command",
+            payload=message,
+            metadata={"tasklist_id": tasklist_id, "mode": mode},
+        )
 
         try:
             raw_tasklist = self.storage.get_tasklist(account_name, tasklist_id)
@@ -404,6 +529,23 @@ class AutomationProcessor(MessageProcessorInterface):
 
             executed_count += 1
 
+            # Write task result event to chat2
+            task_outcome = "completed" if task_error is None else "failed"
+            self._write_chat2_event(
+                conversation_id=conversation_id,
+                account_name=account_name,
+                agent_name=agent_name,
+                role="assistant",
+                kind=f"task_{task_outcome}",
+                payload=json.dumps({
+                    "task_id": task.id,
+                    "task_name": last_task_name,
+                    "outcome": task_outcome,
+                    "error": task_error,
+                }),
+                metadata={"tasklist_id": tasklist_id, "mode": mode},
+            )
+
             # Persist after each task (COMPLETED or FAILED checkpoint).
             try:
                 self.storage.save_tasklist(account_name, tasklist_id, tasklist.to_dict())
@@ -455,6 +597,24 @@ class AutomationProcessor(MessageProcessorInterface):
             self.storage.save_tasklist(account_name, tasklist_id, tasklist.to_dict())
         except Exception:
             logger.exception("Failed final persist")
+
+        # Write final summary event to chat2
+        self._write_chat2_event(
+            conversation_id=conversation_id,
+            account_name=account_name,
+            agent_name=agent_name,
+            role="assistant",
+            kind="automation_summary",
+            payload=json.dumps({
+                "tasklist_id": tasklist_id,
+                "mode": mode,
+                "state": tasklist.state,
+                "executed_count": executed_count,
+                "last_task": last_task_name,
+                "warnings": warning_messages,
+            }),
+            metadata={"tasklist_id": tasklist_id, "mode": mode},
+        )
 
         # Structured final log for observability
         try:

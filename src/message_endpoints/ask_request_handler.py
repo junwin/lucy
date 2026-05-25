@@ -274,20 +274,22 @@ class AskRequestHandler:
                             conversationId,
                         )
 
-                        # Also create session in chat2
+                        # Also create session in chat2 with the same session_id
                         if self.chat2_store is not None:
                             try:
                                 self.chat2_store.create_session(
                                     user_id=accountName,
                                     account_name=accountName,
                                     agent_name=agentName,
+                                    session_id=conversationId,
                                     friendly_name=friendly_name,
                                 )
                                 self.logger.info(
-                                    "/ask: created chat2 session for account=%s agent=%s friendlyName=%s",
+                                    "/ask: created chat2 session for account=%s agent=%s friendlyName=%s session_id=%s",
                                     accountName,
                                     agentName,
                                     friendly_name,
+                                    conversationId,
                                 )
                             except Exception:
                                 self.logger.exception(

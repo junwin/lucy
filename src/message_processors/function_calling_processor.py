@@ -494,6 +494,9 @@ class FunctionCallingProcessor(MessageProcessorInterface):
     def _ensure_chat2_session(self, ctx: _ProcessorContext) -> None:
         """Create a chat2 session if one doesn't exist for this conversation_id.
 
+        Uses the existing conversation_id as the session_id so IDs stay
+        consistent across storage layers.
+
         Best-effort: failures are logged but not propagated.
         """
         if self.chat2_store is None:
@@ -505,6 +508,7 @@ class FunctionCallingProcessor(MessageProcessorInterface):
                 user_id=ctx.account_id,
                 account_name=ctx.account_id,
                 agent_name=ctx.agent_name,
+                session_id=ctx.conversation_id,
                 friendly_name=ctx.context_name or None,
             )
             logging.info(

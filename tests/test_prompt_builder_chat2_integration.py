@@ -169,8 +169,8 @@ def test_prompt_builder_zero_max_conversations(seeded_session, chat2_store):
     assert messages == []
 
 
-def test_prompt_builder_falls_back_to_v1_when_no_chat2_store():
-    """When chat2_store is None, falls back to v1 storage."""
+def test_prompt_builder_returns_empty_when_no_chat2_store():
+    """When chat2_store is None, returns empty history (no v1 fallback)."""
     from src.prompt_builders.prompt_builder import PromptBuilder
 
     agent_manager = Mock()
@@ -179,15 +179,7 @@ def test_prompt_builder_falls_back_to_v1_when_no_chat2_store():
     config = Mock()
     config.get.return_value = None
 
-    # Storage that returns a session with messages
     storage = Mock()
-    from src.storage.models import ChatMessage
-    storage.get_chat_session.return_value = Mock(
-        messages=[
-            ChatMessage(role="user", content="v1 msg"),
-            ChatMessage(role="assistant", content="v1 reply"),
-        ]
-    )
 
     pb = PromptBuilder(
         agent_manager=agent_manager,
@@ -197,21 +189,18 @@ def test_prompt_builder_falls_back_to_v1_when_no_chat2_store():
     )
 
     messages = pb._get_chat_history_messages(
-        conversation_id="some-v1-session",
+        conversation_id="some-session",
         account_name="test_acct",
         agent_name="lucy",
         max_conversations=10,
     )
 
-    assert len(messages) == 2
-    assert messages[0]["content"] == "v1 msg"
-    assert messages[1]["content"] == "v1 reply"
+    assert messages == []
 
 
-def test_prompt_builder_falls_back_when_session_not_in_chat2(chat2_store):
-    """When session doesn't exist in chat2, falls back to v1."""
+def test_prompt_builder_returns_empty_when_session_not_in_chat2(chat2_store):
+    """When session doesn't exist in chat2, returns empty history (no v1 fallback)."""
     from src.prompt_builders.prompt_builder import PromptBuilder
-    from src.storage.models import ChatMessage
 
     agent_manager = Mock()
     agent_manager.get_agent.return_value = None
@@ -220,11 +209,6 @@ def test_prompt_builder_falls_back_when_session_not_in_chat2(chat2_store):
     config.get.return_value = None
 
     storage = Mock()
-    storage.get_chat_session.return_value = Mock(
-        messages=[
-            ChatMessage(role="user", content="fallback msg"),
-        ]
-    )
 
     pb = PromptBuilder(
         agent_manager=agent_manager,
@@ -240,12 +224,11 @@ def test_prompt_builder_falls_back_when_session_not_in_chat2(chat2_store):
         max_conversations=10,
     )
 
-    assert len(messages) == 1
-    assert messages[0]["content"] == "fallback msg"
+    assert messages == []
 
 
 def test_prompt_builder_empty_when_chat2_session_has_no_matching_events(chat2_store):
-    """Session exists in chat2 but has no user/assistant events -> return empty (no v1 fallback)."""
+    """Session exists in chat2 but has no user/assistant events -> return empty."""
     meta = chat2_store.create_session(
         user_id="test_user",
         account_name="test_acct",

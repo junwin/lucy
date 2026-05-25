@@ -53,6 +53,7 @@ class Chat2Store:
         account_name: str,
         agent_name: str,
         *,
+        session_id: Optional[str] = None,
         friendly_name: Optional[str] = None,
         tags: Optional[List[str]] = None,
         session_type: str = "user",
@@ -61,6 +62,9 @@ class Chat2Store:
     ) -> ChatSessionMeta:
         """Create a new chat session.
 
+        If *session_id* is provided, use it instead of generating a new UUID.
+        This allows callers to keep session IDs consistent across storage layers.
+
         Returns the created session metadata.
         """
         return create_session(
@@ -68,6 +72,7 @@ class Chat2Store:
             user_id=user_id,
             account_name=account_name,
             agent_name=agent_name,
+            session_id=session_id,
             friendly_name=friendly_name,
             tags=tags,
             session_type=session_type,
@@ -186,7 +191,7 @@ class Chat2Store:
         """
         reset_session_events(self._store, session_id)
 
-    def event_count(self, session_id: str) -> int:
+    def event_count(self, session_id: int) -> int:
         """Return the number of events in a session.
 
         Returns 0 if the session does not exist.
@@ -204,6 +209,7 @@ class Chat2Store:
         agent_name: str,
         events: List[ChatEvent],
         *,
+        session_id: Optional[str] = None,
         friendly_name: Optional[str] = None,
         tags: Optional[List[str]] = None,
         session_type: str = "user",
@@ -218,6 +224,7 @@ class Chat2Store:
             user_id=user_id,
             account_name=account_name,
             agent_name=agent_name,
+            session_id=session_id,
             friendly_name=friendly_name,
             tags=tags,
             session_type=session_type,
