@@ -90,7 +90,7 @@ tags:
 Tool/handler layer. Defines the `HandlerV2` contract, a `HandlerRegistry` to register and instantiate handlers, and concrete handler implementations for file IO, command execution, web scraping/search, keywords, planning, and tasklist management.
 
 ## Summary (short)
-- Central place where “tools” are defined and executed.
+- Central place where "tools" are defined and executed.
 - `HandlerRegistry` exposes tool schemas to the LLM and instantiates handlers by name.
 
 ## Source files
@@ -103,7 +103,7 @@ Tool/handler layer. Defines the `HandlerV2` contract, a `HandlerRegistry` to reg
 - `src/handlers/handler_registry.py`
 - `src/handlers/handler_utils.py`
 - `src/handlers/handler_v2.py`
-- `src/handlers/plan_tasks_handler.py`
+- `src/handlers/delegate_tasks_handler.py`
 - `src/handlers/registry_bootstrap.py`
 - `src/handlers/schema_handler_v2.py`
 - `src/handlers/scrape_web_page_handler2.py`
@@ -119,7 +119,7 @@ Tool/handler layer. Defines the `HandlerV2` contract, a `HandlerRegistry` to reg
   - `CommandExecutionHandler2`
   - `ScrapeWebPageHandler2`, `WebSearchHandler2`
   - `GetKeywordsHandler`
-  - `PlanTasksHandler`, `TasklistsManageHandler`
+  - `DelegateTasksHandler`, `TasklistsManageHandler`
 
 ## Dependencies
 - **stdlib:** `abc`, `enum`, `json`, `logging`, `os`, `re`, `shlex`, `subprocess`, `typing`
@@ -172,7 +172,7 @@ tags:
 ## Key classes
 - **`Keywords`** (`src/keywords/keywords.py`)
   - Extracts keywords from text using spaCy (POS + lemmatization) and frequency counting.
-  - Supports a “request keywords:” escape hatch to accept explicitly provided keywords.
+  - Supports a "request keywords:" escape hatch to accept explicitly provided keywords.
   - Provides semantic similarity helpers (TF‑IDF cosine similarity when sklearn is available; otherwise a lightweight fallback).
 
 ## Dependencies

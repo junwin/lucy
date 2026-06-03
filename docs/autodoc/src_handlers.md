@@ -18,6 +18,10 @@ tags:
 ## Purpose
 Tool/handler layer. Defines the `HandlerV2` contract, a `HandlerRegistry` to register and instantiate handlers, and concrete handler implementations for file IO, command execution, web scraping/search, keywords, planning, and tasklist management.
 
+## Summary (short)
+- Central place where "tools" are defined and executed.
+- `HandlerRegistry` exposes tool schemas to the LLM and instantiates handlers by name.
+
 ## Source files
 - `src/handlers/__init__.py`
 - `src/handlers/command_execution_handler2.py`
@@ -28,7 +32,7 @@ Tool/handler layer. Defines the `HandlerV2` contract, a `HandlerRegistry` to reg
 - `src/handlers/handler_registry.py`
 - `src/handlers/handler_utils.py`
 - `src/handlers/handler_v2.py`
-- `src/handlers/plan_tasks_handler.py`
+- `src/handlers/delegate_tasks_handler.py`
 - `src/handlers/registry_bootstrap.py`
 - `src/handlers/schema_handler_v2.py`
 - `src/handlers/scrape_web_page_handler2.py`
@@ -44,7 +48,7 @@ Tool/handler layer. Defines the `HandlerV2` contract, a `HandlerRegistry` to reg
   - `CommandExecutionHandler2`
   - `ScrapeWebPageHandler2`, `WebSearchHandler2`
   - `GetKeywordsHandler`
-  - `PlanTasksHandler`, `TasklistsManageHandler`
+  - `DelegateTasksHandler`, `TasklistsManageHandler`
 
 ## Dependencies
 - **stdlib:** `abc`, `enum`, `json`, `logging`, `os`, `re`, `shlex`, `subprocess`, `typing`

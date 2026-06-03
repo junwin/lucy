@@ -1,4 +1,4 @@
-# src/handlers/plan_tasks_handler.py
+# src/handlers/delegate_tasks_handler.py
 from __future__ import annotations
 
 import json
@@ -11,7 +11,7 @@ from .handler_v2 import HandlerV2
 logger = logging.getLogger(__name__)
 
 
-class PlanTasksHandler(HandlerV2):
+class DelegateTasksHandler(HandlerV2):
     """Plan a simple sequential task list for a goal (and optional file list).
 
     Note: This handler *plans* tasks and returns a structured task list. The actual
@@ -24,7 +24,7 @@ class PlanTasksHandler(HandlerV2):
 
     @classmethod
     def name(cls) -> str:
-        return "plan_tasks"
+        return "delegate_tasks"
 
     @classmethod
     def tool_def(cls) -> Dict[str, Any]:
@@ -107,7 +107,7 @@ class PlanTasksHandler(HandlerV2):
 
     def execute(self, args: Dict[str, Any], *, account_name: str = "auto") -> Dict[str, Any]:
         logger.info(
-            "plan_tasks input account=%s args=%s",
+            "delegate_tasks input account=%s args=%s",
             account_name,
             args,
         )
@@ -119,8 +119,8 @@ class PlanTasksHandler(HandlerV2):
         worker_agent = worker_agent.lower()
 
         if not goal:
-            result = {"ok": False, "tool": self.name(), "error": "Missing 'goal' for plan_tasks tool."}
-            logger.info("plan_tasks output account=%s ok=%s result=%s", account_name, False, result)
+            result = {"ok": False, "tool": self.name(), "error": "Missing 'goal' for delegate_tasks tool."}
+            logger.info("delegate_tasks output account=%s ok=%s result=%s", account_name, False, result)
             return result
 
         if not instruction:
@@ -163,12 +163,12 @@ class PlanTasksHandler(HandlerV2):
             "description": description,
             "tasks": tasks,
         }
-        logger.info("plan_tasks output account=%s ok=%s tasks=%d", account_name, True, len(tasks))
+        logger.info("delegate_tasks output account=%s ok=%s tasks=%d", account_name, True, len(tasks))
         return result
 
     def execute_raw(self, arguments_raw: str, *, account_name: str = "auto", call_id: str = "") -> str:
         logger.info(
-            "plan_tasks raw_input account=%s call_id=%s arguments_raw=%s",
+            "delegate_tasks raw_input account=%s call_id=%s arguments_raw=%s",
             account_name,
             call_id,
             arguments_raw,
@@ -180,7 +180,7 @@ class PlanTasksHandler(HandlerV2):
         result = self.execute(args if isinstance(args, dict) else {}, account_name=account_name)
         result_raw = json.dumps(result, ensure_ascii=False)
         logger.info(
-            "plan_tasks raw_output account=%s call_id=%s result_raw=%s",
+            "delegate_tasks raw_output account=%s call_id=%s result_raw=%s",
             account_name,
             call_id,
             result_raw,

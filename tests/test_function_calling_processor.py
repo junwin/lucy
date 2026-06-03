@@ -147,7 +147,6 @@ def test_bad_json_tool_args_falls_back_to_empty_dict(make_proc, prompt_builder, 
 
 
 
-
 def test_handler_exception_is_wrapped_in_tool_handler_error(make_proc, prompt_builder, llm_adapter):
     from tests.conftest import FakeHandler, FakeRegistry, FakeAgent
     from src.message_processors.function_calling_processor import ToolHandlerError
@@ -172,12 +171,12 @@ def test_handler_exception_is_wrapped_in_tool_handler_error(make_proc, prompt_bu
         )
 
 
-def test_plan_tasks_tasklist_executes_worker_tasks_and_returns_summary(make_proc, prompt_builder, llm_adapter):
+def test_delegate_tasks_tasklist_executes_worker_tasks_and_returns_summary(make_proc, prompt_builder, llm_adapter):
     from tests.conftest import FakeHandler, FakeRegistry, FakeAgent, setup_tool_then_text
 
-    plan_tasks_result = {
+    delegate_tasks_result = {
         "ok": True,
-        "tool": "plan_tasks",
+        "tool": "delegate_tasks",
         "kind": "tasklist",
         "description": "Do two things",
         "tasks": [
@@ -186,14 +185,14 @@ def test_plan_tasks_tasklist_executes_worker_tasks_and_returns_summary(make_proc
         ],
     }
 
-    plan_handler = FakeHandler(plan_tasks_result)
-    reg = FakeRegistry(handler_by_name={"plan_tasks": plan_handler}, tool_defs=[{"name": "plan_tasks"}])
+    delegate_handler = FakeHandler(delegate_tasks_result)
+    reg = FakeRegistry(handler_by_name={"delegate_tasks": delegate_handler}, tool_defs=[{"name": "delegate_tasks"}])
 
     proc = make_proc(registry=reg)
 
     prompt_builder.build_prompt.return_value = [{"role": "user", "content": "plan"}]
 
-    setup_tool_then_text(llm_adapter, tool_name="plan_tasks", tool_args='{"goal":"x"}', final_text="all done")
+    setup_tool_then_text(llm_adapter, tool_name="delegate_tasks", tool_args='{"goal":"x"}', final_text="all done")
 
     # Patch worker execution deterministically
     real_process = proc.process_message
@@ -222,3 +221,81 @@ def test_plan_tasks_tasklist_executes_worker_tasks_and_returns_summary(make_proc
     second_call_kwargs = llm_adapter.call_model.call_args_list[1].kwargs
     assert second_call_kwargs["previous_response_id"] == "r1"
     assert "tasks" in second_call_kwargs["input"][0]["output"]
+
+
+def test_duplicate_tool_calls_breaks_loop(make_proc, prompt_builder, llm_adapter):
+    """When the model repeats the exact same tool call twice, the loop breaks."""
+    from tests.conftest import FakeHandler, FakeRegistry, FakeAgent
+
+    handler = FakeHandler({"ok": True, "result": "some data"})
+    reg = FakeRegistry(handler_by_name={"my_tool": handler}, tool_defs=[{"name": "my_tool"}])
+
+    proc = make_proc(registry=reg)
+
+    prompt_builder.build_prompt.return_value = [{"role": "user", "content": "search for stuff"}]
+
+    # Two identical tool calls in a row — same name, same arguments
+    resp1, resp2 = object(), object()
+    llm_adapter.call_model.side_effect = [resp1, resp2]
+    llm_adapter.get_response_id.side_effect = ["r1", "r2"]
+    llm_adapter.extract_tool_calls.side_effect = [
+        [{"name": "my_tool", "id": "call-1", "arguments": '{"query": "foo"}'}],
+        [{"name": "my_tool", "id": "call-2", "arguments": '{"query": "foo"}'}],
+    ]
+    llm_adapter.format_tool_output.side_effect = lambda call_id, output: {
+        "type": "function_call_output",
+        "call_id": call_id,
+        "output": output,
+    }
+
+    out = proc.process_message(
+        primary_agent=FakeAgent(max_function_call_iterations=10),
+        account={"accountId": "acct1"},
+        message="search for stuff",
+        conversation_id="c1",
+        context_name="ctx",
+    )
+
+    # Should break early with the duplicate-detection message, not hit max_iterations
+    assert "repeating" in out.lower() or "loop" in out.lower()
+    # Only 2 LLM calls (first tool call, then duplicate detected)
+    assert llm_adapter.call_model.call_count == 2
+
+
+def test_different_tool_calls_do_not_trigger_duplicate_detection(make_proc, prompt_builder, llm_adapter):
+    """Different tool calls (different args) should proceed normally."""
+    from tests.conftest import FakeHandler, FakeRegistry, FakeAgent
+
+    handler = FakeHandler({"ok": True})
+    reg = FakeRegistry(handler_by_name={"my_tool": handler}, tool_defs=[{"name": "my_tool"}])
+
+    proc = make_proc(registry=reg)
+
+    prompt_builder.build_prompt.return_value = [{"role": "user", "content": "do two things"}]
+
+    # Three responses: tool call 1, tool call 2 (different args), then final text
+    resp1, resp2, resp3 = object(), object(), object()
+    llm_adapter.call_model.side_effect = [resp1, resp2, resp3]
+    llm_adapter.get_response_id.side_effect = ["r1", "r2", "r3"]
+    llm_adapter.extract_tool_calls.side_effect = [
+        [{"name": "my_tool", "id": "call-1", "arguments": '{"query": "foo"}'}],
+        [{"name": "my_tool", "id": "call-2", "arguments": '{"query": "bar"}'}],
+        [],
+    ]
+    llm_adapter.format_tool_output.side_effect = lambda call_id, output: {
+        "type": "function_call_output",
+        "call_id": call_id,
+        "output": output,
+    }
+    llm_adapter.get_text.return_value = "done"
+
+    out = proc.process_message(
+        primary_agent=FakeAgent(max_function_call_iterations=10),
+        account={"accountId": "acct1"},
+        message="do two things",
+        conversation_id="c1",
+        context_name="ctx",
+    )
+
+    assert out == "done"
+    assert llm_adapter.call_model.call_count == 3

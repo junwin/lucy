@@ -28,7 +28,7 @@ the relative path to the ProcessorFactory class class is: `src/repos/lucy/src/me
   - `MessageProcessorInterface` – abstract base interface for all message processors, defining the `process_message` contract.
 
 - `src/message_processors/function_calling_processor.py`
-  - `FunctionCallingProcessor` – main tool-enabled processor that builds prompts, calls the model with function/tool definitions, executes tool calls via `HandlerRegistry`, and optionally executes `plan_tasks` tasklists.
+  - `FunctionCallingProcessor` – main tool-enabled processor that builds prompts, calls the model with function/tool definitions, executes tool calls via `HandlerRegistry`, and optionally executes `delegate_tasks` tasklists.
   - `ToolResultTooLargeError` – raised when a tool result exceeds the configured size limit.
   - `ToolHandlerError` – raised when a tool handler fails during execution; propagated up to HTTP layer.
 

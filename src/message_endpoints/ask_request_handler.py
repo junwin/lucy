@@ -19,7 +19,7 @@ class AskRequestHandler:
     as closely as possible, just moved into a class.
 
     Design note:
-    - plan_tasks auto-run is preserved.
+    - delegate_tasks auto-run is preserved.
     - Task execution is intentionally owned by this request handler (via TaskRunner)
       rather than living inside FunctionCallingProcessor.
     """
@@ -49,7 +49,7 @@ class AskRequestHandler:
         context_name: Optional[str],
         response_text: str,
     ) -> str:
-        """If the model returned a plan_tasks tasklist, execute it via TaskRunner.
+        """If the model returned a delegate_tasks tasklist, execute it via TaskRunner.
 
         We keep the response format compatible with the previous behaviour:
         the final assistant response can be the task execution summary.
@@ -58,8 +58,8 @@ class AskRequestHandler:
         if not secondary_agent:
             return response_text
 
-        # FunctionCallingProcessor returns a string; when the LLM triggers plan_tasks,
-        # the tool output is a JSON string produced by plan_tasks handler.
+        # FunctionCallingProcessor returns a string; when the LLM triggers delegate_tasks,
+        # the tool output is a JSON string produced by delegate_tasks handler.
         try:
             maybe = json.loads(response_text or "")
         except Exception:
@@ -69,7 +69,7 @@ class AskRequestHandler:
             return response_text
 
         self.logger.info(
-            "AskRequestHandler: executing tasklist from plan_tasks using supervisor=%s worker=%s session_id=%s",
+            "AskRequestHandler: executing tasklist from delegate_tasks using supervisor=%s worker=%s session_id=%s",
             primary_agent.name,
             secondary_agent.name,
             conversation_id,

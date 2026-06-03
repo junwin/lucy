@@ -5,7 +5,7 @@ tags:
   - HandlerRegistry
   - FileLoadHandler2
   - FileSaveHandler
-  - PlanTasksHandler
+  - DelegateTasksHandler
   - ScrapeWebPageHandler2
   - CommandExecutionHandler2
   - WebSearchHandler2
@@ -125,9 +125,9 @@ Concrete Handler implementations (HandlerV2) and notable details:
   - Notes: Depends on spaCy / NLTK / sklearn model/data availability. registry_bootstrap attempts to register this handler, but will log a warning and skip it if required NLP dependencies or models are missing.
   - Tool parameters: content, top_n, language_code
 
-- src/handlers/plan_tasks_handler.py
-  - Class: PlanTasksHandler
-  - Tool name: "plan_tasks"
+- src/handlers/delegate_tasks_handler.py
+  - Class: DelegateTasksHandler
+  - Tool name: "delegate_tasks"
   - Purpose: Produce a simple sequential task list (tasklist) from a high-level goal, optionally scoped to specific files. The handler only produces the plan; execution is performed by the orchestration layer.
   - Key methods: tool_def(), result_schema(), execute(), execute_raw()
   - Tool parameters: goal, files, instruction, worker_agent
