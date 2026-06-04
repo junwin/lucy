@@ -1,62 +1,71 @@
 ---
 tags:
-  - message
-  - prompt_builder
-  - module
-  - base
-  - system
-  - agent
-  - config
-  - document
+  - promptbuilderinterface
+  - abc
+  - promptbuilder
+  - storage
   - context_name
-  - doc
+  - define
+  - base
+  - concrete
+  - config
+  - chat2_store
   - src/prompt_builders
 ---
 
-# `src/prompt_builders`
+# Module: `src/prompt_builders`
 
-## Source files
-- `src/prompt_builders/__init__.py`
-- `src/prompt_builders/prompt_builder_interface.py`
-- `src/prompt_builders/prompt_builder.py`
+## Source Files
 
-## Key classes
-- **`PromptBuilderInterface`** (`prompt_builder_interface.py`)
-  - Abstract base class defining `build_prompt(...) -> List[ChatMessageDict]`.
+| File | Description |
+|------|-------------|
+| `__init__.py` | Empty init |
+| `prompt_builder_interface.py` | Abstract base class `PromptBuilderInterface` |
+| `prompt_builder.py` | Concrete implementation `PromptBuilder` |
 
-- **`PromptBuilder`** (`prompt_builder.py`)
-  - Concrete implementation that builds an OpenAI-compatible `messages` array.
-  - Responsibilities:
-    - Build the main system message from agent config (`system_prompt`, `persona`, `style_prompt`).
-    - Append optional `extra_system_messages`.
-    - Append chat history from `Storage.get_chat_session(...)` (bounded by `agent.max_prompt_conversations`).
-    - Append named context from storage (`get_or_create_context` / `get_context`) using `ctx.data['text']`.
-    - Optionally append document snippets via `get_document_context(...)` when `context_type` is `documents` or `hybrid`.
-    - Append the current user message and ensure it is last.
+## Key Classes
 
-## Dependencies
-- **stdlib:** `abc`, `logging`, `typing`
-- **third-party:** `injector`
-- **internal:**
-  - `src.config_manager.ConfigManager`
-  - `src.agent.AgentManager`, `src.agent.Agent`
-  - `src.storage.base.Storage`
-  - `src.utils.document_context.get_document_context`
-
-## Methods in the module service/base class
-### `PromptBuilderInterface`
-- `build_prompt(*, content_text, conversation_id, agent_name, account_name, context_type="none", max_prompt_chars=6000, context_name="", extra_system_messages=None) -> List[ChatMessageDict]`
+### `PromptBuilderInterface` (ABC)
+- **File:** `prompt_builder_interface.py`
+- Abstract base class defining the prompt-building contract.
 
 ### `PromptBuilder`
-- `__init__(agent_manager, config, storage)`
-- `build_prompt(...) -> List[Dict[str, str]]`
-- `_build_agent_system_message(agent_name: str, agent: Optional[Agent]) -> str`
-- `_get_chat_history_messages(conversation_id: str, account_name: str, agent_name: str, max_conversations: int) -> List[Dict[str, str]]`
-- `_get_context_state(account_name: str, context_name: str) -> Optional[Any]`
-- `_get_context_text(account_name: str, context_name: str) -> str`
-- `_ensure_current_query(messages: List[Dict[str, str]], current_query: str) -> List[Dict[str, str]]`
+- **File:** `prompt_builder.py`
+- Concrete implementation of `PromptBuilderInterface`.
+- Injected with `AgentManager`, `ConfigManager`, `Storage`, and optional `Chat2Store`.
 
-## Other module-level functions/constants
-- `estimate_tokens_from_text(text: str) -> int`
-- `DEFAULT_PROMPT_BUDGET_TOKENS = 12000`
-- `DEFAULT_SOURCE_BUDGETS = {"agent": 0.4, "account": 0.4, "context": 0.2}`
+## Dependencies
+
+**Internal (src):**
+- `src.config_manager` — `ConfigManager`
+- `src.agent` — `AgentManager`, `Agent`
+- `src.storage.base` — `Storage`
+- `src.utils.document_context` — `get_document_context`
+- `src.chat2.facade` — `Chat2Store`
+- `src.chat2.prompt_slice` — `get_last_n_events`
+
+**External:**
+- `injector` — `inject`
+- `logging` (stdlib)
+- `typing` — `Any`, `Dict`, `List`, `Optional`
+- `abc` — `ABC`, `abstractmethod`
+
+## Methods
+
+### `PromptBuilderInterface` (base — abstract)
+
+| Method | Signature |
+|--------|-----------|
+| `build_prompt` | `(*, content_text, conversation_id, agent_name, account_name, context_type="none", max_prompt_chars=6000, context_name="", extra_system_messages=None) -> List[ChatMessageDict]` |
+
+### `PromptBuilder` (concrete)
+
+| Method | Description |
+|--------|-------------|
+| `__init__(agent_manager, config, storage, chat2_store)` | Constructor — stores injected dependencies |
+| `build_prompt(...)` | Builds full OpenAI-compatible messages array (system + history + context + docs + user) |
+| `_build_agent_system_message(agent_name, agent) -> str` | Combines system_prompt, persona, and style_prompt |
+| `_get_chat_history_messages(conversation_id, account_name, agent_name, max_conversations) -> List[Dict]` | Loads chat history from chat2 store |
+| `_get_context_state(account_name, context_name) -> Optional[Any]` | Loads ContextState from storage |
+| `_get_context_text(account_name, context_name) -> str` | Extracts text from context state |
+| `_ensure_current_query(messages, current_query) -> List[Dict]` | Ensures the last message is the current user query |

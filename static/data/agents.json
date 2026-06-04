@@ -22,7 +22,8 @@
       "delegate_tasks",
       "scrape_web_page",
       "web_search_handler",
-      "tasklists_manage"
+      "tasklists_manage",
+      "tasklists_run"
     ]
   },
   {
@@ -48,7 +49,8 @@
       "delegate_tasks",
       "scrape_web_page",
       "web_search_handler",
-      "tasklists_manage"
+      "tasklists_manage",
+      "tasklists_run"
     ]
   },
   {
@@ -153,7 +155,7 @@
       "get_keywords",
       "delegate_tasks",
       "scrape_web_page",
-      "web_search_handler","tasklists_manage"]
+      "web_search_handler","tasklists_manage","tasklists_run"]
   },
   {
     "name": "star",

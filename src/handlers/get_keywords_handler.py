@@ -71,7 +71,7 @@ class GetKeywordsHandler(HandlerV2):
             "additionalProperties": True,
         }
 
-    def execute(self, args: Dict[str, Any], *, account_name: str = "auto") -> Dict[str, Any]:
+    def execute(self, args: Dict[str, Any], **context: Any) -> Dict[str, Any]:
         content = (args.get("content") or "").strip()
         top_n = args.get("top_n", 10)
         language_code = (args.get("language_code") or "en").strip() or "en"

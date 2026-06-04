@@ -10,6 +10,9 @@ class HandlerV2(ABC):
       - tool_def(): OpenAI tool definition (type=function, function={...})
       - execute(args,...): returns structured python dict (tool result)
       - result_schema(): optional JSON schema for the returned dict
+
+    Subclasses may accept additional **context kwargs in execute() for
+    runtime execution context (e.g. conversation_id, primary_agent, etc.).
     """
 
     @classmethod
@@ -27,5 +30,5 @@ class HandlerV2(ABC):
         return None
 
     @abstractmethod
-    def execute(self, args: Dict[str, Any], *, account_name: str = "auto") -> Dict[str, Any]:
+    def execute(self, args: Dict[str, Any], *, account_name: str = "auto", **context) -> Dict[str, Any]:
         ...

@@ -9,6 +9,7 @@ from src.handlers.handler_v2 import HandlerV2
 from src.storage.json_file_storage import JsonFileStorage
 from src.storage_paths.storage_paths import StoragePaths
 from src.tasklists.task_list import TaskList
+from src.tasklists.task_states import TASK_LIST_STATE_CREATED, TASK_STATE_PENDING
 
 logger = logging.getLogger(__name__)
 
@@ -35,13 +36,13 @@ class TasklistsManageHandler(HandlerV2):
         return {
             "type": "function",
             "name": cls.NAME,
-            "description": "Manage persisted tasklists: list/get/put/delete.",
+            "description": "Manage persisted tasklists: list/get/put/delete/reset.",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "action": {
                         "type": "string",
-                        "enum": ["list", "get", "put", "delete"],
+                        "enum": ["list", "get", "put", "delete", "reset"],
                     },
                     "tasklist_name": {
                         "type": "string",
@@ -84,7 +85,7 @@ class TasklistsManageHandler(HandlerV2):
             "additionalProperties": True,
         }
 
-    def execute(self, args: Dict[str, Any], *, account_name: str = "auto") -> Dict[str, Any]:
+    def execute(self, args: Dict[str, Any], *, account_name: str = "auto", **context) -> Dict[str, Any]:
         action = (args.get("action") or "").strip().lower()
         tasklist_name = (args.get("tasklist_name") or "").strip()
         payload = args.get("tasklist") or {}
@@ -98,7 +99,7 @@ class TasklistsManageHandler(HandlerV2):
             validate_only,
         )
 
-        if action not in ("list", "get", "put", "delete"):
+        if action not in ("list", "get", "put", "delete", "reset"):
             return {
                 "ok": False,
                 "tool": self.NAME,
@@ -146,6 +147,45 @@ class TasklistsManageHandler(HandlerV2):
                 # delete is idempotent per storage contract
                 self.storage.delete_tasklist(account_name, tasklist_name)
                 return {"ok": True, "tool": self.NAME, "action": "delete", "tasklist_name": tasklist_name}
+
+            if action == "reset":
+                if not tasklist_name:
+                    return {
+                        "ok": False,
+                        "tool": self.NAME,
+                        "action": "reset",
+                        "error": {"code": "missing_name", "message": "tasklist_name is required for reset"},
+                    }
+                tl = self.storage.get_tasklist(account_name, tasklist_name)
+                if tl is None:
+                    return {
+                        "ok": False,
+                        "tool": self.NAME,
+                        "action": "reset",
+                        "tasklist_name": tasklist_name,
+                        "error": {"code": "not_found", "message": "tasklist not found"},
+                    }
+
+                # Reset tasklist state to Created
+                tl.state = TASK_LIST_STATE_CREATED
+                tl.current_task_id = None
+
+                # Reset each task to Pending, clear results and errors
+                for task in tl.tasks:
+                    task.state = TASK_STATE_PENDING
+                    task.result = None
+                    task.error = None
+
+                if not validate_only:
+                    self.storage.save_tasklist(account_name, tasklist_name, tl.to_dict())
+
+                return {
+                    "ok": True,
+                    "tool": self.NAME,
+                    "action": "reset",
+                    "tasklist_name": tasklist_name,
+                    "tasklist": tl.to_dict(),
+                }
 
             if action == "put":
                 if not tasklist_name:

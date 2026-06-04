@@ -297,6 +297,25 @@ class FunctionCallingProcessor(MessageProcessorInterface):
     ) -> List[Dict[str, Any]]:
         tool_output_items: List[Dict[str, Any]] = []
 
+        # Build the shared execution context for handlers that need it
+        # (e.g. TasklistsRunHandler needs primary_agent, account, conversation_id, etc.)
+        # NOTE: account_name is NOT included here — it's passed explicitly to execute().
+        handler_context: Dict[str, Any] = {
+            "primary_agent": primary_agent,
+            "secondary_agent": secondary_agent,
+            "processor_factory": processor_factory,
+            "account": account,
+            "conversation_id": ctx.conversation_id,
+            "context_name": ctx.context_name,
+            "agent_name": ctx.agent_name,
+            "storage": getattr(self, "_storage", None),
+            "registry": self.registry,
+            "prompt_builder": self.prompt_builder,
+            "config": self.config,
+            "chat2_store": self.chat2_store,
+            "llm_adapter": self.llm_adapter,
+        }
+
         for tc in tool_calls:
             metrics["tool_calls"] += 1
 
@@ -320,7 +339,7 @@ class FunctionCallingProcessor(MessageProcessorInterface):
                     tool_result_text = handler.execute_raw(tc.arguments_raw, account_name=ctx.account_id, call_id=tc.call_id)  # type: ignore[attr-defined]
                 else:
                     tool_args = self._safe_json_loads(tc.arguments_raw)
-                    tool_result = handler.execute(tool_args, account_name=ctx.account_id)
+                    tool_result = handler.execute(tool_args, account_name=ctx.account_id, **handler_context)
                     tool_result_text = json.dumps(tool_result, ensure_ascii=False)
 
                 logging.info(

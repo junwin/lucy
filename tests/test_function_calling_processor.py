@@ -50,7 +50,16 @@ def test_tool_call_executes_handler_and_chains(make_proc, prompt_builder, llm_ad
     )
 
     assert out == "done"
-    assert handler.calls == [({"x": 1}, "acct1")]
+    # handler.calls is [(args, account_name, context_dict)]
+    assert len(handler.calls) == 1
+    assert handler.calls[0][0] == {"x": 1}
+    assert handler.calls[0][1] == "acct1"
+    # context dict should contain expected keys (account_name is NOT in context dict)
+    ctx = handler.calls[0][2]
+    assert ctx["primary_agent"] is not None
+    assert ctx["conversation_id"] == "c1"
+    # account_name is passed as explicit kwarg, not in context dict
+    assert "account_name" not in ctx
 
     first_call_kwargs = llm_adapter.call_model.call_args_list[0].kwargs
     second_call_kwargs = llm_adapter.call_model.call_args_list[1].kwargs
@@ -142,7 +151,12 @@ def test_bad_json_tool_args_falls_back_to_empty_dict(make_proc, prompt_builder, 
     )
 
     assert out == "ok"
-    assert handler.calls == [({}, "acct1")]
+    # handler.calls is [(args, account_name, context_dict)]
+    assert len(handler.calls) == 1
+    assert handler.calls[0][0] == {}
+    assert handler.calls[0][1] == "acct1"
+    ctx = handler.calls[0][2]
+    assert ctx["conversation_id"] == "c1"
 
 
 

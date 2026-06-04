@@ -2,87 +2,83 @@
 tags:
   - llm
   - protocol
-  - llmresponse
   - openai
-  - dataclasse
-  - temperature
-  - tool_choice
-  - store
-  - metadata
-  - previous_response_id
+  - response
+  - implementation
+  - llmresponse
+  - llmadapter
+  - implement
+  - module
+  - api
   - src/llm
 ---
 
-# `src/llm`
+# Module: `src/llm`
 
-## Purpose
-LLM abstraction layer. Defines a normalized interface (`LLMApi`) and adapter contract (`LLMAdapter`) so the rest of the codebase (e.g., the FunctionCallingProcessor) can stay mostly LLM-provider agnostic.
+## Key Classes
 
-## Source files
-- `src/llm/__init__.py` (exports public API; optional OpenAI imports)
-- `src/llm/interface.py` (`LLMApi` protocol)
-- `src/llm/adapter_interface.py` (`LLMAdapter` protocol)
-- `src/llm/dto.py` (normalized DTOs: `ToolCall`, `LLMUsage`, `LLMResponse`)
-- `src/llm/openai_responses_adapter.py` (`OpenAIResponsesAdapter`)
-- `src/llm/openai_responses.py` (`OpenAIResponsesApi` + extraction helpers)
-- `src/llm/deepseek_responses.py` (`DeepSeekApi`)
+| Class | Type | Description |
+|-------|------|-------------|
+| **LLMApi** | Protocol | Interface for calling an LLM. Defines `create_response()` returning a normalized `LLMResponse` DTO. |
+| **LLMAdapter** | Protocol | Protocol glue between FunctionCallingProcessor and a specific LLM API. |
+| **RouterApi** | LLMApi impl | Routes LLM requests by model name prefix: `deepseek*` → DeepSeekApi, everything else → OpenAIResponsesApi. |
+| **OpenAIResponsesApi** | LLMApi impl | OpenAI Responses API implementation with exponential backoff/retry. |
+| **OpenAIResponsesAdapter** | LLMAdapter impl | Adapter for OpenAI Responses API — normalizes tool calls, formats tool outputs. |
+| **DeepSeekApi** | LLMApi impl | DeepSeek API via OpenAI-compatible endpoint. Manages conversation context for tool responses. |
+| **ToolCall** | dataclass | Normalized tool call: `call_id`, `name`, `arguments_json`. |
+| **LLMUsage** | dataclass | Normalized usage info: `input_tokens`, `output_tokens`, `total_tokens`, `raw`. |
+| **LLMResponse** | dataclass | Normalized response: `response_id`, `model`, `output_text`, `tool_calls`, `usage`, `raw`. |
 
-## Key classes / protocols
-- **`LLMApi`** (`src/llm/interface.py`)
-  - Protocol for calling an LLM and returning a normalized `LLMResponse`.
-- **`LLMAdapter`** (`src/llm/adapter_interface.py`)
-  - Protocol glue between the FunctionCallingProcessor and a specific LLM API.
-  - Responsible for calling the model, extracting tool calls, formatting tool outputs, and reading text/response id.
-- **DTOs** (`src/llm/dto.py`)
-  - `ToolCall(call_id, name, arguments_json)`
-  - `LLMUsage(input_tokens, output_tokens, total_tokens, raw)`
-  - `LLMResponse(response_id, model, output_text, tool_calls, usage, raw)`
-- **`OpenAIResponsesAdapter`** (`src/llm/openai_responses_adapter.py`)
-  - Implements `LLMAdapter` on top of an `LLMApi`.
-  - Normalizes tool calls into `{id, name, arguments}` and tool outputs into `{type: function_call_output, call_id, output}`.
-- **`OpenAIResponsesApi`** (`src/llm/openai_responses.py`)
-  - Implements `LLMApi` using the OpenAI Responses API.
-  - Includes retry/backoff for common transient OpenAI errors.
-- **`DeepSeekApi`** (`src/llm/deepseek_responses.py`)
-  - Implements `LLMApi` using DeepSeek's OpenAI-compatible chat completions endpoint.
-  - Transforms OpenAI-shaped tool definitions to DeepSeek format.
-  - Manages conversation context manually (stores message history per `response_id`).
-  - Includes retry/backoff (reuses `_sleep_backoff` from `openai_responses.py`).
+## Source Files
+
+| File | Purpose |
+|------|---------|
+| `src/llm/__init__.py` | Module exports |
+| `src/llm/interface.py` | `LLMApi` Protocol definition |
+| `src/llm/adapter_interface.py` | `LLMAdapter` Protocol definition |
+| `src/llm/dto.py` | `ToolCall`, `LLMUsage`, `LLMResponse` dataclasses |
+| `src/llm/router_api.py` | `RouterApi` implementation |
+| `src/llm/openai_responses.py` | `OpenAIResponsesApi` implementation |
+| `src/llm/openai_responses_adapter.py` | `OpenAIResponsesAdapter` implementation |
+| `src/llm/deepseek_responses.py` | `DeepSeekApi` implementation |
 
 ## Dependencies
-- **stdlib:** `typing`, `dataclasses`, `json`, `logging`, `os`, `random`, `time`
-- **third-party:** `openai` (optional; module provides lightweight fallbacks when not installed)
-- **internal:** `src.config_manager.ConfigManager`
 
-## Methods in the module service/base class
-### `LLMApi` (service interface)
-- `create_response(*, model, input, temperature=None, tools=None, tool_choice=None, store=None, metadata=None, previous_response_id=None, text=None) -> LLMResponse`
+- **stdlib**: `json`, `os`, `logging`, `random`, `time`, `typing`
+- **external**: `openai` (OpenAI SDK)
+- **internal**: `src.config_manager.ConfigManager`
 
-### `LLMAdapter` (adapter interface)
-- `call_model(*, model, input, temperature=None, tools=None, tool_choice=None, store=None, metadata=None, previous_response_id=None, text=None) -> Any`
-- `extract_tool_calls(response) -> list[dict]`
-- `format_tool_output(*, call_id, output) -> dict`
-- `get_text(response) -> str`
-- `get_response_id(response) -> str | None`
+## LLMApi Protocol Methods
 
-### `OpenAIResponsesApi` (concrete service)
-- `__init__(*, client=None, max_attempts=4, backoff_base=0.5, backoff_cap=8.0)`
-- `_build_default_client() -> OpenAI`
-- `create_response(...) -> LLMResponse`
+```python
+def create_response(
+    *,
+    model: str,
+    input: Any,
+    temperature: Optional[float] = None,
+    tools: Optional[list[dict]] = None,
+    tool_choice: Optional[str] = None,
+    store: Optional[bool] = None,
+    metadata: Optional[Dict[str, Any]] = None,
+    previous_response_id: Optional[str] = None,
+    text: Optional[Dict[str, Any]] = None,
+) -> LLMResponse: ...
+```
 
-### `OpenAIResponsesAdapter` (concrete adapter)
-- `__init__(api: LLMApi)`
-- `call_model(...) -> Any`
-- `extract_tool_calls(response) -> list[dict]`
-- `format_tool_output(*, call_id, output) -> dict`
-- `get_text(response) -> str`
-- `get_response_id(response) -> str | None`
+## LLMAdapter Protocol Methods
 
-### `DeepSeekApi` (concrete service)
-- `__init__(*, client=None, max_attempts=4, backoff_base=0.5, backoff_cap=8.0)`
-- `_build_default_client() -> OpenAI`
-- `_transform_tools_for_deepseek(tools) -> list[dict]`
-- `_convert_tool_calls_to_assistant_message(tool_calls) -> dict`
-- `_normalize_input_to_messages(input, previous_response_id, previous_tool_calls) -> list[dict]`
-- `_validate_and_fix_messages(messages) -> list[dict]`
-- `create_response(...) -> LLMResponse`
+```python
+def call_model(...) -> Any: ...
+def extract_tool_calls(response) -> List[Dict[str, Any]]: ...
+def format_tool_output(*, call_id: str, output: str) -> Dict[str, Any]: ...
+def get_text(response) -> str: ...
+def get_response_id(response) -> Optional[str]: ...
+```
+
+## Module-level Helpers
+
+| Helper | Description |
+|--------|-------------|
+| `_extract_usage(usage_obj)` | Extracts `LLMUsage` from OpenAI response object |
+| `_extract_tool_calls(resp)` | Extracts `List[ToolCall]` from OpenAI response |
+| `_sleep_backoff(attempt, base, cap)` | Exponential backoff with jitter |

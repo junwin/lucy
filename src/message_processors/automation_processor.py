@@ -85,7 +85,7 @@ def _is_run_command(message: str) -> bool:
 
     # Free text
     text = raw.lower()
-    return (text in text or "execute" in text or "start" in text) and (
+    return ("run" in text or "execute" in text or "start" in text) and (
         "task" in text or "tasks" in text
     )
 
@@ -282,83 +282,38 @@ class AutomationProcessor(MessageProcessorInterface):
             )
 
     # ------------------------------------------------------------------
-    # Main processing
+    # Core execution logic
     # ------------------------------------------------------------------
 
-    def process_message(
+    def execute_tasklist(
         self,
         *,
+        tasklist_id: str,
+        mode: str,
+        account_name: str,
+        agent_name: str,
+        conversation_id: str,
+        context_name: str,
         primary_agent: Agent,
         account: Dict[str, Any],
-        message: str,
-        conversation_id: str = "0",
-        context_name: str = "",
         secondary_agent: Optional[Agent] = None,
         processor_factory: Optional[Any] = None,
     ) -> str:
-        agent_name = (getattr(primary_agent, "name", "") or "").lower().strip()
+        """Execute a persisted tasklist by ID.
 
-        # Keep context_name requirement for compatibility with the processor interface,
-        # but do not use it for tasklist access.
-        if not context_name:
-            logger.warning("AutomationProcessor missing context_name")
-            return "[AutomationProcessor] Missing context_name."
+        This is the core execution loop, extracted from process_message() so it
+        can be called directly (e.g. from a tool handler) without going through
+        JSON command parsing.
 
-        if not _is_run_command(message):
-            return (
-                "[AutomationProcessor] Unknown or invalid command. "
-                "Send JSON: {\\\"action\\\": \\\"run\\\", \\\"tasklist_id\\\": \\\"...\\\", \\\"mode\\\": \\\"multi-step\\\"}."
-            )
-
-        account_name = (account.get("accountId") or "").strip() or "(missing accountId)"
-
-        cmd, cmd_err = _parse_json_command(message)
-        if cmd_err:
-            return f"[AutomationProcessor] {cmd_err}"
-
-        if not cmd:
-            return (
-                "[AutomationProcessor] This processor now expects a JSON command. "
-                "Example: {\\\"action\\\": \\\"run\\\", \\\"tasklist_id\\\": \\\"my_tasklist_1\\\", \\\"mode\\\": \\\"multi-step\\\"}."
-            )
-
-        action = str(cmd.get("action") or "").lower().strip()
-        if action not in {"run", "execute", "start"}:
-            return (
-                "[AutomationProcessor] Unknown action. "
-                "Use {\\\"action\\\": \\\"run\\\", \\\"tasklist_id\\\": \\\"...\\\"}."
-            )
-
-        tasklist_id = str(cmd.get("tasklist_id") or "").strip()
-        if not tasklist_id:
-            return (
-                "[AutomationProcessor] Missing required field 'tasklist_id'. "
-                "Example: {\\\"action\\\": \\\"run\\\", \\\"tasklist_id\\\": \\\"my_tasklist_1\\\"}."
-            )
-
-        mode = str(cmd.get("mode") or "").strip() or "single-step"
-        if mode not in {"single-step", "multi-step"}:
-            return "[AutomationProcessor] Invalid mode. Use 'single-step' or 'multi-step'."
-
+        Returns a human-readable result string.
+        """
         logger.info(
-            "AutomationProcessor start agent=%s account=%s conversation_id=%s tasklist_id=%s mode=%s",
+            "execute_tasklist start agent=%s account=%s conversation_id=%s tasklist_id=%s mode=%s",
             agent_name,
             account_name,
             conversation_id,
             tasklist_id,
             mode,
-        )
-        logger.debug("Incoming message preview: %s", _safe_preview(message, 800))
-
-        # Write user command event to chat2
-        self._write_chat2_event(
-            conversation_id=conversation_id,
-            account_name=account_name,
-            agent_name=agent_name,
-            role="user",
-            kind="automation_command",
-            payload=message,
-            metadata={"tasklist_id": tasklist_id, "mode": mode},
         )
 
         try:
@@ -366,6 +321,13 @@ class AutomationProcessor(MessageProcessorInterface):
         except Exception as e:
             logger.exception("Failed loading tasklist from storage")
             return f"[AutomationProcessor] mode={mode} tasklist_id={tasklist_id} not found: {e}"
+
+        # --- Improved error handling: check for None first ---
+        if raw_tasklist is None:
+            return (
+                f"[AutomationProcessor] mode={mode} tasklist_id={tasklist_id} not found. "
+                "The tasklist does not exist in storage. Use tasklists_manage to list available tasklists."
+            )
 
         if not isinstance(raw_tasklist, TaskList):
             return (
@@ -635,4 +597,98 @@ class AutomationProcessor(MessageProcessorInterface):
         return (
             f"[AutomationProcessor] mode={mode} state={tasklist.state} {current_task_part} "
             f"executed={executed_count}{warning_part}"
+        )
+
+    # ------------------------------------------------------------------
+    # Main processing (thin wrapper around execute_tasklist)
+    # ------------------------------------------------------------------
+
+    def process_message(
+        self,
+        *,
+        primary_agent: Agent,
+        account: Dict[str, Any],
+        message: str,
+        conversation_id: str = "0",
+        context_name: str = "",
+        secondary_agent: Optional[Agent] = None,
+        processor_factory: Optional[Any] = None,
+    ) -> str:
+        agent_name = (getattr(primary_agent, "name", "") or "").lower().strip()
+
+        # Keep context_name requirement for compatibility with the processor interface,
+        # but do not use it for tasklist access.
+        if not context_name:
+            logger.warning("AutomationProcessor missing context_name")
+            return "[AutomationProcessor] Missing context_name."
+
+        if not _is_run_command(message):
+            return (
+                "[AutomationProcessor] Unknown or invalid command. "
+                "Send JSON: {\\\"action\\\": \\\"run\\\", \\\"tasklist_id\\\": \\\"...\\\", \\\"mode\\\": \\\"multi-step\\\"}."
+            )
+
+        account_name = (account.get("accountId") or "").strip() or "(missing accountId)"
+
+        cmd, cmd_err = _parse_json_command(message)
+        if cmd_err:
+            return f"[AutomationProcessor] {cmd_err}"
+
+        if not cmd:
+            return (
+                "[AutomationProcessor] This processor now expects a JSON command. "
+                "Example: {\\\"action\\\": \\\"run\\\", \\\"tasklist_id\\\": \\\"my_tasklist_1\\\", \\\"mode\\\": \\\"multi-step\\\"}."
+            )
+
+        action = str(cmd.get("action") or "").lower().strip()
+        if action not in {"run", "execute", "start"}:
+            return (
+                "[AutomationProcessor] Unknown action. "
+                "Use {\\\"action\\\": \\\"run\\\", \\\"tasklist_id\\\": \\\"...\\\"}."
+            )
+
+        tasklist_id = str(cmd.get("tasklist_id") or "").strip()
+        if not tasklist_id:
+            return (
+                "[AutomationProcessor] Missing required field 'tasklist_id'. "
+                "Example: {\\\"action\\\": \\\"run\\\", \\\"tasklist_id\\\": \\\"my_tasklist_1\\\"}."
+            )
+
+        mode = str(cmd.get("mode") or "").strip() or "single-step"
+        if mode not in {"single-step", "multi-step"}:
+            return "[AutomationProcessor] Invalid mode. Use 'single-step' or 'multi-step'."
+
+        logger.info(
+            "AutomationProcessor start agent=%s account=%s conversation_id=%s tasklist_id=%s mode=%s",
+            agent_name,
+            account_name,
+            conversation_id,
+            tasklist_id,
+            mode,
+        )
+        logger.debug("Incoming message preview: %s", _safe_preview(message, 800))
+
+        # Write user command event to chat2
+        self._write_chat2_event(
+            conversation_id=conversation_id,
+            account_name=account_name,
+            agent_name=agent_name,
+            role="user",
+            kind="automation_command",
+            payload=message,
+            metadata={"tasklist_id": tasklist_id, "mode": mode},
+        )
+
+        # Delegate to the extracted execution method.
+        return self.execute_tasklist(
+            tasklist_id=tasklist_id,
+            mode=mode,
+            account_name=account_name,
+            agent_name=agent_name,
+            conversation_id=conversation_id,
+            context_name=context_name,
+            primary_agent=primary_agent,
+            account=account,
+            secondary_agent=secondary_agent,
+            processor_factory=processor_factory,
         )

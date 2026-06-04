@@ -20,6 +20,7 @@ from src.handlers.scrape_web_page_handler2 import ScrapeWebPageHandler2
 from src.handlers.web_search_handler2 import WebSearchHandler2
 from src.handlers.delegate_tasks_handler import DelegateTasksHandler
 from src.handlers.tasklists_manage_handler import TasklistsManageHandler
+from src.handlers.tasklists_run_handler import TasklistsRunHandler
 
 logger = logging.getLogger(__name__)
 
@@ -63,6 +64,8 @@ def build_registry() -> HandlerRegistry:
     reg.register(DelegateTasksHandler)
     # Tasklist management (CRUD)
     reg.register(TasklistsManageHandler)
+    # Tasklist execution (run)
+    reg.register(TasklistsRunHandler)
 
     logger.info("Handler registry built with %d handlers.", len(reg.tool_names()))
     return reg

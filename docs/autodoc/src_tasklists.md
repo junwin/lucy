@@ -1,78 +1,98 @@
 ---
 tags:
-  - json
-  - module
-  - serialization
+  - tasklistservice
+  - dataclass
+  - description
   - to_dict
   - from_dict
   - to_json
-  - from_json
-  - doc
-  - source
-  - tasklistservice
+  - tasklistmodel
+  - storage
+  - module
   - boundary
-  - creation
   - src/tasklists
 ---
 
-# `src/tasklists`
+# Module: `src/tasklists`
 
-## Source files
-- `src/tasklists/__init__.py`
-- `src/tasklists/service.py`
-- `src/tasklists/task_list.py`
-- `src/tasklists/task.py`
-- `src/tasklists/task_states.py`
+## Key Classes
 
-## Key classes
-- **`TaskListService`** (`service.py`)
-  - Service boundary for tasklist creation/load/save/reset.
-  - Normalizes `TaskList.state` from task states.
+| Class | Type | File | Description |
+|-------|------|------|-------------|
+| `TaskListService` | Service | `service.py` | Single service boundary for create/load/save/reset operations on TaskList objects |
+| `TaskList` | Dataclass | `task_list.py` | Persisted task list with id, name, description, schema_version, state, tasks, meta, current_task_id, general_instructions |
+| `Task` | Dataclass | `task.py` | Single task with id, name, instructions, state, result, error, meta |
+| `_TaskListModel` | Pydantic model | `task_list.py` | Validation model for TaskList (schema_version=1, extra=forbid) |
+| `_TaskModel` | Pydantic model | `task.py` | Validation model for Task (extra=forbid) |
 
-- **`TaskList`** (`task_list.py`)
-  - Domain model for a task list: `tasks`, `state`, `meta`, `current_task_id`, `general_instructions`.
-  - Domain helpers: add/get tasks, update task state, set task result.
-  - Persistence helpers: dict/JSON serialization.
-  - Validation: Pydantic model `_TaskListModel` (extra fields forbidden, schema_version must be `1`).
+## Source Files
 
-- **`Task`** (`task.py`)
-  - Domain model for a task: `id`, `name`, `instructions`, `state`, `result`, `error`, `meta`.
-  - Persistence helpers: dict/JSON serialization.
-  - Validation: Pydantic model `_TaskModel` (extra fields forbidden).
-
-- **State constants** (`task_states.py`)
-  - TaskList states: `Created`, `Running`, `Completed`, `Failed`
-  - Task states: `Pending`, `Running`, `Completed`, `Completed (with errors)`, `Failed`, `Blocked`
+| File | Contents |
+|------|----------|
+| `src/tasklists/__init__.py` | Exports `Task`, `TaskList`, `TaskListService` |
+| `src/tasklists/service.py` | `TaskListService` class |
+| `src/tasklists/task_list.py` | `TaskList` dataclass + `_TaskListModel` Pydantic model |
+| `src/tasklists/task.py` | `Task` dataclass + `_TaskModel` Pydantic model |
+| `src/tasklists/task_states.py` | State constants (task list + task states) |
 
 ## Dependencies
-- **stdlib:** `json`, `uuid`, `dataclasses`, `typing`
-- **third-party:** `pydantic`
-- **internal:** `src.tasklists.task_states`
 
-## Methods in the module service/base class
-### `TaskListService`
-- `load(path: str) -> TaskList`
-- `create(name: str, description: str, *, meta: dict | None = None, general_instructions: str = "") -> TaskList`
-- `save(path: str, tasklist: TaskList) -> None`
-- `reset(tasklist: TaskList) -> TaskList`
-- `_normalize(tasklist: TaskList) -> None`
+### Internal consumers (import from this module)
 
-### `TaskList`
-- `__post_init__()`
-- `task_list() -> Iterable[Task]`
-- `get_task(id: str) -> Task | None`
-- `next_id() -> str`
-- `add_task(task: Task) -> None`
-- `update_task_state(id: str, new_state: str) -> None`
-- `set_task_result(id: str, result: dict, *, new_state: str | None = None, error: str | None = None) -> None`
-- `to_dict() -> dict`
-- `from_dict(data: dict, id: str | None = None) -> TaskList`
-- `to_json() -> str`
-- `from_json(json_str: str) -> TaskList`
+| Consumer | What it uses |
+|----------|-------------|
+| `src/handlers/tasklists_manage_handler.py` | `TaskList`, `TASK_LIST_STATE_CREATED`, `TASK_STATE_PENDING` |
+| `src/message_processors/automation_processor.py` | `Task`, `TaskList`, task states |
+| `src/message_processors/task_running_processor.py` | `TASK_STATE_PENDING` |
+| `src/storage/base.py` | `Task`, `TaskList` |
+| `src/storage/json_file_storage.py` | `TaskList`, `Task`, `TaskListService` |
 
-### `Task`
-- `__init__(id, name, instructions="", *, state="Pending", result=None, error=None, meta=None)`
-- `to_dict() -> dict`
-- `from_dict(data: dict) -> Task`
-- `to_json() -> str`
-- `from_json(s: str) -> Task`
+### External dependencies
+
+- `pydantic` — `BaseModel`, `Field`, `field_validator`
+- `json` — serialization/deserialization
+- `uuid` — ID generation
+- `dataclasses` — `@dataclass`, `field`
+- `typing` — type hints
+
+## Methods — Service / Base Class
+
+### `TaskListService` (service boundary)
+
+| Method | Signature | Description |
+|--------|-----------|-------------|
+| `load` | `(path: str) -> TaskList` | Load a TaskList from a JSON file path. Raises `FileNotFoundError`. |
+| `create` | `(name: str, description: str, *, meta: Optional[Dict[str, Any]] = None, general_instructions: str = "") -> TaskList` | Create a new TaskList with a generated UUID, schema_version=1, state=Created, empty tasks. |
+| `save` | `(path: str, tasklist: TaskList) -> None` | Normalize then save to a JSON file path. |
+| `reset` | `(tasklist: TaskList) -> TaskList` | Mutate the tasklist back to Created/Pending state (clears current_task_id, resets all task states/results/errors). |
+| `_normalize` | `(tasklist: TaskList) -> None` | Recompute tasklist.state from task states (private helper). |
+
+### `TaskList` (domain dataclass)
+
+| Method | Signature | Description |
+|--------|-----------|-------------|
+| `task_list` | `() -> Iterable[Task]` | Return all tasks as a list. |
+| `get_task` | `(id: str) -> Optional[Task]` | Find a task by ID. |
+| `next_id` | `() -> str` | Generate a new UUID string. |
+| `add_task` | `(task: Task) -> None` | Add or replace a task by ID. |
+| `update_task_state` | `(id: str, new_state: str) -> None` | Update a task's state by ID. |
+| `set_task_result` | `(id: str, result: Dict[str, Any], *, new_state: Optional[str] = None, error: Optional[str] = None) -> None` | Set a task's result, optional new state, optional error. |
+| `to_dict` | `() -> Dict[str, Any]` | Serialize to dict (conditional fields: current_task_id, general_instructions). |
+| `from_dict` | `(data: Dict[str, Any], id: Optional[str] = None) -> TaskList` | Deserialize from dict with Pydantic validation. |
+| `to_json` | `() -> str` | Serialize to JSON string. |
+| `from_json` | `(json_str: str) -> TaskList` | Deserialize from JSON string. |
+
+### `Task` (domain dataclass)
+
+| Method | Signature | Description |
+|--------|-----------|-------------|
+| `to_dict` | `() -> Dict[str, Any]` | Serialize to dict. |
+| `from_dict` | `(data: Dict[str, Any]) -> Task` | Deserialize from dict with Pydantic validation. |
+| `to_json` | `() -> str` | Serialize to compact JSON string. |
+| `from_json` | `(s: str) -> Task` | Deserialize from JSON string. |
+
+### State Constants (`task_states.py`)
+
+**Task list states:** `Created`, `Running`, `Completed`, `Failed`
+
+**Task states:** `Pending`, `Running`, `Completed`, `Completed (with errors)`, `Failed`, `Blocked`
