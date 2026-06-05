@@ -11,6 +11,7 @@ tags:
   - get_chats_impl
   - get_chat_impl
   - src/http_endpoints
+  - lucyproject
 ---
 
 # Module: `src/http_endpoints`

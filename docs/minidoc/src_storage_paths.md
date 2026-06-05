@@ -11,6 +11,7 @@ tags:
   - agent
   - account
   - src/storage_paths
+  - lucyproject
 ---
 
 # Module: `src/storage_paths`

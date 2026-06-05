@@ -11,6 +11,7 @@ tags:
   - chat2_store
   - dict[str
   - src/message_endpoints
+  - lucyproject
 ---
 
 # Module: `src/message_endpoints`

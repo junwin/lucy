@@ -33,6 +33,7 @@ from src.http_endpoints.tasklist_endpoints import (
     delete_tasklist_impl,
 )
 from src.http_endpoints.prompt_builder_endpoints import build_prompt_impl
+from src.http_endpoints.prompt_builder_debug_endpoints import prompt_builder_debug_impl
 from src.http_endpoints.documents_endpoints import search_documents_impl
 from src.http_endpoints.chats_endpoints import (
     post_chat_impl,
@@ -371,6 +372,14 @@ def get_agents():
 def build_prompt():
     payload = request.get_json() or {}
     body, status = build_prompt_impl(agent_manager, storage, container, config, payload)
+    return jsonify(body), status
+
+
+
+@app.route("/prompt_builder/debug", methods=["POST"])
+def prompt_builder_debug():
+    payload = request.get_json() or {}
+    body, status = prompt_builder_debug_impl(storage, config, payload)
     return jsonify(body), status
 
 

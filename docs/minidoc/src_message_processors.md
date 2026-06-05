@@ -11,6 +11,7 @@ tags:
   - path
   - functioncallingprocessor
   - src/message_processors
+  - lucyproject
 ---
 
 # Module: `src/message_processors`

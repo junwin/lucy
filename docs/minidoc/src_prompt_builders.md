@@ -11,6 +11,7 @@ tags:
   - config
   - chat2_store
   - src/prompt_builders
+  - lucyproject
 ---
 
 # Module: `src/prompt_builders`

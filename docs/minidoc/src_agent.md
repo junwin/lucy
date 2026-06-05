@@ -11,6 +11,7 @@ tags:
   - configuration
   - validate
   - src/agent
+  - lucyproject
 ---
 
 # Module: `src/agent`

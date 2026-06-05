@@ -11,6 +11,7 @@ tags:
   - module
   - api
   - src/llm
+  - lucyproject
 ---
 
 # Module: `src/llm`

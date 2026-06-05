@@ -11,6 +11,7 @@ tags:
   - list_session
   - add_event
   - src/chat2
+  - lucyproject
 ---
 
 # Module: `src/chat2` — Chat v2 Storage
