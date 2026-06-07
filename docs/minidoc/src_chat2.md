@@ -1,25 +1,29 @@
 ---
 tags:
-  - adapter
-  - chat2primitive
-  - module
-  - storage
-  - metadata
-  - chat2store
-  - wrapping
-  - delete_session
-  - list_session
-  - add_event
-  - src/chat2
+  - src_chat2
   - lucyproject
+  - Chat2Store
+  - Chat2Primitives
+  - StoreKey
+  - ChatEvent
+  - ChatSessionMeta
+  - JSONL
+  - JfsChat2Primitives
+  - FileChat2Primitives
+  - InMemoryStore
+  - prompt_slice
 ---
 
 # Module: `src/chat2` — Chat v2 Storage
 
+## Summary
+
+A storage abstraction layer for chat sessions and events. Provides media-neutral storage primitives, append-only JSONL event logs, multi-agent support, and backward compatibility with existing `JsonFileStorage`. Foundation for the chat curation feature.
+
 ## Key Classes
 
 | Class | File | Role |
-|-------|------|------|
+|---|---|---|
 | `Chat2Store` | `facade.py` | High-level facade wrapping `Chat2Primitives` |
 | `Chat2Primitives` | `store_primitives.py` | Protocol (interface) for any storage backend |
 | `InMemoryStore` | `store_primitives.py` | Dict-backed implementation for testing |
@@ -39,7 +43,7 @@ tags:
 ## Source Files (10)
 
 | File | Purpose |
-|------|---------|
+|---|---|
 | `__init__.py` | Module exports |
 | `models.py` | Pydantic domain models |
 | `store_primitives.py` | `StoreKey`, `Chat2Primitives` Protocol, `InMemoryStore` |

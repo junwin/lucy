@@ -1,61 +1,63 @@
 ---
 tags:
-  - llm
-  - protocol
-  - openai
-  - response
-  - implementation
-  - llmresponse
-  - llmadapter
-  - implement
-  - module
-  - api
-  - src/llm
+  - src_llm
   - lucyproject
+  - LLMApi
+  - LLMAdapter
+  - LLMResponse
+  - RouterApi
+  - OpenAIResponsesApi
+  - DeepSeekApi
+  - Protocol
+  - DTO
 ---
 
-# Module: `src/llm`
+# src/llm — LLM Abstraction Layer
+
+## Summary
+
+Provides a clean abstraction over LLM backends (OpenAI Responses API, DeepSeek Chat Completions API). Defines **protocols** (`LLMApi`, `LLMAdapter`) so the rest of the codebase never depends on a specific SDK. Includes a **router** that dispatches by model name, and a **normalized DTO** (`LLMResponse`) that decouples callers from raw API response shapes.
 
 ## Key Classes
 
-| Class | Type | Description |
-|-------|------|-------------|
-| **LLMApi** | Protocol | Interface for calling an LLM. Defines `create_response()` returning a normalized `LLMResponse` DTO. |
-| **LLMAdapter** | Protocol | Protocol glue between FunctionCallingProcessor and a specific LLM API. |
-| **RouterApi** | LLMApi impl | Routes LLM requests by model name prefix: `deepseek*` → DeepSeekApi, everything else → OpenAIResponsesApi. |
-| **OpenAIResponsesApi** | LLMApi impl | OpenAI Responses API implementation with exponential backoff/retry. |
-| **OpenAIResponsesAdapter** | LLMAdapter impl | Adapter for OpenAI Responses API — normalizes tool calls, formats tool outputs. |
-| **DeepSeekApi** | LLMApi impl | DeepSeek API via OpenAI-compatible endpoint. Manages conversation context for tool responses. |
-| **ToolCall** | dataclass | Normalized tool call: `call_id`, `name`, `arguments_json`. |
-| **LLMUsage** | dataclass | Normalized usage info: `input_tokens`, `output_tokens`, `total_tokens`, `raw`. |
-| **LLMResponse** | dataclass | Normalized response: `response_id`, `model`, `output_text`, `tool_calls`, `usage`, `raw`. |
+| Class | Role |
+|---|---|
+| `LLMApi` (Protocol) | Interface for calling an LLM — returns `LLMResponse` DTO |
+| `LLMAdapter` (Protocol) | Protocol glue between `FunctionCallingProcessor` and a specific LLM API |
+| `OpenAIResponsesApi` | OpenAI Responses API implementation with retry/backoff |
+| `OpenAIResponsesAdapter` | Adapter wrapping `OpenAIResponsesApi` for the processor |
+| `DeepSeekApi` | DeepSeek Chat Completions API (OpenAI-compatible endpoint) |
+| `RouterApi` | Routes requests to `DeepSeekApi` or `OpenAIResponsesApi` by model prefix |
+| `LLMResponse` | Frozen dataclass — normalized response DTO |
+| `LLMUsage` | Frozen dataclass — normalized token usage |
+| `ToolCall` | Frozen dataclass — normalized tool call |
 
 ## Source Files
 
-| File | Purpose |
-|------|---------|
-| `src/llm/__init__.py` | Module exports |
-| `src/llm/interface.py` | `LLMApi` Protocol definition |
-| `src/llm/adapter_interface.py` | `LLMAdapter` Protocol definition |
-| `src/llm/dto.py` | `ToolCall`, `LLMUsage`, `LLMResponse` dataclasses |
-| `src/llm/router_api.py` | `RouterApi` implementation |
-| `src/llm/openai_responses.py` | `OpenAIResponsesApi` implementation |
-| `src/llm/openai_responses_adapter.py` | `OpenAIResponsesAdapter` implementation |
-| `src/llm/deepseek_responses.py` | `DeepSeekApi` implementation |
+| File | Description |
+|---|---|
+| `__init__.py` | Exports public API: `LLMApi`, `LLMAdapter`, `LLMResponse`, `LLMUsage`, `ToolCall`, `OpenAIResponsesApi`, `OpenAIResponsesAdapter` |
+| `interface.py` | `LLMApi` protocol — single method `create_response(...)` |
+| `adapter_interface.py` | `LLMAdapter` protocol — `call_model`, `extract_tool_calls`, `format_tool_output`, `get_text`, `get_response_id` |
+| `dto.py` | Data classes: `ToolCall`, `LLMUsage`, `LLMResponse` |
+| `openai_responses.py` | `OpenAIResponsesApi` — calls OpenAI Responses API, retry/backoff logic, helper `_extract_tool_calls`, `_extract_usage` |
+| `openai_responses_adapter.py` | `OpenAIResponsesAdapter` — wraps `LLMApi` into `LLMAdapter` shape |
+| `deepseek_responses.py` | `DeepSeekApi` — calls DeepSeek via OpenAI-compatible `/chat/completions`, manages conversation context for tool calls |
+| `router_api.py` | `RouterApi` — dispatches by model name prefix (`"deepseek"` → DeepSeek, else OpenAI) |
 
 ## Dependencies
 
-- **stdlib**: `json`, `os`, `logging`, `random`, `time`, `typing`
-- **external**: `openai` (OpenAI SDK)
-- **internal**: `src.config_manager.ConfigManager`
+| Dependency | Usage |
+|---|---|
+| `openai` (SDK) | Required by `OpenAIResponsesApi` and `DeepSeekApi` |
+| `src.config_manager.ConfigManager` | Loads API credentials from `config.json` |
+| `json`, `os`, `time`, `random`, `logging` | Standard library — serialization, config paths, backoff, logging |
 
-## LLMApi Protocol Methods
+## Methods — `LLMApi` (Protocol)
 
 ```python
 def create_response(
-    *,
-    model: str,
-    input: Any,
+    self, *, model: str, input: Any,
     temperature: Optional[float] = None,
     tools: Optional[list[dict]] = None,
     tool_choice: Optional[str] = None,
@@ -63,23 +65,42 @@ def create_response(
     metadata: Optional[Dict[str, Any]] = None,
     previous_response_id: Optional[str] = None,
     text: Optional[Dict[str, Any]] = None,
-) -> LLMResponse: ...
+) -> LLMResponse
 ```
 
-## LLMAdapter Protocol Methods
+## Methods — `LLMAdapter` (Protocol)
 
-```python
-def call_model(...) -> Any: ...
-def extract_tool_calls(response) -> List[Dict[str, Any]]: ...
-def format_tool_output(*, call_id: str, output: str) -> Dict[str, Any]: ...
-def get_text(response) -> str: ...
-def get_response_id(response) -> Optional[str]: ...
-```
+| Method | Signature | Description |
+|---|---|---|
+| `call_model` | `(self, *, model, input, temperature, tools, tool_choice, store, metadata, previous_response_id, text) -> Any` | Calls the LLM, returns raw response |
+| `extract_tool_calls` | `(self, response: Any) -> List[Dict[str, Any]]` | Extracts tool calls in normalized shape `{id, name, arguments}` |
+| `format_tool_output` | `(self, *, call_id: str, output: str) -> Dict[str, Any]` | Formats tool result for the model's protocol |
+| `get_text` | `(self, response: Any) -> str` | Extracts text content from response |
+| `get_response_id` | `(self, response: Any) -> Optional[str]` | Extracts response ID for continuation |
 
-## Module-level Helpers
+## Methods — `OpenAIResponsesApi`
 
-| Helper | Description |
-|--------|-------------|
-| `_extract_usage(usage_obj)` | Extracts `LLMUsage` from OpenAI response object |
-| `_extract_tool_calls(resp)` | Extracts `List[ToolCall]` from OpenAI response |
-| `_sleep_backoff(attempt, base, cap)` | Exponential backoff with jitter |
+| Method | Signature | Description |
+|---|---|---|
+| `__init__` | `(self, *, client, max_attempts, backoff_base, backoff_cap)` | Accepts optional mock client, configures retry |
+| `create_response` | `(self, **kwargs) -> LLMResponse` | Calls OpenAI Responses API with retry/backoff |
+| `_build_default_client` | `(static) -> OpenAI` | Loads credentials from `oaicred.json` |
+
+## Methods — `DeepSeekApi`
+
+| Method | Signature | Description |
+|---|---|---|
+| `__init__` | `(self, *, client, max_attempts, backoff_base, backoff_cap)` | Accepts optional mock client, configures retry |
+| `create_response` | `(self, **kwargs) -> LLMResponse` | Calls DeepSeek `/chat/completions` with retry |
+| `_build_default_client` | `(static) -> OpenAI` | Loads credentials from `deepseek_cred.json` |
+| `_transform_tools_for_deepseek` | `(self, tools) -> Optional[list[dict]]` | Strips OpenAI-specific fields (`strict`, `additionalProperties`) |
+| `_normalize_input_to_messages` | `(self, input, previous_response_id, previous_tool_calls) -> List[Dict]` | Converts tool outputs + context into message list |
+| `_validate_and_fix_messages` | `(self, messages) -> List[Dict]` | Ensures proper message structure for DeepSeek |
+| `_convert_tool_calls_to_assistant_message` | `(self, tool_calls) -> Dict` | Builds assistant message with `tool_calls` array |
+
+## Methods — `RouterApi`
+
+| Method | Signature | Description |
+|---|---|---|
+| `__init__` | `(self, *, openai_api, deepseek_api)` | Accepts optional pre-built API instances |
+| `create_response` | `(self, **kwargs) -> LLMResponse` | Routes by model name prefix |

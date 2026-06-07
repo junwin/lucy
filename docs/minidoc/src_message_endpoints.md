@@ -1,70 +1,47 @@
 ---
 tags:
-  - storage
-  - module
-  - askrequesthandler
-  - agent_manager
-  - agentmanager
-  - config
-  - configmanager
-  - processor_factory
-  - chat2_store
-  - dict[str
-  - src/message_endpoints
+  - src_message_endpoints
   - lucyproject
+  - AskRequestHandler
+  - /ask
+  - session_resolution
+  - tasklist_autorun
 ---
 
-# Module: `src/message_endpoints`
+# Module: `src.message_endpoints`
+
+## Summary
+
+The `src.message_endpoints` package provides the **HTTP request handling layer** for Lucy's `/ask` endpoint. It contains a single class, `AskRequestHandler`, which orchestrates the full lifecycle of an incoming chat request: payload validation, agent lookup, session resolution (by ID or friendly name), context creation, processor dispatch, and optional tasklist auto-execution via `TaskRunner`.
+
+## Key Classes
+
+| Class | Purpose |
+|---|---|
+| `AskRequestHandler` | Handles `/ask` requests — validates payload, resolves/creates sessions, dispatches to a message processor, and optionally auto-runs delegated tasklists. |
 
 ## Source Files
 
 | File | Description |
-|------|-------------|
-| `src/message_endpoints/ask_request_handler.py` | Single file — no `__init__.py` |
-
-## Key Classes
-
-### `AskRequestHandler`
-
-Handles the `/ask` HTTP endpoint. Manages session resolution, delegates to a message processor, and optionally auto-runs tasklists via `TaskRunner`.
-
-**Constructor:**
-
-```python
-def __init__(
-    self,
-    agent_manager: AgentManager,
-    config: ConfigManager,
-    storage: Storage,
-    processor_factory: ProcessorFactory,
-    chat2_store: Optional[Chat2Store] = None,
-) -> None
-```
-
-**Methods:**
-
-| Method | Signature | Description |
-|--------|-----------|-------------|
-| `__init__` | `(self, agent_manager, config, storage, processor_factory, chat2_store=None) -> None` | Store dependencies |
-| `_maybe_autorun_tasklist` | `(self, *, primary_agent, secondary_agent, account, conversation_id, context_name, response_text) -> str` | If the LLM returned a `delegate_tasks` tasklist, execute it via `TaskRunner` |
-| `handle` | `(self, payload: Dict[str, Any]) -> Tuple[int, Dict[str, Any]]` | Process the `/ask` request — validate inputs, resolve/create session, call processor, return response |
+|---|---|
+| `ask_request_handler.py` | Single-file module containing `AskRequestHandler` class. No `__init__.py`. |
 
 ## Dependencies
 
-### Internal
+- **Standard library**: `json`, `logging`, `typing`
+- **Internal**:
+  - `src.agent.AgentManager`, `src.agent.Agent`
+  - `src.config_manager.ConfigManager`
+  - `src.storage.base.Storage`
+  - `src.storage.models.ChatMessage`
+  - `src.message_processors.processor_factory.ProcessorFactory`
+  - `src.message_processors.function_calling_processor.ToolHandlerError`
+  - `src.chat2.facade.Chat2Store`
 
-| Module | Imported Names |
-|--------|----------------|
-| `src.agent` | `AgentManager`, `Agent` |
-| `src.config_manager` | `ConfigManager` |
-| `src.storage.base` | `Storage` |
-| `src.message_processors.processor_factory` | `ProcessorFactory` |
-| `src.message_processors.function_calling_processor` | `ToolHandlerError` |
-| `src.storage.models` | `ChatMessage` |
-| `src.chat2.facade` | `Chat2Store` |
+## Methods — `AskRequestHandler`
 
-### Standard Library
-
-- `json`
-- `logging`
-- `typing` (`Any`, `Dict`, `Tuple`, `Optional`)
+| Method | Type | Signature | Description |
+|---|---|---|---|
+| `__init__` | instance | `(agent_manager: AgentManager, config: ConfigManager, storage: Storage, processor_factory: ProcessorFactory, chat2_store: Optional[Chat2Store] = None) -> None` | Store dependencies for request handling. |
+| `_maybe_autorun_tasklist` | instance | `(*, primary_agent: Agent, secondary_agent: Optional[Agent], account: Dict[str, Any], conversation_id: str, context_name: Optional[str], response_text: str) -> str` | If the processor response is a `delegate_tasks` tasklist JSON, execute it via `TaskRunner` and return the summary. |
+| `handle` | instance | `(payload: Dict[str, Any]) -> Tuple[int, Dict[str, Any]]` | Process the `/ask` request: validate fields, resolve/create session, dispatch to processor, return response or error. |
