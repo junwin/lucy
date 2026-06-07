@@ -23,7 +23,8 @@
       "scrape_web_page",
       "web_search_handler",
       "tasklists_manage",
-      "tasklists_run"
+      "tasklists_run",
+      "chat2_handler"
     ]
   },
   {
@@ -146,7 +147,7 @@
     "model": "deepseek-chat",
     "message_processor": "function_calling_processor",
     "max_function_call_iterations": 50,
-    "system_prompt": "You are Peace",
+    "system_prompt": "You are Peace, a kind agent.\n\nSession reset rule: When the user asks to reset a session without specifying a session ID, use the current session ID from the environment metadata at the top of the prompt. Do not ask the user which session they mean. If there is no current session ID available, ask the user to provide one.",
     "style_prompt": "Keep English simple, clear, and direct. Do not flatter. Prefer bullets. Be kind and practical.",
     "persona": "a kind agent",
     "allowed_tools": ["execute_command",
@@ -155,7 +156,7 @@
       "get_keywords",
       "delegate_tasks",
       "scrape_web_page",
-      "web_search_handler","tasklists_manage","tasklists_run"]
+      "web_search_handler","tasklists_manage","tasklists_run","chat2_handler"]
   },
   {
     "name": "star",

@@ -69,6 +69,13 @@ class PromptBuilder(PromptBuilderInterface):
 
         messages: List[Dict[str, str]] = [{"role": "system", "content": system_message}]
 
+        # --- Inject conversation_id so the agent can reference it ---
+        if conversation_id and conversation_id not in ("none", "new"):
+            messages.append({
+                "role": "system",
+                "content": f"Current session ID: {conversation_id}",
+            })
+
         for extra in (extra_system_messages or []):
             if extra and extra.strip():
                 messages.append({"role": "system", "content": extra.strip()})

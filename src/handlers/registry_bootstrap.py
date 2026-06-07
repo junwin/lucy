@@ -21,6 +21,7 @@ from src.handlers.web_search_handler2 import WebSearchHandler2
 from src.handlers.delegate_tasks_handler import DelegateTasksHandler
 from src.handlers.tasklists_manage_handler import TasklistsManageHandler
 from src.handlers.tasklists_run_handler import TasklistsRunHandler
+from src.handlers.chat2_handler import Chat2Handler
 
 logger = logging.getLogger(__name__)
 
@@ -66,6 +67,8 @@ def build_registry() -> HandlerRegistry:
     reg.register(TasklistsManageHandler)
     # Tasklist execution (run)
     reg.register(TasklistsRunHandler)
+    # Chat2 session management
+    reg.register(Chat2Handler)
 
     logger.info("Handler registry built with %d handlers.", len(reg.tool_names()))
     return reg
