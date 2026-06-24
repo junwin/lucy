@@ -6,12 +6,14 @@ from .dto import LLMResponse
 from .interface import LLMApi
 from .openai_responses import OpenAIResponsesApi
 from .deepseek_responses import DeepSeekApi
+from .mistral_api import MistralApi
 
 
 class RouterApi(LLMApi):
     """Routes LLM requests to the correct backend based on the model name.
 
-    - Model names starting with ``"deepseek"`` → ``DeepSeekApi``
+    - Model names starting with ``\"deepseek\"`` → ``DeepSeekApi``
+    - Model names starting with ``\"mistral\"`` → ``MistralApi``
     - All other model names → ``OpenAIResponsesApi``
     """
 
@@ -20,9 +22,11 @@ class RouterApi(LLMApi):
         *,
         openai_api: Optional[OpenAIResponsesApi] = None,
         deepseek_api: Optional[DeepSeekApi] = None,
+        mistral_api: Optional[MistralApi] = None,
     ) -> None:
         self._openai = openai_api or OpenAIResponsesApi()
         self._deepseek = deepseek_api or DeepSeekApi()
+        self._mistral = mistral_api or MistralApi()
 
     def create_response(
         self,
@@ -39,6 +43,18 @@ class RouterApi(LLMApi):
     ) -> LLMResponse:
         if model.startswith("deepseek"):
             return self._deepseek.create_response(
+                model=model,
+                input=input,
+                temperature=temperature,
+                tools=tools,
+                tool_choice=tool_choice,
+                store=store,
+                metadata=metadata,
+                previous_response_id=previous_response_id,
+                text=text,
+            )
+        if model.startswith("mistral"):
+            return self._mistral.create_response(
                 model=model,
                 input=input,
                 temperature=temperature,
