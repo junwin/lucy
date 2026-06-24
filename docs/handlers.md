@@ -1,6 +1,6 @@
 # Handlers
 
-This repo exposes “tools” to the LLM via the **handlers** module (`src/handlers`).
+This repo exposes "tools" to the LLM via the **handlers** module (`src/handlers`).
 
 A handler is a small, pluggable unit that:
 
@@ -35,7 +35,7 @@ Concrete handlers (tools):
 - `scrape_web_page_handler2.py` – `scrape_web_page`
 - `web_search_handler2.py` – `web_search`
 - `get_keywords_handler.py` – `get_keywords` (optional deps)
-- `plan_tasks_handler.py` – `plan_tasks`
+- `delegate_tasks_handler.py` – `delegate_tasks`
 
 ---
 
@@ -43,7 +43,7 @@ Concrete handlers (tools):
 
 File: `src/handlers/handler_v2.py`
 
-`HandlerV2` is the “classic” tool interface:
+`HandlerV2` is the "classic" tool interface:
 
 - `@classmethod def name(cls) -> str`
 - `@classmethod def tool_def(cls) -> Dict[str, Any]`
@@ -136,7 +136,7 @@ Optional:
 
 Also registered:
 
-- `PlanTasksHandler` (`plan_tasks`)
+- `DelegateTasksHandler` (`delegate_tasks`)
 
 ---
 
@@ -182,13 +182,13 @@ To avoid false positives the detection is intentionally minimal and conservative
 If a caller receives a failure due to detected shell syntax, the recommended fix is to wrap the intended command in a shell invocation, e.g.:
 
 ```
-command: "bash -lc 'printf "line1\nline2\n" | grep line'"
+command: "bash -lc 'printf \"line1\\nline2\\n\" | grep line'"
 ```
 
 or, for heredoc usage specifically:
 
 ```
-command: "bash -lc 'cat <<EOF\nhello\nEOF\n'"
+command: "bash -lc 'cat <<EOF\\nhello\\nEOF\\n'"
 ```
 
 This rule is intended to be the simplest safe guard against accidental hangs (heredoc) while allowing explicit shell usage via wrappers. The detection is purposely minimal to avoid false positives for wrapped commands or for strings that merely contain `<<` in non-shell contexts.
@@ -210,7 +210,7 @@ This is enforced by the file and command handlers (and by `handler_utils.get_bas
 
 ## When to use which base class
 
-- Use **`HandlerV2`** when you want the simplest implementation and you’re OK with “best effort” validation.
+- Use **`HandlerV2`** when you want the simplest implementation and you're OK with "best effort" validation.
 - Use **`SchemaHandlerV2`** when you want strict argument/result validation and standardized error handling.
 
 If you want, I can also update this doc to include a short per-tool table of parameters and result fields for each concrete handler (based on the current code).

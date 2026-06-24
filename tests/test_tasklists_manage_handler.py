@@ -1,4 +1,5 @@
 from src.handlers.tasklists_manage_handler import TasklistsManageHandler
+from src.tasklists.task_states import TASK_LIST_STATE_CREATED, TASK_LIST_STATE_COMPLETED, TASK_STATE_PENDING, TASK_STATE_COMPLETED
 
 
 class SimpleConfig:
@@ -134,3 +135,458 @@ def test_general_instructions_roundtrip(tmp_path):
     assert got.get("ok") is True
     tl = got.get("tasklist")
     assert tl.get("general_instructions") == "Please follow these steps."
+
+
+def test_reset_missing(tmp_path):
+    cfg = SimpleConfig(str(tmp_path), "ns")
+    h = TasklistsManageHandler(cfg)
+
+    r = h.execute({"action": "reset", "tasklist_name": "nope", "tasklist": {}, "validate_only": False}, account_name="alice")
+    assert r.get("ok") is False
+    assert r.get("error", {}).get("code") == "not_found"
+
+
+def test_reset_clears_states(tmp_path):
+    cfg = SimpleConfig(str(tmp_path), "ns")
+    h = TasklistsManageHandler(cfg)
+
+    # Create a completed tasklist
+    payload = {
+        "schema_version": 1,
+        "id": "tl-reset",
+        "name": "Reset Test",
+        "description": "desc",
+        "state": TASK_LIST_STATE_COMPLETED,
+        "current_task_id": "task-2",
+        "tasks": [
+            {"id": "task-1", "name": "T1", "instructions": "do 1", "state": TASK_STATE_COMPLETED, "result": {"ok": True}, "error": None},
+            {"id": "task-2", "name": "T2", "instructions": "do 2", "state": TASK_STATE_COMPLETED, "result": {"ok": True}, "error": None},
+        ],
+    }
+    r = h.execute({"action": "put", "tasklist_name": "tl-reset", "tasklist": payload, "validate_only": False}, account_name="alice")
+    assert r.get("ok") is True
+
+    # Reset it
+    r2 = h.execute({"action": "reset", "tasklist_name": "tl-reset", "tasklist": {}, "validate_only": False}, account_name="alice")
+    assert r2.get("ok") is True
+    tl = r2.get("tasklist")
+    assert tl is not None
+    assert tl["state"] == TASK_LIST_STATE_CREATED
+    assert tl.get("current_task_id") is None
+
+    for task in tl["tasks"]:
+        assert task["state"] == TASK_STATE_PENDING
+        assert task.get("result") is None
+        assert task.get("error") is None
+
+
+def test_reset_validate_only(tmp_path):
+    cfg = SimpleConfig(str(tmp_path), "ns")
+    h = TasklistsManageHandler(cfg)
+
+    payload = {
+        "schema_version": 1,
+        "id": "tl-reset-vo",
+        "name": "Reset VO",
+        "description": "desc",
+        "state": TASK_LIST_STATE_COMPLETED,
+        "tasks": [
+            {"id": "task-1", "name": "T1", "instructions": "do 1", "state": TASK_STATE_COMPLETED, "result": {"ok": True}},
+        ],
+    }
+    r = h.execute({"action": "put", "tasklist_name": "tl-reset-vo", "tasklist": payload, "validate_only": False}, account_name="alice")
+    assert r.get("ok") is True
+
+    # Reset with validate_only=True — should return reset state but NOT persist
+    r2 = h.execute({"action": "reset", "tasklist_name": "tl-reset-vo", "tasklist": {}, "validate_only": True}, account_name="alice")
+    assert r2.get("ok") is True
+    tl = r2.get("tasklist")
+    assert tl["state"] == TASK_LIST_STATE_CREATED
+    for task in tl["tasks"]:
+        assert task["state"] == TASK_STATE_PENDING
+
+    # Verify storage still has the original completed state
+    r3 = h.execute({"action": "get", "tasklist_name": "tl-reset-vo", "tasklist": {}, "validate_only": False}, account_name="alice")
+    assert r3.get("ok") is True
+    tl_stored = r3.get("tasklist")
+    assert tl_stored["state"] == TASK_LIST_STATE_COMPLETED
+
+
+# ------------------------------------------------------------------
+# Patch action tests
+# ------------------------------------------------------------------
+
+
+def _create_tl(h, account, name, tasks=None):
+    """Helper: create a simple tasklist and return its name."""
+    payload = {
+        "schema_version": 1,
+        "id": name,
+        "name": name,
+        "description": "test",
+        "tasks": tasks or [],
+    }
+    r = h.execute({"action": "put", "tasklist_name": name, "tasklist": payload, "validate_only": False}, account_name=account)
+    assert r.get("ok") is True
+    return name
+
+
+def test_patch_missing_name(tmp_path):
+    cfg = SimpleConfig(str(tmp_path), "ns")
+    h = TasklistsManageHandler(cfg)
+    r = h.execute({"action": "patch", "tasklist_name": "", "tasklist": {}, "validate_only": False}, account_name="alice")
+    assert r.get("ok") is False
+    assert r.get("error", {}).get("code") == "missing_name"
+
+
+def test_patch_not_found(tmp_path):
+    cfg = SimpleConfig(str(tmp_path), "ns")
+    h = TasklistsManageHandler(cfg)
+    r = h.execute(
+        {"action": "patch", "tasklist_name": "nope", "tasklist": {"operations": [{"op": "set_name", "name": "X"}]}, "validate_only": False},
+        account_name="alice",
+    )
+    assert r.get("ok") is False
+    assert r.get("error", {}).get("code") == "not_found"
+
+
+def test_patch_empty_operations(tmp_path):
+    cfg = SimpleConfig(str(tmp_path), "ns")
+    h = TasklistsManageHandler(cfg)
+    _create_tl(h, "alice", "tl-empty-op")
+    r = h.execute(
+        {"action": "patch", "tasklist_name": "tl-empty-op", "tasklist": {"operations": []}, "validate_only": False},
+        account_name="alice",
+    )
+    assert r.get("ok") is False
+    assert r.get("error", {}).get("code") == "empty_operations"
+
+
+def test_patch_add_task_append(tmp_path):
+    cfg = SimpleConfig(str(tmp_path), "ns")
+    h = TasklistsManageHandler(cfg)
+    _create_tl(h, "alice", "tl-add-append")
+
+    r = h.execute(
+        {
+            "action": "patch",
+            "tasklist_name": "tl-add-append",
+            "tasklist": {
+                "operations": [
+                    {"op": "add_task", "task": {"id": "t1", "name": "Task 1", "instructions": "do step 1"}},
+                ]
+            },
+            "validate_only": False,
+        },
+        account_name="alice",
+    )
+    assert r.get("ok") is True
+    tl = r.get("tasklist")
+    assert len(tl["tasks"]) == 1
+    assert tl["tasks"][0]["id"] == "t1"
+
+
+def test_patch_add_task_at_index(tmp_path):
+    cfg = SimpleConfig(str(tmp_path), "ns")
+    h = TasklistsManageHandler(cfg)
+    _create_tl(h, "alice", "tl-add-idx", tasks=[
+        {"id": "a", "name": "A", "instructions": "a"},
+        {"id": "b", "name": "B", "instructions": "b"},
+    ])
+
+    r = h.execute(
+        {
+            "action": "patch",
+            "tasklist_name": "tl-add-idx",
+            "tasklist": {
+                "operations": [
+                    {"op": "add_task", "after_index": 0, "task": {"id": "c", "name": "C", "instructions": "c"}},
+                ]
+            },
+            "validate_only": False,
+        },
+        account_name="alice",
+    )
+    assert r.get("ok") is True
+    tl = r.get("tasklist")
+    assert len(tl["tasks"]) == 3
+    # C should be inserted after index 0, so at position 1
+    assert tl["tasks"][1]["id"] == "c"
+
+
+def test_patch_update_task(tmp_path):
+    cfg = SimpleConfig(str(tmp_path), "ns")
+    h = TasklistsManageHandler(cfg)
+    _create_tl(h, "alice", "tl-upd", tasks=[
+        {"id": "t1", "name": "Old Name", "instructions": "old"},
+    ])
+
+    r = h.execute(
+        {
+            "action": "patch",
+            "tasklist_name": "tl-upd",
+            "tasklist": {
+                "operations": [
+                    {"op": "update_task", "index": 0, "task": {"name": "New Name", "instructions": "new instructions"}},
+                ]
+            },
+            "validate_only": False,
+        },
+        account_name="alice",
+    )
+    assert r.get("ok") is True
+    tl = r.get("tasklist")
+    assert tl["tasks"][0]["name"] == "New Name"
+    assert tl["tasks"][0]["instructions"] == "new instructions"
+    # id should remain unchanged
+    assert tl["tasks"][0]["id"] == "t1"
+
+
+def test_patch_remove_task(tmp_path):
+    cfg = SimpleConfig(str(tmp_path), "ns")
+    h = TasklistsManageHandler(cfg)
+    _create_tl(h, "alice", "tl-rm", tasks=[
+        {"id": "t1", "name": "T1", "instructions": "do 1"},
+        {"id": "t2", "name": "T2", "instructions": "do 2"},
+    ])
+
+    r = h.execute(
+        {
+            "action": "patch",
+            "tasklist_name": "tl-rm",
+            "tasklist": {
+                "operations": [
+                    {"op": "remove_task", "index": 0},
+                ]
+            },
+            "validate_only": False,
+        },
+        account_name="alice",
+    )
+    assert r.get("ok") is True
+    tl = r.get("tasklist")
+    assert len(tl["tasks"]) == 1
+    assert tl["tasks"][0]["id"] == "t2"
+
+
+def test_patch_remove_task_out_of_range(tmp_path):
+    cfg = SimpleConfig(str(tmp_path), "ns")
+    h = TasklistsManageHandler(cfg)
+    _create_tl(h, "alice", "tl-rm-oob", tasks=[
+        {"id": "t1", "name": "T1", "instructions": "do 1"},
+    ])
+
+    r = h.execute(
+        {
+            "action": "patch",
+            "tasklist_name": "tl-rm-oob",
+            "tasklist": {
+                "operations": [
+                    {"op": "remove_task", "index": 5},
+                ]
+            },
+            "validate_only": False,
+        },
+        account_name="alice",
+    )
+    assert r.get("ok") is False
+    assert r.get("error", {}).get("code") == "operation_failed"
+
+
+def test_patch_update_meta(tmp_path):
+    cfg = SimpleConfig(str(tmp_path), "ns")
+    h = TasklistsManageHandler(cfg)
+    _create_tl(h, "alice", "tl-meta")
+
+    r = h.execute(
+        {
+            "action": "patch",
+            "tasklist_name": "tl-meta",
+            "tasklist": {
+                "operations": [
+                    {"op": "update_meta", "meta": {"key1": "val1", "key2": 42}},
+                ]
+            },
+            "validate_only": False,
+        },
+        account_name="alice",
+    )
+    assert r.get("ok") is True
+    tl = r.get("tasklist")
+    assert tl["meta"]["key1"] == "val1"
+    assert tl["meta"]["key2"] == 42
+
+
+def test_patch_set_general_instructions(tmp_path):
+    cfg = SimpleConfig(str(tmp_path), "ns")
+    h = TasklistsManageHandler(cfg)
+    _create_tl(h, "alice", "tl-gi")
+
+    r = h.execute(
+        {
+            "action": "patch",
+            "tasklist_name": "tl-gi",
+            "tasklist": {
+                "operations": [
+                    {"op": "set_general_instructions", "instructions": "Follow these steps carefully."},
+                ]
+            },
+            "validate_only": False,
+        },
+        account_name="alice",
+    )
+    assert r.get("ok") is True
+    tl = r.get("tasklist")
+    assert tl["general_instructions"] == "Follow these steps carefully."
+
+
+def test_patch_set_name(tmp_path):
+    cfg = SimpleConfig(str(tmp_path), "ns")
+    h = TasklistsManageHandler(cfg)
+    _create_tl(h, "alice", "tl-rename")
+
+    r = h.execute(
+        {
+            "action": "patch",
+            "tasklist_name": "tl-rename",
+            "tasklist": {
+                "operations": [
+                    {"op": "set_name", "name": "New Name"},
+                ]
+            },
+            "validate_only": False,
+        },
+        account_name="alice",
+    )
+    assert r.get("ok") is True
+    tl = r.get("tasklist")
+    assert tl["name"] == "New Name"
+
+
+def test_patch_set_description(tmp_path):
+    cfg = SimpleConfig(str(tmp_path), "ns")
+    h = TasklistsManageHandler(cfg)
+    _create_tl(h, "alice", "tl-desc")
+
+    r = h.execute(
+        {
+            "action": "patch",
+            "tasklist_name": "tl-desc",
+            "tasklist": {
+                "operations": [
+                    {"op": "set_description", "description": "New description"},
+                ]
+            },
+            "validate_only": False,
+        },
+        account_name="alice",
+    )
+    assert r.get("ok") is True
+    tl = r.get("tasklist")
+    assert tl["description"] == "New description"
+
+
+def test_patch_unknown_operation(tmp_path):
+    cfg = SimpleConfig(str(tmp_path), "ns")
+    h = TasklistsManageHandler(cfg)
+    _create_tl(h, "alice", "tl-unknown-op")
+
+    r = h.execute(
+        {
+            "action": "patch",
+            "tasklist_name": "tl-unknown-op",
+            "tasklist": {
+                "operations": [
+                    {"op": "do_something_weird"},
+                ]
+            },
+            "validate_only": False,
+        },
+        account_name="alice",
+    )
+    assert r.get("ok") is False
+    assert r.get("error", {}).get("code") == "operation_failed"
+
+
+def test_patch_multiple_operations(tmp_path):
+    cfg = SimpleConfig(str(tmp_path), "ns")
+    h = TasklistsManageHandler(cfg)
+    _create_tl(h, "alice", "tl-multi", tasks=[
+        {"id": "t1", "name": "T1", "instructions": "do 1"},
+    ])
+
+    r = h.execute(
+        {
+            "action": "patch",
+            "tasklist_name": "tl-multi",
+            "tasklist": {
+                "operations": [
+                    {"op": "add_task", "task": {"id": "t2", "name": "T2", "instructions": "do 2"}},
+                    {"op": "update_task", "index": 0, "task": {"instructions": "updated 1"}},
+                    {"op": "set_general_instructions", "instructions": "General guide"},
+                    {"op": "update_meta", "meta": {"source": "test"}},
+                ]
+            },
+            "validate_only": False,
+        },
+        account_name="alice",
+    )
+    assert r.get("ok") is True
+    tl = r.get("tasklist")
+    assert len(tl["tasks"]) == 2
+    assert tl["tasks"][0]["instructions"] == "updated 1"
+    assert tl["tasks"][1]["id"] == "t2"
+    assert tl["general_instructions"] == "General guide"
+    assert tl["meta"]["source"] == "test"
+
+
+def test_patch_validate_only(tmp_path):
+    cfg = SimpleConfig(str(tmp_path), "ns")
+    h = TasklistsManageHandler(cfg)
+    _create_tl(h, "alice", "tl-patch-vo", tasks=[
+        {"id": "t1", "name": "T1", "instructions": "do 1"},
+    ])
+
+    # Patch with validate_only=True
+    r = h.execute(
+        {
+            "action": "patch",
+            "tasklist_name": "tl-patch-vo",
+            "tasklist": {
+                "operations": [
+                    {"op": "add_task", "task": {"id": "t2", "name": "T2", "instructions": "do 2"}},
+                ]
+            },
+            "validate_only": True,
+        },
+        account_name="alice",
+    )
+    assert r.get("ok") is True
+    tl = r.get("tasklist")
+    assert len(tl["tasks"]) == 2  # returned with patch applied
+
+    # Verify storage still has original (1 task)
+    r2 = h.execute({"action": "get", "tasklist_name": "tl-patch-vo", "tasklist": {}, "validate_only": False}, account_name="alice")
+    assert r2.get("ok") is True
+    assert len(r2["tasklist"]["tasks"]) == 1
+
+
+def test_patch_json_string_payload(tmp_path):
+    """Patch should accept a JSON string payload."""
+    cfg = SimpleConfig(str(tmp_path), "ns")
+    h = TasklistsManageHandler(cfg)
+    _create_tl(h, "alice", "tl-json-str")
+
+    import json
+    payload_str = json.dumps({
+        "operations": [
+            {"op": "add_task", "task": {"id": "t1", "name": "T1", "instructions": "do it"}},
+        ]
+    })
+    r = h.execute(
+        {"action": "patch", "tasklist_name": "tl-json-str", "tasklist": payload_str, "validate_only": False},
+        account_name="alice",
+    )
+    assert r.get("ok") is True
+    tl = r.get("tasklist")
+    assert len(tl["tasks"]) == 1

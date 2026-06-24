@@ -170,8 +170,8 @@ class FakeHandler:
         self._exc = exc
         self.calls: List[Any] = []
 
-    def execute(self, args: Dict[str, Any], account_name: Optional[str] = None) -> Any:
-        self.calls.append((args, account_name))
+    def execute(self, args: Dict[str, Any], account_name: Optional[str] = None, **context) -> Any:
+        self.calls.append((args, account_name, context))
         if self._exc is not None:
             raise self._exc
         return self._result

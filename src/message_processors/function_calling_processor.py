@@ -297,6 +297,25 @@ class FunctionCallingProcessor(MessageProcessorInterface):
     ) -> List[Dict[str, Any]]:
         tool_output_items: List[Dict[str, Any]] = []
 
+        # Build the shared execution context for handlers that need it
+        # (e.g. TasklistsRunHandler needs primary_agent, account, conversation_id, etc.)
+        # NOTE: account_name is NOT included here — it's passed explicitly to execute().
+        handler_context: Dict[str, Any] = {
+            "primary_agent": primary_agent,
+            "secondary_agent": secondary_agent,
+            "processor_factory": processor_factory,
+            "account": account,
+            "conversation_id": ctx.conversation_id,
+            "context_name": ctx.context_name,
+            "agent_name": ctx.agent_name,
+            "storage": getattr(self, "_storage", None),
+            "registry": self.registry,
+            "prompt_builder": self.prompt_builder,
+            "config": self.config,
+            "chat2_store": self.chat2_store,
+            "llm_adapter": self.llm_adapter,
+        }
+
         for tc in tool_calls:
             metrics["tool_calls"] += 1
 
@@ -320,7 +339,7 @@ class FunctionCallingProcessor(MessageProcessorInterface):
                     tool_result_text = handler.execute_raw(tc.arguments_raw, account_name=ctx.account_id, call_id=tc.call_id)  # type: ignore[attr-defined]
                 else:
                     tool_args = self._safe_json_loads(tc.arguments_raw)
-                    tool_result = handler.execute(tool_args, account_name=ctx.account_id)
+                    tool_result = handler.execute(tool_args, account_name=ctx.account_id, **handler_context)
                     tool_result_text = json.dumps(tool_result, ensure_ascii=False)
 
                 logging.info(
@@ -330,7 +349,7 @@ class FunctionCallingProcessor(MessageProcessorInterface):
                     (tool_result_text or "")[:200],
                 )
 
-                if tc.name == "plan_tasks" and secondary_agent is not None and processor_factory is not None:
+                if tc.name == "delegate_tasks" and secondary_agent is not None and processor_factory is not None:
                     try:
                         maybe = json.loads(tool_result_text or "{}")
                     except Exception:
@@ -338,7 +357,7 @@ class FunctionCallingProcessor(MessageProcessorInterface):
 
                     if isinstance(maybe, dict) and maybe.get("ok") and maybe.get("kind") == "tasklist":
                         logging.info(
-                            "FunctionCallingProcessor: executing tasklist from plan_tasks using supervisor=%s worker=%s session_id=%s call_id=%s",
+                            "FunctionCallingProcessor: executing tasklist from delegate_tasks using supervisor=%s worker=%s session_id=%s call_id=%s",
                             ctx.agent_name,
                             secondary_agent.name,
                             ctx.conversation_id,
@@ -373,6 +392,22 @@ class FunctionCallingProcessor(MessageProcessorInterface):
 
 
 
+    def _tool_calls_are_duplicate(
+        self,
+        current: List[_ToolCall],
+        previous: List[_ToolCall],
+    ) -> bool:
+        """Return True if current tool calls are identical to previous (same names + same arguments)."""
+        if not previous or not current:
+            return False
+        if len(current) != len(previous):
+            return False
+        for c, p in zip(current, previous):
+            if c.name != p.name or c.arguments_raw != p.arguments_raw:
+                return False
+        return True
+
+
     def _run_llm_loop(
         self,
         *,
@@ -387,6 +422,7 @@ class FunctionCallingProcessor(MessageProcessorInterface):
     ) -> str:
         response_text = ""
         previous_response_id: Optional[str] = None
+        previous_tool_calls: Optional[List[_ToolCall]] = None
 
         next_input_items: List[Dict[str, Any]] = prompt_messages
 
@@ -422,6 +458,27 @@ class FunctionCallingProcessor(MessageProcessorInterface):
             tool_calls = self._wrap_tool_calls(tool_calls_raw)
 
             if tool_calls:
+                # --- Duplicate tool call detection ---
+                if self._tool_calls_are_duplicate(tool_calls, previous_tool_calls):
+                    logging.warning(
+                        "FunctionCallingProcessor: duplicate tool calls detected at iteration=%d/%d "
+                        "agent=%s session_id=%s tool_count=%d. Breaking loop.",
+                        iteration,
+                        ctx.max_iterations,
+                        ctx.agent_name,
+                        ctx.conversation_id,
+                        len(tool_calls),
+                    )
+                    response_text = (
+                        "I noticed I was repeating the same tool call without making progress. "
+                        "I've stopped to avoid getting stuck in a loop. "
+                        "Please rephrase your request or be more specific about what you need."
+                    )
+                    break
+
+                previous_tool_calls = tool_calls
+                # --- End duplicate detection ---
+
                 if not previous_response_id:
                     metrics["failures"] += 1
                     raise ToolHandlerError(

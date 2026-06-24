@@ -11,6 +11,13 @@ except Exception:
     OpenAIResponsesApi = None
     OpenAIResponsesAdapter = None
 
+try:
+    from .mistral_api import MistralApi
+    from .mistral_responses_adapter import MistralResponsesAdapter
+except Exception:
+    MistralApi = None
+    MistralResponsesAdapter = None
+
 __all__ = [
     "LLMApi",
     "LLMAdapter",
@@ -19,4 +26,6 @@ __all__ = [
     "ToolCall",
     "OpenAIResponsesApi",
     "OpenAIResponsesAdapter",
+    "MistralApi",
+    "MistralResponsesAdapter",
 ]
