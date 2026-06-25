@@ -44,6 +44,7 @@ from src.http_endpoints.chats_endpoints import (
     update_chat_impl,
 )
 from src.chat2.facade import Chat2Store
+from src.api_key import validate_api_key
 
 
 # -----------------------------------------------------------------------------
@@ -161,6 +162,46 @@ def _set_request_id() -> None:
     rid = (request.headers.get("X-Request-Id") or "").strip() or str(uuid.uuid4())
     request_id_var.set(rid)
     request._lucy_start_ts = time.perf_counter()  # type: ignore[attr-defined]
+
+
+@app.before_request
+def _check_api_key() -> None:
+    """Validate API key on every request (except Swagger UI static routes and OPTIONS preflight).
+
+    Reads X-API-Key header and checks against config. If validation fails,
+    the request is aborted with a 401 response.
+    """
+    # Skip API key check for Swagger UI static assets, the spec file, and CORS preflight
+    if request.path.startswith("/api/docs") or request.path == "/swagger.json":
+        return
+    if request.method == "OPTIONS":
+        return
+
+    # Extract key from X-API-Key header, fallback to Authorization: Bearer
+    api_key = request.headers.get("X-API-Key")
+    if not api_key:
+        auth_header = request.headers.get("Authorization", "")
+        if auth_header.startswith("Bearer "):
+            api_key = auth_header[7:]
+
+    valid, key_name = validate_api_key(config, api_key)
+    if not valid:
+        logging.warning(
+            "API key rejected for path=%s method=%s",
+            request.path,
+            request.method,
+        )
+        # Store the rejection flag so after_request can set the status
+        request._api_key_rejected = True  # type: ignore[attr-defined]
+
+
+@app.after_request
+def _enforce_api_key(response):
+    """If the API key check failed, override the response to 401."""
+    if getattr(request, "_api_key_rejected", False):
+        response = jsonify({"error": "Unauthorized. Provide a valid API key via X-API-Key header."})
+        response.status_code = 401
+    return response
 
 
 @app.after_request
