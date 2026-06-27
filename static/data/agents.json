@@ -24,7 +24,8 @@
       "web_search_handler",
       "tasklists_manage",
       "tasklists_run",
-      "chat2_handler"
+      "chat2_handler",
+      "curate_chat"
     ]
   },
   {
@@ -156,7 +157,7 @@
       "get_keywords",
       "delegate_tasks",
       "scrape_web_page",
-      "web_search_handler","tasklists_manage","tasklists_run","chat2_handler"]
+      "web_search_handler","tasklists_manage","tasklists_run","chat2_handler","curate_chat"]
   },
   {
     "name": "star",
@@ -203,6 +204,6 @@
       "get_keywords",
       "delegate_tasks",
       "scrape_web_page",
-      "web_search_handler","tasklists_manage","tasklists_run","chat2_handler"]
+      "web_search_handler","tasklists_manage","tasklists_run","chat2_handler","curate_chat"]
   }
 ]
