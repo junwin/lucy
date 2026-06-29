@@ -16,7 +16,7 @@ import requests
 from bs4 import BeautifulSoup
 
 
-DEFAULT_TIMEOUT_SECONDS = 20
+DEFAULT_TIMEOUT_SECONDS = 10
 USER_AGENT = (
     "Mozilla/5.0 (X11; Linux aarch64) AppleWebKit/537.36 "
     "(KHTML, like Gecko) Chrome/120.0 Safari/537.36 LucyScraper/1.0"
@@ -94,8 +94,17 @@ def main(argv: Optional[list[str]] = None) -> int:
 
     try:
         text = scrape_url(url)
+    except requests.exceptions.Timeout:
+        print(f"ERROR: request timed out after {DEFAULT_TIMEOUT_SECONDS}s for URL: {url}", file=sys.stderr)
+        return 1
+    except requests.exceptions.ConnectionError:
+        print(f"ERROR: could not connect to URL: {url}", file=sys.stderr)
+        return 1
+    except requests.exceptions.HTTPError as e:
+        print(f"ERROR: HTTP {e.response.status_code} for URL: {url}", file=sys.stderr)
+        return 1
     except Exception as e:
-        print(f"ERROR: {e}", file=sys.stderr)
+        print(f"ERROR: {type(e).__name__} for URL {url}: {e}", file=sys.stderr)
         return 1
 
     sys.stdout.write(text)
