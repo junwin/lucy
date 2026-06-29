@@ -303,12 +303,12 @@ class CurationEngine:
                 "session_id": sid,
             }
 
-        # Write digest
+        # Write digest (timestamped)
         output_path = None
         if publish:
             output_path = self._write_digest(sid, account, note_text)
 
-        # Archive original events and replace with digest
+        # Archive original events (timestamped) and replace with digest
         archived = archive_session(
             sid,
             digest,
@@ -336,11 +336,17 @@ class CurationEngine:
     # Helpers
     # ------------------------------------------------------------------
 
+    @staticmethod
+    def _timestamp() -> str:
+        """Return a compact UTC timestamp string for filenames."""
+        return datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+
     def _write_digest(self, session_id: str, account: str, note_text: str) -> Path:
-        """Write digest to <digests_root>/<account>/<session_id>.md."""
+        """Write digest to <digests_root>/<account>/<session_id>_<timestamp>.md."""
         digest_dir = self.digests_root / account
         digest_dir.mkdir(parents=True, exist_ok=True)
-        output_path = digest_dir / f"{session_id}.md"
+        ts = self._timestamp()
+        output_path = digest_dir / f"{session_id}_{ts}.md"
         output_path.write_text(note_text, encoding="utf-8")
         logger.info(
             "curation: wrote digest to %s (session=%s account=%s)",

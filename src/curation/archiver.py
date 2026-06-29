@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import json
 import logging
-import shutil
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import List, Optional
@@ -17,6 +16,11 @@ from src.chat2.facade import Chat2Store
 from src.chat2.models import ChatEvent
 
 logger = logging.getLogger(__name__)
+
+
+def _timestamp() -> str:
+    """Return a compact UTC timestamp string for filenames."""
+    return datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
 
 
 def archive_session(
@@ -31,7 +35,7 @@ def archive_session(
 
     Steps:
     1. Read all events from the session.
-    2. Write them to <archive_dir>/<account>/<session_id>.jsonl
+    2. Write them to <archive_dir>/<account>/<session_id>_<timestamp>.jsonl
     3. Reset the session events.
     4. Add a single digest event with the digest text.
 
@@ -58,10 +62,11 @@ def archive_session(
         _replace_with_digest(chat2_store, session_id, digest_text)
         return True
 
-    # 2) Write archive file
+    # 2) Write archive file with timestamp
     archive_account_dir = archive_dir / account
     archive_account_dir.mkdir(parents=True, exist_ok=True)
-    archive_path = archive_account_dir / f"{session_id}.jsonl"
+    ts = _timestamp()
+    archive_path = archive_account_dir / f"{session_id}_{ts}.jsonl"
 
     try:
         with open(archive_path, "w", encoding="utf-8") as f:
