@@ -116,8 +116,10 @@ class Keywords:
         #    if t.text in {"obsidian_importer", "indexed_records"}:
         #        print(t.text, t.pos_, t.lemma_)
 
-        # POS filter first (optional order)
-        tokens = [t for t in tokens if t.pos_ in {"PROPN", "NOUN"}]
+        # POS filter removed — the existing stopword exclusion list
+        # (DEFAULT_CUSTOM_EXCLUDE) and length/symbol/codelike filters
+        # already handle noise. Removing this lets domain terms like
+        # "endpoints" that spaCy may mis-tag as VERB survive extraction.
 
         # Lemmatize
         lemmas = [t.lemma_.lower() for t in tokens]
