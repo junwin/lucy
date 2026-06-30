@@ -26,5 +26,9 @@
   "elapsed_new_session_seconds": 600,
   "max_tool_result_chars": 128000,
 
+  "api_key": "lucy-dev-key-2024",
+  "api_keys": {},
+  "api_key_enabled": false,
+
   "environment_prompt_block": "ENVIRONMENT\n- Model: Raspberry Pi 5 Model B Rev 1.1\n- OS: Debian GNU/Linux 12 (bookworm)\n- Arch: aarch64\n- Bits: 64"
 }

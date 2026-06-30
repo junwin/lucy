@@ -150,6 +150,9 @@ def post_chat_message_impl(
     if not role or content is None:
         return {"error": "Missing role or content"}, 400
 
+    if not chat2_store.session_exists(session_id):
+        return {"error": "Chat not found"}, 404
+
     event = ChatEvent(
         role=role,  # type: ignore[arg-type]
         actor=role,
@@ -158,11 +161,7 @@ def post_chat_message_impl(
         metadata=metadata,
     )
 
-    try:
-        chat2_store.add_event(session_id, event)
-    except Exception as e:
-        return {"error": str(e)}, 404
-
+    chat2_store.add_event(session_id, event)
     return {"status": "ok"}, 200
 
 
