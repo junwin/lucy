@@ -31,27 +31,55 @@ def keywords(monkeypatch):
     return kw
 
 
-def test_extract_keywords_filters_stopwords_punct_and_pos_and_respects_top_n(keywords, monkeypatch):
-    # Patch STOP_WORDS in the module under test (not spacy)
+def test_extract_keywords_filters_stopwords_punct_and_respects_top_n(keywords, monkeypatch):
+    """POS filter has been removed, so ADV tokens like 'quickly' are no
+    longer excluded by POS. Stopwords, punctuation, and custom excludes
+    still work."""
     import src.keywords.keywords as kw_mod
 
     monkeypatch.setattr(kw_mod, "STOP_WORDS", {"the", "and"})
 
     tokens = [
-        FakeToken("the", "the", pos_="DET"),  # stopword
-        FakeToken(",", ",", is_punct=True, pos_="PUNCT"),  # punct
+        FakeToken("the", "the", pos_="DET"),       # stopword -> dropped
+        FakeToken(",", ",", is_punct=True, pos_="PUNCT"),  # punct -> dropped
         FakeToken("Cats", "cat", pos_="NOUN"),
         FakeToken("cats", "cat", pos_="NOUN"),
-        FakeToken("run", "run", pos_="VERB"),
-        FakeToken("quickly", "quickly", pos_="ADV"),  # filtered by POS
-        FakeToken("and", "and", pos_="CCONJ"),  # stopword
+        FakeToken("run", "run", pos_="VERB"),       # in DEFAULT_CUSTOM_EXCLUDE -> dropped
+        FakeToken("quickly", "quickly", pos_="ADV"),
+        FakeToken("and", "and", pos_="CCONJ"),      # stopword -> dropped
         FakeToken("Dogs", "dog", pos_="PROPN"),
     ]
 
     keywords.nlp = make_fake_nlp(tokens)
 
-    # cat appears twice, so it should be first; top_n=2 should return only 2
-    assert keywords.extract_keywords("ignored", top_n=2) == ["cat", "dog"]
+    # cat appears twice, quickly appears once, dog appears once
+    # top_n=3 should return all three
+    result = keywords.extract_keywords("ignored", top_n=3)
+    assert result == ["cat", "quickly", "dog"], f"Got: {result}"
+
+
+def test_extract_keywords_retains_nouns_mistagged_as_verb(keywords, monkeypatch):
+    """Domain terms like 'endpoints' that spaCy mis-tags as VERB should
+    still be retained after removing the POS filter."""
+    import src.keywords.keywords as kw_mod
+
+    monkeypatch.setattr(kw_mod, "STOP_WORDS", set())
+
+    tokens = [
+        FakeToken("endpoints", "endpoint", pos_="VERB"),
+        FakeToken("database", "database", pos_="NOUN"),
+    ]
+
+    keywords.nlp = make_fake_nlp(tokens)
+
+    result = keywords.extract_keywords("ignored", top_n=10)
+    assert "endpoint" in result, (
+        f"'endpoint' should be in extracted keywords when 'endpoints' is "
+        f"tagged as VERB. Got: {result}"
+    )
+    assert "database" in result, (
+        f"'database' (NOUN) should still be in extracted keywords. Got: {result}"
+    )
 
 
 def test_extract_keywords_request_keywords_fenced_block_parsing(keywords):
