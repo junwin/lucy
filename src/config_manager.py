@@ -1,5 +1,10 @@
 import json
 import os
+import copy
+import logging
+from typing import Any, Optional, Dict
+
+logger = logging.getLogger(__name__)
 
 SANDBOX_RELATIVE_PATH_KEYS = [
     "python_utils_path",
@@ -34,6 +39,7 @@ def validate_sandbox_relative_paths(config: dict) -> None:
 
 class ConfigManager:
     def __init__(self, file_name: str):
+        self.file_name = file_name
         self.config = self.load_config(file_name)
         validate_sandbox_relative_paths(self.config)  # fail fast
 
@@ -48,3 +54,54 @@ class ConfigManager:
 
     def get(self, key: str, default=None):
         return self.config.get(key, default)
+
+    def reload(self) -> Dict[str, Any]:
+        """Re-read config from disk and update self.config in-place.
+
+        Returns a summary dict: {
+            'config_reloaded': True,
+            'keys_added': [...],
+            'keys_removed': [...],
+            'keys_changed': [...],
+        }
+
+        If the file is missing, invalid JSON, or fails validation, the old
+        config is kept and the summary includes an 'error' key.
+        """
+        old_config = copy.deepcopy(self.config)
+
+        try:
+            new_config = self.load_config(self.file_name)
+            validate_sandbox_relative_paths(new_config)
+        except Exception as e:
+            logger.exception("Config reload failed for %s: %s", self.file_name, e)
+            return {
+                "config_reloaded": False,
+                "error": str(e),
+            }
+
+        # Compute diff
+        old_keys = set(old_config.keys())
+        new_keys = set(new_config.keys())
+
+        keys_added = sorted(new_keys - old_keys)
+        keys_removed = sorted(old_keys - new_keys)
+        keys_changed = sorted(
+            k for k in (old_keys & new_keys) if old_config[k] != new_config[k]
+        )
+
+        # Apply in-place (mutate dict, don't replace reference)
+        self.config.clear()
+        self.config.update(new_config)
+
+        logger.info(
+            "Config reloaded from %s: added=%s, removed=%s, changed=%s",
+            self.file_name, keys_added, keys_removed, keys_changed,
+        )
+
+        return {
+            "config_reloaded": True,
+            "keys_added": keys_added,
+            "keys_removed": keys_removed,
+            "keys_changed": keys_changed,
+        }

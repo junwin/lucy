@@ -1,0 +1,17 @@
+[Unit]
+Description=Lucy Flask API Server
+After=network.target
+
+[Service]
+Type=simple
+User=junwin
+WorkingDirectory=/home/junwin/src/repos/lucy
+Environment=FLASK_APP=app.py
+Environment=FLASK_ENV=development
+Environment=FLASK_DEBUG=0
+ExecStart=/home/junwin/src/repos/lucy/venv/bin/python -m flask run --host=0.0.0.0 --port=5000 --no-debugger --no-reload
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

@@ -177,6 +177,9 @@ def _check_api_key() -> None:
     if request.method == "OPTIONS":
         return
 
+    # Admin reload endpoint is special — it always uses the live config for key checking
+    # so that after a reload, the next request uses the new keys.
+
     # Extract key from X-API-Key header, fallback to Authorization: Bearer
     api_key = request.headers.get("X-API-Key")
     if not api_key:
@@ -472,6 +475,54 @@ def search_documents():
     data = request.get_json(silent=True) or {}
     body, status = search_documents_impl(storage, data)
     return jsonify(body), status
+
+
+# -----------------------------------------------------------------------------
+# Admin endpoint: reload config and agents at runtime
+# -----------------------------------------------------------------------------
+@app.route("/admin/reload", methods=["POST"])
+def admin_reload():
+    """Reload config.json and agents.json without restarting the process.
+
+    Returns:
+        200 with summary: {config_reloaded, keys_added, keys_removed,
+                           keys_changed, agents_loaded, agent_names}
+        500 if config reload fails (old state kept).
+    """
+    # 1. Reload config in-place
+    config_summary = config.reload()
+
+    if not config_summary.get("config_reloaded"):
+        # Config reload failed — old state is preserved
+        return jsonify({
+            "error": "Config reload failed. Old config preserved.",
+            "detail": config_summary.get("error", "Unknown error"),
+        }), 500
+
+    # 2. Reload agents from the (potentially changed) agents_path
+    strict = config.get("strict_agent_fields", True)
+    old_agent_names = agent_manager.get_agent_names()
+    agent_manager.load_agents(strict=strict)
+    new_agent_names = agent_manager.get_agent_names()
+
+    agents_added = sorted(set(new_agent_names) - set(old_agent_names))
+    agents_removed = sorted(set(old_agent_names) - set(new_agent_names))
+
+    logging.info(
+        "/admin/reload: agents reloaded. added=%s, removed=%s, total=%d",
+        agents_added, agents_removed, len(new_agent_names),
+    )
+
+    return jsonify({
+        "config_reloaded": config_summary["config_reloaded"],
+        "keys_added": config_summary.get("keys_added", []),
+        "keys_removed": config_summary.get("keys_removed", []),
+        "keys_changed": config_summary.get("keys_changed", []),
+        "agents_loaded": len(new_agent_names),
+        "agent_names": new_agent_names,
+        "agents_added": agents_added,
+        "agents_removed": agents_removed,
+    }), 200
 
 
 # NOTE:

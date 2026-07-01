@@ -15,8 +15,9 @@ class AgentManager:
     e.g. /home/junwin/src/repos/lucy/static/data/agents.json
     """
 
-    def __init__(self, path: str = "./agents.json"):
+    def __init__(self, path: str = "./agents.json", strict_fields: bool = True):
         self.path = Path(path)
+        self.strict_fields = strict_fields
         self.agents: List[Agent] = []
         self.load_agents()
 
@@ -29,13 +30,21 @@ class AgentManager:
     def is_valid(self, name: str) -> bool:
         return any(agent.name == name for agent in self.agents)
 
-    def load_agents(self) -> None:
+    def load_agents(self, strict: Optional[bool] = None) -> None:
         """Load agents from the configured JSON file.
 
         Loading is robust: the file must parse as JSON, but individual agent
         configurations are validated on a per-item basis. A single malformed
         agent entry will not prevent other agents from loading.
+
+        Args:
+            strict: If provided, overrides self.strict_fields for this load.
+                    True = unknown fields raise ValueError (hard-fail per agent).
+                    False = unknown fields log a warning and are ignored.
+                    When None (default), uses self.strict_fields.
         """
+        use_strict = strict if strict is not None else self.strict_fields
+
         try:
             if not self.path.exists():
                 logger.info("Agents file does not exist at %s; starting with empty agent list", self.path)
@@ -59,7 +68,7 @@ class AgentManager:
             loaded_agents: List[Agent] = []
             for idx, a in enumerate(raw_agents):
                 try:
-                    agent = Agent.from_dict(a)
+                    agent = Agent.from_dict(a, strict=use_strict)
                     loaded_agents.append(agent)
                 except Exception as e:
                     # Log and continue with other agents

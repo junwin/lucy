@@ -51,7 +51,8 @@ class AgentManagerModule(Module):
     @provider
     @singleton
     def provide_agent_manager(self) -> AgentManager:
-        return AgentManager(config.get("agents_path"))
+        strict = config.get("strict_agent_fields", True)
+        return AgentManager(config.get("agents_path"), strict_fields=strict)
 
 
 class StorageModule(Module):

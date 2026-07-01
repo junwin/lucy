@@ -8,6 +8,8 @@ Design goals:
 - Helpful validation errors for missing/unknown fields.
 - Unknown fields should *fail the offending agent* (so typos are caught),
   while AgentManager continues loading other agents.
+- When strict=False (config toggle: strict_agent_fields), unknown fields
+  log a warning and are stripped rather than raising ValueError.
 """
 
 from __future__ import annotations
@@ -71,12 +73,17 @@ class Agent:
         )
 
     @staticmethod
-    def from_dict(data: Dict[str, Any]) -> "Agent":
+    def from_dict(data: Dict[str, Any], strict: bool = True) -> "Agent":
         """Create an Agent from a raw dict, handling legacy field names.
+
+        Args:
+            data: Raw dictionary of agent configuration.
+            strict: If True (default), unknown fields raise ValueError.
+                    If False, unknown fields are logged as warnings and stripped.
 
         Behavior:
         - Missing required fields raise ValueError.
-        - Unknown fields raise ValueError (hard fail this agent).
+        - Unknown fields: hard-fail when strict=True, warn-and-strip when strict=False.
         - Some fields (e.g., allowed_tools) are validated/coerced where possible.
 
         Backward compatible with legacy keys:
@@ -106,10 +113,19 @@ class Agent:
         # Determine allowed fields from the dataclass definition
         allowed_field_names = {f.name for f in dataclass_fields(Agent)}
 
-        # Unknown fields should hard-fail this agent so typos are caught early.
+        # Unknown fields: fail or warn depending on strict
         unknown_keys = set(raw.keys()) - allowed_field_names
         if unknown_keys:
-            raise ValueError(Agent._format_unknown_fields_message(agent_name, unknown_keys))
+            if strict:
+                raise ValueError(Agent._format_unknown_fields_message(agent_name, unknown_keys))
+            else:
+                logger.warning(
+                    "Agent '%s' contains unknown configuration fields: %s. "
+                    "They will be ignored (strict_agent_fields=false).",
+                    agent_name, ", ".join(sorted(unknown_keys)),
+                )
+                for key in unknown_keys:
+                    raw.pop(key)
 
         # Validate/coerce specific fields to be forgiving where possible
         # allowed_tools: should be None or a list of strings

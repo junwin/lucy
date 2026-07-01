@@ -1,6 +1,6 @@
 # Lucy
 
-Lucy is a small, experimental assistant built on top of OpenAI’s APIs. It focuses on:
+Lucy is a small, experimental assistant built on top of OpenAI's APIs. It focuses on:
 
 - **Agents** with different behaviors (simple chat, tools/function calling, automation).
 - **Storage-backed conversations** (sessions, messages, context).
@@ -298,7 +298,7 @@ Ask a question or send a message to an agent.
 Notes:
 
 - If `conversationId` is omitted, the server will create a new `ChatSession`.
-- If `friendly_name` is provided on that first call, it will be stored as the session’s `friendly_name`.
+- If `friendly_name` is provided on that first call, it will be stored as the session's `friendly_name`.
 - The response includes the canonical `conversation_id` (a UUID) that you should reuse on subsequent calls.
 
 **Response (JSON)**
@@ -397,6 +397,45 @@ If you run a Flask-based HTTP server and want HTTPS locally, you can still use `
    ```
 
 This is optional and only needed if you expose an HTTPS endpoint locally.
+
+---
+
+## Deployment
+
+Lucy runs as a **systemd service** (`lucy-server`) on the target machine.
+
+### Service overview
+
+- **Service name:** `lucy-server`
+- **User:** `junwin`
+- **Working directory:** `/home/junwin/src/repos/lucy`
+- **Exec:** Flask via the project venv, bound to `0.0.0.0:5000`, with debugger/reloader disabled
+
+### Useful commands
+
+```bash
+# Check service status
+sudo systemctl status lucy-server
+
+# Restart after code changes
+sudo systemctl restart lucy-server
+
+# View recent logs
+sudo journalctl -u lucy-server -f
+
+# View last 50 lines
+sudo journalctl -u lucy-server -n 50
+```
+
+### After making code changes
+
+Any edit to Python files (`app.py`, `src/*`, etc.) requires a restart for the changes to take effect:
+
+```bash
+sudo systemctl restart lucy-server
+```
+
+The service restarts in under a second, so there's essentially no downtime.
 
 ---
 
