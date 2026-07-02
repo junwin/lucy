@@ -72,7 +72,7 @@ class TestTasklistsRunHandler:
         assert td["name"] == "tasklists_run"
         assert "tasklist_id" in td["parameters"]["properties"]
         assert "mode" in td["parameters"]["properties"]
-        assert td["parameters"]["required"] == ["tasklist_id"]
+        assert td["parameters"]["required"] == ["tasklist_id", "mode"]
 
     def test_result_schema_structure(self):
         """result_schema returns a valid JSON schema."""
