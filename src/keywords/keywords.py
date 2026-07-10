@@ -16,14 +16,16 @@ SYMBOL_RE = re.compile(r"^[=+\-*/<>:;,.()\[\]{}|\\]+$")
 
 DEFAULT_CUSTOM_EXCLUDE = {
     # your recurring repo/chat noise:
-    "src", "repo_lucy", "file", "load", "task", "tasklist", "tasklists",
+    "src", "repo_lucy", "file",
     "summarize", "relative", "config_manager.py",
     # chatty verbs (if you keep VERB):
-    "let", "use", "add", "want", "suppose", "normalization", "normalize", "normalized", "normalizes", "try", "tries", "tried", "see", "look", "looks", "looking", "check", "checks", "checking",    
+    "let", "use", "add", "want", "suppose", "normalization", "normalize", "normalized", "normalizes", "try", "tries", "tried", "see", "look", "looks", "looking", "check", "checks", "checking",
     # additional exclusions
-    "state", "domain", "model", "list", "validation", "result", "error", "documentation", "docs", "planning", "service", "manager", "helper", "tool", "tools", "assistant", "assistants", "user", "users", "person", "people", "team", "project", "projects", "code", "codesnippet", "codesnippets", "snippet", "snippets",
-      "function", "functions", "class", "classes", "method", "methods", "field", "object", "objects", "variable", "variables", "data", "information", "info", "detail", "details", "context", "contexts", "input", "inputs", "output", "outputs",
+    "domain", "list", "validation", "result", "error", "documentation", "docs", "planning", "service", "manager", "helper", "assistant", "assistants", "user", "users", "person", "people", "team", "project", "projects", "code", "codesnippet", "codesnippets", "snippet", "snippets",
+      "function", "functions", "class", "classes", "method", "methods", "field", "object", "objects", "variable", "variables", "data", "information", "info", "detail", "details", "input", "inputs", "output", "outputs",
       "run", "runs", "execute", "executes", "executing", "purpose",
+    # false-positive noise
+    "doc", "keyword",
 }
 
 # Import spaCy lazily inside _initialize_nlp_model to avoid requiring the
