@@ -43,17 +43,7 @@ DEFAULT_SUMMARIZE_TEMPLATE = """# Session Digest: {friendly_name}
 - **Date**: {date}
 - **Account**: {account}
 
-## Decisions made
-{decisions}
-
-## Files created/modified
-{files}
-
-## Commands run (with outcomes)
-{commands}
-
-## Open questions / next steps
-{next_steps}
+{summary_text}
 """
 
 # ---------------------------------------------------------------------------
@@ -132,7 +122,7 @@ def render_template(
         session_id: Session UUID.
         account: Account name.
         events: List of ChatEvent objects (used to build events_bullets).
-        summary_text: Free-text summary.
+        summary_text: Free-text summary (the LLM digest).
         decisions: Decisions made section content.
         files: Files created/modified section content.
         commands: Commands run section content.

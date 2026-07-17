@@ -2,11 +2,16 @@
 """Canonical CLI entrypoint to index an Obsidian vault into Lucy's document store.
 
 Usage examples:
+    # Index a whole vault (or subfolder)
     python scripts/obsidian_index.py --vault-path docs/minidoc --max-files 1
     python scripts/obsidian_index.py --vault-root /mnt/obsidian --vault-path myvault --dry-run
     # Use a named vault root mapped via env var LUCY_VAULT_ROOT_MYNAME:
     export LUCY_VAULT_ROOT_OBSIDIAN=/mnt/obsidian
     python scripts/obsidian_index.py --vault-root-name obsidian --vault-path myvault
+
+    # Index a single file
+    python scripts/obsidian_index.py --file docs/minidoc/example.md
+    python scripts/obsidian_index.py --file /mnt/obsidian/myvault/note.md --vault-root /mnt/obsidian
 
 This script is the preferred entrypoint. A lightweight shim remains at
 src/obsidian_index_cli.py for backward compatibility.
@@ -17,7 +22,7 @@ Guidelines followed here:
 - Paths that are relative are resolved against the repository root so
   CI/tests do not depend on the current working directory.
 
-New options added:
+Options added:
 - --vault-root: optional absolute path to an Obsidian vault root. When
   provided, --vault-path is interpreted relative to this root (vault_path
   may be '.' or a subdirectory).
@@ -26,12 +31,17 @@ New options added:
   error is raised. If both --vault-root and --vault-root-name are provided
   the explicit --vault-root takes precedence.
 - --dry-run: print resolved paths and exit without performing indexing.
+- --file: index a single .md file instead of a vault directory. When used
+  together with --vault-root, the relative path and vault name are derived
+  from that root.
+- --no-recursion: only index .md files directly in --vault-path, skip subdirectories.
 
 Validation behaviour:
 - If --vault-root (or --vault-root-name) is provided, the user MUST also
   provide an explicit --vault-path. Relying on the script's default vault
   path when a separate vault root is specified is error-prone and therefore
   rejected with a clear message.
+- --file and --vault-path are mutually exclusive.
 """
 from __future__ import annotations
 
@@ -48,7 +58,7 @@ import getpass
 from typing import Optional
 
 from src.storage.json_file_storage import JsonFileStorage
-from src.utils.obsidian_importer import index_obsidian_vault
+from src.utils.obsidian_importer import index_obsidian_vault, index_obsidian_file
 from src.storage_paths.storage_paths import StoragePaths
 
 
@@ -134,6 +144,22 @@ def main(argv: Optional[list[str]] = None) -> None:
         action="store_true",
         help="Print resolved paths and exit without indexing.",
     )
+    parser.add_argument(
+        "--file",
+        default=None,
+        help=(
+            "Path to a single .md file to index. When provided, indexes only that file "
+            "instead of a vault directory. Mutually exclusive with --vault-path."
+        ),
+    )
+    parser.add_argument(
+        "--no-recursion",
+        action="store_true",
+        help=(
+            "Only index .md files directly inside --vault-path, skipping all subdirectories. "
+            "Has no effect when used with --file."
+        ),
+    )
 
     args = parser.parse_args(argv)
 
@@ -145,13 +171,50 @@ def main(argv: Optional[list[str]] = None) -> None:
     storage_paths = StoragePaths(storage_root, storage_namespace)
     storage = JsonFileStorage(storage_paths)
 
-    # Resolve vault path based on new rules:
-    # Detect whether the user provided --vault-path explicitly.
+    # --- --file mode (single-file import) ---
+    if args.file is not None:
+        md_file = Path(args.file)
+        if not md_file.is_absolute():
+            md_file = (_repo_root / md_file).resolve()
+
+        if args.dry_run:
+            print("DRY RUN: resolved configuration (single-file mode):")
+            print(f"  storage_root: {storage_root}")
+            print(f"  storage_namespace: {storage_namespace}")
+            print(f"  account: {args.account}")
+            print(f"  file: {md_file}")
+            print(f"  exists: {md_file.exists()}")
+            sys.exit(0)
+
+        # Resolve optional vault_root for single-file mode
+        vault_root_arg: Optional[Path] = None
+        if args.vault_root:
+            vault_root_arg = Path(args.vault_root)
+        elif args.vault_root_name:
+            env_key = f"LUCY_VAULT_ROOT_{args.vault_root_name.upper()}"
+            vault_root_val = os.environ.get(env_key)
+            if vault_root_val:
+                vault_root_arg = Path(vault_root_val)
+            else:
+                _fatal(
+                    f"Vault root name '{args.vault_root_name}' was provided but "
+                    f"environment variable '{env_key}' is not set."
+                )
+
+        docs = index_obsidian_file(
+            storage=storage,
+            account_name=args.account,
+            md_path=md_file,
+            vault_root=vault_root_arg,
+        )
+        print(f"Indexed {len(docs)} document(s) from {md_file} for account {args.account}.")
+        return
+
+    # --- vault mode (directory scan) ---
     vault_path_provided = "vault_path" in args.__dict__
     if vault_path_provided:
         vault_path_arg = Path(args.vault_path)
     else:
-        # Use the computed default only when the user did not provide a vault_root.
         vault_path_arg = Path(computed_default_vault)
 
     vault_root: Optional[Path] = None
@@ -176,16 +239,13 @@ def main(argv: Optional[list[str]] = None) -> None:
             "Relying on the script's default vault path when pointing at a separate vault root is unsafe."
         )
 
-    # If a vault_root is provided, interpret vault_path relative to it. vault_path may be '.' or a subdir.
+    # If a vault_root is provided, interpret vault_path relative to it.
     if vault_root:
-        # Ensure vault_root is absolute
         if not vault_root.is_absolute():
             _fatal("--vault-root must be an absolute path")
         vault_root_res = vault_root.resolve()
-        # Construct combined path and make sure it does not escape the provided root.
         combined = (vault_root_res / vault_path_arg).resolve()
         try:
-            # Will raise ValueError if combined is not under vault_root_res
             combined.relative_to(vault_root_res)
         except ValueError:
             _fatal(
@@ -194,14 +254,12 @@ def main(argv: Optional[list[str]] = None) -> None:
             )
         vault = combined
     else:
-        # No vault_root provided: keep current behaviour. If vault_path is absolute, use it; else resolve against repo root.
         vault = vault_path_arg
         if not vault.is_absolute():
             vault = (_repo_root / vault).resolve()
 
-    # Basic validation of final vault path
     if args.dry_run:
-        print("DRY RUN: resolved configuration:")
+        print("DRY RUN: resolved configuration (vault mode):")
         print(f"  storage_root: {storage_root}")
         print(f"  storage_namespace: {storage_namespace}")
         print(f"  account: {args.account}")
@@ -213,6 +271,7 @@ def main(argv: Optional[list[str]] = None) -> None:
         print(f"  resolved_vault: {vault}")
         print(f"  exists: {vault.exists()}")
         print(f"  is_dir: {vault.is_dir()}")
+        print(f"  no_recursion: {args.no_recursion}")
         sys.exit(0)
 
     if not vault.exists():
@@ -225,6 +284,7 @@ def main(argv: Optional[list[str]] = None) -> None:
         account_name=args.account,
         vault_path=vault,
         max_files=args.max_files,
+        no_recursion=args.no_recursion,
     )
 
     print(f"Indexed {len(docs)} documents from {vault} for account {args.account}.")

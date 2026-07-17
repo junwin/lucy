@@ -130,6 +130,12 @@ Produce a structured Markdown digest with these sections:
             temperature=temperature,
         )
         digest = response.output_text.strip()
+        if not digest:
+            logger.warning(
+                "summarize_session: LLM returned empty output for session=%s — using fallback",
+                session_id,
+            )
+            return _fallback_digest(events, friendly_name=friendly_name, session_id=session_id)
         logger.info(
             "summarize_session: generated digest for session=%s (%d chars)",
             session_id,
