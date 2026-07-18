@@ -8,12 +8,13 @@ except Exception:
     def inject(func):
         return func
 import logging
-from typing import Optional, Dict, Any, List, Iterable
+from typing import Optional, Dict, Any, List, Iterable, Generator
 import json
 import time
 
 from src.config_manager import ConfigManager
 from src.message_processors.message_processor_interface import MessageProcessorInterface
+from src.message_processors.sse_events import SSEEvent
 from src.prompt_builders.prompt_builder_interface import PromptBuilderInterface
 from src.handlers.handler_registry import HandlerRegistry
 from src.agent import Agent
@@ -545,6 +546,186 @@ class FunctionCallingProcessor(MessageProcessorInterface):
         return response_text
 
     # ------------------------------------------------------------------
+    # Streaming loop (Phase 1 SSE)
+    # ------------------------------------------------------------------
+
+    def _run_llm_loop_streaming(
+        self,
+        *,
+        ctx: _ProcessorContext,
+        prompt_messages: List[Dict[str, Any]],
+        function_defs: List[Dict[str, Any]],
+        primary_agent: Agent,
+        secondary_agent: Optional[Agent],
+        processor_factory: Optional[Any],
+        account: Dict[str, Any],
+        metrics: Dict[str, Any],
+    ) -> Generator[SSEEvent, None, None]:
+        """Mirrors _run_llm_loop but yields SSEEvent objects at key points.
+
+        Injection points:
+          A - tool_call  (before each tool executes)
+          B - tool_result (after each tool completes)
+          C - text        (final assistant text)
+          D - done        (stream complete)
+        """
+        response_text = ""
+        previous_response_id: Optional[str] = None
+        previous_tool_calls: Optional[List[_ToolCall]] = None
+
+        next_input_items: List[Dict[str, Any]] = prompt_messages
+
+        for iteration in range(1, ctx.max_iterations + 1):
+            metrics["iterations"] = iteration
+            metrics["openai_calls"] += 1
+
+            llm_response = self.llm_adapter.call_model(
+                model=ctx.model,
+                input=next_input_items,
+                temperature=ctx.temperature,
+                tools=function_defs,
+                tool_choice="auto" if function_defs else None,
+                store=ctx.store_this_call,
+                metadata={"conversation_id": ctx.conversation_id, "session_id": ctx.context_name or None},
+                previous_response_id=previous_response_id,
+            )
+
+            result_response_id = self.llm_adapter.get_response_id(llm_response)
+            if result_response_id:
+                previous_response_id = result_response_id
+
+            logging.info(
+                "FunctionCallingProcessor(streaming): iteration=%d/%d agent=%s session_id=%s response_id=%s",
+                iteration,
+                ctx.max_iterations,
+                ctx.agent_name,
+                ctx.conversation_id,
+                previous_response_id,
+            )
+
+            tool_calls_raw = self.llm_adapter.extract_tool_calls(llm_response)
+            tool_calls = self._wrap_tool_calls(tool_calls_raw)
+
+            if tool_calls:
+                # --- Duplicate tool call detection ---
+                if self._tool_calls_are_duplicate(tool_calls, previous_tool_calls):
+                    logging.warning(
+                        "FunctionCallingProcessor(streaming): duplicate tool calls detected at iteration=%d/%d "
+                        "agent=%s session_id=%s tool_count=%d. Breaking loop.",
+                        iteration,
+                        ctx.max_iterations,
+                        ctx.agent_name,
+                        ctx.conversation_id,
+                        len(tool_calls),
+                    )
+                    response_text = (
+                        "I noticed I was repeating the same tool call without making progress. "
+                        "I've stopped to avoid getting stuck in a loop. "
+                        "Please rephrase your request or be more specific about what you need."
+                    )
+                    break
+
+                previous_tool_calls = tool_calls
+
+                if not previous_response_id:
+                    metrics["failures"] += 1
+                    yield SSEEvent(type="error", message="LLM returned tool_calls but no response_id.")
+                    yield SSEEvent(type="done", conversation_id=ctx.conversation_id)
+                    return
+
+                logging.info(
+                    "FunctionCallingProcessor(streaming): tool_call iteration=%d/%d agent=%s session_id=%s tool_count=%d prev_response_id=%s",
+                    iteration,
+                    ctx.max_iterations,
+                    ctx.agent_name,
+                    ctx.conversation_id,
+                    len(tool_calls),
+                    previous_response_id,
+                )
+
+                # ── INJECTION A: yield tool_call events before execution ──
+                for tc in tool_calls:
+                    yield SSEEvent(type="tool_call", tool_name=tc.name, call_id=tc.call_id)
+
+                # Execute tools (reuse existing logic)
+                try:
+                    tool_output_items = self._execute_tool_calls(
+                        tool_calls=tool_calls,
+                        primary_agent=primary_agent,
+                        secondary_agent=secondary_agent,
+                        processor_factory=processor_factory,
+                        account=account,
+                        ctx=ctx,
+                        metrics=metrics,
+                    )
+                except (ToolHandlerError, ToolResultTooLargeError) as e:
+                    # ── Yield tool_result failure for each pending tool ──
+                    for tc in tool_calls:
+                        yield SSEEvent(type="tool_result", call_id=tc.call_id, ok=False)
+                    yield SSEEvent(type="error", message=str(e))
+                    yield SSEEvent(type="done", conversation_id=ctx.conversation_id)
+                    return
+
+                # ── INJECTION B: yield tool_result events after each result ──
+                for item in tool_output_items:
+                    call_id = str(item.get("call_id", ""))
+                    yield SSEEvent(type="tool_result", call_id=call_id, ok=True)
+
+                logging.info(
+                    "FunctionCallingProcessor(streaming): sending %d function_call_output items chained to response_id=%s call_ids=%s",
+                    len(tool_output_items),
+                    previous_response_id,
+                    [x.get("call_id") for x in tool_output_items],
+                )
+
+                next_input_items = tool_output_items
+
+                if iteration >= ctx.max_iterations:
+                    metrics["failures"] += 1
+                    logging.error(
+                        "FunctionCallingProcessor(streaming): exceeded max_function_call_iterations=%d for agent '%s' in conversation_id=%s",
+                        ctx.max_iterations,
+                        ctx.agent_name,
+                        ctx.conversation_id,
+                    )
+                    response_text = (
+                        "I ran into an internal limit while trying to call tools multiple times. "
+                        "I may not have completed all requested actions. Please try rephrasing or splitting your request."
+                    )
+                    break
+
+                continue
+
+            # ── INJECTION C: final text ──
+            response_text = self.llm_adapter.get_text(llm_response)
+            yield SSEEvent(
+                type="text",
+                content=response_text,
+                message_id=f"msg-{ctx.conversation_id}-final",
+            )
+            break
+
+        # If no text was yielded (e.g., loop break on duplicate detection / max iterations),
+        # still yield the text if we have it.
+        if response_text:
+            yield SSEEvent(
+                type="text",
+                content=response_text,
+                message_id=f"msg-{ctx.conversation_id}-final",
+            )
+
+        # ── INJECTION D: completion ──
+        yield SSEEvent(type="done", conversation_id=ctx.conversation_id)
+
+        logging.info(
+            "FunctionCallingProcessor(streaming): completed agent=%s session_id=%s iterations=%d response_preview=%r",
+            ctx.agent_name,
+            ctx.conversation_id,
+            iteration,
+            (response_text or "")[:80],
+        )
+
+    # ------------------------------------------------------------------
     # Chat2 storage helpers (v1 removed — no backward compatibility)
     # ------------------------------------------------------------------
 
@@ -762,6 +943,166 @@ class FunctionCallingProcessor(MessageProcessorInterface):
             latency_ms = int((time.perf_counter() - start_ts) * 1000)
             logging.info(
                 "FunctionCallingProcessor summary: agent=%s session_id=%s account=%s iterations=%d openai_calls=%d tool_calls=%d failures=%d latency_ms=%d",
+                ctx.agent_name if "ctx" in locals() else "unknown",
+                ctx.conversation_id if "ctx" in locals() else "unknown",
+                ctx.account_id if "ctx" in locals() else "unknown",
+                metrics.get("iterations", 0),
+                metrics.get("openai_calls", 0),
+                metrics.get("tool_calls", 0),
+                metrics.get("failures", 0),
+                latency_ms,
+            )
+
+    # ------------------------------------------------------------------
+    # Streaming public API
+    # ------------------------------------------------------------------
+
+    def process_message_streaming(
+        self,
+        *,
+        primary_agent: Agent,
+        account: Dict[str, Any],
+        message: str,
+        conversation_id: str = "0",
+        context_name: str = "",
+        secondary_agent: Optional[Agent] = None,
+        processor_factory: Optional[Any] = None,
+    ) -> Generator[str, None, None]:
+        """Streaming variant of process_message.
+
+        Same setup as process_message() but calls _run_llm_loop_streaming
+        and yields SSE-formatted strings ("data: {json}\n\n").
+        """
+        start_ts = time.perf_counter()
+        metrics: Dict[str, Any] = {
+            "iterations": 0,
+            "openai_calls": 0,
+            "tool_calls": 0,
+            "failures": 0,
+        }
+
+        logging.info("FunctionCallingProcessor(streaming) inbound message: %s", message)
+
+        if not primary_agent:
+            metrics["failures"] += 1
+            yield SSEEvent(type="error", message="Missing primary_agent configuration.").to_sse()
+            yield SSEEvent(type="done").to_sse()
+            return
+
+        ctx = self._build_context(
+            primary_agent=primary_agent,
+            account=account,
+            conversation_id=conversation_id,
+            context_name=context_name,
+        )
+
+        if not ctx.account_id:
+            metrics["failures"] += 1
+            yield SSEEvent(type="error", message="Missing account.accountId.").to_sse()
+            yield SSEEvent(type="done").to_sse()
+            return
+
+        logging.info(
+            "FunctionCallingProcessor(streaming): start account=%s agent=%s session_id=%s context_type=%s max_iterations=%d",
+            ctx.account_id,
+            ctx.agent_name,
+            ctx.conversation_id,
+            ctx.context_type,
+            ctx.max_iterations,
+        )
+
+        final_response_text: Optional[str] = None
+
+        try:
+            extra_system_messages = self._get_environment_system_messages()
+            if extra_system_messages:
+                logging.debug("FunctionCallingProcessor(streaming): injecting %d environment system message(s) from environment_prompt_block", len(extra_system_messages))
+
+            prompt_messages = self.prompt_builder.build_prompt(
+                content_text=message,
+                conversation_id=ctx.conversation_id,
+                agent_name=ctx.agent_name,
+                account_name=ctx.account_id,
+                context_type=ctx.context_type,
+                max_prompt_chars=6000,
+                context_name=ctx.context_name,
+                extra_system_messages=extra_system_messages,
+            )
+
+            function_defs = self.registry.tools()
+
+            allowed = getattr(primary_agent, "allowed_tools", None)
+
+            if not allowed:
+                filtered_function_defs = []
+            else:
+                try:
+                    allowed_list = list(allowed)
+                except Exception:
+                    allowed_list = []
+
+                available_names = [fd.get("name") for fd in function_defs]
+                unknown = [n for n in allowed_list if n not in available_names]
+                if unknown:
+                    logging.warning(
+                        "FunctionCallingProcessor(streaming): agent '%s' has unknown allowed_tools entries: %s; ignoring",
+                        getattr(primary_agent, "name", "<unknown>"),
+                        unknown,
+                    )
+
+                allowed_set = set([n for n in allowed_list if n in available_names])
+                filtered_function_defs = [fd for fd in function_defs if fd.get("name") in allowed_set]
+
+            # Yield SSE events from the streaming loop
+            for event in self._run_llm_loop_streaming(
+                ctx=ctx,
+                prompt_messages=prompt_messages,
+                function_defs=filtered_function_defs,
+                primary_agent=primary_agent,
+                secondary_agent=secondary_agent,
+                processor_factory=processor_factory,
+                account=account,
+                metrics=metrics,
+            ):
+                # Capture the text content for chat2 storage
+                if event.type == "text" and event.content:
+                    final_response_text = event.content
+                yield event.to_sse()
+
+            # Write chat2 events at stream end (per design decision)
+            if ctx.store_this_call and final_response_text:
+                self._write_chat2_events(ctx, message, final_response_text)
+
+        except ToolHandlerError:
+            yield SSEEvent(type="error", message="A tool execution error occurred.").to_sse()
+            yield SSEEvent(type="done", conversation_id=ctx.conversation_id).to_sse()
+            raise
+
+        except Exception as e:
+            metrics["failures"] += 1
+            logging.exception(
+                "FunctionCallingProcessor(streaming): unhandled error agent=%s session_id=%s",
+                ctx.agent_name,
+                ctx.conversation_id,
+            )
+
+            error_message = "I ran into an internal error while processing your request. The issue has been logged."
+
+            try:
+                self._write_chat2_events(ctx, message, error_message + f" (Details: {type(e).__name__})")
+            except Exception:
+                logging.exception(
+                    "FunctionCallingProcessor(streaming): failed to store error conversation for session_id=%s",
+                    ctx.conversation_id,
+                )
+
+            yield SSEEvent(type="error", message=error_message).to_sse()
+            yield SSEEvent(type="done", conversation_id=ctx.conversation_id).to_sse()
+
+        finally:
+            latency_ms = int((time.perf_counter() - start_ts) * 1000)
+            logging.info(
+                "FunctionCallingProcessor(streaming) summary: agent=%s session_id=%s account=%s iterations=%d openai_calls=%d tool_calls=%d failures=%d latency_ms=%d",
                 ctx.agent_name if "ctx" in locals() else "unknown",
                 ctx.conversation_id if "ctx" in locals() else "unknown",
                 ctx.account_id if "ctx" in locals() else "unknown",
