@@ -48,6 +48,7 @@ class TestCreateSession:
         assert meta.account_name == "acme"
         assert meta.agent_name == "lucy"
         assert meta.friendly_name == "2025.04.01_test"
+        assert meta.context_name is None
         assert meta.session_type == "user"
         assert meta.created_at == meta.updated_at
 
@@ -65,11 +66,13 @@ class TestCreateSession:
             account_name="acme",
             agent_name="colin",
             friendly_name="multi-agent-test",
+            context_name="lucyproject",
             tags=["test", "demo"],
             session_type="internal",
             participants=["john", "lucy", "colin"],
             links=links,
         )
+        assert meta.context_name == "lucyproject"
         assert meta.tags == ["test", "demo"]
         assert meta.session_type == "internal"
         assert meta.participants == ["john", "lucy", "colin"]
@@ -83,6 +86,10 @@ class TestCreateSession:
     def test_default_tags_is_empty(self, store: Chat2Primitives) -> None:
         meta = create_session(store, user_id="u1", account_name="a", agent_name="b")
         assert meta.tags == []
+
+    def test_default_context_name_is_none(self, store: Chat2Primitives) -> None:
+        meta = create_session(store, user_id="u1", account_name="a", agent_name="b")
+        assert meta.context_name is None
 
 
 # ---------------------------------------------------------------------------
@@ -100,6 +107,52 @@ class TestGetSessionMeta:
 
     def test_returns_none_for_missing(self, store: Chat2Primitives) -> None:
         assert get_session_meta(store, "nonexistent-session-id") is None
+
+
+# ---------------------------------------------------------------------------
+# context_name persistence
+# ---------------------------------------------------------------------------
+
+class TestContextName:
+    def test_persisted_and_retrieved(self, store: Chat2Primitives) -> None:
+        """context_name survives a full create → get_session_meta round-trip."""
+        created = create_session(
+            store,
+            user_id="u1",
+            account_name="acme",
+            agent_name="lucy",
+            context_name="lucyproject",
+        )
+        fetched = get_session_meta(store, created.session_id)
+        assert fetched is not None
+        assert fetched.context_name == "lucyproject"
+
+    def test_none_persisted_and_retrieved(self, store: Chat2Primitives) -> None:
+        """context_name=None survives a full create → get_session_meta round-trip."""
+        created = create_session(
+            store,
+            user_id="u1",
+            account_name="acme",
+            agent_name="lucy",
+            context_name=None,
+        )
+        fetched = get_session_meta(store, created.session_id)
+        assert fetched is not None
+        assert fetched.context_name is None
+
+    def test_persisted_in_raw_json(self, store: Chat2Primitives) -> None:
+        """context_name appears in the raw stored JSON."""
+        meta = create_session(
+            store,
+            user_id="u1",
+            account_name="acme",
+            agent_name="lucy",
+            context_name="lucyproject",
+        )
+        meta_key = StoreKey(f"sessions/{meta.session_id}/meta.json")
+        raw = store.read_text(meta_key)
+        assert raw is not None
+        assert '"context_name":"lucyproject"' in raw
 
 
 # ---------------------------------------------------------------------------

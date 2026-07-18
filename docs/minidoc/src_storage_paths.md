@@ -16,7 +16,7 @@ tags:
 
 ## Summary
 
-Centralised, authoritative path resolver for all user-data directories. Maps logical domains (chats, contexts, documents, tasklists, users, agents) to filesystem paths under a configurable storage root and namespace. Includes safety guards against path traversal and symlink escapes.
+Centralised, authoritative path resolver for all user-data directories. Maps logical domains (chats, contexts, documents, tasklists, skills, users, agents) to filesystem paths under a configurable storage root and namespace. Includes safety guards against path traversal and symlink escapes.
 
 ## Key Classes
 
@@ -44,6 +44,7 @@ Centralised, authoritative path resolver for all user-data directories. Maps log
 | `chats` | `@property` | `() -> Path` | Path to `chats/` directory. |
 | `documents` | `@property` | `() -> Path` | Path to `documents/` directory. |
 | `tasklists` | `@property` | `() -> Path` | Path to `tasklists/` directory. |
+| `skills` | `@property` | `() -> Path` | Path to `skills/` directory. |
 | `users` | `@property` | `() -> Path` | Path to `users/` directory. |
 | `agents` | `@property` | `() -> Path` | Path to `agents/` directory. |
 | `resolve_relative` | instance | `(relative_path: str) -> Path` | Safely resolve a user-supplied relative path under storage base; rejects absolute paths, `..`, and symlink escapes. |

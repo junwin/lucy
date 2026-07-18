@@ -48,6 +48,7 @@ def create_session(
     *,
     session_id: Optional[str] = None,
     friendly_name: Optional[str] = None,
+    context_name: Optional[str] = None,
     tags: Optional[List[str]] = None,
     session_type: str = "user",
     participants: Optional[List[str]] = None,
@@ -71,6 +72,7 @@ def create_session(
         participants=participants or [],
         session_type=session_type,  # type: ignore[arg-type]
         friendly_name=friendly_name,
+        context_name=context_name,
         created_at=now,
         updated_at=now,
         tags=tags or [],

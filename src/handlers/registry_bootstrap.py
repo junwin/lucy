@@ -23,6 +23,7 @@ from src.handlers.tasklists_manage_handler import TasklistsManageHandler
 from src.handlers.tasklists_run_handler import TasklistsRunHandler
 from src.handlers.chat2_handler import Chat2Handler
 from src.handlers.curate_chat_handler import CurateChatHandler
+from src.handlers.sandbox_execute_handler import SandboxExecuteHandler
 
 logger = logging.getLogger(__name__)
 
@@ -42,6 +43,7 @@ def build_registry() -> HandlerRegistry:
     reg.register(FileSaveHandler2)
     reg.register(CommandExecutionHandler2)
     reg.register(ScrapeWebPageHandler2)
+    reg.register(SandboxExecuteHandler)
 
     # Optional / third-party dependent handlers: import and register lazily.
     try:

@@ -567,6 +567,7 @@ class FunctionCallingProcessor(MessageProcessorInterface):
                 agent_name=ctx.agent_name,
                 session_id=ctx.conversation_id,
                 friendly_name=ctx.context_name or None,
+                context_name=ctx.context_name or None,
             )
             logging.info(
                 "chat2: created session %s for account=%s agent=%s",

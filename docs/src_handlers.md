@@ -18,6 +18,7 @@ tags:
   - TasklistsManageHandler
   - TasklistsRunHandler
   - GetKeywordsHandler
+  - SandboxExecuteHandler
   - build_registry
 ---
 
@@ -28,7 +29,7 @@ The `src/handlers` module is the **tool-implementation layer** of Lucy. It defin
 - Abstract handler interfaces (`Handler`, `HandlerV2`, `SchemaHandlerV2`) that prescribe how tools expose their OpenAI function-calling definitions, validate arguments, and execute.
 - A **registry** (`HandlerRegistry`) that stores all available handlers by name, letting the rest of the system discover and instantiate them dynamically.
 - A **bootstrap** function (`build_registry`) that wires up all concrete handler implementations.
-- Eleven **concrete handlers** covering file I/O, command execution, web search/scrape, keyword extraction, task delegation, tasklist management/execution, chat session management, and chat curation.
+- Twelve **concrete handlers** covering file I/O, command execution, web search/scrape, keyword extraction, task delegation, tasklist management/execution, chat session management, chat curation, and batched tool chaining.
 - Shared **utility code** for path resolution (`get_base_path`) and script execution (`execute_script`).
 
 It solves the problem of decoupling tool definitions from the LLM message-processing pipeline: processors like `FunctionCallingProcessor` ask the registry for tool definitions (to pass to the model) and for handler instances (to execute tool calls), without knowing about any specific handler.
@@ -83,6 +84,7 @@ Path resolution (`get_base_path`) and script execution (`execute_script`) are sh
 | `DelegateTasksHandler` | `HandlerV2` | Plan a sequential task list from a goal. |
 | `Chat2Handler` | `HandlerV2` | CRUD and search for chat2 sessions. |
 | `CurateChatHandler` | `HandlerV2` | Curate chat sessions (filter, summarize, archive). |
+| `SandboxExecuteHandler` | `HandlerV2` | Chain multiple tool calls in one batch with `$step_N.field` variable substitution. |
 | `TasklistsManageHandler` | `HandlerV2` | CRUD for persisted tasklists (list/get/put/patch/delete/reset). |
 | `TasklistsRunHandler` | `HandlerV2` | Execute a persisted tasklist via `AutomationProcessor`. |
 | `GetKeywordsHandler` | `HandlerV2` | Extract keywords from text using NLP libraries. |
@@ -106,6 +108,7 @@ Path resolution (`get_base_path`) and script execution (`execute_script`) are sh
 | `delegate_tasks_handler.py` | `delegate_tasks` tool — plans a task list from a goal. | `DelegateTasksHandler` |
 | `chat2_handler.py` | `chat2_handler` tool — manages chat2 sessions (CRUD, search, curate). | `Chat2Handler` |
 | `curate_chat_handler.py` | `curate_chat` tool — curates sessions via `CurationEngine` (filter, summarize, archive). | `CurateChatHandler` |
+| `sandbox_execute_handler.py` | `sandbox_execute` tool — chains multiple tool calls in one batch with variable substitution. | `SandboxExecuteHandler` |
 | `tasklists_manage_handler.py` | `tasklists_manage` tool — CRUD + patch + reset for persisted tasklists. | `TasklistsManageHandler` |
 | `tasklists_run_handler.py` | `tasklists_run` tool — executes a persisted tasklist via `AutomationProcessor`. | `TasklistsRunHandler` |
 | `get_keywords_handler.py` | `get_keywords` tool — extracts keywords from text (requires NLP deps). | `GetKeywordsHandler` |
@@ -137,6 +140,7 @@ Path resolution (`get_base_path`) and script execution (`execute_script`) are sh
 - `src.message_processors.automation_processor` — `AutomationProcessor` (used by `TasklistsRunHandler`)
 - `src.keywords.keywords` — `Keywords` (used by `GetKeywordsHandler`)
 - `src.handlers.handler_utils` — `execute_script` (used by `ScrapeWebPageHandler2`)
+- `src.handlers.handler_registry` — `HandlerRegistry` (used by `SandboxExecuteHandler`)
 
 ### Optional dependencies
 - `GetKeywordsHandler` — guarded at import and registration time; requires spaCy, nltk, scikit-learn.
@@ -172,6 +176,7 @@ None. No custom exception classes are defined in this module. Handlers raise bui
 | `MAX_OUTPUT_CHARS` | `command_execution_handler2.py` | `10_000` | Max characters of stdout/stderr to return; output beyond this is truncated with a marker. |
 | `INTERACTIVE_BARE` | `command_execution_handler2.py` | `{"python", "python3", "bash", "sh", "zsh"}` | Set of interpreter names that are rejected when called with no arguments (to prevent hanging on stdin). |
 | `BRAVE_ENDPOINT` | `web_search_handler2.py` | `"https://api.search.brave.com/res/v1/web/search"` | Brave Search API endpoint URL. |
+| `_VAR_RE` | `sandbox_execute_handler.py` | `re.compile(r"\$step_(\d+)\.(\S+)")` | Regex for matching `$step_N.field` variable references in step args. |
 
 Additionally, each concrete handler defines a `NAME` class attribute (e.g. `"file_load"`, `"file_save"`) used as the tool name.
 
@@ -292,6 +297,13 @@ Same public interface as `FileLoadHandler2` plus:
 | `_build_store` | static | `_build_store()` | Constructs `Chat2Store` (same pattern as `Chat2Handler`). |
 | `_build_engine` | instance | `_build_engine(self) -> CurationEngine` | Constructs `CurationEngine` with `Chat2Store`, `RouterApi`, LLM model from config, and paths for digests/archives under `lucy_data_files`. |
 
+### SandboxExecuteHandler
+
+| Method | Type | Signature | Description |
+|--------|------|-----------|-------------|
+| `execute` | instance | `execute(self, args: Dict[str, Any], *, account_name: str = "auto", registry: Optional[HandlerRegistry] = None, **context) -> Dict[str, Any]` | Chains multiple tool calls sequentially. Each step specifies a `tool` name and `args` dict. Uses `$step_N.field` variable substitution (dot notation for nested fields, index into lists) to pipe results between steps. Supports `continue_on_error` (default false) to keep running after failures. Returns `{ok, tool, steps: [{step, tool, ok, result}], final}`. |
+| `_resolve_vars` | instance | `_resolve_vars(self, value: Any, step_results: Dict[int, Dict[str, Any]]) -> Any` | Recursively replaces `$step_N.field` references in strings (and nested dicts/lists) with values from earlier step results. Dot notation traverses nested dicts; numeric parts index into lists. Returns the resolved value. |
+
 ### TasklistsManageHandler
 
 | Method | Type | Signature | Description |
@@ -356,6 +368,22 @@ handler = registry.create("file_load", config=config)
 result = handler.execute({"location": "storage", "external_root": "", "path": "index.json"})
 ```
 
+### Chain tool calls with sandbox_execute
+
+```python
+handler = registry.create("sandbox_execute", config=config)
+result = handler.execute({
+    "steps": [
+        {"tool": "scrape_web_page",    "args": {"page_url": "https://example.com"}},
+        {"tool": "get_keywords",       "args": {"content": "$step_1.result", "top_n": 5, "language_code": "en"}},
+        {"tool": "file_save",          "args": {"path": "keywords.txt", "file_content": "$step_2.keywords"}},
+    ],
+    "continue_on_error": False,
+}, registry=registry)
+# result["steps"] → [{step: 1, ok: True, ...}, {step: 2, ok: True, ...}, ...]
+# result["final"] → result of the last step
+```
+
 ### Patch a tasklist
 
 ```python
@@ -397,6 +425,10 @@ result = handler.execute({
 
 11. **Output truncation.** `CommandExecutionHandler2` truncates stdout/stderr at 10,000 characters (keeping head + tail). If the full output is needed, a follow-up command like `tail` or `cat` with a specific path should be used.
 
+12. **`SandboxExecuteHandler` requires a registry at runtime.** It needs a `HandlerRegistry` instance (passed via `registry` kwarg or injected via `**context`). Without it, the handler returns an error. The FCP's `_handle_tool_call` method provides this via `registry=registry` when calling `execute`. Standalone usage must pass it explicitly.
+
+13. **`SandboxExecuteHandler` child handlers only receive `account_name`.** To prevent registry leak bugs, child tool calls inside `SandboxExecuteHandler.execute()` only pass `account_name` — no `registry` or extra `**context` kwargs are forwarded. This is intentional and prevents handlers from accidentally receiving the wrong registry.
+
 ## 12. Consumers
 
 | Consumer | What it uses |
@@ -411,3 +443,4 @@ result = handler.execute({
 | `tests/test_get_base_path_hybrid.py` | `get_base_path` — unit tests |
 | `tests/test_tasklists_manage_handler.py` | `TasklistsManageHandler` — unit tests |
 | `tests/test_tasklists_run_handler.py` | `TasklistsRunHandler` — unit tests |
+| `_test_sandbox.py` | `SandboxExecuteHandler` — smoke tests for tool chaining, variable substitution, and `continue_on_error` |

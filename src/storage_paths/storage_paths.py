@@ -36,6 +36,10 @@ class StoragePaths:
         return self.base / "tasklists"
 
     @property
+    def skills(self) -> Path:
+        return self.base / "skills"
+
+    @property
     def users(self) -> Path:
         return self.base / "users"
 

@@ -89,6 +89,7 @@ class ChatSessionMeta(BaseModel):
     participants: list[str] = Field(default_factory=list)
     session_type: Literal["user", "internal"] = "user"
     friendly_name: Optional[str] = None
+    context_name: Optional[str] = None
     created_at: datetime
     updated_at: datetime
     tags: list[str] = Field(default_factory=list)

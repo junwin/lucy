@@ -530,6 +530,33 @@ class JsonFileStorage(Storage):
                     logging.error("Failed migrating %s: %s", json_file, e)
 
     # ----------------------------------------------------------------------
+    # SKILLS
+    # ----------------------------------------------------------------------
+
+    def get_skill_text(self, account_name: str, skill_name: str) -> Optional[str]:
+        """Return the body text of a skill Markdown file, or None if missing.
+
+        Skill files are stored at skills/<account>/<skill_name>.md.
+        They are plain Markdown -- the entire file body is returned as the skill text.
+        Frontmatter (if any) is stripped.
+        """
+        path = self.storage_paths.skills / account_name / f"{skill_name}.md"
+        if not path.exists():
+            return None
+
+        try:
+            text = path.read_text(encoding="utf-8")
+        except Exception as e:
+            logging.warning("Failed to read skill file %s: %s", path, e)
+            return None
+
+        # Strip optional YAML frontmatter
+        m = re.match(r"^---\s*\n(.*?)\n---\s*\n(.*)\Z", text, re.S)
+        if m:
+            return m.group(2)
+        return text
+
+    # ----------------------------------------------------------------------
     # Tasklists (simple CRUD)
     # ----------------------------------------------------------------------
 

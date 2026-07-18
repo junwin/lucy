@@ -1,6 +1,7 @@
 # src/prompt_builders/prompt_builder.py
 
 import logging
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 from injector import inject
 
@@ -75,6 +76,35 @@ class PromptBuilder(PromptBuilderInterface):
                 "role": "system",
                 "content": f"Current session ID: {conversation_id}",
             })
+
+        # --- Session info: agent, context, elapsed time ---
+        if self.chat2_store is not None and conversation_id not in ("none", "new", ""):
+            try:
+                meta = self.chat2_store.get_session(conversation_id)
+                if meta is not None:
+                    now = datetime.now(timezone.utc).replace(tzinfo=None)
+                    delta = now - meta.updated_at
+                    secs = delta.total_seconds()
+
+                    if secs < 60:
+                        elapsed = f"{int(secs)}s ago"
+                    elif secs < 3600:
+                        elapsed = f"{int(secs / 60)}m ago"
+                    elif secs < 86400:
+                        elapsed = f"{int(secs / 3600)}h ago"
+                    else:
+                        elapsed = f"{int(secs / 86400)}d ago"
+
+                    info = f"Session: agent={meta.agent_name}"
+                    ctx_name = meta.context_name or meta.friendly_name
+                    if ctx_name:
+                        info += f", context={ctx_name}"
+                    info += f", last activity {elapsed} (timestamp: {meta.updated_at.isoformat()}Z)"
+
+                    messages.append({"role": "system", "content": info})
+            except Exception:
+                # best-effort: if session lookup fails, just skip the info line
+                pass
 
         for extra in (extra_system_messages or []):
             if extra and extra.strip():
@@ -259,31 +289,60 @@ class PromptBuilder(PromptBuilderInterface):
             return None
 
     def _get_context_text(self, account_name: str, context_name: str) -> str:
-        """Load context text from storage.
+        """Load context text from storage, including any imported skills.
 
         Context is expected to be a ContextState with a free-form data dict.
+
+        If the context frontmatter contains an 'imports' list, each entry names
+        a skill file at skills/<account>/<name>.md. Skill texts are prepended
+        before the main context body.
 
         Behavior:
         - If context_name is missing/"none": return empty string.
         - If context is missing in storage: create it immediately (empty defaults)
           and return empty string.
-        - If context exists: return data["text"] if present.
-
-        Note: PromptBuilder should not be responsible for *writing* meaningful
-        context content, but creating an empty context here is a safe fallback
-        in case the request handler didn't do it.
+        - If context exists: prepend skill texts, then return data["text"].
         """
         ctx = self._get_context_state(account_name, context_name)
         if ctx is None:
             return ""
 
         data = getattr(ctx, "data", None)
-        if isinstance(data, dict):
-            text = data.get("text")
-            if isinstance(text, str):
-                return text
+        if not isinstance(data, dict):
+            return ""
 
-        return ""
+        parts: List[str] = []
+
+        # --- Load imported skills ---
+        imports = data.get("imports")
+        if isinstance(imports, list):
+            for skill_name in imports:
+                if not isinstance(skill_name, str) or not skill_name.strip():
+                    continue
+                try:
+                    skill_text = self.storage.get_skill_text(account_name, skill_name.strip())
+                    if skill_text:
+                        parts.append(skill_text)
+                    else:
+                        logging.warning(
+                            "PromptBuilder: skill '%s' not found for account '%s'",
+                            skill_name,
+                            account_name,
+                        )
+                except Exception as ex:
+                    logging.warning(
+                        "PromptBuilder: failed to load skill '%s' for %s: %s",
+                        skill_name,
+                        account_name,
+                        ex,
+                    )
+
+        # --- Main context body ---
+        text = data.get("text")
+        if isinstance(text, str) and text.strip():
+            parts.append(text)
+
+        return "\n\n".join(parts)
 
     def _ensure_current_query(self, messages: List[Dict[str, str]], current_query: str) -> List[Dict[str, str]]:
         if not messages:

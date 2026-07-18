@@ -8,13 +8,15 @@ tags:
   - tool_def
   - execute_raw
   - registry_bootstrap
+  - SandboxExecuteHandler
+  - sandbox_execute
 ---
 
 # Module: `src.handlers`
 
 ## Summary
 
-The `src.handlers` package provides the **tool execution layer** for Lucy's function-calling system. Every tool the LLM can invoke (file load/save, command execution, web search, tasklist management, etc.) is implemented as a handler class in this package. The package defines the abstract handler interfaces, a registry for discovery, and concrete implementations for each tool.
+The `src.handlers` package provides the **tool execution layer** for Lucy's function-calling system. Every tool the LLM can invoke (file load/save, command execution, web search, tasklist management, batched tool chaining, etc.) is implemented as a handler class in this package. The package defines the abstract handler interfaces, a registry for discovery, and concrete implementations for each tool.
 
 ## Key Classes
 
@@ -42,6 +44,7 @@ The `src.handlers` package provides the **tool execution layer** for Lucy's func
 | `scrape_web_page_handler2.py` | `ScrapeWebPageHandler2` — scrape text from a webpage URL. |
 | `web_search_handler2.py` | `WebSearchHandler2` — search the web via Brave Search API. |
 | `delegate_tasks_handler.py` | `DelegateTasksHandler` — plan a sequential task list for a goal. |
+| `sandbox_execute_handler.py` | `SandboxExecuteHandler` — chain multiple tool calls in one batch with `$step_N.field` variable substitution. |
 | `get_keywords_handler.py` | `GetKeywordsHandler` — extract keywords from text (optional NLP deps). |
 | `tasklists_manage_handler.py` | `TasklistsManageHandler` — CRUD operations on persisted tasklists. |
 | `tasklists_run_handler.py` | `TasklistsRunHandler` — execute a persisted tasklist via `AutomationProcessor`. |

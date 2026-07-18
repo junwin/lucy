@@ -10,7 +10,7 @@ tags:
 
 ## 1. Summary
 
-`src/storage_paths` is a thin, single-class module that provides the **centralised, authoritative resolver for all user-data paths** in Lucy. It maps logical domains (`contexts`, `chats`, `documents`, `tasklists`, `users`, `agents`) to filesystem directories under a configurable storage root, and enforces a strict sandbox so that no caller can break out of the storage namespace via `..`, absolute paths, or symlink tricks.
+`src/storage_paths` is a thin, single-class module that provides the **centralised, authoritative resolver for all user-data paths** in Lucy. It maps logical domains (`contexts`, `chats`, `documents`, `tasklists`, `skills`, `users`, `agents`) to filesystem directories under a configurable storage root, and enforces a strict sandbox so that no caller can break out of the storage namespace via `..`, absolute paths, or symlink tricks.
 
 It is the **single source of truth** for every on-disk location used by `JsonFileStorage` and related consumers. No other module should hard-code storage paths — they must always go through `StoragePaths`.
 
@@ -19,7 +19,7 @@ It is the **single source of truth** for every on-disk location used by `JsonFil
 - **Single-class module.** Everything lives in one class `StoragePaths` — no inheritance, no ABC, no DI. It is a pure value object / path factory.
 - **Sandboxed by construction.** The constructor resolves `storage_root_path` and `storage_namespace` into absolute `Path` objects, then checks `base.is_relative_to(root)`. If the namespace escapes (e.g. `storage_namespace = "../../outside"`), it raises `ValueError` immediately. This is a **hard guard against misconfiguration**.
 - **No index directory.** Historically there was a top-level `indexes/` directory. That has been **removed** — index files now live alongside domain data (e.g. `chats/alice/index.json`). The `index_for()` and `domain_index()` helpers enforce this new convention.
-- **Lazy properties.** The six domain properties (`contexts`, `chats`, `documents`, `tasklists`, `users`, `agents`) are simple `@property` accessors that return `Path` objects — they do not create directories on disk.
+- **Lazy properties.** The seven domain properties (`contexts`, `chats`, `documents`, `tasklists`, `skills`, `users`, `agents`) are simple `@property` accessors that return `Path` objects — they do not create directories on disk.
 - **No configuration dependency.** `StoragePaths` does not read `ConfigManager`; it receives its two parameters as explicit constructor arguments. This keeps it testable with zero mocking.
 
 ## 3. Key Classes
@@ -73,6 +73,7 @@ There is no `__init__.py`; the directory is a namespace package. The single file
 | `chats` | property | `(self) -> Path` | Returns `<base>/chats`. |
 | `documents` | property | `(self) -> Path` | Returns `<base>/documents`. |
 | `tasklists` | property | `(self) -> Path` | Returns `<base>/tasklists`. |
+| `skills` | property | `(self) -> Path` | Returns `<base>/skills`. |
 | `users` | property | `(self) -> Path` | Returns `<base>/users`. |
 | `agents` | property | `(self) -> Path` | Returns `<base>/agents`. |
 | `resolve_relative` | instance | `(self, relative_path: str) -> Path` | Safely resolves a user-supplied relative path under `self.base`. Joins, resolves (following symlinks), then checks `is_relative_to(base)`. **Raises `ValueError`** if the resolved path escapes the namespace — this catches absolute paths, `..` traversal, and symlink escapes. Returns the resolved `Path`. |
@@ -89,6 +90,7 @@ from src.storage_paths.storage_paths import StoragePaths
 sp = StoragePaths("/data/lucy", "junwin")
 print(sp.chats)       # /data/lucy/junwin/chats
 print(sp.contexts)    # /data/lucy/junwin/contexts
+print(sp.skills)      # /data/lucy/junwin/skills
 print(sp.index_for("chats", "alice"))  # /data/lucy/junwin/chats/alice/index.json
 ```
 
@@ -119,7 +121,7 @@ storage = JsonFileStorage(storage_paths)
 
 - **Path escape is caught at construction time**, not lazily. If `storage_namespace` is `"../../etc"`, the constructor raises `ValueError` immediately. This is a hard fail — no recovery.
 - **`resolve_relative()` follows symlinks.** The method calls `Path.resolve()`, which resolves all symlinks in the chain. This is intentional; it prevents symlink-based escape attacks. A symlink inside the namespace that points outside will cause `resolve_relative()` to raise `ValueError`.
-- **Properties do not create directories.** `sp.chats`, `sp.documents`, etc. return `Path` objects that may not exist on disk yet. Callers must `mkdir(parents=True)` before writing.
+- **Properties do not create directories.** `sp.chats`, `sp.documents`, `sp.skills`, etc. return `Path` objects that may not exist on disk yet. Callers must `mkdir(parents=True)` before writing.
 - **No `indexes` property.** The old top-level `indexes/` directory concept has been removed. Use `index_for()` or `domain_index()` to build domain-local index paths instead.
 - **Empty domain/account raises `ValueError`** in `index_for()` and `domain_index()`. The checks are strict: empty string or None both trigger the error.
 - **No `__init__.py`.** The package is a namespace package (no `__init__.py`). The import path is `from src.storage_paths.storage_paths import StoragePaths` — note the double `storage_paths`.
@@ -131,7 +133,7 @@ storage = JsonFileStorage(storage_paths)
 | Consumer | What it uses |
 |---|---|
 | `src/container_config.py` | Constructs `StoragePaths` with config values, passes to `JsonFileStorage` |
-| `src/storage/json_file_storage.py` | Stores `self.storage_paths` and uses all properties (`.chats`, `.contexts`, `.documents`, `.tasklists`, `.users`, `.agents`, `.base`) plus `resolve_relative()` |
+| `src/storage/json_file_storage.py` | Stores `self.storage_paths` and uses all properties (`.chats`, `.contexts`, `.documents`, `.tasklists`, `.skills`, `.users`, `.agents`, `.base`) plus `resolve_relative()` |
 | `src/storage/json_file_storage_parts/chats.py` | Uses `.storage_paths.chats` for session I/O |
 | `src/chat2/adapters/jfs_adapter.py` | Uses `storage.storage_paths.base / "chat2"` to build chat2 root |
 | `src/handlers/chat2_handler.py` | Lazy-imports `StoragePaths` for session management helpers |
