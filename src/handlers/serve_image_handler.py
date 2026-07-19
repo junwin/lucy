@@ -135,7 +135,7 @@ class ServeImageHandler(HandlerV2):
                         ),
                     },
                 },
-                "required": ["location", "external_root", "path"],
+                "required": ["location", "external_root", "path", "max_dimension"],
                 "additionalProperties": False,
             },
             "strict": True,

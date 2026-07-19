@@ -1,8 +1,8 @@
-"""ResetSessionHandler — SSE Phase 2 action: triggers a session reset.
+"""ResetSessionHandler — clears the current session's events and signals the client.
 
-This handler returns {"action": "reset_session"} to signal the streaming
-SSE loop that the client should refresh/clear its session. It has no required
-parameters.
+This handler truncates the session's events file on the server (via chat2_store)
+and returns {"action": "reset_session"} to signal the streaming SSE loop that
+the client should also refresh/clear its local view.
 """
 
 import json
@@ -46,6 +46,7 @@ class ResetSessionHandler(HandlerV2):
             "type": "object",
             "properties": {
                 "action": {"type": "string"},
+                "ok": {"type": "boolean"},
             },
             "required": ["action"],
             "additionalProperties": False,
@@ -54,11 +55,33 @@ class ResetSessionHandler(HandlerV2):
     def execute(
         self, args: Dict[str, Any], *, account_name: str = "auto", **context
     ) -> Dict[str, Any]:
-        logger.info("Reset session action triggered (account=%s)", account_name)
-        return {"action": "reset_session"}
+        conversation_id = context.get("conversation_id", "")
+        chat2_store = context.get("chat2_store")
+
+        logger.info("Reset session triggered for session=%s (account=%s)", conversation_id, account_name)
+
+        if not conversation_id:
+            logger.warning("Reset session: no conversation_id in context")
+            return {"action": "reset_session", "ok": False, "error": "No session ID available"}
+
+        try:
+            if chat2_store is not None:
+                chat2_store.reset_events(conversation_id)
+                logger.info("Reset session: cleared events for session=%s", conversation_id)
+            else:
+                logger.warning("Reset session: no chat2_store available for session=%s", conversation_id)
+                return {"action": "reset_session", "ok": False, "error": "chat2_store not available"}
+        except ValueError as e:
+            logger.warning("Reset session: session not found: %s", conversation_id)
+            return {"action": "reset_session", "ok": False, "error": str(e)}
+        except Exception as e:
+            logger.exception("Reset session: failed to clear events for session=%s", conversation_id)
+            return {"action": "reset_session", "ok": False, "error": str(e)}
+
+        return {"action": "reset_session", "ok": True}
 
     def execute_raw(
-        self, arguments_raw: str, *, account_name: str = "auto", call_id: str = ""
+        self, arguments_raw: str, *, account_name: str = "auto", call_id: str = "", **context
     ) -> str:
-        result = self.execute({}, account_name=account_name)
+        result = self.execute({}, account_name=account_name, **context)
         return json.dumps(result, ensure_ascii=False)

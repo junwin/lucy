@@ -338,7 +338,7 @@ class FunctionCallingProcessor(MessageProcessorInterface):
                 )
 
                 if hasattr(handler, "execute_raw"):
-                    tool_result_text = handler.execute_raw(tc.arguments_raw, account_name=ctx.account_id, call_id=tc.call_id)  # type: ignore[attr-defined]
+                    tool_result_text = handler.execute_raw(tc.arguments_raw, account_name=ctx.account_id, call_id=tc.call_id, **handler_context)  # type: ignore[attr-defined]
                 else:
                     tool_args = self._safe_json_loads(tc.arguments_raw)
                     tool_result = handler.execute(tool_args, account_name=ctx.account_id, **handler_context)

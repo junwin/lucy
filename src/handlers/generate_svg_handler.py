@@ -282,7 +282,7 @@ class GenerateSvgHandler(HandlerV2):
                         "default": 200,
                     },
                 },
-                "required": ["svg_code"],
+                "required": ["svg_code", "description", "width", "height"],
                 "additionalProperties": False,
             },
             "strict": True,

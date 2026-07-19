@@ -65,7 +65,7 @@ class GenerateImageHandler(HandlerV2):
                         "default": "#1e3a5f",
                     },
                 },
-                "required": ["description"],
+                "required": ["description", "width", "height", "color"],
                 "additionalProperties": False,
             },
             "strict": True,
