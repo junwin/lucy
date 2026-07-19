@@ -553,6 +553,54 @@ class FunctionCallingProcessor(MessageProcessorInterface):
     # Streaming loop (Phase 1 SSE)
     # ------------------------------------------------------------------
 
+    @staticmethod
+    def _inspect_raw_results(
+        raw_results: List[Tuple[_ToolCall, str]],
+    ) -> Generator[SSEEvent, None, None]:
+        """Inspect raw tool results for image (PNG/SVG) and action keys.
+
+        Yields SSEEvent objects for any detected keys.
+        """
+        for _tc, raw_text in raw_results:
+            try:
+                parsed = json.loads(raw_text) if isinstance(raw_text, str) else {}
+            except (json.JSONDecodeError, TypeError):
+                continue
+            if not isinstance(parsed, dict):
+                continue
+
+            # Action events
+            if "action" in parsed:
+                yield SSEEvent(
+                    type="action",
+                    action=parsed["action"],
+                    action_payload=parsed.get("action_payload"),
+                )
+
+            # SVG images — emit as event:image with format=svg
+            if "svg" in parsed:
+                svg = parsed["svg"]
+                if isinstance(svg, dict):
+                    yield SSEEvent(
+                        type="image",
+                        format="svg",
+                        svg_markup=svg.get("markup"),
+                        alt=svg.get("alt") or "",
+                        width=svg.get("width"),
+                        height=svg.get("height"),
+                    )
+
+            # PNG images (existing) — emit as event:image with image_url
+            if "image" in parsed and "svg" not in parsed:
+                img = parsed["image"]
+                if isinstance(img, dict):
+                    yield SSEEvent(
+                        type="image",
+                        format="png",
+                        image_url=img.get("url"),
+                        alt=img.get("alt"),
+                    )
+
     def _run_llm_loop_streaming(
         self,
         *,
@@ -675,27 +723,9 @@ class FunctionCallingProcessor(MessageProcessorInterface):
                     call_id = str(item.get("call_id", ""))
                     yield SSEEvent(type="tool_result", call_id=call_id, ok=True)
 
-                # ── Phase 2+3: inspect raw results for action / image keys ──
-                for _tc, raw_text in raw_results:
-                    try:
-                        parsed = json.loads(raw_text) if isinstance(raw_text, str) else {}
-                    except (json.JSONDecodeError, TypeError):
-                        continue
-                    if not isinstance(parsed, dict):
-                        continue
-                    if "action" in parsed:
-                        yield SSEEvent(
-                            type="action",
-                            action=parsed["action"],
-                            action_payload=parsed.get("action_payload"),
-                        )
-                    if "image" in parsed:
-                        img = parsed["image"]
-                        yield SSEEvent(
-                            type="image",
-                            image_url=img.get("url"),
-                            alt=img.get("alt"),
-                        )
+                # ── Phase 2+3: inspect raw results for action / image / svg keys ──
+                for event in self._inspect_raw_results(raw_results):
+                    yield event
 
                 logging.info(
                     "FunctionCallingProcessor(streaming): sending %d function_call_output items chained to response_id=%s call_ids=%s",
@@ -884,16 +914,31 @@ class FunctionCallingProcessor(MessageProcessorInterface):
                     metadata={"agent": ctx.agent_name},
                 ))
 
-            # 4. Images
+            # 4. Images (PNG and SVG)
             for ev in streamed_events:
                 if ev.type == "image":
-                    chat_events.append(ChatEvent(
-                        role="assistant",
-                        actor=ctx.agent_name,
-                        kind="generated_image",
-                        payload={"image_url": ev.image_url, "alt": ev.alt or ""},
-                        metadata={"agent": ctx.agent_name},
-                    ))
+                    if ev.format == "svg":
+                        chat_events.append(ChatEvent(
+                            role="assistant",
+                            actor=ctx.agent_name,
+                            kind="generated_image",
+                            payload={
+                                "format": "svg",
+                                "svg_markup": ev.svg_markup,
+                                "alt": ev.alt or "",
+                                "width": ev.width,
+                                "height": ev.height,
+                            },
+                            metadata={"agent": ctx.agent_name, "format": "svg"},
+                        ))
+                    else:
+                        chat_events.append(ChatEvent(
+                            role="assistant",
+                            actor=ctx.agent_name,
+                            kind="generated_image",
+                            payload={"image_url": ev.image_url, "alt": ev.alt or "", "format": "png"},
+                            metadata={"agent": ctx.agent_name, "format": "png"},
+                        ))
 
             self.chat2_store.add_events(ctx.conversation_id, chat_events)
             logging.info(

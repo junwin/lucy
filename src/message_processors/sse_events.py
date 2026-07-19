@@ -1,7 +1,8 @@
 """SSE Event model for streaming /ask responses.
 
 Phase 1 emits: text, tool_call, tool_result, done, error.
-Phase 2 (future): image, action.
+Phase 2: action.
+Phase 3: image (PNG via image_url, SVG via svg_markup + format).
 """
 
 from pydantic import BaseModel
@@ -23,8 +24,15 @@ class SSEEvent(BaseModel):
     ok: Optional[bool] = None
 
     # --- image (Phase 3) ---
+    # PNG images: image_url is a data URI (e.g. data:image/png;base64,...)
     image_url: Optional[str] = None
     alt: Optional[str] = None
+
+    # SVG images: svg_markup is the raw SVG string, format is "svg"
+    svg_markup: Optional[str] = None
+    format: Optional[str] = None  # "png" or "svg"
+    width: Optional[int] = None
+    height: Optional[int] = None
 
     # --- action (Phase 2) ---
     action: Optional[str] = None  # "reset_session" | "redirect" | ...

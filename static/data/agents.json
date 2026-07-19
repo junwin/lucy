@@ -29,6 +29,7 @@
       "sandbox_execute",
       "reset_session",
       "generate_image",
+      "generate_svg",
       "serve_image"
     ]
   },
@@ -170,6 +171,7 @@
       "sandbox_execute",
       "reset_session",
       "generate_image",
+      "generate_svg",
       "serve_image"
     ]
   },
@@ -232,6 +234,7 @@
       "sandbox_execute",
       "reset_session",
       "generate_image",
+      "generate_svg",
       "serve_image"
     ]
   }

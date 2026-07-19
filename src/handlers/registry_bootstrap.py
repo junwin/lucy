@@ -26,6 +26,7 @@ from src.handlers.curate_chat_handler import CurateChatHandler
 from src.handlers.sandbox_execute_handler import SandboxExecuteHandler
 from src.handlers.reset_session_handler import ResetSessionHandler
 from src.handlers.serve_image_handler import ServeImageHandler
+from src.handlers.generate_svg_handler import GenerateSvgHandler
 
 try:
     from src.handlers.generate_image_handler import GenerateImageHandler
@@ -54,6 +55,7 @@ def build_registry() -> HandlerRegistry:
     reg.register(CommandExecutionHandler2)
     reg.register(ScrapeWebPageHandler2)
     reg.register(SandboxExecuteHandler)
+    reg.register(GenerateSvgHandler)
 
     # Optional / third-party dependent handlers: import and register lazily.
     try:
