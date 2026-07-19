@@ -752,7 +752,7 @@ class FunctionCallingProcessor(MessageProcessorInterface):
         )
 
     # ------------------------------------------------------------------
-    # Chat2 storage helpers (v1 removed — no backward compatibility)
+    # Chat2 storage helpers
     # ------------------------------------------------------------------
 
     def _ensure_chat2_session(self, ctx: _ProcessorContext) -> None:
@@ -825,6 +825,85 @@ class FunctionCallingProcessor(MessageProcessorInterface):
         except Exception:
             logging.exception(
                 "chat2: failed to write events for session=%s",
+                ctx.conversation_id,
+            )
+
+    def _write_streaming_chat2_events(
+        self,
+        ctx: _ProcessorContext,
+        user_message: str,
+        streamed_events: List[SSEEvent],
+    ) -> None:
+        """Write streaming events to chat2 storage, preserving image and tool cards.
+
+        Best-effort: failures are logged but not propagated.
+        """
+        if self.chat2_store is None:
+            return
+        try:
+            self._ensure_chat2_session(ctx)
+            chat_events: List[ChatEvent] = []
+
+            # 1. User message
+            chat_events.append(ChatEvent(
+                role="user",
+                actor=ctx.account_id,
+                kind="user_message",
+                payload=user_message,
+                metadata={"agent": ctx.agent_name},
+            ))
+
+            # 2. Tool calls and results
+            for ev in streamed_events:
+                if ev.type == "tool_call":
+                    chat_events.append(ChatEvent(
+                        role="assistant",
+                        actor=ctx.agent_name,
+                        kind="assistant_tool_call",
+                        payload={"tool_name": ev.tool_name, "call_id": ev.call_id},
+                        metadata={"agent": ctx.agent_name, "call_id": ev.call_id},
+                    ))
+                elif ev.type == "tool_result":
+                    chat_events.append(ChatEvent(
+                        role="tool",
+                        actor="system",
+                        kind="tool_result",
+                        payload={"call_id": ev.call_id, "ok": ev.ok},
+                        metadata={"call_id": ev.call_id},
+                    ))
+
+            # 3. Assistant text (find the last text event)
+            assistant_texts = [ev for ev in streamed_events if ev.type == "text" and ev.content]
+            if assistant_texts:
+                # Use the last text event as the assistant response
+                chat_events.append(ChatEvent(
+                    role="assistant",
+                    actor=ctx.agent_name,
+                    kind="assistant_message",
+                    payload=assistant_texts[-1].content or "",
+                    metadata={"agent": ctx.agent_name},
+                ))
+
+            # 4. Images
+            for ev in streamed_events:
+                if ev.type == "image":
+                    chat_events.append(ChatEvent(
+                        role="assistant",
+                        actor=ctx.agent_name,
+                        kind="generated_image",
+                        payload={"image_url": ev.image_url, "alt": ev.alt or ""},
+                        metadata={"agent": ctx.agent_name},
+                    ))
+
+            self.chat2_store.add_events(ctx.conversation_id, chat_events)
+            logging.info(
+                "chat2: wrote %d streaming events for session=%s (user+tool+text+image)",
+                len(chat_events),
+                ctx.conversation_id,
+            )
+        except Exception:
+            logging.exception(
+                "chat2: failed to write streaming events for session=%s",
                 ctx.conversation_id,
             )
 
@@ -998,6 +1077,9 @@ class FunctionCallingProcessor(MessageProcessorInterface):
 
         Same setup as process_message() but calls _run_llm_loop_streaming
         and yields SSE-formatted strings ("data: {json}\n\n").
+
+        Collects all SSE events during streaming so they can be persisted
+        to chat2 storage (including image and tool cards).
         """
         start_ts = time.perf_counter()
         metrics: Dict[str, Any] = {
@@ -1037,7 +1119,8 @@ class FunctionCallingProcessor(MessageProcessorInterface):
             ctx.max_iterations,
         )
 
-        final_response_text: Optional[str] = None
+        # Collect all SSE events for chat2 persistence
+        streamed_events: List[SSEEvent] = []
 
         try:
             extra_system_messages = self._get_environment_system_messages()
@@ -1090,14 +1173,12 @@ class FunctionCallingProcessor(MessageProcessorInterface):
                 account=account,
                 metrics=metrics,
             ):
-                # Capture the text content for chat2 storage
-                if event.type == "text" and event.content:
-                    final_response_text = event.content
+                streamed_events.append(event)
                 yield event.to_sse()
 
-            # Write chat2 events at stream end (per design decision)
-            if ctx.store_this_call and final_response_text:
-                self._write_chat2_events(ctx, message, final_response_text)
+            # Write all collected events to chat2 storage
+            if ctx.store_this_call:
+                self._write_streaming_chat2_events(ctx, message, streamed_events)
 
         except ToolHandlerError:
             yield SSEEvent(type="error", message="A tool execution error occurred.").to_sse()

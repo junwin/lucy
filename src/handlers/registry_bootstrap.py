@@ -25,6 +25,7 @@ from src.handlers.chat2_handler import Chat2Handler
 from src.handlers.curate_chat_handler import CurateChatHandler
 from src.handlers.sandbox_execute_handler import SandboxExecuteHandler
 from src.handlers.reset_session_handler import ResetSessionHandler
+from src.handlers.serve_image_handler import ServeImageHandler
 
 try:
     from src.handlers.generate_image_handler import GenerateImageHandler
@@ -85,6 +86,9 @@ def build_registry() -> HandlerRegistry:
     reg.register(CurateChatHandler)
     # Session reset action (SSE Phase 2)
     reg.register(ResetSessionHandler)
+
+    # Image serving — reads existing image files from disk
+    reg.register(ServeImageHandler)
 
     # Image generation (SSE Phase 3) — Pillow is an optional dependency
     if _GENERATE_IMAGE_AVAILABLE and GenerateImageHandler is not None:
