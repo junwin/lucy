@@ -8,7 +8,7 @@ except Exception:
     def inject(func):
         return func
 import logging
-from typing import Optional, Dict, Any, List, Iterable, Generator
+from typing import Optional, Dict, Any, List, Iterable, Generator, Tuple
 import json
 import time
 
@@ -295,8 +295,9 @@ class FunctionCallingProcessor(MessageProcessorInterface):
         account: Dict[str, Any],
         ctx: _ProcessorContext,
         metrics: Dict[str, Any],
-    ) -> List[Dict[str, Any]]:
+    ) -> Tuple[List[Dict[str, Any]], List[Tuple[_ToolCall, str]]]:
         tool_output_items: List[Dict[str, Any]] = []
+        raw_results: List[Tuple[_ToolCall, str]] = []
 
         # Build the shared execution context for handlers that need it
         # (e.g. TasklistsRunHandler needs primary_agent, account, conversation_id, etc.)
@@ -376,6 +377,9 @@ class FunctionCallingProcessor(MessageProcessorInterface):
                         )
                         tool_result_text = json.dumps(tasklist_result, ensure_ascii=False)
 
+                # Collect raw result before enforcing max size (for SSE action/image inspection)
+                raw_results.append((tc, tool_result_text))
+
                 tool_result_text = self._tool_result_to_text(tool_result_text)
 
             except ToolResultTooLargeError as e:
@@ -389,7 +393,7 @@ class FunctionCallingProcessor(MessageProcessorInterface):
 
             tool_output_items.append(self.llm_adapter.format_tool_output(call_id=str(tc.call_id), output=tool_result_text))
 
-        return tool_output_items
+        return tool_output_items, raw_results
 
 
 
@@ -497,7 +501,7 @@ class FunctionCallingProcessor(MessageProcessorInterface):
                     previous_response_id,
                 )
 
-                tool_output_items = self._execute_tool_calls(
+                tool_output_items, _ = self._execute_tool_calls(
                     tool_calls=tool_calls,
                     primary_agent=primary_agent,
                     secondary_agent=secondary_agent,
@@ -649,7 +653,7 @@ class FunctionCallingProcessor(MessageProcessorInterface):
 
                 # Execute tools (reuse existing logic)
                 try:
-                    tool_output_items = self._execute_tool_calls(
+                    tool_output_items, raw_results = self._execute_tool_calls(
                         tool_calls=tool_calls,
                         primary_agent=primary_agent,
                         secondary_agent=secondary_agent,
@@ -670,6 +674,28 @@ class FunctionCallingProcessor(MessageProcessorInterface):
                 for item in tool_output_items:
                     call_id = str(item.get("call_id", ""))
                     yield SSEEvent(type="tool_result", call_id=call_id, ok=True)
+
+                # ── Phase 2+3: inspect raw results for action / image keys ──
+                for _tc, raw_text in raw_results:
+                    try:
+                        parsed = json.loads(raw_text) if isinstance(raw_text, str) else {}
+                    except (json.JSONDecodeError, TypeError):
+                        continue
+                    if not isinstance(parsed, dict):
+                        continue
+                    if "action" in parsed:
+                        yield SSEEvent(
+                            type="action",
+                            action=parsed["action"],
+                            action_payload=parsed.get("action_payload"),
+                        )
+                    if "image" in parsed:
+                        img = parsed["image"]
+                        yield SSEEvent(
+                            type="image",
+                            image_url=img.get("url"),
+                            alt=img.get("alt"),
+                        )
 
                 logging.info(
                     "FunctionCallingProcessor(streaming): sending %d function_call_output items chained to response_id=%s call_ids=%s",

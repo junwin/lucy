@@ -43,6 +43,10 @@ class SandboxExecuteHandler(HandlerV2):
 
     @classmethod
     def tool_def(cls) -> Dict[str, Any]:
+        # NOTE: strict mode is NOT enabled for this tool because the nested
+        # `args` property is a free-form pass-through object that cannot
+        # satisfy the `additionalProperties: false` requirement.  OpenAI's
+        # Responses API refuses to accept the schema with strict=True.
         return {
             "type": "function",
             "name": cls.NAME,
@@ -86,7 +90,6 @@ class SandboxExecuteHandler(HandlerV2):
                 "required": ["steps"],
                 "additionalProperties": False,
             },
-            "strict": True,
         }
 
     @classmethod

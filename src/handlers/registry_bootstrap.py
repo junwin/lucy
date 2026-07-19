@@ -24,6 +24,15 @@ from src.handlers.tasklists_run_handler import TasklistsRunHandler
 from src.handlers.chat2_handler import Chat2Handler
 from src.handlers.curate_chat_handler import CurateChatHandler
 from src.handlers.sandbox_execute_handler import SandboxExecuteHandler
+from src.handlers.reset_session_handler import ResetSessionHandler
+
+try:
+    from src.handlers.generate_image_handler import GenerateImageHandler
+
+    _GENERATE_IMAGE_AVAILABLE = True
+except ImportError:
+    _GENERATE_IMAGE_AVAILABLE = False
+    GenerateImageHandler = None  # type: ignore[misc]
 
 logger = logging.getLogger(__name__)
 
@@ -74,6 +83,17 @@ def build_registry() -> HandlerRegistry:
     reg.register(Chat2Handler)
     # Chat curation (summarize, archive, filter)
     reg.register(CurateChatHandler)
+    # Session reset action (SSE Phase 2)
+    reg.register(ResetSessionHandler)
+
+    # Image generation (SSE Phase 3) — Pillow is an optional dependency
+    if _GENERATE_IMAGE_AVAILABLE and GenerateImageHandler is not None:
+        reg.register(GenerateImageHandler)
+    else:
+        logger.warning(
+            "GenerateImageHandler not registered: Pillow (PIL) not available. "
+            "Install with: pip install Pillow"
+        )
 
     logger.info("Handler registry built with %d handlers.", len(reg.tool_names()))
     return reg
