@@ -23,6 +23,7 @@ from src.handlers.tasklists_manage_handler import TasklistsManageHandler
 from src.handlers.tasklists_run_handler import TasklistsRunHandler
 from src.handlers.chat2_handler import Chat2Handler
 from src.handlers.curate_chat_handler import CurateChatHandler
+from src.handlers.generate_doc_handler import GenerateDocHandler
 from src.handlers.sandbox_execute_handler import SandboxExecuteHandler
 from src.handlers.reset_session_handler import ResetSessionHandler
 from src.handlers.serve_image_handler import ServeImageHandler
@@ -86,6 +87,8 @@ def build_registry() -> HandlerRegistry:
     reg.register(Chat2Handler)
     # Chat curation (summarize, archive, filter)
     reg.register(CurateChatHandler)
+    # Doc generation (LLM-powered module documentation)
+    reg.register(GenerateDocHandler)
     # Session reset action (SSE Phase 2)
     reg.register(ResetSessionHandler)
 
