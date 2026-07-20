@@ -719,9 +719,14 @@ class FunctionCallingProcessor(MessageProcessorInterface):
                     return
 
                 # ── INJECTION B: yield tool_result events after each result ──
-                for item in tool_output_items:
+                for (tc, raw_text), item in zip(raw_results, tool_output_items):
                     call_id = str(item.get("call_id", ""))
-                    yield SSEEvent(type="tool_result", call_id=call_id, ok=True)
+                    try:
+                        result_json = json.loads(raw_text)
+                        ok = result_json.get("ok", True) if isinstance(result_json, dict) else True
+                    except (json.JSONDecodeError, TypeError):
+                        ok = True
+                    yield SSEEvent(type="tool_result", call_id=call_id, ok=ok)
 
                 # ── Phase 2+3: inspect raw results for action / image / svg keys ──
                 for event in self._inspect_raw_results(raw_results):
