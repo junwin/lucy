@@ -20,6 +20,8 @@ class PromptBuilderInterface(ABC):
         max_prompt_chars: int = 6000,
         context_name: str = "",
         extra_system_messages: Optional[List[str]] = None,
+        image_ids: Optional[List[str]] = None,
+        file_ids: Optional[List[str]] = None,
     ) -> List[ChatMessageDict]:
         """Builds an OpenAI-compatible messages array."""
         raise NotImplementedError

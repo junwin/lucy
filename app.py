@@ -44,6 +44,7 @@ from src.http_endpoints.chats_endpoints import (
     delete_chat_impl,
     update_chat_impl,
 )
+from src.http_endpoints.upload_endpoints import post_upload_image_impl
 from src.chat2.facade import Chat2Store
 from src.api_key import validate_api_key
 
@@ -495,6 +496,39 @@ def update_chat(session_id: str):
 def search_documents():
     data = request.get_json(silent=True) or {}
     body, status = search_documents_impl(storage, data)
+    return jsonify(body), status
+
+
+# -----------------------------------------------------------------------------
+# Image upload
+# -----------------------------------------------------------------------------
+@app.route("/upload/image", methods=["POST"])
+def upload_image():
+    """Accept an image file via multipart form-data.
+
+    Form fields:
+      file:         the image (required)
+      accountName:  account identifier (required)
+
+    Returns:
+      200: { ok, id, filename, mime_type }
+      400: validation error
+      413: file too large
+    """
+    if "file" not in request.files:
+        return jsonify({"error": "No file provided"}), 400
+
+    file = request.files["file"]
+    account_name = (request.form.get("accountName") or "").strip()
+
+    file_data = file.read()
+    body, status = post_upload_image_impl(
+        config=config,
+        account_name=account_name,
+        file_data=file_data,
+        original_filename=file.filename or "unnamed",
+        mime_type=file.content_type or "application/octet-stream",
+    )
     return jsonify(body), status
 
 

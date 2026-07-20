@@ -384,8 +384,13 @@ class FunctionCallingProcessor(MessageProcessorInterface):
 
             except ToolResultTooLargeError as e:
                 metrics["failures"] += 1
-                tool_result_text = self._tool_result_to_text({"ok": False, "tool": tc.name, "error": str(e)})
-                raise ToolResultTooLargeError(str(e)) from e   
+                # Replace the too-large raw result with a compact error so the
+                # LLM sees a graceful tool-failure message instead of a hard crash.
+                error_dict = {"ok": False, "tool": tc.name, "error": str(e)}
+                tool_result_text = json.dumps(error_dict, ensure_ascii=False)
+                raw_results.pop()  # remove the too-large entry
+                raw_results.append((tc, tool_result_text))
+                # Fall through to tool_output_items.append below.
             except Exception as e:
                 metrics["failures"] += 1
                 logging.exception("Tool execution failed: %s call_id=%s", tc.name, tc.call_id)
@@ -971,6 +976,8 @@ class FunctionCallingProcessor(MessageProcessorInterface):
         context_name: str = "",
         secondary_agent: Optional[Agent] = None,
         processor_factory: Optional[Any] = None,
+        image_ids: Optional[List[str]] = None,
+        file_ids: Optional[List[str]] = None,
     ) -> str:
         start_ts = time.perf_counter()
         metrics: Dict[str, Any] = {
@@ -1020,6 +1027,8 @@ class FunctionCallingProcessor(MessageProcessorInterface):
                 max_prompt_chars=6000,
                 context_name=ctx.context_name,
                 extra_system_messages=extra_system_messages,
+                image_ids=image_ids,
+                file_ids=file_ids,
             )
 
             # Get the global tool definitions from the registry. We'll filter this
@@ -1122,6 +1131,8 @@ class FunctionCallingProcessor(MessageProcessorInterface):
         context_name: str = "",
         secondary_agent: Optional[Agent] = None,
         processor_factory: Optional[Any] = None,
+        image_ids: Optional[List[str]] = None,
+        file_ids: Optional[List[str]] = None,
     ) -> Generator[str, None, None]:
         """Streaming variant of process_message.
 
@@ -1186,6 +1197,8 @@ class FunctionCallingProcessor(MessageProcessorInterface):
                 max_prompt_chars=6000,
                 context_name=ctx.context_name,
                 extra_system_messages=extra_system_messages,
+                image_ids=image_ids,
+                file_ids=file_ids,
             )
 
             function_defs = self.registry.tools()

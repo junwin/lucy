@@ -46,6 +46,72 @@ class MistralApi(LLMApi):
             base_url=MistralApi.MISTRAL_BASE_URL,
         )
 
+    # ------------------------------------------------------------------
+    # Content-part normalization (image support — Step 6)
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _normalize_content_parts(content: Any) -> Any:
+        """Normalize provider-agnostic content parts to Mistral format.
+
+        Intermediate format:
+            {"type": "image", "source": {"data": "<base64>", "mime_type": "image/png"}}
+
+        Mistral format:
+            {"type": "image_url", "image_url": {"url": "data:image/png;base64,<data>"}}
+        """
+        if not isinstance(content, list):
+            return content
+
+        normalized = []
+        for part in content:
+            if not isinstance(part, dict):
+                normalized.append(part)
+                continue
+
+            ptype = part.get("type", "")
+
+            if ptype == "image":
+                source = part.get("source", {})
+                data = source.get("data", "") if isinstance(source, dict) else ""
+                mime = source.get("mime_type", "image/png") if isinstance(source, dict) else "image/png"
+                normalized.append({
+                    "type": "image_url",
+                    "image_url": {"url": f"data:{mime};base64,{data}"},
+                })
+            elif ptype == "text":
+                normalized.append(part)
+            else:
+                normalized.append(part)
+
+        return normalized
+
+    @staticmethod
+    def _normalize_messages(messages: Any) -> Any:
+        """Normalize content parts in all messages."""
+        if not isinstance(messages, list):
+            return messages
+
+        result = []
+        for msg in messages:
+            if not isinstance(msg, dict):
+                result.append(msg)
+                continue
+
+            content = msg.get("content")
+            if isinstance(content, list):
+                msg_copy = dict(msg)
+                msg_copy["content"] = MistralApi._normalize_content_parts(content)
+                result.append(msg_copy)
+            else:
+                result.append(msg)
+
+        return result
+
+    # ------------------------------------------------------------------
+    # Tool format transform
+    # ------------------------------------------------------------------
+
     def _transform_tools_for_mistral(self, tools: Optional[list[dict]]) -> Optional[list[dict]]:
         """Transform OpenAI tool format to Mistral format.
 
@@ -158,9 +224,9 @@ class MistralApi(LLMApi):
                 logging.info(f"MistralApi: built conversation with {len(context_messages)} total messages")
                 return context_messages
 
-        # Case 2: Input is already a list of messages
+        # Case 2: Input is already a list of messages — normalize content parts
         if isinstance(input, list):
-            return input
+            return self._normalize_messages(input)
 
         # Case 3: Input is a single message
         if isinstance(input, dict):

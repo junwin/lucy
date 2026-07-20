@@ -108,6 +108,8 @@ class AskRequestHandler:
         context_type = payload.get("selectType", "") or payload.get("contextType", "")
         conversationId = payload.get("conversationId", "")
         secondary_agent_override = (payload.get("partnerAgentName", "") or "").lower()
+        image_ids = payload.get("image_ids")
+        file_ids = payload.get("file_ids")
 
         # Optional context name (None means: no context)
         context_name = payload.get("contextName")
@@ -323,6 +325,8 @@ class AskRequestHandler:
                 message=question,
                 conversation_id=conversationId,
                 context_name=context_name,
+                image_ids=image_ids,
+                file_ids=file_ids,
                 processor_factory=self.processor_factory,
             )
 
@@ -383,6 +387,8 @@ class AskRequestHandler:
         context_type = payload.get("selectType", "") or payload.get("contextType", "")
         conversationId = payload.get("conversationId", "")
         secondary_agent_override = (payload.get("partnerAgentName", "") or "").lower()
+        image_ids = payload.get("image_ids")
+        file_ids = payload.get("file_ids")
 
         context_name = payload.get("contextName")
         if context_name is not None:
@@ -522,6 +528,8 @@ class AskRequestHandler:
                 message=question,
                 conversation_id=conversationId,
                 context_name=context_name,
+                image_ids=image_ids,
+                file_ids=file_ids,
                 processor_factory=self.processor_factory,
             ):
                 yield sse_line

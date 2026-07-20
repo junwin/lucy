@@ -1,6 +1,9 @@
 # src/prompt_builders/prompt_builder.py
 
+import base64
+import glob
 import logging
+import os
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 from injector import inject
@@ -54,7 +57,9 @@ class PromptBuilder(PromptBuilderInterface):
         max_prompt_chars: int = 6000,
         context_name: str = "",
         extra_system_messages: Optional[List[str]] = None,
-    ) -> List[Dict[str, str]]:
+        image_ids: Optional[List[str]] = None,
+        file_ids: Optional[List[str]] = None,
+    ) -> List[Dict[str, Any]]:
         """Build the full prompt (list of messages) for a model call.
 
         Logging and error handling goals:
@@ -68,7 +73,7 @@ class PromptBuilder(PromptBuilderInterface):
 
         system_message = self._build_agent_system_message(agent_name, agent)
 
-        messages: List[Dict[str, str]] = [{"role": "system", "content": system_message}]
+        messages: List[Dict[str, Any]] = [{"role": "system", "content": system_message}]
 
         # --- Inject conversation_id so the agent can reference it ---
         if conversation_id and conversation_id not in ("none", "new"):
@@ -185,14 +190,28 @@ class PromptBuilder(PromptBuilderInterface):
                 )
 
         # --- Current user message ---
-        messages.append({"role": "user", "content": content_text})
+        has_attachments = bool(image_ids or file_ids)
+        if has_attachments:
+            content_parts: List[Dict[str, Any]] = [
+                {"type": "text", "text": content_text}
+            ]
+            content_parts.extend(self._resolve_attachments(
+                account_name=account_name,
+                image_ids=image_ids,
+                file_ids=file_ids,
+            ))
+            messages.append({"role": "user", "content": content_parts})
+        else:
+            messages.append({"role": "user", "content": content_text})
+
         messages = self._ensure_current_query(messages, content_text)
-        # messages = self._cap_prompt_by_chars_preserving_last_user(messages, max_prompt_chars)
 
         # --- Summary logging ---
+        attachment_count = len(image_ids or []) + len(file_ids or [])
         logging.info(
             "PromptBuilder.build_prompt: agent=%s account=%s session_id=%s "
-            "context_type=%s context_name=%s history_messages=%d docs_used=%d",
+            "context_type=%s context_name=%s history_messages=%d docs_used=%d "
+            "attachments=%d",
             agent_name,
             account_name,
             conversation_id,
@@ -200,6 +219,7 @@ class PromptBuilder(PromptBuilderInterface):
             context_name,
             len(history_messages),
             len(doc_contexts),
+            attachment_count,
         )
 
         return messages
@@ -223,6 +243,143 @@ class PromptBuilder(PromptBuilderInterface):
             parts.append(agent.style_prompt)
 
         return "\n\n".join(parts)
+
+    def _resolve_attachments(
+        self,
+        *,
+        account_name: str,
+        image_ids: Optional[List[str]],
+        file_ids: Optional[List[str]],
+    ) -> List[Dict[str, Any]]:
+        """Resolve image_ids and file_ids into provider-agnostic content parts.
+
+        Returns a list of content-part dicts in intermediate format:
+
+            # Image part
+            {"type": "image", "source": {"data": "<base64>", "mime_type": "image/png"}}
+
+            # File part (resolved to text)
+            {"type": "text", "text": "[File: report.pdf]\\n...extracted content..."}
+        """
+        parts: List[Dict[str, Any]] = []
+
+        images_dir = self._build_images_dir()
+
+        for img_id in (image_ids or []):
+            try:
+                img_path = self._find_image_file(images_dir, account_name, img_id)
+                if img_path is None:
+                    logging.warning(
+                        "PromptBuilder: image_id=%s not found for account=%s; skipping",
+                        img_id,
+                        account_name,
+                    )
+                    continue
+
+                with open(img_path, "rb") as f:
+                    raw = f.read()
+
+                b64 = base64.b64encode(raw).decode("ascii")
+                mime = self._guess_mime_from_path(img_path)
+
+                parts.append({
+                    "type": "image",
+                    "source": {
+                        "data": b64,
+                        "mime_type": mime,
+                    },
+                })
+
+                logging.info(
+                    "PromptBuilder: resolved image_id=%s path=%s size=%d mime=%s",
+                    img_id,
+                    img_path,
+                    len(raw),
+                    mime,
+                )
+            except Exception as ex:
+                logging.warning(
+                    "PromptBuilder: failed to resolve image_id=%s for account=%s: %s",
+                    img_id,
+                    account_name,
+                    ex,
+                )
+
+        for file_id in (file_ids or []):
+            try:
+                file_path = self._find_file(images_dir, account_name, file_id)
+                if file_path is None:
+                    logging.warning(
+                        "PromptBuilder: file_id=%s not found for account=%s; skipping",
+                        file_id,
+                        account_name,
+                    )
+                    continue
+
+                # For now, read text files only; binary file handling deferred
+                try:
+                    with open(file_path, "r", encoding="utf-8") as f:
+                        text = f.read()
+                except UnicodeDecodeError:
+                    text = f"[Binary file: {os.path.basename(file_path)}]"
+
+                parts.append({
+                    "type": "text",
+                    "text": f"[File: {os.path.basename(file_path)}]\n{text}",
+                })
+
+                logging.info(
+                    "PromptBuilder: resolved file_id=%s path=%s",
+                    file_id,
+                    file_path,
+                )
+            except Exception as ex:
+                logging.warning(
+                    "PromptBuilder: failed to resolve file_id=%s for account=%s: %s",
+                    file_id,
+                    account_name,
+                    ex,
+                )
+
+        return parts
+
+    def _build_images_dir(self) -> str:
+        """Return the base images directory path from config."""
+        storage_root = self.config.get("storage_root_path", "/home/junwin/lucy_storage")
+        storage_ns = self.config.get("storage_namespace", "data")
+        return os.path.join(storage_root, storage_ns, "images")
+
+    def _find_image_file(self, images_dir: str, account_name: str, img_id: str) -> Optional[str]:
+        """Find an image file by UUID in the account's images directory.
+
+        Looks for `{img_id}.*` — returns the first matching file path or None.
+        """
+        account_dir = os.path.join(images_dir, account_name)
+        pattern = os.path.join(account_dir, f"{img_id}.*")
+        matches = glob.glob(pattern)
+        # Filter out .json sidecar files
+        img_files = [m for m in matches if not m.endswith(".json")]
+        return img_files[0] if img_files else None
+
+    def _find_file(self, images_dir: str, account_name: str, file_id: str) -> Optional[str]:
+        """Find a general file by UUID in the account's directory.
+
+        Currently delegates to _find_image_file (files live in same dir structure).
+        """
+        return self._find_image_file(images_dir, account_name, file_id)
+
+    @staticmethod
+    def _guess_mime_from_path(path: str) -> str:
+        """Guess MIME type from file extension."""
+        ext = os.path.splitext(path)[1].lower()
+        mapping = {
+            ".png": "image/png",
+            ".jpg": "image/jpeg",
+            ".jpeg": "image/jpeg",
+            ".gif": "image/gif",
+            ".webp": "image/webp",
+        }
+        return mapping.get(ext, "application/octet-stream")
 
     def _get_chat_history_messages(
         self,
@@ -344,10 +501,18 @@ class PromptBuilder(PromptBuilderInterface):
 
         return "\n\n".join(parts)
 
-    def _ensure_current_query(self, messages: List[Dict[str, str]], current_query: str) -> List[Dict[str, str]]:
+    def _ensure_current_query(self, messages: List[Dict[str, Any]], current_query: str) -> List[Dict[str, Any]]:
         if not messages:
             return [{"role": "user", "content": current_query}]
         last = messages[-1]
-        if last.get("role") == "user" and (last.get("content") or "") == current_query:
-            return messages
+        if last.get("role") == "user":
+            last_content = last.get("content")
+            # Content might be a string or a content-part array
+            if isinstance(last_content, list):
+                text_parts = [p.get("text", "") for p in last_content if isinstance(p, dict) and p.get("type") == "text"]
+                combined = "".join(text_parts)
+                if combined == current_query or (not current_query and combined):
+                    return messages
+            elif isinstance(last_content, str) and last_content == current_query:
+                return messages
         return messages + [{"role": "user", "content": current_query}]
