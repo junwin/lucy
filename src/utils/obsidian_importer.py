@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import re
 from pathlib import Path
 from typing import Optional
 
@@ -9,6 +10,15 @@ import yaml  # type: ignore
 
 from src.storage.base import Storage
 from src.storage.models import DocumentRef
+
+
+# Words too generic to be useful as search aliases from CamelCase tag splitting.
+# These only apply to Strategy B (CamelCase splitting), NOT to path-based aliases.
+GENERIC_ALIAS_WORDS = {
+    "handler", "manager", "processor", "class", "base", "util", "utils",
+    "helper", "data", "info", "core", "main", "impl", "type", "object",
+    "item", "value", "key", "result", "config", "model", "service",
+}
 
 
 def _stable_doc_id_from_path(vault_name: str, relative_path: str) -> str:
@@ -80,6 +90,63 @@ def _extract_tags(contents: str) -> list[str]:
         return [str(t) for t in tags if t is not None]
 
     return []
+
+
+def _generate_search_aliases(
+    relative_path: str,
+    title: str,
+    vault_name: str,
+    tags: list[str] | None = None,
+) -> list[str]:
+    """Generate search aliases combining path-based and tag-based strategies.
+
+    **Strategy A (path-based):**
+        - Full relative path without ``.md`` extension
+        - Document title (file stem)
+        - Vault-prefixed identifier (``vault_name/stem_path``)
+        - Individual path components (directory names + filename stem)
+
+    **Strategy B (CamelCase tag splitting):**
+        - Split PascalCase/CamelCase tags into lowercase word groups
+        - Only splits tags that yield at least 2 components
+        - Filters out overly generic words via ``GENERIC_ALIAS_WORDS``
+        - Produces a space-joined alias like ``"scrape web page handler"``
+
+    Returns a deduplicated, ordered list of alias strings.
+    """
+    # --- Strategy A: Path-based aliases ---
+    stem_path = relative_path
+    if stem_path.endswith(".md"):
+        stem_path = stem_path[:-3]
+
+    aliases: list[str] = []
+
+    aliases.append(stem_path)
+    aliases.append(title)
+    aliases.append(f"{vault_name}/{stem_path}")
+
+    for part in stem_path.split("/"):
+        if part and part not in aliases:
+            aliases.append(part)
+
+    # --- Strategy B: CamelCase tag splitting ---
+    if tags:
+        for tag in tags:
+            # Split on CamelCase/PascalCase boundaries.
+            # Handles: "ScrapeWebPageHandler2" → ["Scrape", "Web", "Page", "Handler2"]
+            #          "HTMLParser"          → ["HTML", "Parser"]  (acronym before cap+lower)
+            #          "HandlerRegistry"     → ["Handler", "Registry"]
+            parts = re.findall(r"[A-Z]?[a-z]+|[A-Z]+(?=[A-Z][a-z]|\d|\b)", tag)
+            if len(parts) < 2:
+                continue
+            words = [p.lower() for p in parts if p.lower() not in GENERIC_ALIAS_WORDS]
+            if not words:
+                continue
+            alias = " ".join(words)
+            if alias not in aliases:
+                aliases.append(alias)
+
+    return aliases
 
 
 def index_obsidian_file(
@@ -156,9 +223,12 @@ def index_obsidian_file(
     title = _extract_title(md, text)
     tags = _extract_tags(text)
 
+    search_aliases = _generate_search_aliases(relative_path, title, vault_name, tags)
+
     metadata = {
         "vault": vault_name,
         "relative_path": relative_path,
+        "search_aliases": search_aliases,
     }
 
     doc = DocumentRef(
@@ -239,9 +309,12 @@ def index_obsidian_vault(
         title = _extract_title(md_file, text)
         tags = _extract_tags(text)
 
+        search_aliases = _generate_search_aliases(relative_path, title, vault_name, tags)
+
         metadata = {
             "vault": vault_name,
             "relative_path": relative_path,
+            "search_aliases": search_aliases,
         }
 
         doc = DocumentRef(
