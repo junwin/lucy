@@ -1,106 +1,161 @@
----
+# Module Documentation for `src/llm`
+
+## YAML Front Matter
+```yaml
 tags:
   - src_llm
   - lucyproject
+  - LLMResponse
+  - LLMUsage
+  - ToolCall
   - LLMApi
   - LLMAdapter
-  - LLMResponse
-  - RouterApi
-  - OpenAIResponsesApi
   - DeepSeekApi
-  - Protocol
-  - DTO
----
-
-# src/llm — LLM Abstraction Layer
-
-## Summary
-
-Provides a clean abstraction over LLM backends (OpenAI Responses API, DeepSeek Chat Completions API). Defines **protocols** (`LLMApi`, `LLMAdapter`) so the rest of the codebase never depends on a specific SDK. Includes a **router** that dispatches by model name, and a **normalized DTO** (`LLMResponse`) that decouples callers from raw API response shapes.
-
-## Key Classes
-
-| Class | Role |
-|---|---|
-| `LLMApi` (Protocol) | Interface for calling an LLM — returns `LLMResponse` DTO |
-| `LLMAdapter` (Protocol) | Protocol glue between `FunctionCallingProcessor` and a specific LLM API |
-| `OpenAIResponsesApi` | OpenAI Responses API implementation with retry/backoff |
-| `OpenAIResponsesAdapter` | Adapter wrapping `OpenAIResponsesApi` for the processor |
-| `DeepSeekApi` | DeepSeek Chat Completions API (OpenAI-compatible endpoint) |
-| `RouterApi` | Routes requests to `DeepSeekApi` or `OpenAIResponsesApi` by model prefix |
-| `LLMResponse` | Frozen dataclass — normalized response DTO |
-| `LLMUsage` | Frozen dataclass — normalized token usage |
-| `ToolCall` | Frozen dataclass — normalized tool call |
-
-## Source Files
-
-| File | Description |
-|---|---|
-| `__init__.py` | Exports public API: `LLMApi`, `LLMAdapter`, `LLMResponse`, `LLMUsage`, `ToolCall`, `OpenAIResponsesApi`, `OpenAIResponsesAdapter` |
-| `interface.py` | `LLMApi` protocol — single method `create_response(...)` |
-| `adapter_interface.py` | `LLMAdapter` protocol — `call_model`, `extract_tool_calls`, `format_tool_output`, `get_text`, `get_response_id` |
-| `dto.py` | Data classes: `ToolCall`, `LLMUsage`, `LLMResponse` |
-| `openai_responses.py` | `OpenAIResponsesApi` — calls OpenAI Responses API, retry/backoff logic, helper `_extract_tool_calls`, `_extract_usage` |
-| `openai_responses_adapter.py` | `OpenAIResponsesAdapter` — wraps `LLMApi` into `LLMAdapter` shape |
-| `deepseek_responses.py` | `DeepSeekApi` — calls DeepSeek via OpenAI-compatible `/chat/completions`, manages conversation context for tool calls |
-| `router_api.py` | `RouterApi` — dispatches by model name prefix (`"deepseek"` → DeepSeek, else OpenAI) |
-
-## Dependencies
-
-| Dependency | Usage |
-|---|---|
-| `openai` (SDK) | Required by `OpenAIResponsesApi` and `DeepSeekApi` |
-| `src.config_manager.ConfigManager` | Loads API credentials from `config.json` |
-| `json`, `os`, `time`, `random`, `logging` | Standard library — serialization, config paths, backoff, logging |
-
-## Methods — `LLMApi` (Protocol)
-
-```python
-def create_response(
-    self, *, model: str, input: Any,
-    temperature: Optional[float] = None,
-    tools: Optional[list[dict]] = None,
-    tool_choice: Optional[str] = None,
-    store: Optional[bool] = None,
-    metadata: Optional[Dict[str, Any]] = None,
-    previous_response_id: Optional[str] = None,
-    text: Optional[Dict[str, Any]] = None,
-) -> LLMResponse
+  - MistralApi
+  - OpenAIResponsesApi
+  - RouterApi
+  - OpenAIResponsesAdapter
+  - MistralResponsesAdapter
 ```
 
-## Methods — `LLMAdapter` (Protocol)
+## 1. Summary
+The `src/llm` module provides a unified interface for interacting with various Large Language Model (LLM) APIs, including OpenAI, DeepSeek, and Mistral. Its primary responsibility is to abstract the differences between these APIs, allowing users to interact with them in a consistent manner. This module fits into the overall architecture as a middleware layer that facilitates communication between the application and different LLM backends, effectively solving the problem of API compatibility and simplifying the integration process for developers.
 
-| Method | Signature | Description |
-|---|---|---|
-| `call_model` | `(self, *, model, input, temperature, tools, tool_choice, store, metadata, previous_response_id, text) -> Any` | Calls the LLM, returns raw response |
-| `extract_tool_calls` | `(self, response: Any) -> List[Dict[str, Any]]` | Extracts tool calls in normalized shape `{id, name, arguments}` |
-| `format_tool_output` | `(self, *, call_id: str, output: str) -> Dict[str, Any]` | Formats tool result for the model's protocol |
-| `get_text` | `(self, response: Any) -> str` | Extracts text content from response |
-| `get_response_id` | `(self, response: Any) -> Optional[str]` | Extracts response ID for continuation |
+## 2. Architecture & Design
+The module employs several design patterns to achieve its goals:
 
-## Methods — `OpenAIResponsesApi`
+- **Protocol and Interface**: The `LLMApi` protocol defines a standard interface for all LLM implementations, ensuring that they return a normalized `LLMResponse`. This allows the rest of the codebase to remain agnostic of the underlying API specifics.
+  
+- **Adapter Pattern**: The `LLMAdapter` interface serves as a bridge between the function-calling processor and specific LLM APIs. Adapters like `OpenAIResponsesAdapter` and `MistralResponsesAdapter` implement this interface, allowing for seamless integration with their respective APIs.
 
-| Method | Signature | Description |
-|---|---|---|
-| `__init__` | `(self, *, client, max_attempts, backoff_base, backoff_cap)` | Accepts optional mock client, configures retry |
-| `create_response` | `(self, **kwargs) -> LLMResponse` | Calls OpenAI Responses API with retry/backoff |
-| `_build_default_client` | `(static) -> OpenAI` | Loads credentials from `oaicred.json` |
+- **Factory Pattern**: The `RouterApi` class acts as a factory that routes requests to the appropriate backend based on the model name, encapsulating the logic for selecting the correct API.
 
-## Methods — `DeepSeekApi`
+- **Error Handling**: The module includes robust error handling, particularly in the `create_response` methods of various API classes, which implement retry logic with exponential backoff for transient errors.
 
-| Method | Signature | Description |
-|---|---|---|
-| `__init__` | `(self, *, client, max_attempts, backoff_base, backoff_cap)` | Accepts optional mock client, configures retry |
-| `create_response` | `(self, **kwargs) -> LLMResponse` | Calls DeepSeek `/chat/completions` with retry |
-| `_build_default_client` | `(static) -> OpenAI` | Loads credentials from `deepseek_cred.json` |
-| `_transform_tools_for_deepseek` | `(self, tools) -> Optional[list[dict]]` | Strips OpenAI-specific fields (`strict`, `additionalProperties`) |
-| `_normalize_input_to_messages` | `(self, input, previous_response_id, previous_tool_calls) -> List[Dict]` | Converts tool outputs + context into message list |
-| `_validate_and_fix_messages` | `(self, messages) -> List[Dict]` | Ensures proper message structure for DeepSeek |
-| `_convert_tool_calls_to_assistant_message` | `(self, tool_calls) -> Dict` | Builds assistant message with `tool_calls` array |
+The design decisions are evident in the comments and docstrings, emphasizing the need for a consistent interface and the importance of error handling in API interactions.
 
-## Methods — `RouterApi`
+## 3. Key Classes
+| Class                       | Base/Parent | Purpose                                                                 |
+|-----------------------------|--------------|-------------------------------------------------------------------------|
+| `LLMApi`                    | Protocol     | Defines the interface for LLM implementations.                          |
+| `LLMAdapter`                | Protocol     | Interface for adapters that connect to specific LLM APIs.              |
+| `OpenAIResponsesApi`        | LLMApi       | Implementation for OpenAI's API.                                       |
+| `DeepSeekApi`               | LLMApi       | Implementation for DeepSeek's API.                                     |
+| `MistralApi`                | LLMApi       | Implementation for Mistral's API.                                      |
+| `RouterApi`                 | LLMApi       | Routes requests to the appropriate LLM backend based on model name.    |
+| `OpenAIResponsesAdapter`    | LLMAdapter   | Adapter for OpenAI Responses API.                                       |
+| `MistralResponsesAdapter`   | LLMAdapter   | Adapter for Mistral API.                                               |
+| `LLMResponse`               | None         | Data Transfer Object for normalized LLM responses.                     |
+| `LLMUsage`                  | None         | Data Transfer Object for usage statistics.                              |
+| `ToolCall`                  | None         | Data Transfer Object for normalized tool calls.                        |
 
-| Method | Signature | Description |
-|---|---|---|
-| `__init__` | `(self, *, openai_api, deepseek_api)` | Accepts optional pre-built API instances |
-| `create_response` | `(self, **kwargs) -> LLMResponse` | Routes by model name prefix |
+## 4. Source Files
+| File                          | Responsibility                                           | Notable Exports                                                                 |
+|-------------------------------|---------------------------------------------------------|---------------------------------------------------------------------------------|
+| `__init__.py`                 | Initializes the module and exports key classes.        | `LLMApi`, `LLMAdapter`, `LLMResponse`, `LLMUsage`, `ToolCall`, `OpenAIResponsesApi`, `MistralApi`, `DeepSeekApi` |
+| `adapter_interface.py`        | Defines the `LLMAdapter` protocol.                      | `LLMAdapter`                                                                    |
+| `deepseek_responses.py`       | Implements the DeepSeek API.                            | `DeepSeekApi`                                                                  |
+| `dto.py`                      | Contains data transfer objects for responses and usage. | `LLMResponse`, `LLMUsage`, `ToolCall`                                         |
+| `interface.py`                | Defines the `LLMApi` protocol.                          | `LLMApi`                                                                       |
+| `mistral_api.py`             | Implements the Mistral API.                            | `MistralApi`                                                                   |
+| `mistral_responses_adapter.py`| Adapter for Mistral API.                               | `MistralResponsesAdapter`                                                      |
+| `openai_responses.py`         | Implements the OpenAI Responses API.                    | `OpenAIResponsesApi`                                                           |
+| `openai_responses_adapter.py`  | Adapter for OpenAI Responses API.                       | `OpenAIResponsesAdapter`                                                       |
+| `router_api.py`               | Routes requests to the appropriate LLM backend.        | `RouterApi`                                                                    |
+
+## 5. Dependencies
+- **Standard library**:
+  - `json`
+  - `os`
+  - `logging`
+  - `random`
+  - `time`
+  - `typing`
+
+- **Third-party packages**:
+  - `openai`
+
+- **Internal modules**:
+  - `src.config_manager`
+  - `src.llm.dto`
+  - `src.llm.interface`
+
+- **Optional dependencies**:
+  - None
+
+## 6. Configuration / Settings
+| Key                     | Type    | Default | What it controls                                      |
+|-------------------------|---------|---------|------------------------------------------------------|
+| `credential_path`       | String  | None    | Path to the directory containing API credentials.    |
+| `max_description_chars` | Integer | 500     | Maximum characters for image descriptions.           |
+| `vision_proxy`          | Dict    | None    | Configuration for the vision proxy.                  |
+
+## 7. Exceptions
+| Exception                | Base         | When Raised                                      |
+|--------------------------|--------------|--------------------------------------------------|
+| None                     | None         | None                                             |
+
+## 8. Module-Level Constants
+| Constant                 | Value                          |
+|--------------------------|--------------------------------|
+| `DEEPSEEK_BASE_URL`      | `"https://api.deepseek.com"`  |
+| `MISTRAL_BASE_URL`       | `"https://api.mistral.ai/v1"` |
+
+## 9. Methods (by class)
+
+### `LLMApi`
+| Method          | Type         | Signature                                                                 | Description                                                                 |
+|-----------------|--------------|---------------------------------------------------------------------------|-----------------------------------------------------------------------------|
+| `create_response`| instance     | `def create_response(self, *, model: str, input: Any, ...) -> LLMResponse:` | Creates a response from the LLM based on the provided model and input.    |
+
+### `LLMAdapter`
+| Method          | Type         | Signature                                                                 | Description                                                                 |
+|-----------------|--------------|---------------------------------------------------------------------------|-----------------------------------------------------------------------------|
+| `call_model`    | instance     | `def call_model(self, *, model: str, input: Any, ...) -> Any:`          | Calls the model with the specified parameters.                             |
+| `extract_tool_calls` | instance | `def extract_tool_calls(self, response: Any) -> List[Dict[str, Any]]:` | Extracts tool calls from the model's response.                            |
+| `format_tool_output` | instance | `def format_tool_output(self, *, call_id: str, output: str) -> Dict[str, Any]:` | Formats the tool output for the model.                                     |
+| `get_text`      | instance     | `def get_text(self, response: Any) -> str:`                             | Retrieves the text from the model's response.                              |
+| `get_response_id` | instance   | `def get_response_id(self, response: Any) -> Optional[str]:`           | Retrieves the response ID from the model's response.                       |
+
+### `OpenAIResponsesApi`
+| Method          | Type         | Signature                                                                 | Description                                                                 |
+|-----------------|--------------|---------------------------------------------------------------------------|-----------------------------------------------------------------------------|
+| `create_response`| instance     | `def create_response(self, *, model: str, input: Any, ...) -> LLMResponse:` | Creates a response from the OpenAI API.                                   |
+
+### `DeepSeekApi`
+| Method          | Type         | Signature                                                                 | Description                                                                 |
+|-----------------|--------------|---------------------------------------------------------------------------|-----------------------------------------------------------------------------|
+| `create_response`| instance     | `def create_response(self, *, model: str, input: Any, ...) -> LLMResponse:` | Creates a response from the DeepSeek API.                                 |
+
+### `MistralApi`
+| Method          | Type         | Signature                                                                 | Description                                                                 |
+|-----------------|--------------|---------------------------------------------------------------------------|-----------------------------------------------------------------------------|
+| `create_response`| instance     | `def create_response(self, *, model: str, input: Any, ...) -> LLMResponse:` | Creates a response from the Mistral API.                                  |
+
+### `RouterApi`
+| Method          | Type         | Signature                                                                 | Description                                                                 |
+|-----------------|--------------|---------------------------------------------------------------------------|-----------------------------------------------------------------------------|
+| `create_response`| instance     | `def create_response(self, *, model: str, input: Any, ...) -> LLMResponse:` | Routes the request to the appropriate LLM backend based on the model name. |
+
+## 10. Usage Examples
+```python
+from src.llm import RouterApi
+
+router = RouterApi()
+response = router.create_response(
+    model="deepseek",
+    input="What is the capital of France?",
+    temperature=0.7
+)
+print(response.output_text)
+```
+
+## 11. Edge Cases & Gotchas
+- **Error Handling**: The module implements a robust error handling mechanism, particularly in the `create_response` methods, which include retries for transient errors.
+- **Model Routing**: Ensure that the model names are correctly prefixed (e.g., "deepseek", "mistral") to route requests properly.
+- **Configuration**: Missing or incorrect configuration can lead to runtime errors, especially when accessing API credentials.
+
+## 12. Consumers
+| Consumer                | What it uses                                      |
+|-------------------------|--------------------------------------------------|
+| Unknown                 | Unknown — trace imports to confirm.              |

@@ -1,90 +1,142 @@
+```markdown
 ---
 tags:
   - src_utils
   - lucyproject
-  - document_context
-  - text_snippet_loader
-  - obsidian_importer
-  - scrape
-  - migrate_legacy_completions
-  - utility
-  - helper
+  - DocumentRef
+  - Storage
+  - Keywords
+  - TextSnippetLoader
 ---
 
-# Module: `src.utils`
+## 1. Summary
+The `src/utils` module provides a collection of utility functions and classes designed to facilitate document management, migration, and web scraping. Its primary responsibility is to handle various operations related to document storage, including indexing, migrating legacy data, and extracting content from markdown files and web pages. This module fits into the overall architecture by serving as a backend utility layer that interacts with storage systems and external data sources, thereby solving the problem of efficiently managing and retrieving document-related information.
 
-## Summary
+## 2. Architecture & Design
+The module employs several design patterns, including:
+- **Factory Pattern**: The `index_obsidian_file` and `index_obsidian_vault` functions act as factories for creating `DocumentRef` instances based on the content of markdown files.
+- **Strategy Pattern**: The `_generate_search_aliases` function implements two strategies for generating search aliases based on document paths and tags.
+- **Dependency Injection**: The `Storage` class is injected into various functions to abstract the underlying storage mechanism, allowing for flexibility in implementation.
 
-Collection of standalone utility/helper modules for common tasks: document context retrieval, text snippet loading, Obsidian vault importing, webpage scraping, and legacy completion migration. Each file is self-contained with a single responsibility. No `__init__.py` — the package is implicit.
+Classes and functions within the module often adhere to protocols, such as the `Storage` interface, ensuring that they can work with different storage backends. The module does not appear to have a legacy/v2 split, indicating a cohesive design. Important design decisions include the use of logging for error handling and the careful management of file paths and metadata.
 
-## Key Classes / Functions
+## 3. Key Classes
+| Class         | Base/Parent | Purpose                                           |
+|---------------|-------------|---------------------------------------------------|
+| DocumentRef   | None        | Represents a reference to a document in storage.  |
+| Storage       | None        | Abstract base class for storage implementations.   |
+| Keywords      | None        | Utility class for keyword extraction.              |
 
-| Name | Type | File | Purpose |
-|---|---|---|---|
-| `get_document_context` | function | `document_context.py` | Retrieve relevant document snippets for a query via storage backend. |
-| `load_text_snippet` | function | `text_snippet_loader.py` | Load a bounded text snippet from a file path. |
-| `index_obsidian_vault` | function | `obsidian_importer.py` | Index all `.md` files in an Obsidian vault as `DocumentRef` entries. |
-| `scrape_url` | function | `scrape.py` | Fetch and extract readable text from a webpage URL. |
-| `migrate` | function | `migrate_legacy_completions.py` | Migrate legacy completion JSON into per-session chat files. |
+## 4. Source Files
+| File                             | Responsibility                                           | Notable Exports                     |
+|----------------------------------|---------------------------------------------------------|-------------------------------------|
+| document_context.py              | Provides functions to retrieve document context snippets.| get_document_context, get_document_context_traced |
+| migrate_legacy_completions.py    | Migrates legacy conversation data to a new format.     | migrate                             |
+| obsidian_importer.py            | Indexes Obsidian markdown files as DocumentRef entries. | index_obsidian_file, index_obsidian_vault |
+| scrape.py                        | Scrapes text from web pages.                            | scrape_url, main                   |
+| text_snippet_loader.py           | Loads text snippets from files.                         | load_text_snippet                  |
+| __init__.py                     | Initializes the utils module.                           | (exports nothing)                  |
 
-## Source Files
+## 5. Dependencies
+- **Standard library**:
+  - `json`
+  - `datetime`
+  - `pathlib`
+  - `collections`
+  - `logging`
+  - `re`
+  - `sys`
+- **Third-party packages**:
+  - `requests`
+  - `bs4` (BeautifulSoup)
+  - `yaml`
+- **Internal modules**:
+  - `src.storage.base`
+  - `src.storage.models`
+  - `src.keywords.keywords`
+- **Optional dependencies**: None.
 
-| File | Description |
-|---|---|
-| `document_context.py` | Thin helper over storage layer — searches documents and loads text snippets. |
-| `text_snippet_loader.py` | Single function to read a file and truncate at `max_chars`. |
-| `obsidian_importer.py` | Walks an Obsidian vault, extracts YAML frontmatter tags, upserts documents via `Storage`. |
-| `scrape.py` | Webpage scraper using `requests` + `BeautifulSoup` — strips non-content elements. |
-| `migrate_legacy_completions.py` | One-shot migration script — groups legacy completions by conversation ID and writes session files. |
+## 6. Configuration / Settings
+| Key                | Type   | Default | What it controls                      |
+|--------------------|--------|---------|---------------------------------------|
+| None               | None   | None    | None                                  |
 
-## Dependencies
+## 7. Exceptions
+| Exception          | Base         | When Raised                                      |
+|--------------------|--------------|-------------------------------------------------|
+| None               | None         | None                                            |
 
-- **Standard library**: `json`, `datetime`, `pathlib.Path`, `hashlib`, `re`, `sys`, `collections.defaultdict`, `typing`
-- **Third-party**: `requests`, `beautifulsoup4` (`bs4`), `yaml` (PyYAML)
-- **Internal**: `src.storage.base.Storage`, `src.storage.models.DocumentRef`
+## 8. Module-Level Constants
+| Constant                     | Value                          |
+|------------------------------|--------------------------------|
+| DEFAULT_MAX_CHARS            | 8000                           |
+| INPUT_PATH                   | Path("data/completions/lucy_junwin_conv.json") |
+| OUT_BASE                     | Path("data")                  |
+| DEFAULT_TIMEOUT_SECONDS       | 10                            |
+| USER_AGENT                   | "Mozilla/5.0 ..."             |
 
-### Consumers (who imports from `src.utils`)
+## 9. Methods (by class)
+### DocumentRef
+| Method | Type         | Signature | Description |
+|--------|--------------|-----------|-------------|
+| None   | None         | None      | None        |
 
-| Consumer | What it imports |
-|---|---|
-| `src.prompt_builders.prompt_builder` | `get_document_context` |
-| `src.obsidian_index_cli` | `index_obsidian_vault` |
-| `src.http_endpoints.prompt_builder_debug_endpoints` | `get_document_context`, `load_text_snippet` |
-| `src.utils.document_context` | `load_text_snippet` (internal) |
+### Storage
+| Method | Type         | Signature | Description |
+|--------|--------------|-----------|-------------|
+| None   | None         | None      | None        |
 
-## Functions — `document_context.py`
+### Keywords
+| Method | Type         | Signature | Description |
+|--------|--------------|-----------|-------------|
+| None   | None         | None      | None        |
 
-| Function | Signature | Description |
-|---|---|---|
-| `get_document_context` | `(storage: Storage, account_name: str, query: str, *, kind: str \| None = None, docs_tag: str \| None = None, limit: int = 3, max_chars: int = 6000) -> List[Dict[str, Any]]` | Search documents via storage backend, load bounded snippets, return list of context dicts. |
+### Functions
+#### document_context.py
+| Method                          | Type         | Signature                                                                 | Description |
+|---------------------------------|--------------|---------------------------------------------------------------------------|-------------|
+| get_document_context            | Function     | get_document_context(storage: Storage, account_name: str, query: str, ...) | Retrieves context snippets from documents based on a query. |
+| get_document_context_traced     | Function     | get_document_context_traced(storage: Storage, account_name: str, query: str, ...) | Similar to get_document_context but returns a scoring trace. |
 
-## Functions — `text_snippet_loader.py`
+#### migrate_legacy_completions.py
+| Method                          | Type         | Signature                                                                 | Description |
+|---------------------------------|--------------|---------------------------------------------------------------------------|-------------|
+| migrate                         | Function     | migrate(account_name: str = "junwin", agent_name: str = "lucy") -> None | Migrates legacy conversation data to a new format. |
 
-| Function | Signature | Description |
-|---|---|---|
-| `load_text_snippet` | `(path: str \| Path, max_chars: int = 8000) -> Tuple[str, bool]` | Read a text file, return `(content, truncated)` — truncated if file exceeds `max_chars`. |
+#### obsidian_importer.py
+| Method                          | Type         | Signature                                                                 | Description |
+|---------------------------------|--------------|---------------------------------------------------------------------------|-------------|
+| index_obsidian_file             | Function     | index_obsidian_file(storage: Storage, account_name: str, md_path: str, ...) | Indexes a single Obsidian markdown file as a DocumentRef entry. |
+| index_obsidian_vault            | Function     | index_obsidian_vault(storage: Storage, account_name: str, vault_path: str, ...) | Indexes all .md files in an Obsidian vault as DocumentRef entries. |
 
-## Functions — `obsidian_importer.py`
+#### scrape.py
+| Method                          | Type         | Signature                                                                 | Description |
+|---------------------------------|--------------|---------------------------------------------------------------------------|-------------|
+| scrape_url                     | Function     | scrape_url(url: str, *, timeout_seconds: int = DEFAULT_TIMEOUT_SECONDS) -> str | Scrapes text from a given URL. |
+| main                            | Function     | main(argv: Optional[list[str]] = None) -> int                           | Main entry point for the script. |
 
-| Function | Signature | Description |
-|---|---|---|
-| `index_obsidian_vault` | `(storage: Storage, account_name: str, vault_path: str \| Path, *, kind: str = "obsidian_note", max_files: int \| None = None) -> list[DocumentRef]` | Walk vault, parse frontmatter tags, upsert documents via storage. |
-| `_stable_doc_id_from_path` | `(path: Path) -> str` | SHA-256 hash of path for stable dedup IDs. |
-| `_extract_title` | `(md_path: Path, contents: str \| None = None) -> str` | Derive title from filename stem. |
-| `_extract_tags` | `(contents: str) -> list[str]` | Parse YAML frontmatter `tags` field. |
+#### text_snippet_loader.py
+| Method                          | Type         | Signature                                                                 | Description |
+|---------------------------------|--------------|---------------------------------------------------------------------------|-------------|
+| load_text_snippet               | Function     | load_text_snippet(path: str | Path, max_chars: int = DEFAULT_MAX_CHARS) -> Tuple[str, bool] | Loads a text file and returns a snippet. |
 
-## Functions — `scrape.py`
+## 10. Usage Examples
+```python
+from src.utils.document_context import get_document_context
 
-| Function | Signature | Description |
-|---|---|---|
-| `scrape_url` | `(url: str, *, timeout_seconds: int = 20) -> str` | Fetch URL, strip non-content elements, return readable text. |
-| `extract_text_from_html` | `(html: str) -> str` | Parse HTML with BeautifulSoup, remove scripts/styles/nav, extract text. |
+storage = ...  # Your storage implementation
+account_name = "user_account"
+query = "search term"
+contexts = get_document_context(storage, account_name, query)
+```
 
-## Functions — `migrate_legacy_completions.py`
+## 11. Edge Cases & Gotchas
+- **Error Handling**: The module employs logging for error handling, particularly in file reading and network requests. It is designed to fail gracefully, returning empty results or logging warnings instead of raising exceptions.
+- **File Path Management**: Care must be taken to ensure that file paths are correctly resolved, especially when dealing with relative paths in the `index_obsidian_file` and `index_obsidian_vault` functions.
+- **Thread Safety**: The module does not explicitly address thread safety, which may be a concern if multiple threads are accessing shared resources.
 
-| Function | Signature | Description |
-|---|---|---|
-| `migrate` | `(account_name: str = "junwin", agent_name: str = "lucy") -> None` | Read legacy completions JSON, group by conversation, write session files + index. |
-| `parse_dt_utc` | `(dt_str: str) -> datetime` | Parse legacy ISO timestamps (with/without trailing Z) to UTC-aware datetime. |
-| `iso_utc` | `(dt: datetime) -> str` | Format datetime as ISO 8601 with `+00:00`. |
-| `safe_first_line` | `(text: str, max_len: int = 80) -> str` | Extract first line of text, truncated to `max_len`. |
+## 12. Consumers
+| Consumer                        | What it uses                                      |
+|---------------------------------|--------------------------------------------------|
+| Unknown — trace imports to confirm. | Unknown — trace imports to confirm. |
+```
