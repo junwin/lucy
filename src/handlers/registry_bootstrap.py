@@ -28,6 +28,7 @@ from src.handlers.sandbox_execute_handler import SandboxExecuteHandler
 from src.handlers.reset_session_handler import ResetSessionHandler
 from src.handlers.serve_image_handler import ServeImageHandler
 from src.handlers.generate_svg_handler import GenerateSvgHandler
+from src.handlers.embedding_handler import EmbeddingHandler
 
 try:
     from src.handlers.generate_image_handler import GenerateImageHandler
@@ -103,6 +104,9 @@ def build_registry() -> HandlerRegistry:
             "GenerateImageHandler not registered: Pillow (PIL) not available. "
             "Install with: pip install Pillow"
         )
+
+    # Embeddings — vector generation and comparison
+    reg.register(EmbeddingHandler)
 
     logger.info("Handler registry built with %d handlers.", len(reg.tool_names()))
     return reg
