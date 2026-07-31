@@ -440,20 +440,47 @@ class FunctionCallingProcessor(MessageProcessorInterface):
             metrics["iterations"] = iteration
             metrics["openai_calls"] += 1
 
-            llm_response = self.llm_adapter.call_model(
-                model=ctx.model,
-                input=next_input_items,
-                temperature=ctx.temperature,
-                tools=function_defs,
-                tool_choice="auto" if function_defs else None,
-                store=ctx.store_this_call,
-                metadata={"conversation_id": ctx.conversation_id, "session_id": ctx.context_name or None},
-                previous_response_id=previous_response_id,
-            )
+            # --- Call model with empty-response retry ---
+            MAX_EMPTY_RETRIES = 2
+            llm_response = None
+            tool_calls: List[_ToolCall] = []
 
-            result_response_id = self.llm_adapter.get_response_id(llm_response)
-            if result_response_id:
-                previous_response_id = result_response_id
+            for retry_attempt in range(MAX_EMPTY_RETRIES + 1):
+                if retry_attempt > 0:
+                    metrics["openai_calls"] += 1
+                    logging.warning(
+                        "FCP: empty LLM response at iteration=%d, retry %d/%d agent=%s session_id=%s",
+                        iteration, retry_attempt, MAX_EMPTY_RETRIES, ctx.agent_name, ctx.conversation_id,
+                    )
+
+                llm_response = self.llm_adapter.call_model(
+                    model=ctx.model,
+                    input=next_input_items,
+                    temperature=ctx.temperature,
+                    tools=function_defs,
+                    tool_choice="auto" if function_defs else None,
+                    store=ctx.store_this_call,
+                    metadata={"conversation_id": ctx.conversation_id, "session_id": ctx.context_name or None},
+                    previous_response_id=previous_response_id,
+                )
+
+                result_response_id = self.llm_adapter.get_response_id(llm_response)
+                if result_response_id:
+                    previous_response_id = result_response_id
+
+                tool_calls_raw = self.llm_adapter.extract_tool_calls(llm_response)
+                tool_calls = self._wrap_tool_calls(tool_calls_raw)
+
+                if tool_calls or self.llm_adapter.get_text(llm_response):
+                    break  # got a real response
+            else:
+                # All retries exhausted — use fallback
+                response_text = "I received an empty response from the model — please try again."
+                logging.error(
+                    "FCP: empty LLM response after %d retries at iteration=%d agent=%s session_id=%s — using fallback",
+                    MAX_EMPTY_RETRIES, iteration, ctx.agent_name, ctx.conversation_id,
+                )
+                break
 
             logging.info(
                 "FunctionCallingProcessor: iteration=%d/%d agent=%s session_id=%s response_id=%s",
@@ -463,9 +490,6 @@ class FunctionCallingProcessor(MessageProcessorInterface):
                 ctx.conversation_id,
                 previous_response_id,
             )
-
-            tool_calls_raw = self.llm_adapter.extract_tool_calls(llm_response)
-            tool_calls = self._wrap_tool_calls(tool_calls_raw)
 
             if tool_calls:
                 # --- Duplicate tool call detection ---
@@ -636,20 +660,47 @@ class FunctionCallingProcessor(MessageProcessorInterface):
             metrics["iterations"] = iteration
             metrics["openai_calls"] += 1
 
-            llm_response = self.llm_adapter.call_model(
-                model=ctx.model,
-                input=next_input_items,
-                temperature=ctx.temperature,
-                tools=function_defs,
-                tool_choice="auto" if function_defs else None,
-                store=ctx.store_this_call,
-                metadata={"conversation_id": ctx.conversation_id, "session_id": ctx.context_name or None},
-                previous_response_id=previous_response_id,
-            )
+            # --- Call model with empty-response retry ---
+            MAX_EMPTY_RETRIES = 2
+            llm_response = None
+            tool_calls: List[_ToolCall] = []
 
-            result_response_id = self.llm_adapter.get_response_id(llm_response)
-            if result_response_id:
-                previous_response_id = result_response_id
+            for retry_attempt in range(MAX_EMPTY_RETRIES + 1):
+                if retry_attempt > 0:
+                    metrics["openai_calls"] += 1
+                    logging.warning(
+                        "FCP: empty LLM response at iteration=%d, retry %d/%d agent=%s session_id=%s",
+                        iteration, retry_attempt, MAX_EMPTY_RETRIES, ctx.agent_name, ctx.conversation_id,
+                    )
+
+                llm_response = self.llm_adapter.call_model(
+                    model=ctx.model,
+                    input=next_input_items,
+                    temperature=ctx.temperature,
+                    tools=function_defs,
+                    tool_choice="auto" if function_defs else None,
+                    store=ctx.store_this_call,
+                    metadata={"conversation_id": ctx.conversation_id, "session_id": ctx.context_name or None},
+                    previous_response_id=previous_response_id,
+                )
+
+                result_response_id = self.llm_adapter.get_response_id(llm_response)
+                if result_response_id:
+                    previous_response_id = result_response_id
+
+                tool_calls_raw = self.llm_adapter.extract_tool_calls(llm_response)
+                tool_calls = self._wrap_tool_calls(tool_calls_raw)
+
+                if tool_calls or self.llm_adapter.get_text(llm_response):
+                    break  # got a real response
+            else:
+                # All retries exhausted — use fallback
+                response_text = "I received an empty response from the model — please try again."
+                logging.error(
+                    "FCP: empty LLM response after %d retries at iteration=%d agent=%s session_id=%s — using fallback",
+                    MAX_EMPTY_RETRIES, iteration, ctx.agent_name, ctx.conversation_id,
+                )
+                break
 
             logging.info(
                 "FunctionCallingProcessor(streaming): iteration=%d/%d agent=%s session_id=%s response_id=%s",
@@ -659,9 +710,6 @@ class FunctionCallingProcessor(MessageProcessorInterface):
                 ctx.conversation_id,
                 previous_response_id,
             )
-
-            tool_calls_raw = self.llm_adapter.extract_tool_calls(llm_response)
-            tool_calls = self._wrap_tool_calls(tool_calls_raw)
 
             if tool_calls:
                 # --- Duplicate tool call detection ---
