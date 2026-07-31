@@ -6,6 +6,7 @@ Chat2Store parameter. v1 Storage is no longer used.
 
 from __future__ import annotations
 
+import json
 from typing import Any, Dict, List, Optional
 
 from src.agent import AgentManager
@@ -33,7 +34,8 @@ def _chat2_session_to_response(meta, events: Optional[List[ChatEvent]] = None) -
         body["messages"] = [
             {
                 "role": e.role,
-                "content": e.payload if isinstance(e.payload, str) else str(e.payload),
+                "kind": e.kind,
+                "content": e.payload if isinstance(e.payload, str) else json.dumps(e.payload, ensure_ascii=False),
                 "utc_timestamp": e.ts.isoformat(),
                 "metadata": e.metadata,
             }

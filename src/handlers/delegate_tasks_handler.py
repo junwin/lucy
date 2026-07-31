@@ -166,7 +166,7 @@ class DelegateTasksHandler(HandlerV2):
         logger.info("delegate_tasks output account=%s ok=%s tasks=%d", account_name, True, len(tasks))
         return result
 
-    def execute_raw(self, arguments_raw: str, *, account_name: str = "auto", call_id: str = "") -> str:
+    def execute_raw(self, arguments_raw: str, *, account_name: str = "auto", call_id: str = "", **context: Any) -> str:
         logger.info(
             "delegate_tasks raw_input account=%s call_id=%s arguments_raw=%s",
             account_name,

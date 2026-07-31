@@ -178,7 +178,7 @@ class FileLoadHandler2(HandlerV2):
         }
 
     # New contract: tool processors call execute_raw
-    def execute_raw(self, arguments_raw: str, *, account_name: str = "auto", call_id: str = "") -> str:
+    def execute_raw(self, arguments_raw: str, *, account_name: str = "auto", call_id: str = "", **context: Any) -> str:
         try:
             args = json.loads(arguments_raw or "{}")
         except Exception:

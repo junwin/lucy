@@ -1,3 +1,4 @@
+
 """
 Tests for the Chat2Store facade.
 """
@@ -84,6 +85,7 @@ class TestSessionLifecycle:
         assert meta.session_type == "user"
         assert meta.participants == []
         assert meta.tags == []
+        assert meta.context_name is None
 
     def test_create_session_with_optional_fields(self, facade: Chat2Store) -> None:
         """Creating a session with all optional fields."""
@@ -93,11 +95,13 @@ class TestSessionLifecycle:
             account_name="test_account",
             agent_name="lucy",
             friendly_name="detailed_session",
+            context_name="lucyproject",
             tags=["important", "test"],
             session_type="internal",
             participants=["john", "lucy", "colin"],
             links=links,
         )
+        assert meta.context_name == "lucyproject"
         assert meta.tags == ["important", "test"]
         assert meta.session_type == "internal"
         assert meta.participants == ["john", "lucy", "colin"]
@@ -316,10 +320,12 @@ class TestConvenience:
             agent_name="lucy",
             events=sample_events,
             friendly_name="quick_session",
+            context_name="lucyproject",
             tags=["quick"],
         )
         assert meta.friendly_name == "quick_session"
         assert meta.tags == ["quick"]
+        assert meta.context_name == "lucyproject"
         assert facade.event_count(meta.session_id) == 3
 
     def test_create_and_add_empty_events(self, facade: Chat2Store) -> None:
@@ -331,6 +337,7 @@ class TestConvenience:
             events=[],
         )
         assert facade.event_count(meta.session_id) == 0
+        assert meta.context_name is None
 
     def test_create_and_add_with_links(self, facade: Chat2Store, sample_events: list[ChatEvent]) -> None:
         """create_and_add with session links."""
@@ -345,6 +352,64 @@ class TestConvenience:
         assert meta.links is not None
         assert meta.links.internal_session_id == "550e8400-e29b-41d4-a716-446655440000"
         assert facade.event_count(meta.session_id) == 3
+
+
+# ---------------------------------------------------------------------------
+# Context name tests
+# ---------------------------------------------------------------------------
+
+
+class TestContextName:
+    """Tests for context_name field in the facade layer."""
+
+    def test_default_is_none(self, facade: Chat2Store) -> None:
+        """context_name defaults to None when not provided."""
+        meta = facade.create_session(
+            user_id="user1",
+            account_name="test_account",
+            agent_name="lucy",
+        )
+        assert meta.context_name is None
+
+    def test_persisted_and_retrieved(self, facade: Chat2Store) -> None:
+        """context_name survives a create → get round-trip."""
+        created = facade.create_session(
+            user_id="user1",
+            account_name="test_account",
+            agent_name="lucy",
+            context_name="lucyproject",
+        )
+        retrieved = facade.get_session(created.session_id)
+        assert retrieved is not None
+        assert retrieved.context_name == "lucyproject"
+
+    def test_none_persisted_and_retrieved(self, facade: Chat2Store) -> None:
+        """context_name=None survives a create → get round-trip."""
+        created = facade.create_session(
+            user_id="user1",
+            account_name="test_account",
+            agent_name="lucy",
+            context_name=None,
+        )
+        retrieved = facade.get_session(created.session_id)
+        assert retrieved is not None
+        assert retrieved.context_name is None
+
+    def test_can_be_updated(self, facade: Chat2Store) -> None:
+        """context_name can be updated via update_session."""
+        meta = facade.create_session(
+            user_id="user1",
+            account_name="test_account",
+            agent_name="lucy",
+            context_name="old_project",
+        )
+        updated = facade.update_session(meta.session_id, context_name="new_project")
+        assert updated.context_name == "new_project"
+
+        # Verify persistence
+        retrieved = facade.get_session(meta.session_id)
+        assert retrieved is not None
+        assert retrieved.context_name == "new_project"
 
 
 # ---------------------------------------------------------------------------

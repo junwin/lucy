@@ -24,11 +24,18 @@
   "debug": true,
   "credential_path": "/home/junwin/credential",
   "elapsed_new_session_seconds": 600,
-  "max_tool_result_chars": 128000,
+  "max_tool_result_chars": 240000,
+  "max_upload_size_bytes": 10485760,
 
   "api_key": "lucy-dev-key-2024",
   "api_keys": {},
   "api_key_enabled": false,
 
-  "environment_prompt_block": "ENVIRONMENT\n- Model: Raspberry Pi 5 Model B Rev 1.1\n- OS: Debian GNU/Linux 12 (bookworm)\n- Arch: aarch64\n- Bits: 64"
+  "environment_prompt_block": "ENVIRONMENT\n- Model: NUC7i7BNKQ\n- OS: Linux Mint\n- Arch: intel i7\n- Bits: 64",
+
+  "vision_proxy": {
+    "enabled": true,
+    "model": "gpt-4o",
+    "max_description_chars": 500
+  }
 }

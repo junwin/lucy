@@ -1,4 +1,4 @@
-from flask import Flask, request, jsonify, send_file, make_response
+from flask import Flask, request, jsonify, send_file, make_response, Response
 from flask_swagger_ui import get_swaggerui_blueprint
 from flask_cors import CORS
 import ssl
@@ -18,6 +18,7 @@ from src.container_config import container
 from src.config_manager import ConfigManager
 from src.prompt_builders.prompt_builder import PromptBuilder
 from src.message_endpoints.ask_request_handler import AskRequestHandler
+from src.message_processors.sse_events import SSEEvent
 from src.tasklists.task import Task
 from src.tasklists.task_list import TaskList
 from src.http_endpoints.agents_endpoints import (
@@ -43,6 +44,7 @@ from src.http_endpoints.chats_endpoints import (
     delete_chat_impl,
     update_chat_impl,
 )
+from src.http_endpoints.upload_endpoints import post_upload_image_impl
 from src.chat2.facade import Chat2Store
 from src.api_key import validate_api_key
 
@@ -227,8 +229,9 @@ def _teardown_request_id(exc):
 def ask():
     """Main chat/agent interaction endpoint.
 
-    This route is intentionally thin: it parses the JSON payload and delegates
-    all business logic to AskRequestHandler, which is resolved via DI.
+    Supports two code paths:
+      - stream=true: SSE streaming via AskRequestHandler.handle_streaming()
+      - default:     existing JSON response via AskRequestHandler.handle()
     """
     payload = request.get_json() or {}
     account_name = payload.get("accountName")
@@ -239,13 +242,10 @@ def ask():
     try:
         user_profile = storage.get_user_profile(account_name)
     except Exception:
-        # This can happen during migrations or when storage is misconfigured.
-        # Keep the client response generic, but log the unusual exit.
         logging.exception("/ask: failed to load user profile for user_id=%s", account_name)
         return jsonify({"error": "An error occurred"}), 500
 
     if user_profile is None:
-        # Expected during migrations: user exists in auth/UI but not in storage yet.
         logging.info("/ask: user profile not found for user_id=%s", account_name)
         return jsonify({"error": f"Unknown account '{account_name}'"}), 403
 
@@ -253,8 +253,33 @@ def ask():
         logging.info("/ask: inactive account for user_id=%s", account_name)
         return jsonify({"error": f"Account '{account_name}' is inactive"}), 403
 
-    # New behavior: support friendlyName-based session resume/creation when
-    # conversationId is missing or blank in the payload.
+    ask_handler = container.get(AskRequestHandler)
+
+    # ── Streaming path (new) ──
+    if payload.get("stream"):
+        def generate():
+            try:
+                for sse_line in ask_handler.handle_streaming(payload):
+                    yield sse_line.encode("utf-8") if isinstance(sse_line, str) else sse_line
+            except Exception as e:
+                logging.exception("/ask(streaming): unhandled error in generator")
+                error_event = SSEEvent(type="error", message=str(e))
+                yield f"data: {error_event.model_dump_json()}\n\n".encode("utf-8")
+
+        return Response(
+            generate(),
+            mimetype="text/event-stream",
+            headers={
+                "X-Accel-Buffering": "no",
+                "Cache-Control": "no-cache",
+                "Connection": "keep-alive",
+            },
+        )
+
+    # ── Existing non-streaming path ──
+    # conversation/session resolution: if no conversationId was provided,
+    # try to resolve using a friendlyName (payload: friendlyName) or create
+    # a new chat session.
     conv_id = (payload.get("conversationId") or "").strip()
     if not conv_id:
         friendly_name = payload.get("friendlyName")
@@ -338,13 +363,10 @@ def ask():
                         agent_name,
                     )
 
-    handler = container.get(AskRequestHandler)
-    status, body = handler.handle(payload)
+    status, body = ask_handler.handle(payload)
 
     # Ensure response body includes conversation_id for client convenience.
     try:
-        # Prefer the conversationId we set on the payload, fallback to any
-        # value returned by the handler.
         returned_conv = (payload.get("conversationId") or payload.get("conversation_id") or conv_id)
         if isinstance(body, dict) and returned_conv:
             body["conversation_id"] = returned_conv
@@ -474,6 +496,39 @@ def update_chat(session_id: str):
 def search_documents():
     data = request.get_json(silent=True) or {}
     body, status = search_documents_impl(storage, data)
+    return jsonify(body), status
+
+
+# -----------------------------------------------------------------------------
+# Image upload
+# -----------------------------------------------------------------------------
+@app.route("/upload/image", methods=["POST"])
+def upload_image():
+    """Accept an image file via multipart form-data.
+
+    Form fields:
+      file:         the image (required)
+      accountName:  account identifier (required)
+
+    Returns:
+      200: { ok, id, filename, mime_type }
+      400: validation error
+      413: file too large
+    """
+    if "file" not in request.files:
+        return jsonify({"error": "No file provided"}), 400
+
+    file = request.files["file"]
+    account_name = (request.form.get("accountName") or "").strip()
+
+    file_data = file.read()
+    body, status = post_upload_image_impl(
+        config=config,
+        account_name=account_name,
+        file_data=file_data,
+        original_filename=file.filename or "unnamed",
+        mime_type=file.content_type or "application/octet-stream",
+    )
     return jsonify(body), status
 
 

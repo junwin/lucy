@@ -302,7 +302,7 @@ class CommandExecutionHandler2(HandlerV2):
             "result": result_str,
         }
 
-    def execute_raw(self, arguments_raw: str, *, account_name: str = "auto", call_id: str = "") -> str:
+    def execute_raw(self, arguments_raw: str, *, account_name: str = "auto", call_id: str = "", **context: Any) -> str:
         """
         Strict schema means new tool calls will supply:
           location/external_root/command/working_directory/timeout_seconds

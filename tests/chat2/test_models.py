@@ -157,6 +157,7 @@ def test_chat_session_meta_basic():
     assert meta.tags == []
     assert meta.metadata == {}
     assert meta.friendly_name is None
+    assert meta.context_name is None
     assert meta.links is None
 
 
@@ -173,6 +174,7 @@ def test_chat_session_meta_with_optional_fields():
         participants=["john", "lucy", "colin"],
         session_type="internal",
         friendly_name="Test Session",
+        context_name="lucyproject",
         created_at=now,
         updated_at=now,
         tags=["test", "debug"],
@@ -183,6 +185,7 @@ def test_chat_session_meta_with_optional_fields():
     assert meta.session_type == "internal"
     assert meta.participants == ["john", "lucy", "colin"]
     assert meta.friendly_name == "Test Session"
+    assert meta.context_name == "lucyproject"
     assert meta.tags == ["test", "debug"]
     assert meta.metadata == {"priority": "high"}
     assert meta.links is not None
@@ -239,6 +242,7 @@ def test_chat_session_meta_json_serialization():
         account_name="john",
         agent_name="lucy",
         participants=["john", "lucy"],
+        context_name="lucyproject",
         created_at=now,
         updated_at=now,
         tags=["test"],
@@ -254,6 +258,7 @@ def test_chat_session_meta_json_serialization():
     assert data["account_name"] == "john"
     assert data["agent_name"] == "lucy"
     assert data["participants"] == ["john", "lucy"]
+    assert data["context_name"] == "lucyproject"
     assert data["tags"] == ["test"]
     assert data["metadata"] == {"note": "test session"}
     assert data["session_type"] == "user"
@@ -266,6 +271,7 @@ def test_chat_session_meta_json_serialization():
     assert meta2.user_id == meta.user_id
     assert meta2.account_name == meta.account_name
     assert meta2.agent_name == meta.agent_name
+    assert meta2.context_name == meta.context_name
     assert meta2.participants == meta.participants
     assert meta2.tags == meta.tags
     assert meta2.metadata == meta.metadata
@@ -299,4 +305,77 @@ def test_default_values():
     assert meta.metadata == {}
     assert meta.session_type == "user"
     assert meta.friendly_name is None
+    assert meta.context_name is None
     assert meta.links is None
+
+
+def test_context_name_roundtrip():
+    """Test context_name round-trips through dict and JSON serialization, including None default."""
+    now = datetime.utcnow()
+    session_id = str(uuid4())
+
+    # --- None default ---
+    meta = ChatSessionMeta(
+        session_id=session_id,
+        user_id="user123",
+        account_name="john",
+        agent_name="lucy",
+        created_at=now,
+        updated_at=now,
+    )
+    assert meta.context_name is None
+
+    # Dict round-trip with None (model_dump + model_validate)
+    dumped = meta.model_dump()
+    assert dumped["context_name"] is None
+    meta2 = ChatSessionMeta.model_validate(dumped)
+    assert meta2.context_name is None
+
+    # JSON round-trip with None
+    json_str = meta.model_dump_json()
+    data = json.loads(json_str)
+    assert data["context_name"] is None
+    meta3 = ChatSessionMeta.model_validate_json(json_str)
+    assert meta3.context_name is None
+
+    # --- Explicit string ---
+    meta4 = ChatSessionMeta(
+        session_id=session_id,
+        user_id="user123",
+        account_name="john",
+        agent_name="lucy",
+        context_name="lucyproject",
+        created_at=now,
+        updated_at=now,
+    )
+    assert meta4.context_name == "lucyproject"
+
+    # Dict round-trip with value
+    dumped4 = meta4.model_dump()
+    assert dumped4["context_name"] == "lucyproject"
+    meta5 = ChatSessionMeta.model_validate(dumped4)
+    assert meta5.context_name == "lucyproject"
+
+    # JSON round-trip with value
+    json_str4 = meta4.model_dump_json()
+    data4 = json.loads(json_str4)
+    assert data4["context_name"] == "lucyproject"
+    meta6 = ChatSessionMeta.model_validate_json(json_str4)
+    assert meta6.context_name == "lucyproject"
+
+    # --- Explicit None (explicitly set to None) ---
+    meta7 = ChatSessionMeta(
+        session_id=session_id,
+        user_id="user123",
+        account_name="john",
+        agent_name="lucy",
+        context_name=None,
+        created_at=now,
+        updated_at=now,
+    )
+    assert meta7.context_name is None
+
+    dumped7 = meta7.model_dump()
+    assert dumped7["context_name"] is None
+    meta8 = ChatSessionMeta.model_validate(dumped7)
+    assert meta8.context_name is None

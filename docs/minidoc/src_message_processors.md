@@ -1,112 +1,152 @@
----
+# Documentation for `src/message_processors`
+
+## YAML Front Matter
+```yaml
 tags:
   - src_message_processors
   - lucyproject
-  - MessageProcessorInterface
-  - FunctionCallingProcessor
   - AutomationProcessor
+  - FunctionCallingProcessor
   - TaskRunningProcessor
+  - MessageProcessorInterface
   - ProcessorFactory
-  - ToolHandlerError
   - ToolResultTooLargeError
+  - ToolHandlerError
+```
+
+## 1. Summary
+The `src/message_processors` module is responsible for processing messages within the Lucy project architecture. It provides various message processors that handle different types of commands and tasks, particularly focusing on automation and function calling. The module's primary responsibility is to interpret incoming messages, execute tasks based on those messages, and manage the state of task lists. This module fits into the overall architecture by serving as a bridge between user commands and the underlying task execution logic, effectively solving the problem of orchestrating complex workflows in response to user inputs.
+
+## 2. Architecture & Design
+The module employs several design patterns, including:
+- **Dependency Injection**: Utilizes the `injector` library to manage dependencies, ensuring that each processor receives the necessary components without tight coupling.
+- **Abstract Base Classes**: The `MessageProcessorInterface` defines a common interface for all message processors, promoting consistency and extensibility.
+- **Factory Pattern**: The `ProcessorFactory` class dynamically resolves and instantiates the appropriate message processor based on configuration, allowing for flexible processor management.
+
+Classes within the module relate through composition and inheritance. For instance, `AutomationProcessor` and `FunctionCallingProcessor` both implement the `MessageProcessorInterface`, ensuring they adhere to a common contract. The module does not exhibit a legacy/v2 split, as it appears to be a cohesive unit designed for the current architecture.
+
+Key design decisions include:
+- The use of JSON for command parsing, which allows for a flexible and structured way to define actions and parameters.
+- Logging at various stages to facilitate debugging and monitoring of task execution.
+
+## 3. Key Classes
+| Class                        | Base/Parent                     | Purpose                                                                 |
+|------------------------------|----------------------------------|-------------------------------------------------------------------------|
+| AutomationProcessor           | MessageProcessorInterface        | Processes automation commands and manages task execution.               |
+| FunctionCallingProcessor      | MessageProcessorInterface        | Handles function calling tasks and manages tool execution.              |
+| TaskRunningProcessor          | MessageProcessorInterface        | Manages the state of tasks and processes commands related to task lists. |
+| MessageProcessorInterface     | ABC                              | Defines the interface for all message processors.                       |
+| ProcessorFactory             | ABC                              | Creates instances of message processors based on configuration.         |
+
+## 4. Source Files
+| File                                      | Responsibility                                           | Notable Exports                                      |
+|-------------------------------------------|---------------------------------------------------------|-----------------------------------------------------|
+| `__init__.py`                             | Initializes the module.                                 | None                                                |
+| `automation_processor.py`                 | Implements the `AutomationProcessor` class.            | AutomationProcessor                                  |
+| `function_calling_processor.py`           | Implements the `FunctionCallingProcessor` class.       | FunctionCallingProcessor                             |
+| `message_processor_interface.py`          | Defines the `MessageProcessorInterface`.                | MessageProcessorInterface                            |
+| `processor_factory.py`                     | Implements the `ProcessorFactory` class.               | ProcessorFactory                                     |
+| `sse_events.py`                           | Defines the `SSEEvent` model for streaming responses.  | SSEEvent                                            |
+| `task_running_processor.py`               | Implements the `TaskRunningProcessor` class.           | TaskRunningProcessor                                 |
+| `types.py`                                | Defines type aliases for agent and account dictionaries. | AgentDict, AccountDict, OptionalAgentDict           |
+
+## 5. Dependencies
+- **Standard library**:
+  - `json`
+  - `logging`
+  - `datetime`
+  - `time`
+  - `abc`
+  - `importlib`
+  - `typing`
+  
+- **Third-party packages**:
+  - `injector`
+  - `pydantic`
+  
+- **Internal modules**:
+  - `src.agent`
+  - `src.config_manager`
+  - `src.handlers.handler_registry`
+  - `src.storage.base`
+  - `src.tasklists.task`
+  - `src.tasklists.task_list`
+  - `src.tasklists.task_states`
+  - `src.llm.adapter_interface`
+  - `src.chat2.facade`
+  - `src.chat2.models`
+  
+- **Optional dependencies**:
+  - None
+
+## 6. Configuration / Settings
+| Key                          | Type   | Default | What it controls                                      |
+|------------------------------|--------|---------|------------------------------------------------------|
+| `max_tool_result_chars`      | int    | 20000   | Maximum allowed characters for tool results.         |
+| `environment_prompt_block`    | str    | ""      | Server-wide environment prompt injection messages.    |
+
+## 7. Exceptions
+| Exception                     | Base                     | When Raised                                               |
+|-------------------------------|--------------------------|----------------------------------------------------------|
+| ToolResultTooLargeError       | Exception                | Raised when a tool result exceeds the configured limit.  |
+| ToolHandlerError              | Exception                | Raised when a tool handler fails during execution.       |
+
+## 8. Module-Level Constants
+| Constant                      | Value                     |
+|-------------------------------|---------------------------|
+| None                          | None                      |
+
+## 9. Methods (by class)
+
+### AutomationProcessor
+| Method                       | Type         | Signature                                                                 | Description                                                                 |
+|------------------------------|--------------|---------------------------------------------------------------------------|-----------------------------------------------------------------------------|
+| `process_message`            | instance     | `def process_message(self, *, primary_agent: Agent, account: Dict[str, Any], message: str, conversation_id: str = "0", context_name: str = "", secondary_agent: Optional[Agent] = None, processor_factory: Optional[Any] = None) -> str:` | Processes incoming messages, validates commands, and executes task lists.  |
+| `execute_tasklist`           | instance     | `def execute_tasklist(self, *, tasklist_id: str, mode: str, account_name: str, agent_name: str, conversation_id: str, context_name: str, primary_agent: Agent, account: Dict[str, Any], secondary_agent: Optional[Agent] = None, processor_factory: Optional[Any] = None) -> str:` | Executes a task list based on the provided parameters.                     |
+
+### FunctionCallingProcessor
+| Method                       | Type         | Signature                                                                 | Description                                                                 |
+|------------------------------|--------------|---------------------------------------------------------------------------|-----------------------------------------------------------------------------|
+| `process_message`            | instance     | `def process_message(self, *, primary_agent: Agent, account: Dict[str, Any], message: str, conversation_id: str = "0", context_name: str = "", secondary_agent: Optional[Agent] = None, processor_factory: Optional[Any] = None) -> str:` | Processes incoming messages and executes function calls.                    |
+| `_run_llm_loop`             | instance     | `def _run_llm_loop(self, *, ctx: _ProcessorContext, prompt_messages: List[Dict[str, Any]], function_defs: List[Dict[str, Any]], primary_agent: Agent, secondary_agent: Optional[Agent], processor_factory: Optional[Any], account: Dict[str, Any], metrics: Dict[str, Any]) -> str:` | Runs the LLM loop for processing function calls.                           |
+
+### TaskRunningProcessor
+| Method                       | Type         | Signature                                                                 | Description                                                                 |
+|------------------------------|--------------|---------------------------------------------------------------------------|-----------------------------------------------------------------------------|
+| `process_message`            | instance     | `def process_message(self, *, primary_agent: Agent, account: AccountDict, message: str, conversation_id: str = "0", context_name: str = "", secondary_agent: Optional[Agent] = None, processor_factory: Optional[Any] = None) -> str:` | Processes incoming messages and identifies the next pending task.          |
+
+## 10. Usage Examples
+```python
+# Example of using AutomationProcessor
+automation_processor = AutomationProcessor(config, registry, storage, prompt_builder)
+result = automation_processor.process_message(
+    primary_agent=agent,
+    account=account_dict,
+    message='{"action": "run", "tasklist_id": "my_tasklist_1", "mode": "multi-step"}'
+)
+
+# Example of using FunctionCallingProcessor
+function_calling_processor = FunctionCallingProcessor(config, registry, prompt_builder, llm_adapter)
+response = function_calling_processor.process_message(
+    primary_agent=agent,
+    account=account_dict,
+    message='{"action": "call_function", "function_name": "example_function"}'
+)
+```
+
+## 11. Edge Cases & Gotchas
+- **Error Handling Patterns**: The processors generally follow a fail-fast approach, logging errors and returning informative messages when encountering issues.
+- **Task State Management**: Care must be taken to ensure that task states are correctly updated, especially in the event of failures during execution.
+- **Thread-Safety**: The module does not explicitly mention thread-safety, so concurrent access to shared resources should be managed carefully.
+- **JSON Command Parsing**: The processors expect well-formed JSON commands; malformed commands will result in errors.
+
+## 12. Consumers
+| Consumer                      | What it uses                                               |
+|-------------------------------|-----------------------------------------------------------|
+| Various agents                | Utilize message processors for task execution and command processing. |
+| `src.chat2`                  | Interacts with chat storage for logging events and messages. |
+| `src.tasklists`              | Manages task lists and states through the processors.     |
+
 ---
 
-# Module: `src/message_processors`
-
-## Summary
-
-Message processing orchestration layer. Defines the abstract interface for processing user messages and provides concrete implementations:
-
-- **`FunctionCallingProcessor`** — the primary LLM-driven processor. Builds prompts, calls the LLM with tool definitions, executes tool calls in a loop (with duplicate detection and iteration caps), and writes events to chat2 storage.
-- **`AutomationProcessor`** — executes persisted tasklists. Parses JSON commands (`run`/`execute`/`start`), finds pending tasks, delegates execution to `FunctionCallingProcessor`, and persists task state after each step.
-- **`TaskRunningProcessor`** — scaffold processor (agent: `doris`). Parses JSON commands and finds the next pending task from a persisted tasklist, but does **not** execute it yet.
-
-Also provides `ProcessorFactory` (lazy-loading, injector-based construction) and shared type aliases.
-
-## Key Classes
-
-| Class | File | Description |
-|---|---|---|
-| `MessageProcessorInterface` | `message_processor_interface.py` | Abstract base class (ABC) for all processors |
-| `ProcessorFactoryInterface` | `message_processor_interface.py` | Protocol for factory that returns processors by name |
-| `ProcessorFactory` | `processor_factory.py` | Concrete factory — maps processor names to import paths, constructs via `Injector` |
-| `FunctionCallingProcessor` | `function_calling_processor.py` | LLM-driven tool-calling processor (primary) |
-| `AutomationProcessor` | `automation_processor.py` | Tasklist execution engine |
-| `TaskRunningProcessor` | `task_running_processor.py` | Scaffold — finds next pending task (agent: doris) |
-| `ToolHandlerError` | `function_calling_processor.py` | Raised when a tool handler fails |
-| `ToolResultTooLargeError` | `function_calling_processor.py` | Raised when a tool result exceeds `max_tool_result_chars` |
-
-## Source Files
-
-| File | Description |
-|---|---|
-| `__init__.py` | Empty init |
-| `message_processor_interface.py` | `MessageProcessorInterface` (ABC) + `ProcessorFactoryInterface` (Protocol) |
-| `types.py` | Type aliases: `AgentDict`, `AccountDict`, `OptionalAgentDict` |
-| `processor_factory.py` | `ProcessorFactory` — lazy-import, injector-based construction |
-| `function_calling_processor.py` | `FunctionCallingProcessor` — LLM loop, tool execution, chat2 events |
-| `automation_processor.py` | `AutomationProcessor` — tasklist execution, state persistence, chat2 events |
-| `task_running_processor.py` | `TaskRunningProcessor` — scaffold for finding next pending task |
-
-## Dependencies
-
-- **`src.agent`** — `Agent` class
-- **`src.config_manager`** — `ConfigManager`
-- **`src.handlers.handler_registry`** — `HandlerRegistry`
-- **`src.prompt_builders.prompt_builder_interface`** — `PromptBuilderInterface`
-- **`src.llm.adapter_interface`** — `LLMAdapter`
-- **`src.chat2.facade`** — `Chat2Store`
-- **`src.chat2.models`** — `ChatEvent`
-- **`src.storage.base`** — `Storage` (used by `AutomationProcessor`, `TaskRunningProcessor`)
-- **`src.storage.models`** — `ChatMessage`
-- **`src.tasklists`** — `Task`, `TaskList`, task state constants
-- **`injector`** — dependency injection (`@inject`)
-- **stdlib** — `abc`, `json`, `logging`, `time`, `datetime`, `dataclasses`, `typing`
-
-## Methods — `MessageProcessorInterface` (ABC)
-
-| Method | Signature | Description |
-|---|---|---|
-| `process_message` | `(self, *, primary_agent, account, message, conversation_id, context_name, secondary_agent, processor_factory) -> str` | Abstract — process a user message and return a response string |
-
-## Methods — `FunctionCallingProcessor`
-
-| Method | Signature | Description |
-|---|---|---|
-| `__init__` | `(self, config, registry, prompt_builder, llm_adapter, chat2_store)` | Inject dependencies |
-| `process_message` | `(self, *, primary_agent, account, message, conversation_id, context_name, secondary_agent, processor_factory) -> str` | Main entry: build prompt, run LLM loop, write chat2 events |
-| `_build_context` | `(self, *, primary_agent, account, conversation_id, context_name) -> _ProcessorContext` | Extract and validate processor context from agent config |
-| `_run_llm_loop` | `(self, *, ctx, prompt_messages, function_defs, primary_agent, secondary_agent, processor_factory, account, metrics) -> str` | Iterative LLM call loop with tool execution and duplicate detection |
-| `_execute_tool_calls` | `(self, *, tool_calls, primary_agent, secondary_agent, processor_factory, account, ctx, metrics) -> List[Dict]` | Execute tool calls via registry, handle delegation |
-| `_execute_simple_tasklist` | `(self, tasklist, *, supervisor_agent, worker_agent, account, conversation_id, context_name, processor_factory, delegation_depth) -> Dict` | Execute a tasklist inline (from `delegate_tasks` tool) |
-| `_wrap_tool_calls` | `(self, tool_calls) -> List[_ToolCall]` | Convert raw tool call dicts to `_ToolCall` dataclasses |
-| `_tool_calls_are_duplicate` | `(self, current, previous) -> bool` | Detect repeated identical tool calls |
-| `_safe_json_loads` | `(self, s) -> Dict` | Safely parse JSON, return `{}` on failure |
-| `_tool_result_to_text` | `(self, tool_result_text) -> str` | Serialize tool result, enforce size limit |
-| `_get_environment_system_messages` | `(self) -> List[str]` | Read `environment_prompt_block` from config |
-| `_ensure_chat2_session` | `(self, ctx) -> None` | Create chat2 session if missing |
-| `_write_chat2_events` | `(self, ctx, user_message, assistant_response) -> None` | Write user + assistant events to chat2 |
-
-## Methods — `AutomationProcessor`
-
-| Method | Signature | Description |
-|---|---|---|
-| `__init__` | `(self, config, registry, storage, prompt_builder, chat2_store, llm_adapter)` | Inject dependencies |
-| `process_message` | `(self, *, primary_agent, account, message, conversation_id, context_name, secondary_agent, processor_factory) -> str` | Parse JSON command, delegate to `execute_tasklist` |
-| `execute_tasklist` | `(self, *, tasklist_id, mode, account_name, agent_name, conversation_id, context_name, primary_agent, account, secondary_agent, processor_factory) -> str` | Core execution loop: find pending tasks, execute via `FunctionCallingProcessor`, persist state |
-| `_ensure_chat2_session` | `(self, conversation_id, account_name, agent_name) -> None` | Create chat2 session if missing |
-| `_write_chat2_event` | `(self, conversation_id, account_name, agent_name, role, kind, payload, metadata) -> None` | Write a single event to chat2 with kind mapping |
-
-## Methods — `TaskRunningProcessor`
-
-| Method | Signature | Description |
-|---|---|---|
-| `__init__` | `(self, storage)` | Inject storage (optional) |
-| `process_message` | `(self, *, primary_agent, account, message, conversation_id, context_name, secondary_agent, processor_factory) -> str` | Parse JSON command, find next pending task (no execution) |
-
-## Methods — `ProcessorFactory`
-
-| Method | Signature | Description |
-|---|---|---|
-| `__init__` | `(self, injector)` | Register processor name → import path mappings |
-| `get` | `(self, processor_name)` | Lazy-import and construct processor via `Injector` |
+This document provides a comprehensive overview of the `src/message_processors` module, detailing its structure, functionality, and usage within the Lucy project.

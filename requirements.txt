@@ -25,6 +25,9 @@ snowballstemmer==3.0.1
 # Web scraping
 beautifulsoup4==4.14.3
 
+# Images
+Pillow==11.3.0
+
 # Utils
 cloudpathlib==0.23.0
 certifi==2022.12.7

@@ -72,7 +72,7 @@ class SchemaHandlerV2(ABC, Generic[ArgsT, ResultT]):
         except Exception:
             return None
 
-    def execute_raw(self, arguments_raw: str, *, account_name: str = "auto", call_id: str = "") -> str:
+    def execute_raw(self, arguments_raw: str, *, account_name: str = "auto", call_id: str = "", **context: Any) -> str:
         """Execute a tool call with raw JSON arguments.
 
         Returns: JSON object string.

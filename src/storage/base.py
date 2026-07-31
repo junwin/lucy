@@ -144,6 +144,14 @@ class Storage(ABC):
 
         return []
 
+    def get_skill_text(self, account_name: str, skill_name: str) -> Optional[str]:
+        """Return the body text of a skill file, or None if missing.
+
+        Skills are stored as Markdown files at skills/<account>/<name>.md.
+        This is non-abstract so custom Storage implementations can opt in.
+        """
+        return None
+
     @abstractmethod
     def list_tasklists(self, account_name: str) -> List[str]:
         """Return a list of persisted tasklist ids for an account.

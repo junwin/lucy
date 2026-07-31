@@ -37,6 +37,29 @@ def validate_sandbox_relative_paths(config: dict) -> None:
             raise ValueError(f"Config '{key}' must not contain '..' path traversal (got: {val})")
 
 
+def _deep_merge(base: dict, override: dict) -> dict:
+    """Deep-merge *override* into *base*. Returns a new dict.
+
+    For nested dicts, keys are merged recursively.
+    For scalars, lists, and everything else, the override value wins.
+    """
+    result = copy.deepcopy(base)
+    for key, value in override.items():
+        if key in result and isinstance(result[key], dict) and isinstance(value, dict):
+            result[key] = _deep_merge(result[key], value)
+        else:
+            result[key] = copy.deepcopy(value)
+    return result
+
+
+def _local_config_path(file_name: str) -> str:
+    """Derive the local-override path for a given config file name.
+
+    Example: 'config.json' -> 'config.local.json'
+    """
+    return file_name.replace(".json", ".local.json")
+
+
 class ConfigManager:
     def __init__(self, file_name: str):
         self.file_name = file_name
@@ -46,11 +69,24 @@ class ConfigManager:
     def load_config(self, file_name: str) -> dict:
         try:
             with open(file_name, "r", encoding="utf-8") as f:
-                return json.load(f)
+                config = json.load(f)
         except FileNotFoundError:
             raise FileNotFoundError(f"Config file '{file_name}' not found.")
         except json.JSONDecodeError as e:
             raise ValueError(f"Config file '{file_name}' is not valid JSON: {e}")
+
+        # --- local overrides ---
+        local_file = _local_config_path(file_name)
+        if os.path.exists(local_file):
+            try:
+                with open(local_file, "r", encoding="utf-8") as f:
+                    local_config = json.load(f)
+                config = _deep_merge(config, local_config)
+                logger.info("Merged local config from %s", local_file)
+            except (json.JSONDecodeError, OSError) as e:
+                logger.warning("Failed to load local config %s: %s", local_file, e)
+
+        return config
 
     def get(self, key: str, default=None):
         return self.config.get(key, default)

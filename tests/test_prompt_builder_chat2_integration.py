@@ -5,6 +5,7 @@ Tests the full chain:
   - Chat2Store (with InMemoryStore)
   - get_last_n_events() slicing
   - PromptBuilder._get_chat_history_messages() branching
+  - Session-info system message injection
 
 These tests use InMemoryStore (no filesystem) so they're fast and isolated.
 """
@@ -52,6 +53,30 @@ def seeded_session(chat2_store: Chat2Store) -> str:
     return session_id
 
 
+@pytest.fixture
+def session_with_context(chat2_store: Chat2Store) -> str:
+    """Create a session with context_name set."""
+    meta = chat2_store.create_session(
+        user_id="test_user",
+        account_name="test_acct",
+        agent_name="lucy",
+        context_name="lucyproject",
+    )
+    return meta.session_id
+
+
+@pytest.fixture
+def session_with_friendly_name(chat2_store: Chat2Store) -> str:
+    """Create a session with friendly_name but no context_name."""
+    meta = chat2_store.create_session(
+        user_id="test_user",
+        account_name="test_acct",
+        agent_name="lucy",
+        friendly_name="my-friendly-session",
+    )
+    return meta.session_id
+
+
 # ---------------------------------------------------------------------------
 # Tests for get_last_n_events (unit-level, but critical for integration)
 # ---------------------------------------------------------------------------
@@ -90,7 +115,7 @@ def test_get_last_n_events_fewer_than_n(seeded_session, chat2_store):
 
 
 # ---------------------------------------------------------------------------
-# Tests for PromptBuilder chat2 integration
+# Helpers
 # ---------------------------------------------------------------------------
 
 
@@ -119,6 +144,19 @@ def _make_prompt_builder(chat2_store=None):
         storage=storage,
         chat2_store=chat2_store,
     )
+
+
+def _find_session_info_message(messages):
+    """Find the session-info system message, if present."""
+    for msg in messages:
+        if msg["role"] == "system" and msg["content"].startswith("Session:"):
+            return msg
+    return None
+
+
+# ---------------------------------------------------------------------------
+# Tests for PromptBuilder chat2 integration (history)
+# ---------------------------------------------------------------------------
 
 
 def test_prompt_builder_returns_history_from_chat2(seeded_session, chat2_store):
@@ -280,3 +318,192 @@ def test_build_prompt_includes_history_from_chat2(seeded_session, chat2_store):
     # History should include assistant responses
     assert any("Hi there" in m["content"] for m in assistant_msgs)
     assert any("It's 22C" in m["content"] for m in assistant_msgs)
+
+
+# ---------------------------------------------------------------------------
+# Tests for session-info system message
+# ---------------------------------------------------------------------------
+
+
+def test_session_info_present_with_valid_session(session_with_context, chat2_store):
+    """A valid session_id produces a session-info system message."""
+    pb = _make_prompt_builder(chat2_store=chat2_store)
+
+    prompt = pb.build_prompt(
+        content_text="Hello",
+        conversation_id=session_with_context,
+        agent_name="lucy",
+        account_name="test_acct",
+        context_type="none",
+    )
+
+    info = _find_session_info_message(prompt)
+    assert info is not None, "Expected a system message starting with 'Session:'"
+    assert "agent=lucy" in info["content"]
+
+
+def test_session_info_includes_context_name(session_with_context, chat2_store):
+    """context_name from session meta appears in the info message."""
+    pb = _make_prompt_builder(chat2_store=chat2_store)
+
+    prompt = pb.build_prompt(
+        content_text="Hello",
+        conversation_id=session_with_context,
+        agent_name="lucy",
+        account_name="test_acct",
+        context_type="none",
+    )
+
+    info = _find_session_info_message(prompt)
+    assert "context=lucyproject" in info["content"]
+
+
+def test_session_info_context_falls_back_to_friendly_name(
+    session_with_friendly_name, chat2_store
+):
+    """When context_name is None, friendly_name is used in the info."""
+    pb = _make_prompt_builder(chat2_store=chat2_store)
+
+    prompt = pb.build_prompt(
+        content_text="Hello",
+        conversation_id=session_with_friendly_name,
+        agent_name="lucy",
+        account_name="test_acct",
+        context_type="none",
+    )
+
+    info = _find_session_info_message(prompt)
+    assert "context=my-friendly-session" in info["content"]
+
+
+def test_session_info_no_context_when_both_none(seeded_session, chat2_store):
+    """When both context_name and friendly_name are None, no 'context=' part."""
+    pb = _make_prompt_builder(chat2_store=chat2_store)
+
+    prompt = pb.build_prompt(
+        content_text="Hello",
+        conversation_id=seeded_session,
+        agent_name="lucy",
+        account_name="test_acct",
+        context_type="none",
+    )
+
+    info = _find_session_info_message(prompt)
+    assert "agent=lucy" in info["content"]
+    assert ", context=" not in info["content"]
+
+
+def test_session_info_includes_elapsed_time(session_with_context, chat2_store):
+    """The info message includes an elapsed time string and timestamp."""
+    pb = _make_prompt_builder(chat2_store=chat2_store)
+
+    prompt = pb.build_prompt(
+        content_text="Hello",
+        conversation_id=session_with_context,
+        agent_name="lucy",
+        account_name="test_acct",
+        context_type="none",
+    )
+
+    info = _find_session_info_message(prompt)
+    assert "last activity" in info["content"]
+    # Should end with "... ago (timestamp: ...Z)"
+    assert "ago (timestamp:" in info["content"]
+    assert info["content"].rstrip().endswith("Z)")
+
+
+def test_session_info_missing_session_no_crash(chat2_store):
+    """A nonexistent session_id does not crash build_prompt."""
+    pb = _make_prompt_builder(chat2_store=chat2_store)
+
+    prompt = pb.build_prompt(
+        content_text="Hello",
+        conversation_id="nonexistent-session",
+        agent_name="lucy",
+        account_name="test_acct",
+        context_type="none",
+    )
+
+    info = _find_session_info_message(prompt)
+    assert info is None
+
+
+def test_session_info_no_chat2_store():
+    """When chat2_store is None, no session-info message appears."""
+    pb = _make_prompt_builder(chat2_store=None)
+
+    prompt = pb.build_prompt(
+        content_text="Hello",
+        conversation_id="some-session",
+        agent_name="lucy",
+        account_name="test_acct",
+        context_type="none",
+    )
+
+    info = _find_session_info_message(prompt)
+    assert info is None
+
+
+def test_session_info_conversation_id_none(chat2_store):
+    """When conversation_id is 'none', no session-info message."""
+    pb = _make_prompt_builder(chat2_store=chat2_store)
+
+    prompt = pb.build_prompt(
+        content_text="Hello",
+        conversation_id="none",
+        agent_name="lucy",
+        account_name="test_acct",
+        context_type="none",
+    )
+
+    info = _find_session_info_message(prompt)
+    assert info is None
+
+
+def test_session_info_conversation_id_new(chat2_store):
+    """When conversation_id is 'new', no session-info message."""
+    pb = _make_prompt_builder(chat2_store=chat2_store)
+
+    prompt = pb.build_prompt(
+        content_text="Hello",
+        conversation_id="new",
+        agent_name="lucy",
+        account_name="test_acct",
+        context_type="none",
+    )
+
+    info = _find_session_info_message(prompt)
+    assert info is None
+
+
+def test_session_info_conversation_id_empty_string(chat2_store):
+    """When conversation_id is '', no session-info message."""
+    pb = _make_prompt_builder(chat2_store=chat2_store)
+
+    prompt = pb.build_prompt(
+        content_text="Hello",
+        conversation_id="",
+        agent_name="lucy",
+        account_name="test_acct",
+        context_type="none",
+    )
+
+    info = _find_session_info_message(prompt)
+    assert info is None
+
+
+def test_session_info_agent_name_from_meta(seeded_session, chat2_store):
+    """The info message uses the agent_name from session meta, not the parameter."""
+    pb = _make_prompt_builder(chat2_store=chat2_store)
+
+    prompt = pb.build_prompt(
+        content_text="Hello",
+        conversation_id=seeded_session,
+        agent_name="different-agent",
+        account_name="test_acct",
+        context_type="none",
+    )
+
+    info = _find_session_info_message(prompt)
+    # The session was created with agent_name="lucy", so info should say "lucy"
+    assert "agent=lucy" in info["content"]

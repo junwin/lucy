@@ -23,6 +23,20 @@ from src.handlers.tasklists_manage_handler import TasklistsManageHandler
 from src.handlers.tasklists_run_handler import TasklistsRunHandler
 from src.handlers.chat2_handler import Chat2Handler
 from src.handlers.curate_chat_handler import CurateChatHandler
+from src.handlers.generate_doc_handler import GenerateDocHandler
+from src.handlers.sandbox_execute_handler import SandboxExecuteHandler
+from src.handlers.reset_session_handler import ResetSessionHandler
+from src.handlers.serve_image_handler import ServeImageHandler
+from src.handlers.generate_svg_handler import GenerateSvgHandler
+from src.handlers.embedding_handler import EmbeddingHandler
+
+try:
+    from src.handlers.generate_image_handler import GenerateImageHandler
+
+    _GENERATE_IMAGE_AVAILABLE = True
+except ImportError:
+    _GENERATE_IMAGE_AVAILABLE = False
+    GenerateImageHandler = None  # type: ignore[misc]
 
 logger = logging.getLogger(__name__)
 
@@ -42,6 +56,8 @@ def build_registry() -> HandlerRegistry:
     reg.register(FileSaveHandler2)
     reg.register(CommandExecutionHandler2)
     reg.register(ScrapeWebPageHandler2)
+    reg.register(SandboxExecuteHandler)
+    reg.register(GenerateSvgHandler)
 
     # Optional / third-party dependent handlers: import and register lazily.
     try:
@@ -72,6 +88,25 @@ def build_registry() -> HandlerRegistry:
     reg.register(Chat2Handler)
     # Chat curation (summarize, archive, filter)
     reg.register(CurateChatHandler)
+    # Doc generation (LLM-powered module documentation)
+    reg.register(GenerateDocHandler)
+    # Session reset action (SSE Phase 2)
+    reg.register(ResetSessionHandler)
+
+    # Image serving — reads existing image files from disk
+    reg.register(ServeImageHandler)
+
+    # Image generation (SSE Phase 3) — Pillow is an optional dependency
+    if _GENERATE_IMAGE_AVAILABLE and GenerateImageHandler is not None:
+        reg.register(GenerateImageHandler)
+    else:
+        logger.warning(
+            "GenerateImageHandler not registered: Pillow (PIL) not available. "
+            "Install with: pip install Pillow"
+        )
+
+    # Embeddings — vector generation and comparison
+    reg.register(EmbeddingHandler)
 
     logger.info("Handler registry built with %d handlers.", len(reg.tool_names()))
     return reg

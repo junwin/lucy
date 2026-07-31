@@ -100,6 +100,72 @@ Lucy will:
 
 ---
 
+## Configuration
+
+Lucy uses a two-file config system so the same codebase can run across different machines (e.g. Linux Mint on a NUC vs. Debian on a Pi) without editing the shared config.
+
+### `config.json` — shared base
+
+Checked into git. Contains default values that are the same on every machine:
+
+- LLM models, API keys, server settings
+- Agent definitions, tool configurations
+- Safe defaults for paths that may not exist on every machine
+
+### `config.local.json` — machine-specific overrides
+
+**Not checked into git** (matched by the `*.local` rule in `.gitignore`). Contains only the keys that differ on the current machine, for example:
+
+```json
+{
+  "storage_root_path": "/home/junwin/lucy_storage",
+  "external_roots": {
+    "repo_lucy": "/home/junwin/src/repos/lucy",
+    "obsidian": "/home/junwin/Documents/mynotes",
+    "sandbox_cmd": "/home/junwin/sandbox",
+    "lucy_data_files": "/home/junwin/lucy_storage",
+    "repos": "/home/junwin/src/repos",
+    "pi_share": "/home/junwin/pishare",
+    "lucy_stable": "/home/junwin/src/stable/lucy",
+    "pictures": "/home/junwin/Pictures",
+    "lucy2": "/home/junwin/src/repos/lucy2"
+  },
+  "code_sandbox_path": "/home/junwin/sandbox",
+  "environment_prompt_block": "Model: NUC7i7BNKQ\nOS: Linux Mint\nArch: intel i7\nBits: 64"
+}
+```
+
+### How merging works
+
+At startup, `ConfigManager.load_config()`:
+
+1. Loads `config.json` as the base
+2. Looks for `config.local.json` in the same directory
+3. If found, **deep-merges** it on top — nested objects merge at the key level, scalars and arrays get replaced
+4. If not found, uses `config.json` as-is
+
+This means `config.local.json` only needs to list the keys you want to override. Everything else falls through to the base.
+
+### Typical machine-specific keys
+
+| Key | Why it varies |
+|---|---|
+| `storage_root_path` | Different home directories or mount points |
+| `external_roots` | Absolute paths differ per machine |
+| `code_sandbox_path` | Sandbox location varies |
+| `credential_path` | Credentials stored in different locations |
+| `environment_prompt_block` | Model name, OS, and architecture are machine-specific |
+| `ssl_cert` / `ssl_key` | SSL certificates are per-machine |
+
+### Setting up a new machine
+
+1. Clone the repo — `config.json` works as-is
+2. Copy the `config.local.json` from an existing machine as a starting point
+3. Edit the paths to match the new machine's filesystem
+4. Run Lucy — no changes to `config.json` needed
+
+---
+
 ## Core concepts
 
 ### Agents

@@ -166,6 +166,69 @@ class OpenAIResponsesApi(LLMApi):
             config_data = json.load(f)
         return OpenAI(api_key=config_data["openai_api_key"])
 
+    @staticmethod
+    def _normalize_content_parts(content: Any) -> Any:
+        """Normalize provider-agnostic content parts to OpenAI Responses API format.
+
+        Intermediate format:
+            {"type": "image", "source": {"data": "<base64>", "mime_type": "image/png"}}
+            {"type": "text", "text": "..."}
+
+        OpenAI Responses API format:
+            {"type": "input_image", "image_url": "data:image/png;base64,<data>"}
+            {"type": "input_text", "text": "..."}
+        """
+        if not isinstance(content, list):
+            return content
+
+        normalized = []
+        for part in content:
+            if not isinstance(part, dict):
+                normalized.append(part)
+                continue
+
+            ptype = part.get("type", "")
+
+            if ptype == "image":
+                source = part.get("source", {})
+                data = source.get("data", "") if isinstance(source, dict) else ""
+                mime = source.get("mime_type", "image/png") if isinstance(source, dict) else "image/png"
+                normalized.append({
+                    "type": "input_image",
+                    "image_url": f"data:{mime};base64,{data}",
+                })
+            elif ptype == "text":
+                normalized.append({
+                    "type": "input_text",
+                    "text": part.get("text", ""),
+                })
+            else:
+                normalized.append(part)
+
+        return normalized
+
+    @staticmethod
+    def _normalize_messages(messages: Any) -> Any:
+        """Normalize content parts in all messages."""
+        if not isinstance(messages, list):
+            return messages
+
+        result = []
+        for msg in messages:
+            if not isinstance(msg, dict):
+                result.append(msg)
+                continue
+
+            content = msg.get("content")
+            if isinstance(content, list):
+                msg_copy = dict(msg)
+                msg_copy["content"] = OpenAIResponsesApi._normalize_content_parts(content)
+                result.append(msg_copy)
+            else:
+                result.append(msg)
+
+        return result
+
     def create_response(
         self,
         *,
@@ -181,6 +244,9 @@ class OpenAIResponsesApi(LLMApi):
     ) -> LLMResponse:
         last_err: Optional[BaseException] = None
 
+        # Normalize provider-agnostic content parts to OpenAI format
+        input = self._normalize_messages(input)
+
         # ---- entry log ----
         logging.info(
             "OpenAIResponsesApi.create_response: enter model=%s prev_response_id=%s tools=%s tool_choice=%s store=%s",
@@ -190,19 +256,6 @@ class OpenAIResponsesApi(LLMApi):
             tool_choice,
             store,
         )
-
-        #try:
-        #    tools_json = json.dumps(tools, indent=2, ensure_ascii=False)
-        #except Exception:
-        #    tools_json = str(tools)
-
-        #logging.info(
-        #    "OpenAIResponsesApi.create_response: tools (pretty)=%s",
-        #    tools_json,
-        #)
-
-        #for tl in tools:
-        #    logging.info("OpenAIResponsesApi.create_response: tool=%s", tl.get("name"))
 
         for attempt in range(self._max_attempts):
             t0 = time.time()

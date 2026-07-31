@@ -313,3 +313,153 @@ def test_different_tool_calls_do_not_trigger_duplicate_detection(make_proc, prom
 
     assert out == "done"
     assert llm_adapter.call_model.call_count == 3
+
+
+# ---------------------------------------------------------------------------
+# _ensure_chat2_session context_name passthrough tests
+# ---------------------------------------------------------------------------
+
+
+class TestEnsureChat2SessionContextName:
+    """Verify context_name flows through _ensure_chat2_session → create_session."""
+
+    def test_context_name_passed_to_create_session(self, make_proc, prompt_builder, llm_adapter):
+        """When a new session is created, context_name is passed through."""
+        from tests.conftest import FakeAgent
+
+        mock_store = Mock()
+        mock_store.session_exists.return_value = False
+        mock_store.create_session.return_value = Mock()
+        mock_store.add_events.return_value = []
+
+        proc = make_proc()
+        proc.chat2_store = mock_store
+
+        prompt_builder.build_prompt.return_value = [{"role": "user", "content": "hi"}]
+
+        llm_adapter.extract_tool_calls.return_value = []
+        llm_adapter.get_text.return_value = "hello"
+
+        proc.process_message(
+            primary_agent=FakeAgent(save_responses=True),
+            account={"accountId": "acct1"},
+            message="hi",
+            conversation_id="c1",
+            context_name="lucyproject",
+        )
+
+        mock_store.create_session.assert_called_once()
+        call_kwargs = mock_store.create_session.call_args.kwargs
+        assert call_kwargs["context_name"] == "lucyproject"
+        assert call_kwargs["friendly_name"] == "lucyproject"
+        assert call_kwargs["session_id"] == "c1"
+        assert call_kwargs["account_name"] == "acct1"
+
+    def test_empty_context_name_becomes_none(self, make_proc, prompt_builder, llm_adapter):
+        """Empty string context_name is normalized to None."""
+        from tests.conftest import FakeAgent
+
+        mock_store = Mock()
+        mock_store.session_exists.return_value = False
+        mock_store.create_session.return_value = Mock()
+        mock_store.add_events.return_value = []
+
+        proc = make_proc()
+        proc.chat2_store = mock_store
+
+        prompt_builder.build_prompt.return_value = [{"role": "user", "content": "hi"}]
+
+        llm_adapter.extract_tool_calls.return_value = []
+        llm_adapter.get_text.return_value = "hello"
+
+        proc.process_message(
+            primary_agent=FakeAgent(save_responses=True),
+            account={"accountId": "acct1"},
+            message="hi",
+            conversation_id="c1",
+            context_name="",
+        )
+
+        mock_store.create_session.assert_called_once()
+        call_kwargs = mock_store.create_session.call_args.kwargs
+        assert call_kwargs["context_name"] is None
+        assert call_kwargs["friendly_name"] is None
+
+    def test_session_already_exists_skips_create(self, make_proc, prompt_builder, llm_adapter):
+        """When the session already exists, create_session is NOT called."""
+        from tests.conftest import FakeAgent
+
+        mock_store = Mock()
+        mock_store.session_exists.return_value = True
+        mock_store.add_events.return_value = []
+
+        proc = make_proc()
+        proc.chat2_store = mock_store
+
+        prompt_builder.build_prompt.return_value = [{"role": "user", "content": "hi"}]
+
+        llm_adapter.extract_tool_calls.return_value = []
+        llm_adapter.get_text.return_value = "hello"
+
+        proc.process_message(
+            primary_agent=FakeAgent(save_responses=True),
+            account={"accountId": "acct1"},
+            message="hi",
+            conversation_id="c1",
+            context_name="already_exists_context",
+        )
+
+        mock_store.create_session.assert_not_called()
+        # Events should still be written
+        mock_store.add_events.assert_called_once()
+
+    def test_no_chat2_store_no_crash(self, make_proc, prompt_builder, llm_adapter):
+        """When chat2_store is None, process_message still works fine."""
+        from tests.conftest import FakeAgent
+
+        proc = make_proc()
+        proc.chat2_store = None  # explicitly None
+
+        prompt_builder.build_prompt.return_value = [{"role": "user", "content": "hi"}]
+
+        llm_adapter.extract_tool_calls.return_value = []
+        llm_adapter.get_text.return_value = "all good"
+
+        out = proc.process_message(
+            primary_agent=FakeAgent(save_responses=True),
+            account={"accountId": "acct1"},
+            message="hi",
+            conversation_id="c1",
+            context_name="unused",
+        )
+
+        assert out == "all good"
+
+    def test_save_responses_false_skips_chat2_write(self, make_proc, prompt_builder, llm_adapter):
+        """When save_responses is False, _ensure_chat2_session is never called."""
+        from tests.conftest import FakeAgent
+
+        mock_store = Mock()
+        mock_store.session_exists.return_value = False
+        mock_store.create_session.return_value = Mock()
+        mock_store.add_events.return_value = []
+
+        proc = make_proc()
+        proc.chat2_store = mock_store
+
+        prompt_builder.build_prompt.return_value = [{"role": "user", "content": "hi"}]
+
+        llm_adapter.extract_tool_calls.return_value = []
+        llm_adapter.get_text.return_value = "transient"
+
+        out = proc.process_message(
+            primary_agent=FakeAgent(save_responses=False),
+            account={"accountId": "acct1"},
+            message="hi",
+            conversation_id="c1",
+            context_name="should_not_be_used",
+        )
+
+        assert out == "transient"
+        mock_store.session_exists.assert_not_called()
+        mock_store.create_session.assert_not_called()

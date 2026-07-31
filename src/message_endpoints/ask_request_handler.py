@@ -1,6 +1,6 @@
 import json
 import logging
-from typing import Any, Dict, Tuple, Optional
+from typing import Any, Dict, Tuple, Optional, Generator
 
 from src.agent import AgentManager, Agent
 from src.config_manager import ConfigManager
@@ -108,6 +108,8 @@ class AskRequestHandler:
         context_type = payload.get("selectType", "") or payload.get("contextType", "")
         conversationId = payload.get("conversationId", "")
         secondary_agent_override = (payload.get("partnerAgentName", "") or "").lower()
+        image_ids = payload.get("image_ids")
+        file_ids = payload.get("file_ids")
 
         # Optional context name (None means: no context)
         context_name = payload.get("contextName")
@@ -323,6 +325,8 @@ class AskRequestHandler:
                 message=question,
                 conversation_id=conversationId,
                 context_name=context_name,
+                image_ids=image_ids,
+                file_ids=file_ids,
                 processor_factory=self.processor_factory,
             )
 
@@ -364,3 +368,182 @@ class AskRequestHandler:
                 conversationId,
             )
             return 500, {"error": "An error occurred"}
+
+    # ------------------------------------------------------------------
+    # Streaming handler (Phase 1 SSE)
+    # ------------------------------------------------------------------
+
+    def handle_streaming(self, payload: Dict[str, Any]) -> Generator[str, None, None]:
+        """Streaming variant of handle(). Yields SSE-formatted strings.
+
+        Returns a generator suitable for Flask's Response wrapper.
+        On validation errors, yields error + done events and returns.
+        """
+        from src.message_processors.sse_events import SSEEvent
+
+        question = payload.get("question", "")
+        agentName = (payload.get("agentName", "") or "").lower()
+        accountName = (payload.get("accountName", "") or "").lower()
+        context_type = payload.get("selectType", "") or payload.get("contextType", "")
+        conversationId = payload.get("conversationId", "")
+        secondary_agent_override = (payload.get("partnerAgentName", "") or "").lower()
+        image_ids = payload.get("image_ids")
+        file_ids = payload.get("file_ids")
+
+        context_name = payload.get("contextName")
+        if context_name is not None:
+            context_name = str(context_name).strip() or None
+
+        self.logger.info(
+            "/ask(streaming): user_id=%s agentName=%s context_type=%s context_name=%s conversationId=%s partnerAgentName=%s",
+            accountName,
+            agentName,
+            context_type,
+            context_name,
+            conversationId,
+            secondary_agent_override,
+        )
+
+        if not question or not agentName or not accountName:
+            yield SSEEvent(type="error", message="Missing question, agentName, or accountName").to_sse()
+            yield SSEEvent(type="done").to_sse()
+            return
+
+        if not self.agent_manager.is_valid(agentName):
+            yield SSEEvent(type="error", message="Invalid agentName").to_sse()
+            yield SSEEvent(type="done").to_sse()
+            return
+
+        primary_agent: Optional[Agent] = self.agent_manager.get_agent(agentName)
+        if primary_agent is None:
+            yield SSEEvent(type="error", message="Agent configuration not found").to_sse()
+            yield SSEEvent(type="done").to_sse()
+            return
+
+        account = {"accountId": accountName}
+
+        if context_name:
+            if hasattr(self.storage, "get_or_create_context"):
+                self.storage.get_or_create_context(
+                    account_name=accountName,
+                    context_id=context_name,
+                )
+
+        if not context_type:
+            context_type = primary_agent.context_type or "hybrid"
+
+        partner_agent_obj: Optional[Agent] = None
+        partner_agent_name = secondary_agent_override or (primary_agent.partner_agent or "").lower()
+        if partner_agent_name:
+            partner_agent_obj = self.agent_manager.get_agent(partner_agent_name)
+
+        processor_name = (primary_agent.message_processor or "").strip()
+        if not processor_name:
+            yield SSEEvent(type="error", message="Agent is missing 'message_processor'").to_sse()
+            yield SSEEvent(type="done").to_sse()
+            return
+
+        processor = self.processor_factory.get(processor_name)
+        if hasattr(processor, "context_type"):
+            processor.context_type = context_type
+
+        # Session resolution (simplified: either use provided ID or generate a temp one)
+        if not conversationId:
+            friendly_name = payload.get("friendlyName") or payload.get("friendly_name")
+            if friendly_name is not None:
+                friendly_name = str(friendly_name).strip() or None
+
+            if friendly_name and hasattr(self.storage, "find_chat_sessions_by_friendly_name"):
+                try:
+                    matches = self.storage.find_chat_sessions_by_friendly_name(
+                        account_name=accountName,
+                        agent_name=agentName,
+                        friendly_name=friendly_name,
+                        limit=1,
+                    )
+                    if matches:
+                        conversationId = matches[0].id
+                        self.logger.info(
+                            "/ask(streaming): resolved conversation by friendlyName account=%s agent=%s friendlyName=%s -> session_id=%s",
+                            accountName,
+                            agentName,
+                            friendly_name,
+                            conversationId,
+                        )
+                except Exception as e:
+                    self.logger.exception(
+                        "/ask(streaming): error searching for friendlyName=%s: %s",
+                        friendly_name,
+                        e,
+                    )
+
+            if not conversationId:
+                try:
+                    session = self.storage.create_chat_session(
+                        account_name=accountName,
+                        agent_name=agentName,
+                        friendly_name=friendly_name,
+                    )
+                    conversationId = session.id
+                    self.logger.info(
+                        "/ask(streaming): created new chat session account=%s agent=%s friendlyName=%s session_id=%s",
+                        accountName,
+                        agentName,
+                        friendly_name,
+                        conversationId,
+                    )
+
+                    if self.chat2_store is not None:
+                        try:
+                            self.chat2_store.create_session(
+                                user_id=accountName,
+                                account_name=accountName,
+                                agent_name=agentName,
+                                session_id=conversationId,
+                                friendly_name=friendly_name,
+                            )
+                        except Exception:
+                            self.logger.exception(
+                                "/ask(streaming): failed to create chat2 session"
+                            )
+                except Exception:
+                    self.logger.exception(
+                        "/ask(streaming): failed to create chat session"
+                    )
+                    yield SSEEvent(type="error", message="Failed to create chat session").to_sse()
+                    yield SSEEvent(type="done").to_sse()
+                    return
+
+        # Check if processor supports streaming
+        if not hasattr(processor, "process_message_streaming"):
+            yield SSEEvent(type="error", message="This agent does not support streaming.").to_sse()
+            yield SSEEvent(type="done").to_sse()
+            return
+
+        try:
+            for sse_line in processor.process_message_streaming(
+                primary_agent=primary_agent,
+                secondary_agent=partner_agent_obj,
+                account=account,
+                message=question,
+                conversation_id=conversationId,
+                context_name=context_name,
+                image_ids=image_ids,
+                file_ids=file_ids,
+                processor_factory=self.processor_factory,
+            ):
+                yield sse_line
+
+        except ToolHandlerError as e:
+            yield SSEEvent(type="error", message=f"Tool execution failed: {str(e)}").to_sse()
+            yield SSEEvent(type="done", conversation_id=conversationId).to_sse()
+
+        except Exception:
+            self.logger.exception(
+                "/ask(streaming): unhandled exception user_id=%s agentName=%s conversationId=%s",
+                accountName,
+                agentName,
+                conversationId,
+            )
+            yield SSEEvent(type="error", message="An error occurred").to_sse()
+            yield SSEEvent(type="done", conversation_id=conversationId).to_sse()

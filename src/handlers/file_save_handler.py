@@ -215,7 +215,7 @@ class FileSaveHandler2(HandlerV2):
             "result": f"success file saved at {full_path}",
         }
 
-    def execute_raw(self, arguments_raw: str, *, account_name: str = "auto", call_id: str = "") -> str:
+    def execute_raw(self, arguments_raw: str, *, account_name: str = "auto", call_id: str = "", **context: Any) -> str:
         """
         Strict schema means new tool calls will supply location/external_root/path/file_content/overwrite.
         If you have legacy callers, keep a small shim mapping:
