@@ -31,7 +31,7 @@
   "api_keys": {},
   "api_key_enabled": false,
 
-  "environment_prompt_block": "ENVIRONMENT\n- Model: Raspberry Pi 5 Model B Rev 1.1\n- OS: Debian GNU/Linux 12 (bookworm)\n- Arch: aarch64\n- Bits: 64",
+  "environment_prompt_block": "ENVIRONMENT\n- Model: NUC7i7BNKQ\n- OS: Linux Mint\n- Arch: intel i7\n- Bits: 64",
 
   "vision_proxy": {
     "enabled": true,
