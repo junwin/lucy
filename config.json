@@ -33,6 +33,16 @@
 
   "environment_prompt_block": "ENVIRONMENT\n- Model: NUC7i7BNKQ\n- OS: Linux Mint\n- Arch: intel i7\n- Bits: 64",
 
+  "provider_throttle_ms": {
+    "mistral": 500,
+    "deepseek": 0,
+    "openai": 0
+  },
+
+  "provider_prompt_blocks": {
+    "mistral": "MISTRAL-SPECIFIC RULES:\n- Max 2 tool calls per iteration. Batch find/grep into one bash -lc call.\n- If a search fails twice, stop and report - do not re-search.\n- Prefer delegate_tasks for any work needing >2 tool calls.\n- Stop after 3 tool-call iterations; ask the user how to proceed."
+  },
+
   "vision_proxy": {
     "enabled": true,
     "model": "gpt-4o",

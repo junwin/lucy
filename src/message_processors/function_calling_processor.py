@@ -74,6 +74,20 @@ class FunctionCallingProcessor(MessageProcessorInterface):
     # Internal helpers
     # ------------------------------------------------------------------
 
+    @staticmethod
+    def _get_provider_prefix(model: str) -> str:
+        """Return provider prefix from model name. Matches RouterApi routing.
+
+        - deepseek* → "deepseek"
+        - mistral*  → "mistral"
+        - all else  → "openai"
+        """
+        if model.startswith("mistral"):
+            return "mistral"
+        if model.startswith("deepseek"):
+            return "deepseek"
+        return "openai"
+
     def _safe_json_loads(self, s: str) -> Dict[str, Any]:
         if not s:
             return {}
@@ -563,6 +577,12 @@ class FunctionCallingProcessor(MessageProcessorInterface):
                     )
                     break
 
+                # ── Provider throttle: pause between tool-call iterations ──
+                prefix = self._get_provider_prefix(ctx.model)
+                throttle_ms = self.config.get("provider_throttle_ms", {}).get(prefix, 0)
+                if throttle_ms > 0:
+                    time.sleep(throttle_ms / 1000.0)
+
                 continue
 
             response_text = self.llm_adapter.get_text(llm_response)
@@ -807,6 +827,12 @@ class FunctionCallingProcessor(MessageProcessorInterface):
                         "I may not have completed all requested actions. Please try rephrasing or splitting your request."
                     )
                     break
+
+                # ── Provider throttle: pause between tool-call iterations ──
+                prefix = self._get_provider_prefix(ctx.model)
+                throttle_ms = self.config.get("provider_throttle_ms", {}).get(prefix, 0)
+                if throttle_ms > 0:
+                    time.sleep(throttle_ms / 1000.0)
 
                 continue
 
@@ -1066,6 +1092,13 @@ class FunctionCallingProcessor(MessageProcessorInterface):
             if extra_system_messages:
                 logging.debug("FunctionCallingProcessor: injecting %d environment system message(s) from environment_prompt_block", len(extra_system_messages))
 
+            # ── Provider prompt block: inject provider-specific rules ──
+            prefix = self._get_provider_prefix(ctx.model)
+            provider_block = self.config.get("provider_prompt_blocks", {}).get(prefix, "")
+            if provider_block:
+                extra_system_messages.append(provider_block)
+                logging.debug("FunctionCallingProcessor: injecting provider prompt block for provider=%s (%d chars)", prefix, len(provider_block))
+
             prompt_messages = self.prompt_builder.build_prompt(
                 content_text=message,
                 conversation_id=ctx.conversation_id,
@@ -1235,6 +1268,13 @@ class FunctionCallingProcessor(MessageProcessorInterface):
             extra_system_messages = self._get_environment_system_messages()
             if extra_system_messages:
                 logging.debug("FunctionCallingProcessor(streaming): injecting %d environment system message(s) from environment_prompt_block", len(extra_system_messages))
+
+            # ── Provider prompt block: inject provider-specific rules ──
+            prefix = self._get_provider_prefix(ctx.model)
+            provider_block = self.config.get("provider_prompt_blocks", {}).get(prefix, "")
+            if provider_block:
+                extra_system_messages.append(provider_block)
+                logging.debug("FunctionCallingProcessor(streaming): injecting provider prompt block for provider=%s (%d chars)", prefix, len(provider_block))
 
             prompt_messages = self.prompt_builder.build_prompt(
                 content_text=message,
