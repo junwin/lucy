@@ -1,4 +1,3 @@
-from __future__ import annotations
 from dataclasses import dataclass
 try:
     from injector import inject
@@ -23,6 +22,10 @@ from src.llm.adapter_interface import LLMAdapter
 
 from src.chat2.facade import Chat2Store
 from src.chat2.models import ChatEvent
+
+from src.message_processors.automation_processor import AutomationProcessor
+from src.tasklists.task import Task
+from src.tasklists.task_list import TaskList
 
 
 class ToolResultTooLargeError(Exception):
@@ -63,12 +66,14 @@ class FunctionCallingProcessor(MessageProcessorInterface):
         prompt_builder: PromptBuilderInterface,
         llm_adapter: LLMAdapter,
         chat2_store: Optional[Chat2Store] = None,
+        automation_processor: Optional[AutomationProcessor] = None,
     ):
         self.config = config
         self.registry = registry
         self.prompt_builder = prompt_builder
         self.llm_adapter = llm_adapter
         self.chat2_store = chat2_store
+        self.automation_processor = automation_processor
 
     # ------------------------------------------------------------------
     # Internal helpers
@@ -189,115 +194,6 @@ class FunctionCallingProcessor(MessageProcessorInterface):
         return [env_block.strip()]
 
 
-    def _execute_simple_tasklist(
-        self,
-        tasklist: Dict[str, Any],
-        *,
-        supervisor_agent: Agent,
-        worker_agent: Optional[Agent],
-        account: Dict[str, Any],
-        conversation_id: str,
-        context_name: str,
-        processor_factory: Any,
-        delegation_depth: int,
-    ) -> Dict[str, Any]:
-        max_depth = int(getattr(supervisor_agent, "max_delegation_depth", 1))
-        if delegation_depth >= max_depth:
-            logging.warning(
-                "_execute_simple_tasklist: delegation depth %d >= max %d for agent=%s session_id=%s; refusing.",
-                delegation_depth,
-                max_depth,
-                supervisor_agent.name,
-                conversation_id,
-            )
-            return {"ok": False, "error": "Max delegation depth exceeded while executing the tasklist."}
-
-        tasks = tasklist.get("tasks") or []
-        if not isinstance(tasks, list):
-            return {"ok": False, "error": "tasklist.tasks must be a list."}
-
-        results: List[Dict[str, Any]] = []
-        tasklist_description = tasklist.get("description") or ""
-
-        logging.info(
-            "_execute_simple_tasklist: start supervisor=%s worker=%s session_id=%s tasks=%d depth=%d/%d desc=%r",
-            supervisor_agent.name,
-            worker_agent.name if worker_agent else None,
-            conversation_id,
-            len(tasks),
-            delegation_depth,
-            max_depth,
-            tasklist_description[:120],
-        )
-
-        for idx, task in enumerate(tasks, start=1):
-            task_id = task.get("id") or f"task-{idx}"
-            task_type = task.get("type", "task")
-            task_agent_name = task.get("agent") or (worker_agent.name if worker_agent else "")
-            task_title = task.get("title") or ""
-            instruction = task.get("instruction") or ""
-            file_path = task.get("file") or ""
-
-            logging.info(
-                "_execute_simple_tasklist: task %d/%d id=%s type=%s agent=%s title=%r",
-                idx,
-                len(tasks),
-                task_id,
-                task_type,
-                task_agent_name,
-                task_title[:80],
-            )
-
-            if task_type != "task":
-                results.append({"id": task_id, "ok": False, "error": f"Unsupported task type: {task_type}"})
-                continue
-
-            if not instruction:
-                results.append({"id": task_id, "ok": False, "error": "Task has no instruction to execute."})
-                continue
-
-            msg_parts = [instruction]
-            if file_path:
-                msg_parts.append(f"\n\nFocus file: {file_path}")
-            task_message = "".join(msg_parts)
-
-            if worker_agent and task_agent_name == worker_agent.name:
-                try:
-                    task_response = self.process_message(
-                        primary_agent=worker_agent,
-                        account=account,
-                        message=task_message,
-                        conversation_id=conversation_id,
-                        context_name=context_name,
-                        secondary_agent=None,
-                        processor_factory=processor_factory,
-                    )
-                    results.append({"id": task_id, "ok": True, "agent": task_agent_name, "response": task_response})
-                except ToolHandlerError as e:
-                    logging.exception("_execute_simple_tasklist: error executing worker task id=%s", task_id)
-                    results.append({"id": task_id, "ok": False, "agent": task_agent_name, "error": f"{type(e).__name__}: {e}"})
-                    break
-            else:
-                results.append({"id": task_id, "ok": False, "agent": task_agent_name, "error": f"Unknown agent: {task_agent_name}"})
-
-        summary = {
-            "ok": all(r.get("ok") for r in results) if results else False,
-            "description": tasklist_description,
-            "tasks": results,
-        }
-
-        logging.info(
-            "_execute_simple_tasklist: completed supervisor=%s worker=%s session_id=%s tasks=%d ok=%s",
-            supervisor_agent.name,
-            worker_agent.name if worker_agent else None,
-            conversation_id,
-            len(results),
-            summary["ok"],
-        )
-        return summary
-
-
-
 
     def _execute_tool_calls(
         self,
@@ -365,7 +261,7 @@ class FunctionCallingProcessor(MessageProcessorInterface):
                     (tool_result_text or "")[:200],
                 )
 
-                if tc.name == "delegate_tasks" and secondary_agent is not None and processor_factory is not None:
+                if tc.name == "delegate_tasks" and secondary_agent is not None and processor_factory is not None and self.automation_processor is not None:
                     try:
                         maybe = json.loads(tool_result_text or "{}")
                     except Exception:
@@ -373,23 +269,77 @@ class FunctionCallingProcessor(MessageProcessorInterface):
 
                     if isinstance(maybe, dict) and maybe.get("ok") and maybe.get("kind") == "tasklist":
                         logging.info(
-                            "FunctionCallingProcessor: executing tasklist from delegate_tasks using supervisor=%s worker=%s session_id=%s call_id=%s",
+                            "FunctionCallingProcessor: delegating tasklist to AutomationProcessor supervisor=%s worker=%s session_id=%s call_id=%s",
                             ctx.agent_name,
                             secondary_agent.name,
                             ctx.conversation_id,
                             tc.call_id,
                         )
-                        tasklist_result = self._execute_simple_tasklist(
-                            tasklist=maybe,
-                            supervisor_agent=primary_agent,
-                            worker_agent=secondary_agent,
-                            account=account,
-                            conversation_id=ctx.conversation_id,
-                            context_name=ctx.context_name,
-                            processor_factory=processor_factory,
-                            delegation_depth=ctx.delegation_depth,
-                        )
-                        tool_result_text = json.dumps(tasklist_result, ensure_ascii=False)
+                        try:
+                            # Build TaskList from delegate_tasks result
+                            tasklist_id = f"auto-{ctx.conversation_id}"
+                            description = maybe.get("description") or ""
+                            tasks = maybe.get("tasks") or []
+
+                            task_objects = []
+                            for t in tasks:
+                                t_id = t.get("id") or f"task-{len(task_objects)+1}"
+                                t_name = t.get("title") or ""
+                                t_instruction = t.get("instruction") or ""
+                                t_meta = {}
+                                if t.get("file"):
+                                    t_meta["file"] = t["file"]
+                                if t.get("params"):
+                                    t_meta.update(t["params"])
+                                task_objects.append(Task(
+                                    id=t_id,
+                                    name=t_name,
+                                    instructions=t_instruction,
+                                    meta=t_meta,
+                                ))
+
+                            tasklist = TaskList(
+                                id=tasklist_id,
+                                name=description[:80] or "auto-tasklist",
+                                description=description,
+                                tasks=task_objects,
+                            )
+
+                            # Persist to storage via AutomationProcessor storage
+                            self.automation_processor.storage.save_tasklist(
+                                ctx.account_id, tasklist_id, tasklist.to_dict()
+                            )
+
+                            # Execute via AutomationProcessor
+                            result_text = self.automation_processor.execute_tasklist(
+                                tasklist_id=tasklist_id,
+                                mode="multi-step",
+                                account_name=ctx.account_id,
+                                agent_name=ctx.agent_name,
+                                conversation_id=ctx.conversation_id,
+                                context_name=ctx.context_name,
+                                primary_agent=primary_agent,
+                                account=account,
+                                secondary_agent=secondary_agent,
+                                processor_factory=processor_factory,
+                            )
+
+                            tool_result_text = json.dumps({
+                                "ok": True,
+                                "tasklist_id": tasklist_id,
+                                "result": result_text,
+                            }, ensure_ascii=False)
+
+                        except Exception as e:
+                            logging.exception(
+                                "FunctionCallingProcessor: AutomationProcessor delegation failed supervisor=%s session_id=%s",
+                                ctx.agent_name,
+                                ctx.conversation_id,
+                            )
+                            tool_result_text = json.dumps({
+                                "ok": False,
+                                "error": f"Tasklist delegation failed: {type(e).__name__}: {e}",
+                            }, ensure_ascii=False)
 
                 # Collect raw result before enforcing max size (for SSE action/image inspection)
                 raw_results.append((tc, tool_result_text))
@@ -797,9 +747,19 @@ class FunctionCallingProcessor(MessageProcessorInterface):
                     try:
                         result_json = json.loads(raw_text)
                         ok = result_json.get("ok", True) if isinstance(result_json, dict) else True
+                        if isinstance(result_json, dict):
+                            status = result_json.get("status")
+                        else:
+                            status = None
                     except (json.JSONDecodeError, TypeError):
                         ok = True
-                    yield SSEEvent(type="tool_result", call_id=call_id, ok=ok)
+                        status = None
+
+                    # Validate and infer status
+                    if status not in ("success", "warning", "error"):
+                        status = "success" if ok else "error"
+
+                    yield SSEEvent(type="tool_result", call_id=call_id, ok=ok, status=status)
 
                 # ── Phase 2+3: inspect raw results for action / image / svg keys ──
                 for event in self._inspect_raw_results(raw_results):
@@ -978,11 +938,15 @@ class FunctionCallingProcessor(MessageProcessorInterface):
                         metadata={"agent": ctx.agent_name, "call_id": ev.call_id},
                     ))
                 elif ev.type == "tool_result":
+                    payload = {"call_id": ev.call_id, "ok": ev.ok}
+                    # Persist status so the frontend ticker can show warnings in history
+                    if ev.status:
+                        payload["status"] = ev.status
                     chat_events.append(ChatEvent(
                         role="tool",
                         actor="system",
                         kind="tool_result",
-                        payload={"call_id": ev.call_id, "ok": ev.ok},
+                        payload=payload,
                         metadata={"call_id": ev.call_id},
                     ))
 

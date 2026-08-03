@@ -36,6 +36,8 @@ from src.llm.router_api import RouterApi
 from src.chat2.facade import Chat2Store
 from src.chat2.adapters.jfs_adapter import JfsChat2Primitives
 
+from src.message_processors.automation_processor import AutomationProcessor
+
 
 config = ConfigManager("config.json")
 
@@ -138,6 +140,35 @@ class LLMModule(Module):
         return OpenAIResponsesAdapter(api)
 
 
+class AutomationProcessorModule(Module):
+    @provider
+    @singleton
+    def provide_automation_processor(
+        self,
+        config: ConfigManager,
+        registry: HandlerRegistry,
+        storage: Storage,
+        prompt_builder: PromptBuilderInterface,
+        chat2_store: Chat2Store,
+        llm_adapter: LLMAdapter,
+    ) -> AutomationProcessor:
+        """Provide AutomationProcessor as a singleton so it can be injected
+        into FunctionCallingProcessor (step 3 of issue #37 tasklist decomposition).
+
+        Uses the same Optional dependency pattern as chat2_store to avoid
+        circular dependencies: AutomationProcessor does not import FCP at
+        module level — it resolves FCP lazily via ProcessorFactory.
+        """
+        return AutomationProcessor(
+            config=config,
+            registry=registry,
+            storage=storage,
+            prompt_builder=prompt_builder,
+            chat2_store=chat2_store,
+            llm_adapter=llm_adapter,
+        )
+
+
 class ProcessorFactoryModule(Module):
     @provider
     @singleton
@@ -177,6 +208,7 @@ def configure_container():
             ProcessorFactoryModule(),
             PromptBuilderModule(),
             LLMModule(),
+            AutomationProcessorModule(),
             EndpointHandlersModule(),
         ]
     )

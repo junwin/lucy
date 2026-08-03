@@ -22,6 +22,7 @@ class SSEEvent(BaseModel):
     tool_name: Optional[str] = None
     call_id: Optional[str] = None
     ok: Optional[bool] = None
+    status: Optional[Literal["success", "warning", "error"]] = None
 
     # --- image (Phase 3) ---
     # PNG images: image_url is a data URI (e.g. data:image/png;base64,...)

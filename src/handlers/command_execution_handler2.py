@@ -23,6 +23,10 @@ class CommandExecutionHandler2(HandlerV2):
 
     NAME = "execute_command"
 
+    # Benign / read-only commands that produce non-zero exit codes in normal use
+    # (e.g. grep returns 1 when no match, not a real "error").
+    _BENIGN_COMMANDS = {"grep", "egrep", "fgrep", "find", "test", "[", "which", "command"}
+
     def __init__(self, config: ConfigManager):
         self.config = config
 
@@ -40,7 +44,7 @@ class CommandExecutionHandler2(HandlerV2):
                 "IMPORTANT: the command is executed with shell=False (subprocess.run(..., shell=False)). "
                 "Do NOT use shell operators (for example: &&, ||, |, ;, >, <, >>, 2>, $(), backticks, etc.). "
                 "If you need shell features (pipes, redirection, compound/conditional commands), wrap the entire command in a shell invocation, e.g. `bash -lc '\"...\"'`. "
-                "Example: `bash -lc '\"grep -R \"pattern\" . | sed -n \'1,10p\"'` will run a shell so pipes and redirects work. "
+                "Example: `bash -lc '\"grep -R \"pattern\" . | sed -n '1,10p\"'` will run a shell so pipes and redirects work. "
                 "(bash is available in the environment.) "
                 "Commands MUST be non-interactive and MUST terminate. "
                 "Do NOT call `bash` or `python3` with no arguments (they will wait for stdin and time out). "
@@ -114,6 +118,7 @@ class CommandExecutionHandler2(HandlerV2):
                 "stderr": {"type": "string"},
                 "result": {"type": "string"},
                 "error": {"type": "string"},
+                "status": {"type": "string"},
             },
             "required": ["ok", "tool"],
             "additionalProperties": True,
@@ -277,7 +282,7 @@ class CommandExecutionHandler2(HandlerV2):
         ok = rc in success_exit_codes
 
         if ok:
-            # If rc!=0 but is “expected success” (e.g., grep=1), don’t label it “error”.
+            # If rc!=0 but is "expected success" (e.g., grep=1), don't label it "error".
             if out.strip():
                 result_str = out.strip()
             elif err.strip():
@@ -287,7 +292,7 @@ class CommandExecutionHandler2(HandlerV2):
         else:
             result_str = f"error {rc}\nSTDOUT:\n{out}\nSTDERR:\n{err}"
 
-        return {
+        result = {
             "ok": ok,
             "tool": self.NAME,
             "location": location,
@@ -301,6 +306,12 @@ class CommandExecutionHandler2(HandlerV2):
             "stderr": err,
             "result": result_str,
         }
+
+        # ── Status: mark benign/read-only tool failures as "warning" ──
+        if not ok and self._is_benign_command(command):
+            result["status"] = "warning"
+
+        return result
 
     def execute_raw(self, arguments_raw: str, *, account_name: str = "auto", call_id: str = "", **context: Any) -> str:
         """
@@ -432,6 +443,60 @@ class CommandExecutionHandler2(HandlerV2):
             + "\n\n[... output truncated ...]\n\n"
             + text[-limit // 2 :]
         )
+
+    # -----------------------
+    # Benign command detection
+    # -----------------------
+
+    def _is_benign_command(self, command: str) -> bool:
+        """Return True if *command* is a benign/read-only tool whose non-zero
+        exit code should be treated as a warning, not an error.
+
+        Benign commands: grep, egrep, fgrep, find, test, [, which, command.
+        Also: diff when passed --brief or -q.
+
+        Handles ``bash -lc "..."`` / ``bash -c "..."`` wrappers by peeking
+        inside the quoted string to find the real program name.
+        """
+        try:
+            parts = shlex.split(command, posix=(os.name != "nt"))
+        except Exception:
+            return False
+
+        if not parts:
+            return False
+
+        relevant_parts = parts
+        prog = parts[0]
+
+        # Unwrap bash -c / bash -lc
+        if os.path.basename(prog) == "bash":
+            for i, p in enumerate(parts):
+                if p in ("-c", "-lc") and i + 1 < len(parts):
+                    try:
+                        inner_parts = shlex.split(parts[i + 1], posix=(os.name != "nt"))
+                    except Exception:
+                        return False
+                    if not inner_parts:
+                        return False
+                    relevant_parts = inner_parts
+                    prog = inner_parts[0]
+                    break
+
+        name = os.path.basename(prog)
+
+        if name in self._BENIGN_COMMANDS:
+            return True
+
+        if name == "diff":
+            if any(a in ("--brief", "-q") for a in relevant_parts):
+                return True
+
+        return False
+
+    # -----------------------
+    # Interactive / shell-syntax guards
+    # -----------------------
 
     INTERACTIVE_BARE = {"python", "python3", "bash", "sh", "zsh"}
 
