@@ -81,6 +81,7 @@
       "execute_command",
       "file_load",
       "file_save",
+      "serve_image",
       "get_keywords",
       "delegate_tasks",
       "scrape_web_page",

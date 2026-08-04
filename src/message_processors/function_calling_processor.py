@@ -681,6 +681,18 @@ class FunctionCallingProcessor(MessageProcessorInterface):
                 previous_response_id,
             )
 
+            # ── Always extract and yield text BEFORE the tool_calls check ──
+            # Providers like DeepSeek often return text + tool_calls in the same
+            # response. We must surface the text to the frontend even when tool
+            # calls are also present.
+            response_text = self.llm_adapter.get_text(llm_response)
+            if response_text:
+                yield SSEEvent(
+                    type="text",
+                    content=response_text,
+                    message_id=f"msg-{ctx.conversation_id}-iter-{iteration}",
+                )
+
             if tool_calls:
                 # --- Duplicate tool call detection ---
                 if self._tool_calls_are_duplicate(tool_calls, previous_tool_calls):
@@ -796,17 +808,21 @@ class FunctionCallingProcessor(MessageProcessorInterface):
 
                 continue
 
-            # ── INJECTION C: final text ──
-            response_text = self.llm_adapter.get_text(llm_response)
+            # ── INJECTION C: final text (no tool calls) ──
+            # Text already extracted above. Yield again with 'final' message_id
+            # so the frontend can distinguish the final answer from intermediate
+            # text that came alongside tool calls.
             yield SSEEvent(
                 type="text",
                 content=response_text,
                 message_id=f"msg-{ctx.conversation_id}-final",
             )
+            response_text = ""  # prevent post-loop duplicate yield
             break
 
-        # If no text was yielded (e.g., loop break on duplicate detection / max iterations),
-        # still yield the text if we have it.
+        # Post-loop: yield text for early-exit paths (duplicate detection,
+        # max iterations, empty response fallback) where text was set but
+        # the normal INJECTION C path was not reached.
         if response_text:
             yield SSEEvent(
                 type="text",

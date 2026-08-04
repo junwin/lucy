@@ -195,10 +195,12 @@ class PromptBuilder(PromptBuilderInterface):
             content_parts: List[Dict[str, Any]] = [
                 {"type": "text", "text": content_text}
             ]
+            agent_allowed_tools = agent.allowed_tools if agent else None
             content_parts.extend(self._resolve_attachments(
                 account_name=account_name,
                 image_ids=image_ids,
                 file_ids=file_ids,
+                agent_allowed_tools=agent_allowed_tools,
             ))
             messages.append({"role": "user", "content": content_parts})
         else:
@@ -250,13 +252,22 @@ class PromptBuilder(PromptBuilderInterface):
         account_name: str,
         image_ids: Optional[List[str]],
         file_ids: Optional[List[str]],
+        agent_allowed_tools: Optional[List[str]] = None,
     ) -> List[Dict[str, Any]]:
         """Resolve image_ids and file_ids into provider-agnostic content parts.
 
+        If agent_allowed_tools contains 'delegate_tasks', image attachments are
+        emitted as text markers (filename + full path) instead of base64 data,
+        and an instruction text is appended telling the agent to delegate image
+        analysis to colin. File attachments are always inlined as text regardless.
+
         Returns a list of content-part dicts in intermediate format:
 
-            # Image part
+            # Image part (inline mode)
             {"type": "image", "source": {"data": "<base64>", "mime_type": "image/png"}}
+
+            # Image part (delegation mode)
+            {"type": "text", "text": "[Attached image: foo.png — path: /full/path]"}
 
             # File part (resolved to text)
             {"type": "text", "text": "[File: report.pdf]\\n...extracted content..."}
@@ -264,6 +275,12 @@ class PromptBuilder(PromptBuilderInterface):
         parts: List[Dict[str, Any]] = []
 
         images_dir = self._build_images_dir()
+
+        use_delegation = (
+            agent_allowed_tools is not None
+            and "delegate_tasks" in agent_allowed_tools
+        )
+        any_image_delegated = False
 
         for img_id in (image_ids or []):
             try:
@@ -276,27 +293,41 @@ class PromptBuilder(PromptBuilderInterface):
                     )
                     continue
 
-                with open(img_path, "rb") as f:
-                    raw = f.read()
+                if use_delegation:
+                    filename = os.path.basename(img_path)
+                    parts.append({
+                        "type": "text",
+                        "text": f"[Attached image: {filename} — path: {img_path}]",
+                    })
+                    any_image_delegated = True
 
-                b64 = base64.b64encode(raw).decode("ascii")
-                mime = self._guess_mime_from_path(img_path)
+                    logging.info(
+                        "PromptBuilder: delegation marker for image_id=%s path=%s",
+                        img_id,
+                        img_path,
+                    )
+                else:
+                    with open(img_path, "rb") as f:
+                        raw = f.read()
 
-                parts.append({
-                    "type": "image",
-                    "source": {
-                        "data": b64,
-                        "mime_type": mime,
-                    },
-                })
+                    b64 = base64.b64encode(raw).decode("ascii")
+                    mime = self._guess_mime_from_path(img_path)
 
-                logging.info(
-                    "PromptBuilder: resolved image_id=%s path=%s size=%d mime=%s",
-                    img_id,
-                    img_path,
-                    len(raw),
-                    mime,
-                )
+                    parts.append({
+                        "type": "image",
+                        "source": {
+                            "data": b64,
+                            "mime_type": mime,
+                        },
+                    })
+
+                    logging.info(
+                        "PromptBuilder: resolved image_id=%s path=%s size=%d mime=%s",
+                        img_id,
+                        img_path,
+                        len(raw),
+                        mime,
+                    )
             except Exception as ex:
                 logging.warning(
                     "PromptBuilder: failed to resolve image_id=%s for account=%s: %s",
@@ -304,6 +335,17 @@ class PromptBuilder(PromptBuilderInterface):
                     account_name,
                     ex,
                 )
+
+        if any_image_delegated:
+            parts.append({
+                "type": "text",
+                "text": (
+                    "To analyze attached images, use delegate_tasks with "
+                    "worker_agent='colin' and a specific goal (e.g., 'Describe "
+                    "this image, focusing on...'). Pass the image path in the "
+                    "files list."
+                ),
+            })
 
         for file_id in (file_ids or []):
             try:
