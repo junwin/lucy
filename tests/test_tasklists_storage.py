@@ -45,7 +45,7 @@ def test_delete_tasklist_and_idempotent(tmp_path):
     assert storage.list_tasklists("carol") == []
 
 
-def test_invalid_tasklist_id_rejected(tmp_path):
+def test_invalid_tasklist_key_rejected(tmp_path):
     storage = make_storage(tmp_path)
     for bad in ["../x", "a/b", "a\\b", "", ".", "..", "has space", "weird!", "a.b"]:
         try:
@@ -53,12 +53,12 @@ def test_invalid_tasklist_id_rejected(tmp_path):
         except ValueError:
             pass
         else:
-            raise AssertionError(f"Expected ValueError for id={bad!r}")
+            raise AssertionError(f"Expected ValueError for key={bad!r}")
 
 
-def test_id_mismatch_is_allowed_by_storage(tmp_path):
-    # Current JsonFileStorage.save_tasklist does not enforce that the payload's
-    # internal id matches the filename/tasklist_name.
+def test_id_auto_set_to_match_key(tmp_path):
+    # JsonFileStorage.save_tasklist enforces key == id: if the payload's
+    # internal id differs from the storage key, it is auto-set to match.
     storage = make_storage(tmp_path)
     storage.save_tasklist(
         "alice",
@@ -66,7 +66,7 @@ def test_id_mismatch_is_allowed_by_storage(tmp_path):
         {"schema_version": 1, "id": "other", "name": "n", "description": "d", "tasks": []},
     )
     tl = storage.get_tasklist("alice", "tl1")
-    assert tl.id == "other"
+    assert tl.id == "tl1"
 
 
 def test_save_and_get_tasklist_with_meta(tmp_path):

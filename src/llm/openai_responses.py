@@ -166,6 +166,10 @@ class OpenAIResponsesApi(LLMApi):
             config_data = json.load(f)
         return OpenAI(api_key=config_data["openai_api_key"])
 
+    def supports_image_processing(self, model: str) -> bool:
+        """OpenAI models (GPT-4o, GPT-5, etc.) support native image processing."""
+        return True
+
     @staticmethod
     def _normalize_content_parts(content: Any) -> Any:
         """Normalize provider-agnostic content parts to OpenAI Responses API format.

@@ -25,6 +25,9 @@ class OpenAIResponsesAdapter(LLMAdapter):
     def __init__(self, api: LLMApi) -> None:
         self._api = api
 
+    def supports_image_processing(self, model: str) -> bool:
+        return self._api.supports_image_processing(model)
+
     def call_model(
         self,
         *,

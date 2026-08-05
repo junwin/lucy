@@ -587,33 +587,38 @@ class JsonFileStorage(Storage):
         ids.sort()
         return ids
 
-    def get_tasklist(self, account_name: str, tasklist_id: str) -> Optional[TaskList]:
+    def get_tasklist(self, account_name: str, tasklist_key: str) -> Optional[TaskList]:
         """Load a tasklist from storage using TaskListService."""
 
-        path = self._tasklist_path(account_name, tasklist_id)
+        path = self._tasklist_path(account_name, tasklist_key)
         try:
             return self._tasklist_service.load(str(path))
         except FileNotFoundError:
             return None
 
-    def save_tasklist(self, account_name: str, tasklist_name: str, tasklist: TaskList) -> None:
+    def save_tasklist(self, account_name: str, tasklist_key: str, tasklist: TaskList) -> None:
         """Save a tasklist to storage using TaskListService."""
 
         # Basic id validation: only allow simple filenames (alnum, dash, underscore)
         import re as _re
 
-        if not tasklist_name or not _re.match(r"^[A-Za-z0-9_-]+$", tasklist_name):
-            raise ValueError(f"Invalid tasklist name: {tasklist_name!r}")
+        if not tasklist_key or not _re.match(r"^[A-Za-z0-9_-]+$", tasklist_key):
+            raise ValueError(f"Invalid tasklist key: {tasklist_key!r}")
 
         tl = TaskList.from_dict(tasklist) if isinstance(tasklist, dict) else tasklist
 
-        path = self._tasklist_path(account_name, tasklist_name)
+        # Enforce key == id: the tasklist id must match its storage key
+        if tl.id != tasklist_key:
+            tl.id = str(tasklist_key)
+
+
+        path = self._tasklist_path(account_name, tasklist_key)
         self._ensure_dir(path.parent)
         self._tasklist_service.save(str(path), tl)
 
-    def delete_tasklist(self, account_name: str, tasklist_id: str) -> None:
+    def delete_tasklist(self, account_name: str, tasklist_key: str) -> None:
 
-        path = self._tasklist_path(account_name, tasklist_id)
+        path = self._tasklist_path(account_name, tasklist_key)
         try:
             if path.exists():
                 path.unlink()

@@ -16,8 +16,8 @@ from .openai_responses import _sleep_backoff
 class DeepSeekApi(LLMApi):
     """DeepSeek API implementation using OpenAI-compatible endpoint.
 
-    DeepSeek V4 is text-only. For image support, a vision proxy (GPT-4o)
-    is used to describe images before sending text to DeepSeek.
+    DeepSeek is text-only. For image support, the FCP layer delegates
+    to a vision-capable agent via delegate_tasks.
     """
 
     DEEPSEEK_BASE_URL = "https://api.deepseek.com"
@@ -51,177 +51,12 @@ class DeepSeekApi(LLMApi):
         )
 
     # ------------------------------------------------------------------
-    # Vision proxy helpers (Step 7)
+    # supports_image_processing
     # ------------------------------------------------------------------
 
-    @staticmethod
-    def _has_image_content(messages: List[Dict[str, Any]]) -> bool:
-        """Return True if any message has image content parts."""
-        for msg in messages:
-            if not isinstance(msg, dict):
-                continue
-            content = msg.get("content")
-            if not isinstance(content, list):
-                continue
-            for part in content:
-                if isinstance(part, dict) and part.get("type") == "image":
-                    return True
+    def supports_image_processing(self, model: str) -> bool:
+        """DeepSeek is text-only — no native image processing."""
         return False
-
-    @staticmethod
-    def _strip_image_parts(messages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-        """Remove image content parts from all messages, keeping text parts."""
-        result = []
-        for msg in messages:
-            if not isinstance(msg, dict):
-                result.append(msg)
-                continue
-
-            content = msg.get("content")
-            if isinstance(content, list):
-                # Keep only text parts
-                text_parts = [
-                    p for p in content
-                    if not (isinstance(p, dict) and p.get("type") == "image")
-                ]
-                if len(text_parts) == 1 and text_parts[0].get("type") == "text":
-                    # Collapse to plain string
-                    msg_copy = dict(msg)
-                    msg_copy["content"] = text_parts[0].get("text", "")
-                    result.append(msg_copy)
-                elif text_parts:
-                    msg_copy = dict(msg)
-                    msg_copy["content"] = text_parts
-                    result.append(msg_copy)
-                else:
-                    # All parts were images — keep as empty text
-                    msg_copy = dict(msg)
-                    msg_copy["content"] = ""
-                    result.append(msg_copy)
-            else:
-                result.append(msg)
-
-        return result
-
-    @staticmethod
-    def _describe_image_via_proxy(
-        image_part: Dict[str, Any],
-        question_text: str,
-        *,
-        config: Optional[ConfigManager] = None,
-        max_chars: int = 500,
-    ) -> str:
-        """Send an image to a vision-capable model and return a text description.
-
-        Uses the vision proxy model (default: gpt-4o) from config.
-        Returns a description string, or raises on failure.
-        """
-        source = image_part.get("source", {}) if isinstance(image_part, dict) else {}
-        data = source.get("data", "") if isinstance(source, dict) else ""
-        mime = source.get("mime_type", "image/png") if isinstance(source, dict) else "image/png"
-
-        cfg = config or ConfigManager("config.json")
-
-        credential_path = cfg.get("credential_path")
-        with open(os.path.join(credential_path, "oaicred.json"), "r", encoding="utf-8") as f:
-            cred = json.load(f)
-
-        vision_client = OpenAI(api_key=cred["openai_api_key"])
-
-        prompt = (
-            f"Please describe this image in detail"
-            f"{': ' + question_text if question_text else '.'} "
-            f"Keep the description under {max_chars} characters. "
-            f"Then, on a new line, provide about 10 relevant tags/keywords "
-            f"as a comma-separated list prefixed with 'Tags: '."
-        )
-
-        resp = vision_client.chat.completions.create(
-            model="gpt-4o",
-            messages=[{
-                "role": "user",
-                "content": [
-                    {"type": "text", "text": prompt},
-                    {"type": "image_url", "image_url": {"url": f"data:{mime};base64,{data}"}},
-                ],
-            }],
-            max_tokens=max_chars // 2,
-        )
-
-        description = resp.choices[0].message.content or ""
-        return description.strip()
-
-    @staticmethod
-    def _resolve_images_via_proxy(
-        messages: List[Dict[str, Any]],
-        *,
-        config: Optional[ConfigManager] = None,
-    ) -> List[Dict[str, Any]]:
-        """Process image content parts through the vision proxy.
-
-        For each user message with image parts:
-        1. Collect the text question
-        2. Send each image to GPT-4o for description
-        3. Replace image parts with a text description block
-        4. Strip remaining image parts (safety net)
-        """
-        if not DeepSeekApi._has_image_content(messages):
-            return messages
-
-        cfg = config or ConfigManager("config.json")
-        proxy_cfg = cfg.get("vision_proxy", {})
-        if not proxy_cfg.get("enabled", True):
-            raise RuntimeError(
-                "DeepSeek V4 API does not support images and the vision proxy "
-                "is disabled. Use an agent with OpenAI or Mistral, or enable "
-                "the vision_proxy in config.json."
-            )
-
-        max_chars = int(proxy_cfg.get("max_description_chars", 500))
-
-        result = []
-        for msg in messages:
-            if not isinstance(msg, dict):
-                result.append(msg)
-                continue
-
-            content = msg.get("content")
-            if not isinstance(content, list):
-                result.append(msg)
-                continue
-
-            # Separate text and image parts
-            text_parts = []
-            image_parts = []
-            for part in content:
-                if isinstance(part, dict) and part.get("type") == "image":
-                    image_parts.append(part)
-                elif isinstance(part, dict) and part.get("type") == "text":
-                    text_parts.append(part.get("text", ""))
-
-            if not image_parts:
-                result.append(msg)
-                continue
-
-            question = " ".join(text_parts).strip()
-
-            descriptions = []
-            for img in image_parts:
-                desc = DeepSeekApi._describe_image_via_proxy(
-                    img, question, config=cfg, max_chars=max_chars
-                )
-                descriptions.append(desc)
-
-            # Build new content: text question + image descriptions
-            new_content = question + "\n\n" if question else ""
-            for i, desc in enumerate(descriptions, 1):
-                new_content += f"[Image {i} description: {desc}]\n\n"
-
-            msg_copy = dict(msg)
-            msg_copy["content"] = new_content.strip()
-            result.append(msg_copy)
-
-        return result
 
     # ------------------------------------------------------------------
     # Tool format transform
@@ -283,11 +118,7 @@ class DeepSeekApi(LLMApi):
         previous_response_id: Optional[str] = None,
         previous_tool_calls: Optional[List[ToolCall]] = None
     ) -> List[Dict[str, Any]]:
-        """Convert various input formats to a list of messages for DeepSeek.
-
-        When image content parts are detected, runs the vision proxy
-        to replace images with text descriptions before sending to DeepSeek.
-        """
+        """Convert various input formats to a list of messages for DeepSeek."""
 
         # Case 1: Input is a list of tool outputs from the processor
         if isinstance(input, list) and input and isinstance(input[0], dict):
@@ -316,9 +147,9 @@ class DeepSeekApi(LLMApi):
                 logging.info(f"DeepSeekApi: built conversation with {len(context_messages)} total messages")
                 return context_messages
 
-        # Case 2: Input is already a list of messages — resolve images via proxy
+        # Case 2: Input is already a list of messages — pass through as-is
         if isinstance(input, list):
-            return self._resolve_images_via_proxy(input)
+            return input
 
         # Case 3: Input is a single message
         if isinstance(input, dict):

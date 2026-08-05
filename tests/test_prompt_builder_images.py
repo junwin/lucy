@@ -6,7 +6,7 @@ Covers:
   - _resolve_attachments()   — image_ids → base64 content parts, file_ids → text parts
   - build_prompt()           — content-part array construction when attachments present
   - Edge cases               — missing IDs, mixed attachments, binary files
-  - Delegation mode          — text markers when agent has delegate_tasks
+  - Delegation mode          — text markers when supports_images=False
 """
 
 from __future__ import annotations
@@ -404,55 +404,86 @@ class TestBuildPromptWithAttachments:
 
 
 # ===========================================================================
-# Delegation mode tests (when agent has delegate_tasks in allowed_tools)
+# supports_images parameter tests (triggers marker vs inline behavior)
 # ===========================================================================
 
 
-class TestDelegationMode:
-    """Tests for the delegation marker mode in _resolve_attachments."""
+class TestSupportsImages:
+    """Tests for the supports_images parameter controlling marker vs inline."""
 
-    def test_delegation_mode_emits_markers_not_base64(self, temp_images_root):
-        """When agent has delegate_tasks, images become text markers, not inline base64."""
+    def test_supports_images_false_emits_markers_with_instruction(self, temp_images_root):
+        """When supports_images=False, images become text markers + delegation instruction.
+
+        Marker format: [Attached image: <uuid> — <filename>]
+        Instruction: concise step-by-step delegation text using tasklists_manage.
+        """
         img_id = "imgdel1"
         img_path = _create_image_file(temp_images_root, "junwin", img_id, "screenshot.png", b"delegation test")
         filename = os.path.basename(img_path)
 
-        pb = _make_prompt_builder(temp_images_root, allowed_tools=["delegate_tasks", "file_load", "file_save"])
+        pb = _make_prompt_builder(temp_images_root, allowed_tools=["file_load", "file_save"])
         parts = pb._resolve_attachments(
             account_name="junwin",
             image_ids=[img_id],
             file_ids=None,
-            agent_allowed_tools=["delegate_tasks", "file_load", "file_save"],
+            agent_allowed_tools=["file_load", "file_save"],
+            supports_images=False,
         )
 
-        # Should be 2 parts: marker + instruction text
+        # 2 parts: marker + instruction text
         assert len(parts) == 2
 
-        # First part: text marker
+        # First part: text marker with UUID and filename
         assert parts[0]["type"] == "text"
-        assert f"[Attached image: {filename}" in parts[0]["text"]
-        assert img_path in parts[0]["text"]
+        assert img_id in parts[0]["text"]
+        assert filename in parts[0]["text"]
 
-        # Second part: delegation instruction
+        # Second part: mandatory delegation instruction
         assert parts[1]["type"] == "text"
-        assert "delegate_tasks" in parts[1]["text"]
+        assert "tasklists_manage" in parts[1]["text"]
+        assert "tasklists_run" in parts[1]["text"]
         assert "colin" in parts[1]["text"]
 
         # No image parts at all
         image_parts = [p for p in parts if p["type"] == "image"]
         assert len(image_parts) == 0
 
-    def test_delegation_mode_multiple_images(self, temp_images_root):
-        """Multiple image_ids all become text markers."""
+    def test_supports_images_false_emits_instruction_regardless_of_tools(self, temp_images_root):
+        """When supports_images=False, instruction is always emitted even if
+        agent_allowed_tools is empty or missing (not gated on delegate_tasks)."""
+        img_id = "imgdel2"
+        img_path = _create_image_file(temp_images_root, "junwin", img_id, "screenshot.png", b"marker test")
+        filename = os.path.basename(img_path)
+
+        pb = _make_prompt_builder(temp_images_root, allowed_tools=[])
+        parts = pb._resolve_attachments(
+            account_name="junwin",
+            image_ids=[img_id],
+            file_ids=None,
+            agent_allowed_tools=[],
+            supports_images=False,
+        )
+
+        # marker + instruction = 2 parts
+        assert len(parts) == 2
+        assert parts[0]["type"] == "text"
+        assert img_id in parts[0]["text"]
+        assert filename in parts[0]["text"]
+        assert "tasklists_manage" in parts[1]["text"]
+        assert "tasklists_run" in parts[1]["text"]
+
+    def test_supports_images_false_multiple_images(self, temp_images_root):
+        """Multiple image_ids with supports_images=False: all become text markers."""
         p1 = _create_image_file(temp_images_root, "junwin", "img001", "a.png", b"img1")
         p2 = _create_image_file(temp_images_root, "junwin", "img002", "b.jpg", b"img2")
 
-        pb = _make_prompt_builder(temp_images_root, allowed_tools=["delegate_tasks"])
+        pb = _make_prompt_builder(temp_images_root, allowed_tools=["tasklists_manage"])
         parts = pb._resolve_attachments(
             account_name="junwin",
             image_ids=["img001", "img002"],
             file_ids=None,
-            agent_allowed_tools=["delegate_tasks"],
+            agent_allowed_tools=["tasklists_manage"],
+            supports_images=False,
         )
 
         # 2 markers + 1 instruction = 3 parts
@@ -464,10 +495,10 @@ class TestDelegationMode:
         assert any(os.path.basename(p2) in m["text"] for m in markers)
 
         # Instruction is last
-        assert "delegate_tasks" in parts[2]["text"]
+        assert "tasklists_manage" in parts[2]["text"]
 
-    def test_fallback_mode_still_inlines_base64(self, temp_images_root):
-        """Agent without delegate_tasks still gets inline base64 images."""
+    def test_supports_images_true_still_inlines_base64(self, temp_images_root):
+        """When supports_images=True (default), images are always base64 inline."""
         img_id = "imgfallback1"
         img_content = b"fallback test image"
         _create_image_file(temp_images_root, "junwin", img_id, "pic.png", img_content)
@@ -478,6 +509,7 @@ class TestDelegationMode:
             image_ids=[img_id],
             file_ids=None,
             agent_allowed_tools=["file_load", "file_save"],
+            supports_images=True,
         )
 
         assert len(parts) == 1
@@ -485,19 +517,40 @@ class TestDelegationMode:
         decoded = base64.b64decode(parts[0]["source"]["data"])
         assert decoded == img_content
 
-    def test_delegation_mixed_attachments(self, temp_images_root):
+    def test_supports_images_true_no_instruction(self, temp_images_root):
+        """When supports_images=True, images inline base64 — no delegation instruction."""
+        img_id = "imgvision001"
+        img_content = b"vision model test"
+        _create_image_file(temp_images_root, "junwin", img_id, "photo.png", img_content)
+
+        pb = _make_prompt_builder(temp_images_root, allowed_tools=["file_load"])
+        parts = pb._resolve_attachments(
+            account_name="junwin",
+            image_ids=[img_id],
+            file_ids=None,
+            agent_allowed_tools=["file_load"],
+            supports_images=True,
+        )
+
+        assert len(parts) == 1
+        assert parts[0]["type"] == "image"
+        decoded = base64.b64decode(parts[0]["source"]["data"])
+        assert decoded == img_content
+
+    def test_supports_images_false_mixed_attachments(self, temp_images_root):
         """Image_ids become markers, file_ids still inlined as text."""
         img_id = "imgmixdel"
         file_id = "filemixdel"
         img_path = _create_image_file(temp_images_root, "junwin", img_id, "photo.png", b"mixed image")
         _create_text_file(temp_images_root, "junwin", file_id, "doc.txt", "file content here")
 
-        pb = _make_prompt_builder(temp_images_root, allowed_tools=["delegate_tasks"])
+        pb = _make_prompt_builder(temp_images_root, allowed_tools=["tasklists_manage"])
         parts = pb._resolve_attachments(
             account_name="junwin",
             image_ids=[img_id],
             file_ids=[file_id],
-            agent_allowed_tools=["delegate_tasks"],
+            agent_allowed_tools=["tasklists_manage"],
+            supports_images=False,
         )
 
         # image marker + instruction + file text = 3 parts
@@ -508,32 +561,33 @@ class TestDelegationMode:
         assert os.path.basename(img_path) in parts[0]["text"]
 
         # Instruction
-        assert "delegate_tasks" in parts[1]["text"]
+        assert "tasklists_manage" in parts[1]["text"]
 
         # File text still inlined
         assert parts[2]["type"] == "text"
         assert "file content here" in parts[2]["text"]
 
-    def test_delegation_instruction_only_when_images_present(self, temp_images_root):
-        """No instruction appended if there are no images (even in delegation mode)."""
+    def test_supports_images_false_no_instruction_without_images(self, temp_images_root):
+        """No instruction appended if there are no images (even with supports_images=False)."""
         file_id = "fileonly001"
         _create_text_file(temp_images_root, "junwin", file_id, "readme.txt", "just a file")
 
-        pb = _make_prompt_builder(temp_images_root, allowed_tools=["delegate_tasks"])
+        pb = _make_prompt_builder(temp_images_root, allowed_tools=["tasklists_manage"])
         parts = pb._resolve_attachments(
             account_name="junwin",
             image_ids=None,
             file_ids=[file_id],
-            agent_allowed_tools=["delegate_tasks"],
+            agent_allowed_tools=["tasklists_manage"],
+            supports_images=False,
         )
 
         # Only the file text, no delegation instruction
         assert len(parts) == 1
         assert "just a file" in parts[0]["text"]
-        assert "delegate_tasks" not in parts[0]["text"]
+        assert "tasklists_manage" not in parts[0]["text"]
 
-    def test_delegation_agent_allowed_tools_none_backward_compat(self, temp_images_root):
-        """agent_allowed_tools=None (or not passed) falls back to inline base64."""
+    def test_supports_images_default_backward_compat(self, temp_images_root):
+        """Default supports_images=True (or not passed) falls back to inline base64."""
         img_id = "imgold001"
         img_content = b"backward compat test"
         _create_image_file(temp_images_root, "junwin", img_id, "old.png", img_content)

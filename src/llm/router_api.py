@@ -12,8 +12,8 @@ from .mistral_api import MistralApi
 class RouterApi(LLMApi):
     """Routes LLM requests to the correct backend based on the model name.
 
-    - Model names starting with ``\"deepseek\"`` → ``DeepSeekApi``
-    - Model names starting with ``\"mistral\"`` → ``MistralApi``
+    - Model names starting with ``"deepseek"`` → ``DeepSeekApi``
+    - Model names starting with ``"mistral"`` → ``MistralApi``
     - All other model names → ``OpenAIResponsesApi``
     """
 
@@ -27,6 +27,23 @@ class RouterApi(LLMApi):
         self._openai = openai_api or OpenAIResponsesApi()
         self._deepseek = deepseek_api or DeepSeekApi()
         self._mistral = mistral_api or MistralApi()
+
+    def supports_image_processing(self, model: str) -> bool:
+        """Check whether the selected model supports native image processing.
+
+        Routes to the correct provider based on model name prefix.
+        Raises ValueError for unrecognized model prefixes.
+        """
+        if model.startswith("deepseek"):
+            return self._deepseek.supports_image_processing(model)
+        if model.startswith("mistral"):
+            return self._mistral.supports_image_processing(model)
+        if model.startswith("gpt") or model.startswith("o1") or model.startswith("o3"):
+            return self._openai.supports_image_processing(model)
+        raise ValueError(
+            f"Unknown model prefix in '{model}'. "
+            f"Expected 'gpt', 'o1', 'o3', 'deepseek', or 'mistral'."
+        )
 
     def create_response(
         self,

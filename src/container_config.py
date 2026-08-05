@@ -151,6 +151,7 @@ class AutomationProcessorModule(Module):
         prompt_builder: PromptBuilderInterface,
         chat2_store: Chat2Store,
         llm_adapter: LLMAdapter,
+        agent_manager: AgentManager,
     ) -> AutomationProcessor:
         """Provide AutomationProcessor as a singleton so it can be injected
         into FunctionCallingProcessor (step 3 of issue #37 tasklist decomposition).
@@ -166,6 +167,7 @@ class AutomationProcessorModule(Module):
             prompt_builder=prompt_builder,
             chat2_store=chat2_store,
             llm_adapter=llm_adapter,
+            agent_manager=agent_manager,
         )
 
 

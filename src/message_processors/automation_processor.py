@@ -14,6 +14,7 @@ except Exception:
         return func
 
 from src.agent import Agent
+from src.agent.agent_manager import AgentManager
 from src.config_manager import ConfigManager
 from src.handlers.handler_registry import HandlerRegistry
 from src.message_processors.message_processor_interface import MessageProcessorInterface
@@ -194,6 +195,7 @@ class AutomationProcessor(MessageProcessorInterface):
         prompt_builder: PromptBuilderInterface,
         chat2_store: Optional[Chat2Store] = None,
         llm_adapter: Optional[LLMAdapter] = None,
+        agent_manager: Optional[AgentManager] = None,
     ):
         self.config = config
         self.registry = registry
@@ -201,6 +203,7 @@ class AutomationProcessor(MessageProcessorInterface):
         self.prompt_builder = prompt_builder
         self.chat2_store = chat2_store
         self.llm_adapter = llm_adapter
+        self.agent_manager = agent_manager
 
     # ------------------------------------------------------------------
     # Chat2 event helpers
@@ -282,6 +285,61 @@ class AutomationProcessor(MessageProcessorInterface):
             )
 
     # ------------------------------------------------------------------
+    # Agent resolution
+    # ------------------------------------------------------------------
+
+    def _resolve_task_agent(
+        self,
+        task: Task,
+        primary_agent: Agent,
+        agent_name: str,
+    ) -> Agent:
+        """Resolve the agent to use for executing a task.
+
+        If the task has an agent field set and it differs from the calling agent,
+        look up the worker agent via AgentManager. Otherwise fall back to primary_agent.
+
+        Returns the resolved Agent to use for this task.
+        """
+        task_agent_name = (task.agent or "").strip().lower()
+        if not task_agent_name or task_agent_name == agent_name:
+            logger.info(
+                "AutomationProcessor: task '%s' agent=%s (same as caller=%s), using primary agent",
+                task.name,
+                task_agent_name or "(none)",
+                agent_name,
+            )
+            return primary_agent
+
+        # Task specifies a different agent — resolve it.
+        logger.info(
+            "AutomationProcessor: task '%s' requested agent=%s, caller=%s — resolving worker agent",
+            task.name,
+            task_agent_name,
+            agent_name,
+        )
+
+        if self.agent_manager is not None:
+            worker = self.agent_manager.get_agent(task_agent_name)
+            if worker is not None:
+                logger.info(
+                    "AutomationProcessor: resolved worker agent '%s' for task '%s'",
+                    task_agent_name,
+                    task.name,
+                )
+                return worker
+            else:
+                logger.warning(
+                    "AutomationProcessor: agent '%s' not found in AgentManager for task '%s', falling back to %s",
+                    task_agent_name,
+                    task.name,
+                    agent_name,
+                )
+
+        # Fallback: if AgentManager is unavailable or agent not found, use primary_agent
+        return primary_agent
+
+    # ------------------------------------------------------------------
     # Core execution logic
     # ------------------------------------------------------------------
 
@@ -298,6 +356,7 @@ class AutomationProcessor(MessageProcessorInterface):
         account: Dict[str, Any],
         secondary_agent: Optional[Agent] = None,
         processor_factory: Optional[Any] = None,
+        worker_agent: Optional[str] = None,
     ) -> str:
         """Execute a persisted tasklist by ID.
 
@@ -305,34 +364,96 @@ class AutomationProcessor(MessageProcessorInterface):
         can be called directly (e.g. from a tool handler) without going through
         JSON command parsing.
 
+        If worker_agent is provided, the named agent is resolved via AgentManager
+        and used for ALL tasks (per-task _resolve_task_agent is skipped). When not
+        provided, existing per-task resolution behavior is unchanged.
+
         Returns a human-readable result string.
+        Raises ValueError if the tasklist is not found in storage.
         """
         logger.info(
-            "execute_tasklist start agent=%s account=%s conversation_id=%s tasklist_id=%s mode=%s",
+            "execute_tasklist start agent=%s account=%s conversation_id=%s tasklist_id=%s mode=%s worker_agent=%s",
             agent_name,
             account_name,
             conversation_id,
             tasklist_id,
             mode,
+            worker_agent,
         )
+
+        # Resolve worker agent override (top-level, applies to ALL tasks).
+        resolved_worker: Optional[Agent] = None
+        resolved_worker_name: Optional[str] = None
+        if worker_agent:
+            worker_name = worker_agent.strip().lower()
+            if self.agent_manager is not None:
+                resolved_worker = self.agent_manager.get_agent(worker_name)
+                if resolved_worker is not None:
+                    resolved_worker_name = (
+                        getattr(resolved_worker, "name", "") or ""
+                    ).lower().strip()
+                    logger.info(
+                        "execute_tasklist: using worker agent '%s' for all tasks",
+                        resolved_worker_name,
+                    )
+                else:
+                    logger.warning(
+                        "execute_tasklist: worker agent '%s' not found in AgentManager, "
+                        "falling back to per-task resolution",
+                        worker_name,
+                    )
+            else:
+                logger.warning(
+                    "execute_tasklist: agent_manager not available, "
+                    "cannot resolve worker agent '%s'",
+                    worker_name,
+                )
+
+        # Resolve tasklist: tasklist_id may be either a storage key (friendly name)
+        # or a UUID (the tasklist's id field). Try direct key lookup first, then
+        # fall back to searching all tasklists by their id field.
+        raw_tasklist: Optional[TaskList] = None
+        resolved_key: str = tasklist_id
 
         try:
             raw_tasklist = self.storage.get_tasklist(account_name, tasklist_id)
         except Exception as e:
             logger.exception("Failed loading tasklist from storage")
-            return f"[AutomationProcessor] mode={mode} tasklist_id={tasklist_id} not found: {e}"
+            raise ValueError(
+                f"Tasklist '{tasklist_id}' could not be loaded from storage: {e}"
+            ) from e
 
-        # --- Improved error handling: check for None first ---
         if raw_tasklist is None:
-            return (
-                f"[AutomationProcessor] mode={mode} tasklist_id={tasklist_id} not found. "
-                "The tasklist does not exist in storage. Use tasklists_manage to list available tasklists."
+            # Search all tasklists by matching the id field.
+            try:
+                all_keys = self.storage.list_tasklists(account_name)
+            except Exception:
+                all_keys = []
+            for key in all_keys:
+                try:
+                    candidate = self.storage.get_tasklist(account_name, key)
+                except Exception:
+                    continue
+                if candidate is not None and getattr(candidate, "id", None) == tasklist_id:
+                    raw_tasklist = candidate
+                    resolved_key = key
+                    logger.info(
+                        "execute_tasklist: resolved tasklist_id=%s to storage key=%s",
+                        tasklist_id,
+                        resolved_key,
+                    )
+                    break
+
+        if raw_tasklist is None:
+            raise ValueError(
+                f"Tasklist '{tasklist_id}' not found in storage. "
+                "Use tasklists_manage to list available tasklists, or delegate_tasks to create one."
             )
 
         if not isinstance(raw_tasklist, TaskList):
-            return (
-                "[AutomationProcessor] Storage returned an unexpected tasklist type. "
-                "Expected TaskList."
+            raise ValueError(
+                f"Storage returned an unexpected type for tasklist '{tasklist_id}'. "
+                f"Expected TaskList, got {type(raw_tasklist).__name__}."
             )
 
         tasklist: TaskList = raw_tasklist
@@ -359,9 +480,10 @@ class AutomationProcessor(MessageProcessorInterface):
             )
             function_processor = None
 
-        # Determine the per-task iteration cap for this worker agent.
-        # Use task_max_iterations from the agent config, defaulting to 10.
-        worker_task_iterations = int(getattr(primary_agent, "task_max_iterations", 10) or 10)
+        # Determine the per-task iteration cap.
+        # Use the resolved worker agent's config when available, otherwise primary_agent.
+        cap_agent = resolved_worker if resolved_worker is not None else primary_agent
+        worker_task_iterations = int(getattr(cap_agent, "task_max_iterations", 10) or 10)
         if worker_task_iterations <= 0:
             worker_task_iterations = 10
 
@@ -374,10 +496,22 @@ class AutomationProcessor(MessageProcessorInterface):
 
             last_task_name = task.name or f"task#{idx}"
 
+            # Resolve the agent for this specific task.
+            # When a top-level worker_agent is set, use it for all tasks.
+            # Otherwise fall back to per-task resolution via _resolve_task_agent.
+            if resolved_worker is not None:
+                task_agent = resolved_worker
+                task_agent_name = resolved_worker_name or agent_name
+            else:
+                task_agent = self._resolve_task_agent(task, primary_agent, agent_name)
+                task_agent_name = (getattr(task_agent, "name", "") or "").lower().strip()
+
             logger.info(
-                "AutomationProcessor executing task id=%s name=%s",
+                "AutomationProcessor executing task id=%s name=%s task_agent=%s (caller=%s)",
                 task.id,
                 last_task_name,
+                task_agent_name,
+                agent_name,
             )
 
             try:
@@ -387,7 +521,7 @@ class AutomationProcessor(MessageProcessorInterface):
 
             # Persist checkpoint: task is now RUNNING.
             try:
-                self.storage.save_tasklist(account_name, tasklist_id, tasklist.to_dict())
+                self.storage.save_tasklist(account_name, resolved_key, tasklist.to_dict())
             except Exception as e:
                 logger.exception("Failed persisting tasklist (RUNNING checkpoint)")
                 overall_state = TASK_LIST_STATE_FAILED
@@ -402,7 +536,7 @@ class AutomationProcessor(MessageProcessorInterface):
                 except Exception:
                     logger.exception("Failed setting tasklist state to FAILED after persist error")
                 try:
-                    self.storage.save_tasklist(account_name, tasklist_id, tasklist.to_dict())
+                    self.storage.save_tasklist(account_name, resolved_key, tasklist.to_dict())
                 except Exception:
                     logger.exception("Failed persisting tasklist after setting task FAILED")
 
@@ -440,7 +574,22 @@ class AutomationProcessor(MessageProcessorInterface):
                         message_parts.append(task_instructions)
 
                     meta = task.meta or {}
-                    if isinstance(meta, dict) and meta:
+                    # Extract attachment IDs from meta before building message text.
+                    file_ids = None
+                    image_ids = None
+                    if isinstance(meta, dict):
+                        # Support both 'files' (list) and 'file' (singular) for file IDs.
+                        raw_files = meta.pop("files", None)
+                        raw_file = meta.pop("file", None)
+                        if isinstance(raw_files, list):
+                            file_ids = [str(f) for f in raw_files]
+                        elif raw_file is not None:
+                            file_ids = [str(raw_file)]
+
+                        raw_images = meta.pop("image_ids", None)
+                        if isinstance(raw_images, list):
+                            image_ids = [str(i) for i in raw_images]
+
                         for k, v in meta.items():
                             key = str(k).strip()
                             if not key:
@@ -460,28 +609,31 @@ class AutomationProcessor(MessageProcessorInterface):
                         # --- Cap sub-call iterations per design doc step 2 ---
                         # Save and override the worker agent's max_function_call_iterations
                         # with task_max_iterations so each sub-task gets a small, clean budget.
-                        original_max = primary_agent.max_function_call_iterations
-                        primary_agent.max_function_call_iterations = worker_task_iterations
+                        original_max = task_agent.max_function_call_iterations
+                        task_agent.max_function_call_iterations = worker_task_iterations
                         logger.info(
-                            "AutomationProcessor: capping iterations for task=%s from %d to %d",
+                            "AutomationProcessor: capping iterations for task=%s agent=%s from %d to %d",
                             last_task_name,
+                            task_agent_name,
                             original_max,
                             worker_task_iterations,
                         )
                         try:
                             response = function_processor.process_message(
-                                primary_agent=primary_agent,
+                                primary_agent=task_agent,
                                 account=account,
                                 message=task_message,
                                 conversation_id=conversation_id,
                                 context_name=context_name,
                                 secondary_agent=secondary_agent,
                                 processor_factory=processor_factory,
+                                image_ids=image_ids,
+                                file_ids=file_ids,
                             )
                         finally:
                             # Restore the original value so subsequent tasks and
                             # the calling code are not affected.
-                            primary_agent.max_function_call_iterations = original_max
+                            task_agent.max_function_call_iterations = original_max
 
                         task_result = {"timestamp": _now_utc().isoformat(), "output": response}
                 else:
@@ -519,7 +671,7 @@ class AutomationProcessor(MessageProcessorInterface):
             self._write_chat2_event(
                 conversation_id=conversation_id,
                 account_name=account_name,
-                agent_name=agent_name,
+                agent_name=task_agent_name,
                 role="assistant",
                 kind=f"task_{task_outcome}",
                 payload=json.dumps({
@@ -533,7 +685,7 @@ class AutomationProcessor(MessageProcessorInterface):
 
             # Persist after each task (COMPLETED or FAILED checkpoint).
             try:
-                self.storage.save_tasklist(account_name, tasklist_id, tasklist.to_dict())
+                self.storage.save_tasklist(account_name, resolved_key, tasklist.to_dict())
             except Exception as e:
                 logger.exception("Failed persisting tasklist after task execution")
                 overall_state = TASK_LIST_STATE_FAILED
@@ -544,7 +696,7 @@ class AutomationProcessor(MessageProcessorInterface):
                 except Exception:
                     logger.exception("Failed setting tasklist state to FAILED after persist error")
                 try:
-                    self.storage.save_tasklist(account_name, tasklist_id, tasklist.to_dict())
+                    self.storage.save_tasklist(account_name, resolved_key, tasklist.to_dict())
                 except Exception:
                     logger.exception("Failed persisting tasklist after failure")
 
@@ -579,15 +731,17 @@ class AutomationProcessor(MessageProcessorInterface):
                 except Exception:
                     logger.exception("Failed setting tasklist state to FAILED")
 
-            self.storage.save_tasklist(account_name, tasklist_id, tasklist.to_dict())
+            self.storage.save_tasklist(account_name, resolved_key, tasklist.to_dict())
         except Exception:
             logger.exception("Failed final persist")
 
-        # Write final summary event to chat2
+        # Write final summary event to chat2.
+        # Use the resolved worker name when active, otherwise the caller's agent_name.
+        summary_agent = resolved_worker_name if resolved_worker_name is not None else agent_name
         self._write_chat2_event(
             conversation_id=conversation_id,
             account_name=account_name,
-            agent_name=agent_name,
+            agent_name=summary_agent,
             role="assistant",
             kind="automation_summary",
             payload=json.dumps({
@@ -648,7 +802,7 @@ class AutomationProcessor(MessageProcessorInterface):
         if not _is_run_command(message):
             return (
                 "[AutomationProcessor] Unknown or invalid command. "
-                "Send JSON: {\\\"action\\\": \\\"run\\\", \\\"tasklist_id\\\": \\\"...\\\", \\\"mode\\\": \\\"multi-step\\\"}."
+                "Send JSON: {\"action\": \"run\", \"tasklist_id\": \"...\", \"mode\": \"multi-step\"}."
             )
 
         account_name = (account.get("accountId") or "").strip() or "(missing accountId)"
@@ -660,21 +814,21 @@ class AutomationProcessor(MessageProcessorInterface):
         if not cmd:
             return (
                 "[AutomationProcessor] This processor now expects a JSON command. "
-                "Example: {\\\"action\\\": \\\"run\\\", \\\"tasklist_id\\\": \\\"my_tasklist_1\\\", \\\"mode\\\": \\\"multi-step\\\"}."
+                "Example: {\"action\": \"run\", \"tasklist_id\": \"my_tasklist_1\", \"mode\": \"multi-step\"}."
             )
 
         action = str(cmd.get("action") or "").lower().strip()
         if action not in {"run", "execute", "start"}:
             return (
                 "[AutomationProcessor] Unknown action. "
-                "Use {\\\"action\\\": \\\"run\\\", \\\"tasklist_id\\\": \\\"...\\\"}."
+                "Use {\"action\": \"run\", \"tasklist_id\": \"...\"}."
             )
 
         tasklist_id = str(cmd.get("tasklist_id") or "").strip()
         if not tasklist_id:
             return (
                 "[AutomationProcessor] Missing required field 'tasklist_id'. "
-                "Example: {\\\"action\\\": \\\"run\\\", \\\"tasklist_id\\\": \\\"my_tasklist_1\\\"}."
+                "Example: {\"action\": \"run\", \"tasklist_id\": \"my_tasklist_1\"}."
             )
 
         mode = str(cmd.get("mode") or "").strip() or "single-step"
@@ -703,6 +857,8 @@ class AutomationProcessor(MessageProcessorInterface):
         )
 
         # Delegate to the extracted execution method.
+        # ValueError (e.g. tasklist not found) propagates up to the caller
+        # so the tool handler can return ok=False with a proper error message.
         return self.execute_tasklist(
             tasklist_id=tasklist_id,
             mode=mode,

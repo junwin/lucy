@@ -17,6 +17,7 @@ class _TaskModel(BaseModel):
     result: Optional[Dict[str, Any]] = None
     error: Optional[str] = None
     meta: Dict[str, Any] = Field(default_factory=dict)
+    agent: Optional[str] = None
 
     model_config = {"extra": "forbid"}
 
@@ -30,6 +31,7 @@ class Task:
     result: Optional[Dict[str, Any]] = None
     error: Optional[str] = None
     meta: Dict[str, Any] = field(default_factory=dict)
+    agent: Optional[str] = None
 
     def __init__(
         self,
@@ -41,6 +43,7 @@ class Task:
         result: Optional[Dict[str, Any]] = None,
         error: Optional[str] = None,
         meta: Optional[Dict[str, Any]] = None,
+        agent: Optional[str] = None,
     ) -> None:
         # Accept flexible id types (int, str, uuid). Persist as string
         self.id = str(id)
@@ -51,9 +54,10 @@ class Task:
         self.result = result
         self.error = error
         self.meta = meta or {}
+        self.agent = agent
 
     def to_dict(self) -> Dict[str, Any]:
-        return {
+        d: Dict[str, Any] = {
             "id": self.id,
             "name": self.name,
             "instructions": self.instructions,
@@ -62,6 +66,9 @@ class Task:
             "error": self.error,
             "meta": dict(self.meta or {}),
         }
+        if self.agent:
+            d["agent"] = self.agent
+        return d
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "Task":
@@ -83,6 +90,7 @@ class Task:
             result=validated.result,
             error=validated.error,
             meta=validated.meta,
+            agent=validated.agent,
         )
 
     def to_json(self) -> str:

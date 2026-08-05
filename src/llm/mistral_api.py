@@ -46,6 +46,10 @@ class MistralApi(LLMApi):
             base_url=MistralApi.MISTRAL_BASE_URL,
         )
 
+    def supports_image_processing(self, model: str) -> bool:
+        """Mistral models (e.g. Pixtral) support native image processing."""
+        return True
+
     # ------------------------------------------------------------------
     # Content-part normalization (image support — Step 6)
     # ------------------------------------------------------------------

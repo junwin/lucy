@@ -184,6 +184,7 @@ class TaskList:
                     result=t.result,
                     error=t.error,
                     meta=t.meta,
+                    agent=t.agent,
                 )
             )
 

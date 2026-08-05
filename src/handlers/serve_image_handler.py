@@ -7,6 +7,9 @@ an SSE image event for the client to render.
 
 Images are automatically downscaled if they exceed max_dimension on the
 longest side (default 512) to keep base64 payloads under tool-result limits.
+The handler also enforces a hard cap of 512 on max_dimension to prevent the
+LLM from requesting oversized images that would be truncated by the 96K
+tool-result limit.
 """
 
 from __future__ import annotations
@@ -50,6 +53,7 @@ _EXTENSION_OVERRIDES: Dict[str, str] = {
 }
 
 _DEFAULT_MAX_DIMENSION = 512
+_MAX_ALLOWED_DIMENSION = 512  # Hard cap — beyond this base64 exceeds tool-result limit
 
 
 def _downscale_if_needed(raw_bytes: bytes, mime: str, max_dim: int) -> bytes:
@@ -131,7 +135,7 @@ class ServeImageHandler(HandlerV2):
                         "description": (
                             "Maximum size in pixels for the longest side. "
                             "Images larger than this are downscaled before encoding. "
-                            f"Default is {_DEFAULT_MAX_DIMENSION}."
+                            f"Default is {_DEFAULT_MAX_DIMENSION} (hard cap)."
                         ),
                     },
                 },
@@ -170,6 +174,15 @@ class ServeImageHandler(HandlerV2):
         location = (args.get("location") or "storage").strip().lower()
         external_root = (args.get("external_root") or "").strip()
         max_dimension = args.get("max_dimension", _DEFAULT_MAX_DIMENSION)
+
+        # Hard-cap: prevent base64 from exceeding tool-result limit
+        if max_dimension > _MAX_ALLOWED_DIMENSION:
+            logger.warning(
+                "serve_image: capping max_dimension from %s to %s",
+                max_dimension,
+                _MAX_ALLOWED_DIMENSION,
+            )
+            max_dimension = _MAX_ALLOWED_DIMENSION
 
         if not path_in:
             return {

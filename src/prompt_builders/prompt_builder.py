@@ -59,6 +59,7 @@ class PromptBuilder(PromptBuilderInterface):
         extra_system_messages: Optional[List[str]] = None,
         image_ids: Optional[List[str]] = None,
         file_ids: Optional[List[str]] = None,
+        supports_images: bool = True,
     ) -> List[Dict[str, Any]]:
         """Build the full prompt (list of messages) for a model call.
 
@@ -201,6 +202,7 @@ class PromptBuilder(PromptBuilderInterface):
                 image_ids=image_ids,
                 file_ids=file_ids,
                 agent_allowed_tools=agent_allowed_tools,
+                supports_images=supports_images,
             ))
             messages.append({"role": "user", "content": content_parts})
         else:
@@ -213,7 +215,7 @@ class PromptBuilder(PromptBuilderInterface):
         logging.info(
             "PromptBuilder.build_prompt: agent=%s account=%s session_id=%s "
             "context_type=%s context_name=%s history_messages=%d docs_used=%d "
-            "attachments=%d",
+            "attachments=%d supports_images=%s",
             agent_name,
             account_name,
             conversation_id,
@@ -222,6 +224,7 @@ class PromptBuilder(PromptBuilderInterface):
             len(history_messages),
             len(doc_contexts),
             attachment_count,
+            supports_images,
         )
 
         return messages
@@ -253,21 +256,25 @@ class PromptBuilder(PromptBuilderInterface):
         image_ids: Optional[List[str]],
         file_ids: Optional[List[str]],
         agent_allowed_tools: Optional[List[str]] = None,
+        supports_images: bool = True,
     ) -> List[Dict[str, Any]]:
         """Resolve image_ids and file_ids into provider-agnostic content parts.
 
-        If agent_allowed_tools contains 'delegate_tasks', image attachments are
-        emitted as text markers (filename + full path) instead of base64 data,
-        and an instruction text is appended telling the agent to delegate image
-        analysis to colin. File attachments are always inlined as text regardless.
+        When supports_images is False, images are emitted as text markers
+        (image UUID + filename) instead of base64 data, so a text-only model
+        can still see that images exist. A mandatory instruction is appended
+        telling the agent to delegate image analysis via tasklists_manage +
+        tasklists_run to a vision-capable worker (colin).
+
+        File attachments are always inlined as text regardless.
 
         Returns a list of content-part dicts in intermediate format:
 
             # Image part (inline mode)
             {"type": "image", "source": {"data": "<base64>", "mime_type": "image/png"}}
 
-            # Image part (delegation mode)
-            {"type": "text", "text": "[Attached image: foo.png — path: /full/path]"}
+            # Image part (marker mode)
+            {"type": "text", "text": "[Attached image: <uuid> — foo.png]"}
 
             # File part (resolved to text)
             {"type": "text", "text": "[File: report.pdf]\\n...extracted content..."}
@@ -276,11 +283,8 @@ class PromptBuilder(PromptBuilderInterface):
 
         images_dir = self._build_images_dir()
 
-        use_delegation = (
-            agent_allowed_tools is not None
-            and "delegate_tasks" in agent_allowed_tools
-        )
-        any_image_delegated = False
+        use_markers = not supports_images
+        any_image_marked = False
 
         for img_id in (image_ids or []):
             try:
@@ -293,16 +297,16 @@ class PromptBuilder(PromptBuilderInterface):
                     )
                     continue
 
-                if use_delegation:
+                if use_markers:
                     filename = os.path.basename(img_path)
                     parts.append({
                         "type": "text",
-                        "text": f"[Attached image: {filename} — path: {img_path}]",
+                        "text": f"[Attached image: {img_id} — {filename}]",
                     })
-                    any_image_delegated = True
+                    any_image_marked = True
 
                     logging.info(
-                        "PromptBuilder: delegation marker for image_id=%s path=%s",
+                        "PromptBuilder: marker for image_id=%s path=%s (supports_images=False)",
                         img_id,
                         img_path,
                     )
@@ -336,14 +340,17 @@ class PromptBuilder(PromptBuilderInterface):
                     ex,
                 )
 
-        if any_image_delegated:
+        if any_image_marked:
             parts.append({
                 "type": "text",
                 "text": (
-                    "To analyze attached images, use delegate_tasks with "
-                    "worker_agent='colin' and a specific goal (e.g., 'Describe "
-                    "this image, focusing on...'). Pass the image path in the "
-                    "files list."
+                    "Your model cannot see images. To analyze images: "
+                    "create a tasklist via tasklists_manage (action='put') "
+                    "with a task that includes the image UUIDs above in "
+                    "meta.image_ids as a list of strings. "
+                    "Example: \"meta\": {\"image_ids\": [\"<uuid>\"]}. "
+                    "Then run it with tasklists_run (worker_agent='colin'). "
+                    "Use the worker's output to answer the user."
                 ),
             })
 
@@ -395,7 +402,12 @@ class PromptBuilder(PromptBuilderInterface):
         """Find an image file by UUID in the account's images directory.
 
         Looks for `{img_id}.*` — returns the first matching file path or None.
+        If img_id is already a full, existing path, returns it directly.
         """
+        # Defensive: if img_id is a full path that exists, use it directly
+        if os.path.isabs(img_id) and os.path.isfile(img_id):
+            return img_id
+
         account_dir = os.path.join(images_dir, account_name)
         pattern = os.path.join(account_dir, f"{img_id}.*")
         matches = glob.glob(pattern)
@@ -406,8 +418,12 @@ class PromptBuilder(PromptBuilderInterface):
     def _find_file(self, images_dir: str, account_name: str, file_id: str) -> Optional[str]:
         """Find a general file by UUID in the account's directory.
 
-        Currently delegates to _find_image_file (files live in same dir structure).
+        If file_id is already a full, existing path, returns it directly.
+        Otherwise delegates to _find_image_file (files live in same dir structure).
         """
+        # Defensive: if file_id is a full path that exists, use it directly
+        if os.path.isabs(file_id) and os.path.isfile(file_id):
+            return file_id
         return self._find_image_file(images_dir, account_name, file_id)
 
     @staticmethod

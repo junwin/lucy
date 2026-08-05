@@ -9,6 +9,7 @@ except Exception:
 import logging
 from typing import Optional, Dict, Any, List, Iterable, Generator, Tuple
 import json
+import re
 import time
 
 from src.config_manager import ConfigManager
@@ -350,7 +351,19 @@ class FunctionCallingProcessor(MessageProcessorInterface):
                 metrics["failures"] += 1
                 # Replace the too-large raw result with a compact error so the
                 # LLM sees a graceful tool-failure message instead of a hard crash.
-                error_dict = {"ok": False, "tool": tc.name, "error": str(e)}
+                error_msg = str(e)
+                if tc.name == "serve_image":
+                    # Parse char count and limit from the error string to craft
+                    # a helpful message that tells the LLM exactly what to do.
+                    m = re.match(r"Tool result too large: (\d+) chars \(limit (\d+)\)", error_msg)
+                    if m:
+                        error_msg = (
+                            f"Image too large for tool result ({m.group(1)} chars, limit {m.group(2)}). "
+                            "Please retry with max_dimension=512 or smaller."
+                        )
+                    else:
+                        error_msg += " Please retry with max_dimension=512 or smaller."
+                error_dict = {"ok": False, "tool": tc.name, "error": error_msg}
                 tool_result_text = json.dumps(error_dict, ensure_ascii=False)
                 raw_results.pop()  # remove the too-large entry
                 raw_results.append((tc, tool_result_text))
@@ -1058,13 +1071,17 @@ class FunctionCallingProcessor(MessageProcessorInterface):
             metrics["failures"] += 1
             return "[FunctionCallingProcessor] Missing account.accountId."
 
+        # ── Determine if the model supports native image processing ──
+        supports_images = self.llm_adapter.supports_image_processing(ctx.model)
+
         logging.info(
-            "FunctionCallingProcessor: start account=%s agent=%s session_id=%s context_type=%s max_iterations=%d",
+            "FunctionCallingProcessor: start account=%s agent=%s session_id=%s context_type=%s max_iterations=%d supports_images=%s",
             ctx.account_id,
             ctx.agent_name,
             ctx.conversation_id,
             ctx.context_type,
             ctx.max_iterations,
+            supports_images,
         )
 
         try:
@@ -1090,6 +1107,7 @@ class FunctionCallingProcessor(MessageProcessorInterface):
                 extra_system_messages=extra_system_messages,
                 image_ids=image_ids,
                 file_ids=file_ids,
+                supports_images=supports_images,
             )
 
             # Get the global tool definitions from the registry. We'll filter this
@@ -1232,13 +1250,17 @@ class FunctionCallingProcessor(MessageProcessorInterface):
             yield SSEEvent(type="done").to_sse()
             return
 
+        # ── Determine if the model supports native image processing ──
+        supports_images = self.llm_adapter.supports_image_processing(ctx.model)
+
         logging.info(
-            "FunctionCallingProcessor(streaming): start account=%s agent=%s session_id=%s context_type=%s max_iterations=%d",
+            "FunctionCallingProcessor(streaming): start account=%s agent=%s session_id=%s context_type=%s max_iterations=%d supports_images=%s",
             ctx.account_id,
             ctx.agent_name,
             ctx.conversation_id,
             ctx.context_type,
             ctx.max_iterations,
+            supports_images,
         )
 
         # Collect all SSE events for chat2 persistence
@@ -1267,6 +1289,7 @@ class FunctionCallingProcessor(MessageProcessorInterface):
                 extra_system_messages=extra_system_messages,
                 image_ids=image_ids,
                 file_ids=file_ids,
+                supports_images=supports_images,
             )
 
             function_defs = self.registry.tools()

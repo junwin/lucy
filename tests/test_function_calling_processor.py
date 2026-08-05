@@ -463,3 +463,88 @@ class TestEnsureChat2SessionContextName:
         assert out == "transient"
         mock_store.session_exists.assert_not_called()
         mock_store.create_session.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# FCP supports_images passthrough tests
+# ---------------------------------------------------------------------------
+
+
+class TestFCPSupportsImagesPassthrough:
+    """Verify FCP queries supports_image_processing and passes result to build_prompt."""
+
+    def test_fcp_passes_supports_images_true_for_vision_model(self, make_proc, prompt_builder, llm_adapter):
+        """When model supports images, FCP passes supports_images=True to build_prompt."""
+        from tests.conftest import FakeAgent
+
+        proc = make_proc()
+        llm_adapter.supports_image_processing.return_value = True
+        prompt_builder.build_prompt.return_value = [{"role": "user", "content": "hi"}]
+        llm_adapter.extract_tool_calls.return_value = []
+        llm_adapter.get_text.return_value = "ok"
+
+        proc.process_message(
+            primary_agent=FakeAgent(model="gpt-5-mini", save_responses=False),
+            account={"accountId": "acct1"},
+            message="describe this image",
+            conversation_id="c1",
+            context_name="ctx",
+            image_ids=["img001"],
+        )
+
+        # Verify supports_image_processing was called with the model
+        llm_adapter.supports_image_processing.assert_called_once_with("gpt-5-mini")
+
+        # Verify build_prompt received supports_images=True
+        build_kwargs = prompt_builder.build_prompt.call_args.kwargs
+        assert build_kwargs["supports_images"] is True
+
+    def test_fcp_passes_supports_images_false_for_text_model(self, make_proc, prompt_builder, llm_adapter):
+        """When model doesn't support images, FCP passes supports_images=False to build_prompt."""
+        from tests.conftest import FakeAgent
+
+        proc = make_proc()
+        llm_adapter.supports_image_processing.return_value = False
+        prompt_builder.build_prompt.return_value = [{"role": "user", "content": "hi"}]
+        llm_adapter.extract_tool_calls.return_value = []
+        llm_adapter.get_text.return_value = "ok"
+
+        proc.process_message(
+            primary_agent=FakeAgent(model="deepseek-v4-pro", save_responses=False),
+            account={"accountId": "acct1"},
+            message="describe this image",
+            conversation_id="c1",
+            context_name="ctx",
+            image_ids=["img001"],
+        )
+
+        # Verify supports_image_processing was called with the model
+        llm_adapter.supports_image_processing.assert_called_once_with("deepseek-v4-pro")
+
+        # Verify build_prompt received supports_images=False
+        build_kwargs = prompt_builder.build_prompt.call_args.kwargs
+        assert build_kwargs["supports_images"] is False
+
+    def test_fcp_streaming_passes_supports_images(self, make_proc, prompt_builder, llm_adapter):
+        """Streaming path also passes supports_images to build_prompt."""
+        from tests.conftest import FakeAgent
+
+        proc = make_proc()
+        llm_adapter.supports_image_processing.return_value = False
+        prompt_builder.build_prompt.return_value = [{"role": "user", "content": "hi"}]
+        llm_adapter.extract_tool_calls.return_value = []
+        llm_adapter.get_text.return_value = "ok"
+
+        # Consume the generator
+        list(proc.process_message_streaming(
+            primary_agent=FakeAgent(model="deepseek-v4-flash", save_responses=False),
+            account={"accountId": "acct1"},
+            message="describe this image",
+            conversation_id="c1",
+            context_name="ctx",
+            image_ids=["img001"],
+        ))
+
+        # Verify build_prompt received supports_images=False
+        build_kwargs = prompt_builder.build_prompt.call_args.kwargs
+        assert build_kwargs["supports_images"] is False

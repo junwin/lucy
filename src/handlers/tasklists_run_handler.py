@@ -47,8 +47,12 @@ class TasklistsRunHandler(HandlerV2):
                         "enum": ["single-step", "multi-step"],
                         "description": "Execution mode: 'single-step' runs one task, 'multi-step' runs all pending tasks.",
                     },
+                    "worker_agent": {
+                        "type": "string",
+                        "description": "Name of the worker agent to execute the tasklist as (e.g. colin, star). If not provided, uses the calling agent.",
+                    },
                 },
-                "required": ["tasklist_id", "mode"],
+                "required": ["tasklist_id", "mode", "worker_agent"],
                 "additionalProperties": False,
             },
             "strict": True,
@@ -65,6 +69,7 @@ class TasklistsRunHandler(HandlerV2):
                 "mode": {"type": "string"},
                 "result": {"type": "string"},
                 "error": {"type": "object"},
+                "worker_agent": {"type": ["string", "null"]},
             },
             "required": ["ok", "tool"],
             "additionalProperties": True,
@@ -79,11 +84,16 @@ class TasklistsRunHandler(HandlerV2):
     ) -> Dict[str, Any]:
         tasklist_id = (args.get("tasklist_id") or "").strip()
         mode = (args.get("mode") or "single-step").strip()
+        worker_agent_raw = args.get("worker_agent")
+        worker_agent = (worker_agent_raw or "").strip() if worker_agent_raw is not None else None
+        if worker_agent == "":
+            worker_agent = None
 
         if not tasklist_id:
             return {
                 "ok": False,
                 "tool": self.NAME,
+                "worker_agent": worker_agent,
                 "error": {"code": "missing_tasklist_id", "message": "tasklist_id is required."},
             }
 
@@ -91,14 +101,16 @@ class TasklistsRunHandler(HandlerV2):
             return {
                 "ok": False,
                 "tool": self.NAME,
+                "worker_agent": worker_agent,
                 "error": {"code": "invalid_mode", "message": "mode must be 'single-step' or 'multi-step'."},
             }
 
         logger.info(
-            "tasklists_run input account=%s tasklist_id=%s mode=%s",
+            "tasklists_run input account=%s tasklist_id=%s mode=%s worker_agent=%s",
             account_name,
             tasklist_id,
             mode,
+            worker_agent,
         )
 
         # Resolve AutomationProcessor from context or via processor_factory.
@@ -115,6 +127,7 @@ class TasklistsRunHandler(HandlerV2):
                     return {
                         "ok": False,
                         "tool": self.NAME,
+                        "worker_agent": worker_agent,
                         "error": {
                             "code": "missing_dependency",
                             "message": f"Cannot resolve AutomationProcessor via processor_factory: {e}",
@@ -125,6 +138,7 @@ class TasklistsRunHandler(HandlerV2):
             return {
                 "ok": False,
                 "tool": self.NAME,
+                "worker_agent": worker_agent,
                 "error": {
                     "code": "missing_dependency",
                     "message": (
@@ -145,6 +159,7 @@ class TasklistsRunHandler(HandlerV2):
             return {
                 "ok": False,
                 "tool": self.NAME,
+                "worker_agent": worker_agent,
                 "error": {
                     "code": "missing_context",
                     "message": "'primary_agent' is required in execution context.",
@@ -154,6 +169,7 @@ class TasklistsRunHandler(HandlerV2):
             return {
                 "ok": False,
                 "tool": self.NAME,
+                "worker_agent": worker_agent,
                 "error": {
                     "code": "missing_context",
                     "message": "'account' is required in execution context.",
@@ -174,12 +190,14 @@ class TasklistsRunHandler(HandlerV2):
                 account=account,
                 secondary_agent=secondary_agent,
                 processor_factory=processor_factory,
+                worker_agent=worker_agent,
             )
             return {
                 "ok": True,
                 "tool": self.NAME,
                 "tasklist_id": tasklist_id,
                 "mode": mode,
+                "worker_agent": worker_agent,
                 "result": result,
             }
         except Exception as e:
@@ -189,5 +207,6 @@ class TasklistsRunHandler(HandlerV2):
                 "tool": self.NAME,
                 "tasklist_id": tasklist_id,
                 "mode": mode,
+                "worker_agent": worker_agent,
                 "error": {"code": "execution_failed", "message": str(e)},
             }
