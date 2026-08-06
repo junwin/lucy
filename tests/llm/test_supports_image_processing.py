@@ -4,8 +4,9 @@ Covers:
   - OpenAIResponsesApi → True
   - MistralApi → True
   - DeepSeekApi → False
-  - RouterApi → routes correctly to each provider
-  - RouterApi → raises ValueError for unknown model prefix
+  - RouterApi → routes correctly to each provider (explicit provider param)
+  - RouterApi → prefix fallback still works
+  - RouterApi → unknown model with no provider defaults to openai
 """
 
 from __future__ import annotations
@@ -55,41 +56,23 @@ def test_supports_image_processing_deepseek() -> None:
 # RouterApi
 # ---------------------------------------------------------------------------
 
-def test_router_deepseek_returns_false() -> None:
+def test_router_explicit_provider_routing() -> None:
+    router = RouterApi()
+    # explicit provider selection overrides prefix resolution
+    assert router.supports_image_processing("anything", provider="mistral") is True
+    assert router.supports_image_processing("anything", provider="deepseek") is False
+    assert router.supports_image_processing("anything", provider="openai") is True
+
+
+def test_router_prefix_fallback_still_works() -> None:
     router = RouterApi()
     assert router.supports_image_processing("deepseek-chat") is False
-    assert router.supports_image_processing("deepseek-reasoner") is False
-
-
-def test_router_mistral_returns_true() -> None:
-    router = RouterApi()
     assert router.supports_image_processing("mistral-large") is True
-    assert router.supports_image_processing("mistral-small") is True
-
-
-def test_router_openai_returns_true() -> None:
-    router = RouterApi()
     assert router.supports_image_processing("gpt-4o") is True
-    assert router.supports_image_processing("gpt-5") is True
-    assert router.supports_image_processing("o1") is True
-    assert router.supports_image_processing("o3") is True
 
 
-def test_router_unknown_model_raises_valueerror() -> None:
+def test_router_unknown_model_defaults_to_openai() -> None:
     router = RouterApi()
-    with pytest.raises(ValueError, match="Unknown model prefix"):
-        router.supports_image_processing("claude-3-opus")
-
-    with pytest.raises(ValueError, match="Unknown model prefix"):
-        router.supports_image_processing("gemini-pro")
-
-
-def test_router_unknown_model_error_message_helpful() -> None:
-    """The error message should tell the user what prefixes are valid."""
-    router = RouterApi()
-    with pytest.raises(ValueError) as exc_info:
-        router.supports_image_processing("llama-3")
-    msg = str(exc_info.value)
-    assert "gpt" in msg
-    assert "deepseek" in msg
-    assert "mistral" in msg
+    # unknown model name but no explicit provider -> should resolve to openai
+    assert router.supports_image_processing("claude-3-opus") is True
+    assert router.supports_image_processing("gemini-pro") is True

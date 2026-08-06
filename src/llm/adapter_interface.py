@@ -14,7 +14,7 @@ class LLMAdapter(Protocol):
     For now, we keep messages and tool definitions OpenAI-shaped.
     """
 
-    def supports_image_processing(self, model: str) -> bool:
+    def supports_image_processing(self, model: str, provider: Optional[str] = None) -> bool:
         """Return True if the selected model can natively process images."""
         ...
 
@@ -30,6 +30,7 @@ class LLMAdapter(Protocol):
         metadata: Optional[Dict[str, Any]] = None,
         previous_response_id: Optional[str] = None,
         text: Optional[Dict[str, Any]] = None,
+        provider: Optional[str] = None,
     ) -> Any: ...
 
     def extract_tool_calls(self, response: Any) -> List[Dict[str, Any]]: ...

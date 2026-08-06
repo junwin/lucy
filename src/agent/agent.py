@@ -52,6 +52,7 @@ class Agent:
     style_prompt: str = ""
     persona: str = ""
     allowed_tools: Optional[List[str]] = None
+    provider: Optional[str] = None
 
     @staticmethod
     def _coerce_bool(value: Any) -> bool:
@@ -225,6 +226,7 @@ class Agent:
             "style_prompt": self.style_prompt,
             "persona": self.persona,
             "allowed_tools": self.allowed_tools,
+            "provider": self.provider,
         }
 
     def allows_tool(self, tool_name: str) -> bool:

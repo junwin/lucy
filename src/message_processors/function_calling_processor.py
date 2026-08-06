@@ -20,6 +20,7 @@ from src.handlers.handler_registry import HandlerRegistry
 from src.agent import Agent
 
 from src.llm.adapter_interface import LLMAdapter
+from src.llm.provider_registry import ProviderRegistry
 
 from src.chat2.facade import Chat2Store
 from src.chat2.models import ChatEvent
@@ -49,6 +50,7 @@ class _ProcessorContext:
     max_iterations: int
     store_this_call: bool
     delegation_depth: int
+    provider: Optional[str] = None
 
 
 @dataclass(frozen=True)
@@ -79,20 +81,6 @@ class FunctionCallingProcessor(MessageProcessorInterface):
     # ------------------------------------------------------------------
     # Internal helpers
     # ------------------------------------------------------------------
-
-    @staticmethod
-    def _get_provider_prefix(model: str) -> str:
-        """Return provider prefix from model name. Matches RouterApi routing.
-
-        - deepseek* → "deepseek"
-        - mistral*  → "mistral"
-        - all else  → "openai"
-        """
-        if model.startswith("mistral"):
-            return "mistral"
-        if model.startswith("deepseek"):
-            return "deepseek"
-        return "openai"
 
     def _safe_json_loads(self, s: str) -> Dict[str, Any]:
         if not s:
@@ -156,6 +144,21 @@ class FunctionCallingProcessor(MessageProcessorInterface):
             )
             max_iterations = 1
 
+        # Resolve provider name if agent has explicit provider; otherwise None.
+        provider_explicit = getattr(primary_agent, "provider", None)
+        if provider_explicit:
+            try:
+                provider = ProviderRegistry.resolve_name(primary_agent.model, provider_explicit)
+            except ValueError:
+                logging.warning(
+                    "FCP: unknown provider '%s' for agent '%s', ignoring",
+                    provider_explicit,
+                    agent_name,
+                )
+                provider = None
+        else:
+            provider = None
+
         return _ProcessorContext(
             account_id=account_id,
             agent_name=agent_name,
@@ -167,6 +170,7 @@ class FunctionCallingProcessor(MessageProcessorInterface):
             max_iterations=max_iterations,
             store_this_call=bool(primary_agent.save_responses),
             delegation_depth=int(getattr(primary_agent, "delegation_depth", 0)),
+            provider=provider,
         )
 
     def _wrap_tool_calls(self, tool_calls: Iterable[Dict[str, Any]]) -> List[_ToolCall]:
@@ -439,6 +443,7 @@ class FunctionCallingProcessor(MessageProcessorInterface):
                     store=ctx.store_this_call,
                     metadata={"conversation_id": ctx.conversation_id, "session_id": ctx.context_name or None},
                     previous_response_id=previous_response_id,
+                    provider=ctx.provider,
                 )
 
                 result_response_id = self.llm_adapter.get_response_id(llm_response)
@@ -541,8 +546,8 @@ class FunctionCallingProcessor(MessageProcessorInterface):
                     break
 
                 # ── Provider throttle: pause between tool-call iterations ──
-                prefix = self._get_provider_prefix(ctx.model)
-                throttle_ms = self.config.get("provider_throttle_ms", {}).get(prefix, 0)
+                provider_name = ProviderRegistry.resolve_name(ctx.model, ctx.provider)
+                throttle_ms = self.config.get("provider_throttle_ms", {}).get(provider_name, 0)
                 if throttle_ms > 0:
                     time.sleep(throttle_ms / 1000.0)
 
@@ -665,6 +670,7 @@ class FunctionCallingProcessor(MessageProcessorInterface):
                     store=ctx.store_this_call,
                     metadata={"conversation_id": ctx.conversation_id, "session_id": ctx.context_name or None},
                     previous_response_id=previous_response_id,
+                    provider=ctx.provider,
                 )
 
                 result_response_id = self.llm_adapter.get_response_id(llm_response)
@@ -814,8 +820,8 @@ class FunctionCallingProcessor(MessageProcessorInterface):
                     break
 
                 # ── Provider throttle: pause between tool-call iterations ──
-                prefix = self._get_provider_prefix(ctx.model)
-                throttle_ms = self.config.get("provider_throttle_ms", {}).get(prefix, 0)
+                provider_name = ProviderRegistry.resolve_name(ctx.model, ctx.provider)
+                throttle_ms = self.config.get("provider_throttle_ms", {}).get(provider_name, 0)
                 if throttle_ms > 0:
                     time.sleep(throttle_ms / 1000.0)
 
@@ -1072,7 +1078,7 @@ class FunctionCallingProcessor(MessageProcessorInterface):
             return "[FunctionCallingProcessor] Missing account.accountId."
 
         # ── Determine if the model supports native image processing ──
-        supports_images = self.llm_adapter.supports_image_processing(ctx.model)
+        supports_images = self.llm_adapter.supports_image_processing(ctx.model, ctx.provider)
 
         logging.info(
             "FunctionCallingProcessor: start account=%s agent=%s session_id=%s context_type=%s max_iterations=%d supports_images=%s",
@@ -1090,11 +1096,11 @@ class FunctionCallingProcessor(MessageProcessorInterface):
                 logging.debug("FunctionCallingProcessor: injecting %d environment system message(s) from environment_prompt_block", len(extra_system_messages))
 
             # ── Provider prompt block: inject provider-specific rules ──
-            prefix = self._get_provider_prefix(ctx.model)
-            provider_block = self.config.get("provider_prompt_blocks", {}).get(prefix, "")
+            provider_name = ProviderRegistry.resolve_name(ctx.model, ctx.provider)
+            provider_block = self.config.get("provider_prompt_blocks", {}).get(provider_name, "")
             if provider_block:
                 extra_system_messages.append(provider_block)
-                logging.debug("FunctionCallingProcessor: injecting provider prompt block for provider=%s (%d chars)", prefix, len(provider_block))
+                logging.debug("FunctionCallingProcessor: injecting provider prompt block for provider=%s (%d chars)", provider_name, len(provider_block))
 
             prompt_messages = self.prompt_builder.build_prompt(
                 content_text=message,
@@ -1251,7 +1257,7 @@ class FunctionCallingProcessor(MessageProcessorInterface):
             return
 
         # ── Determine if the model supports native image processing ──
-        supports_images = self.llm_adapter.supports_image_processing(ctx.model)
+        supports_images = self.llm_adapter.supports_image_processing(ctx.model, ctx.provider)
 
         logging.info(
             "FunctionCallingProcessor(streaming): start account=%s agent=%s session_id=%s context_type=%s max_iterations=%d supports_images=%s",
@@ -1272,11 +1278,11 @@ class FunctionCallingProcessor(MessageProcessorInterface):
                 logging.debug("FunctionCallingProcessor(streaming): injecting %d environment system message(s) from environment_prompt_block", len(extra_system_messages))
 
             # ── Provider prompt block: inject provider-specific rules ──
-            prefix = self._get_provider_prefix(ctx.model)
-            provider_block = self.config.get("provider_prompt_blocks", {}).get(prefix, "")
+            provider_name = ProviderRegistry.resolve_name(ctx.model, ctx.provider)
+            provider_block = self.config.get("provider_prompt_blocks", {}).get(provider_name, "")
             if provider_block:
                 extra_system_messages.append(provider_block)
-                logging.debug("FunctionCallingProcessor(streaming): injecting provider prompt block for provider=%s (%d chars)", prefix, len(provider_block))
+                logging.debug("FunctionCallingProcessor(streaming): injecting provider prompt block for provider=%s (%d chars)", provider_name, len(provider_block))
 
             prompt_messages = self.prompt_builder.build_prompt(
                 content_text=message,

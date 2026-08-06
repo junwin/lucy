@@ -493,7 +493,7 @@ class TestFCPSupportsImagesPassthrough:
         )
 
         # Verify supports_image_processing was called with the model
-        llm_adapter.supports_image_processing.assert_called_once_with("gpt-5-mini")
+        llm_adapter.supports_image_processing.assert_called_once_with("gpt-5-mini", None)
 
         # Verify build_prompt received supports_images=True
         build_kwargs = prompt_builder.build_prompt.call_args.kwargs
@@ -519,7 +519,7 @@ class TestFCPSupportsImagesPassthrough:
         )
 
         # Verify supports_image_processing was called with the model
-        llm_adapter.supports_image_processing.assert_called_once_with("deepseek-v4-pro")
+        llm_adapter.supports_image_processing.assert_called_once_with("deepseek-v4-pro", None)
 
         # Verify build_prompt received supports_images=False
         build_kwargs = prompt_builder.build_prompt.call_args.kwargs
