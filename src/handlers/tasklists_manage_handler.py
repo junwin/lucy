@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-import json
 import logging
+import os
 from typing import Any, Dict, List
 
 from src.config_manager import ConfigManager
@@ -20,7 +20,6 @@ class TasklistsManageHandler(HandlerV2):
 
     def __init__(self, config: ConfigManager):
         self.config = config
-        # Construct storage implementation from config so handler can operate
         storage_root = self.config.get("storage_root_path")
         storage_ns = self.config.get("storage_namespace")
         sp = StoragePaths(storage_root, storage_ns)
@@ -32,52 +31,119 @@ class TasklistsManageHandler(HandlerV2):
 
     @classmethod
     def tool_def(cls) -> Dict[str, Any]:
-        # NOTE: OpenAI strict tool schemas require that any nested object schema
-        # explicitly sets additionalProperties: false.
         return {
             "type": "function",
             "name": cls.NAME,
-            "description": "Manage persisted tasklists: list/get/put/patch/delete/reset.",
+            "description": "Manage persisted tasklists: list/get/put/delete/reset, plus per-action task and metadata operations.",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "action": {
                         "type": "string",
-                        "enum": ["list", "get", "put", "patch", "delete", "reset"],
+                        "enum": [
+                            "list", "get", "put", "delete", "reset",
+                            "add_task", "update_task", "remove_task",
+                            "set_state", "set_name", "set_description",
+                            "set_general_instructions", "update_meta",
+                        ],
                     },
+                    # --- common params ---
                     "tasklist_key": {
                         "type": "string",
-                        "description": "Tasklist name (simple filename).",
-                        "default": "",
-                    },
-                    "tasklist": {
-                        "type": "string",
-                        "description": (
-                            "Tasklist JSON payload as a string (for put/patch). "
-                            "Required top-level keys: schema_version (int, always 1), "
-                            "id (string UUID), name (string), description (string), "
-                            "tasks (array of task objects, can be empty). "
-                            "Each task REQUIRES: id (string), name (string), instructions (string). "
-                            "Optional top-level: state (string, default 'created'), "
-                            "meta (object), current_task_id (string|null), "
-                            "general_instructions (string). "
-                            "Optional per-task: state (string, default 'pending'), "
-                            "result (object|null), error (string|null), "
-                            "meta (object), agent (string|null). "
-                            "No extra keys allowed — strict schema rejects unknown fields."
-                        ),
-                        "default": "",
+                        "description": "Tasklist filename key. Required for all actions except 'list'.",
                     },
                     "validate_only": {
                         "type": "boolean",
                         "description": "If true, validate but do not persist.",
                         "default": False,
                     },
+                    # --- put: convenience path (use when 'goal' is present) ---
+                    "goal": {
+                        "type": "string",
+                        "description": "Short goal. Becomes name, description, and general_instructions. Use for convenience creation.",
+                    },
+                    "files": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "File paths. One task per file. Only used with 'goal' (convenience path).",
+                    },
+                    "worker_agent": {
+                        "type": "string",
+                        "description": "Worker agent name. Sets task.agent on every auto-generated task. Only used with 'goal'.",
+                    },
+                    # --- put: explicit path (use when 'goal' is absent) ---
+                    "name": {
+                        "type": "string",
+                        "description": "Human-readable tasklist name. Required for explicit put, or the new name for set_name.",
+                    },
+                    "description": {
+                        "type": "string",
+                        "description": "What this tasklist is for. Required for explicit put, or the new description for set_description.",
+                    },
+                    "general_instructions": {
+                        "type": "string",
+                        "description": "Cross-cutting context for all tasks. Used by put explicit path.",
+                    },
+                    # --- add_task ---
+                    "task_id": {
+                        "type": "string",
+                        "description": "Unique task identifier. Required for add_task, update_task, remove_task.",
+                    },
+                    "task_name": {
+                        "type": "string",
+                        "description": "Short goal name for the task. Used by add_task, update_task.",
+                    },
+                    "task_instructions": {
+                        "type": "string",
+                        "description": "Detailed instructions for the task. Used by add_task, update_task.",
+                    },
+                    "after_index": {
+                        "type": "integer",
+                        "description": "Insert after this position (0-based). Omit to append. Used by add_task.",
+                    },
+                    "task_state": {
+                        "type": "string",
+                        "description": "Task state. Default 'Pending'. Used by add_task, update_task.",
+                    },
+                    "task_agent": {
+                        "type": "string",
+                        "description": "Worker agent name for this task. Used by add_task, update_task.",
+                    },
+                    "task_meta": {
+                        "type": "object",
+                        "description": "Key-value context for the task. Merged into existing meta on update_task.",
+                        "additionalProperties": False,
+                    },
+                    # --- update_task specific ---
+                    "task_result": {
+                        "type": "object",
+                        "description": "New result for the task. Used by update_task.",
+                        "additionalProperties": False,
+                    },
+                    "task_error": {
+                        "type": "string",
+                        "description": "New error for the task. Used by update_task.",
+                    },
+                    # --- set_state ---
+                    "state": {
+                        "type": "string",
+                        "description": "New tasklist state. Required for set_state.",
+                    },
+                    # --- set_general_instructions ---
+                    "instructions": {
+                        "type": "string",
+                        "description": "New general_instructions text. Required for set_general_instructions.",
+                    },
+                    # --- update_meta ---
+                    "meta": {
+                        "type": "object",
+                        "description": "Key-value pairs to merge into the tasklist's meta. Required for update_meta.",
+                        "additionalProperties": False,
+                    },
                 },
-                "required": ["action", "tasklist_key", "tasklist", "validate_only"],
+                "required": ["action"],
                 "additionalProperties": False,
             },
-            "strict": True,
         }
 
     @classmethod
@@ -85,7 +151,6 @@ class TasklistsManageHandler(HandlerV2):
         return {
             "type": "object",
             "properties": {
-                "ok": {"type": "boolean"},
                 "tool": {"type": "string"},
                 "action": {"type": "string"},
                 "tasklist_key": {"type": "string"},
@@ -97,21 +162,27 @@ class TasklistsManageHandler(HandlerV2):
             "additionalProperties": True,
         }
 
+    # ------------------------------------------------------------------
+    # Dispatch
+    # ------------------------------------------------------------------
+
     def execute(self, args: Dict[str, Any], *, account_name: str = "auto", **context) -> Dict[str, Any]:
         action = (args.get("action") or "").strip().lower()
-        tasklist_key = (args.get("tasklist_key") or "").strip()
-        payload = args.get("tasklist") or {}
-        validate_only = bool(args.get("validate_only", False))
 
         logger.info(
-            "tasklists.manage input account=%s action=%s id=%s validate_only=%s",
+            "tasklists.manage input account=%s action=%s",
             account_name,
             action,
-            tasklist_key,
-            validate_only,
         )
 
-        if action not in ("list", "get", "put", "patch", "delete", "reset"):
+        valid_actions = {
+            "list", "get", "put", "delete", "reset",
+            "add_task", "update_task", "remove_task",
+            "set_state", "set_name", "set_description",
+            "set_general_instructions", "update_meta",
+        }
+
+        if action not in valid_actions:
             return {
                 "ok": False,
                 "tool": self.NAME,
@@ -120,399 +191,469 @@ class TasklistsManageHandler(HandlerV2):
 
         try:
             if action == "list":
-                ids = self.storage.list_tasklists(account_name)
-                return {"ok": True, "tool": self.NAME, "action": "list", "tasklist_keys": ids}
-
-            if action == "get":
-                if not tasklist_key:
-                    return {
-                        "ok": False,
-                        "tool": self.NAME,
-                        "action": "get",
-                        "error": {"code": "missing_key", "message": "tasklist_key is required for get"},
-                    }
-                tl = self.storage.get_tasklist(account_name, tasklist_key)
-                if tl is None:
-                    return {
-                        "ok": False,
-                        "tool": self.NAME,
-                        "action": "get",
-                        "tasklist_key": tasklist_key,
-                        "error": {"code": "not_found", "message": "tasklist not found"},
-                    }
-                return {
-                    "ok": True,
-                    "tool": self.NAME,
-                    "action": "get",
-                    "tasklist_key": tasklist_key,
-                    "tasklist": tl.to_dict() if hasattr(tl, "to_dict") else tl,
-                }
-
-            if action == "delete":
-                if not tasklist_key:
-                    return {
-                        "ok": False,
-                        "tool": self.NAME,
-                        "action": "delete",
-                        "error": {"code": "missing_key", "message": "tasklist_key is required for delete"},
-                    }
-                # delete is idempotent per storage contract
-                self.storage.delete_tasklist(account_name, tasklist_key)
-                return {"ok": True, "tool": self.NAME, "action": "delete", "tasklist_key": tasklist_key}
-
-            if action == "reset":
-                if not tasklist_key:
-                    return {
-                        "ok": False,
-                        "tool": self.NAME,
-                        "action": "reset",
-                        "error": {"code": "missing_key", "message": "tasklist_key is required for reset"},
-                    }
-                tl = self.storage.get_tasklist(account_name, tasklist_key)
-                if tl is None:
-                    return {
-                        "ok": False,
-                        "tool": self.NAME,
-                        "action": "reset",
-                        "tasklist_key": tasklist_key,
-                        "error": {"code": "not_found", "message": "tasklist not found"},
-                    }
-
-                # Build reset state from a dict copy — never mutate the original in-place
-                reset_dict = tl.to_dict()
-                reset_dict["state"] = TASK_LIST_STATE_CREATED
-                reset_dict["current_task_id"] = None
-                for task in reset_dict["tasks"]:
-                    task["state"] = TASK_STATE_PENDING
-                    task["result"] = None
-                    task["error"] = None
-
-                if not validate_only:
-                    self.storage.save_tasklist(account_name, tasklist_key, reset_dict)
-
-                return {
-                    "ok": True,
-                    "tool": self.NAME,
-                    "action": "reset",
-                    "tasklist_key": tasklist_key,
-                    "tasklist": reset_dict,
-                }
-
-            if action == "put":
-                if not tasklist_key:
-                    return {
-                        "ok": False,
-                        "tool": self.NAME,
-                        "action": "put",
-                        "error": {"code": "missing_key", "message": "tasklist_key is required for put"},
-                    }
-
-                # Accept JSON string or dict
-                if isinstance(payload, str):
-                    try:
-                        payload_obj = json.loads(payload)
-                        payload = payload_obj
-                    except Exception:
-                        return {
-                            "ok": False,
-                            "tool": self.NAME,
-                            "action": "put",
-                            "tasklist_key": tasklist_key,
-                            "error": {"code": "invalid_payload", "message": "tasklist is not valid JSON"},
-                        }
-
-                # Validate payload shape by constructing a TaskList (will raise on invalid)
-                try:
-                    TaskList.from_dict(payload)
-                except Exception as e:
-                    return {
-                        "ok": False,
-                        "tool": self.NAME,
-                        "action": "put",
-                        "tasklist_key": tasklist_key,
-                        "error": {"code": "invalid_tasklist", "message": str(e)},
-                    }
-
-
-                # Safety: if replacing an existing tasklist, require id match.
-                # The URL tasklist_key is a storage key (filename), not the TaskList UUID.
-                existing = self.storage.get_tasklist(account_name, tasklist_key)
-                if existing is not None:
-                    incoming_id = payload.get("id") if isinstance(payload, dict) else None
-                    if not incoming_id:
-                        return {
-                            "ok": False,
-                            "tool": self.NAME,
-                            "action": "put",
-                            "tasklist_key": tasklist_key,
-                            "error": {
-                                "code": "missing_tasklist_uuid",
-                                "message": "TaskList.id is required when replacing an existing tasklist",
-                            },
-                        }
-                    if incoming_id != existing.id:
-                        return {
-                            "ok": False,
-                            "tool": self.NAME,
-                            "action": "put",
-                            "tasklist_key": tasklist_key,
-                            "error": {
-                                "code": "tasklist_uuid_mismatch",
-                                "message": "TaskList.id does not match the existing stored tasklist",
-                            },
-                        }
-
-                if not validate_only:
-                    self.storage.save_tasklist(account_name, tasklist_key, payload)
-
-                return {
-                    "ok": True,
-                    "tool": self.NAME,
-                    "action": "put",
-                    "tasklist_key": tasklist_key,
-                    "tasklist": payload,
-                }
-
-            if action == "patch":
-                return self._handle_patch(account_name, tasklist_key, payload, validate_only)
+                return self._handle_list(account_name)
+            elif action == "get":
+                return self._handle_get(account_name, args)
+            elif action == "put":
+                return self._handle_put(account_name, args)
+            elif action == "delete":
+                return self._handle_delete(account_name, args)
+            elif action == "reset":
+                return self._handle_reset(account_name, args)
+            elif action == "add_task":
+                return self._handle_add_task(account_name, args)
+            elif action == "update_task":
+                return self._handle_update_task(account_name, args)
+            elif action == "remove_task":
+                return self._handle_remove_task(account_name, args)
+            elif action == "set_state":
+                return self._handle_set_state(account_name, args)
+            elif action == "set_name":
+                return self._handle_set_name(account_name, args)
+            elif action == "set_description":
+                return self._handle_set_description(account_name, args)
+            elif action == "set_general_instructions":
+                return self._handle_set_general_instructions(account_name, args)
+            elif action == "update_meta":
+                return self._handle_update_meta(account_name, args)
 
         except Exception as e:
             logger.exception("tasklists.manage failed")
             return {"ok": False, "tool": self.NAME, "error": {"code": "internal_error", "message": str(e)}}
 
-        # fallback
         return {"ok": False, "tool": self.NAME, "error": {"code": "unknown", "message": "Unhandled code path"}}
 
     # ------------------------------------------------------------------
-    # Patch action
+    # Helpers
     # ------------------------------------------------------------------
 
-    def _handle_patch(
-        self,
-        account_name: str,
-        tasklist_key: str,
-        payload: Any,
-        validate_only: bool,
-    ) -> Dict[str, Any]:
-        """Apply partial updates to an existing tasklist.
-
-        The payload is a JSON string or dict containing an ``operations`` list.
-        Each operation is a dict with an ``op`` field and operation-specific fields.
-
-        Supported operations:
-
-        ``add_task``
-            Add a new task. Fields: ``task`` (dict with Task fields), ``after_index`` (int, optional).
-            If ``after_index`` is omitted, the task is appended at the end.
-
-        ``update_task``
-            Update fields on an existing task found by ``task_id``.
-            Fields: ``task_id`` (str), ``task`` (dict with Task fields to merge).
-
-        ``remove_task``
-            Remove a task by ``task_id``. Fields: ``task_id`` (str).
-
-        ``set_state``
-            Set the tasklist's ``state``. Fields: ``state`` (str).
-
-        ``update_meta``
-            Merge keys into the tasklist's ``meta`` dict. Fields: ``meta`` (dict).
-
-        ``set_general_instructions``
-            Replace the tasklist's ``general_instructions``. Fields: ``instructions`` (str).
-
-        ``set_name``
-            Replace the tasklist's ``name``. Fields: ``name`` (str).
-
-        ``set_description``
-            Replace the tasklist's ``description``. Fields: ``description`` (str).
-        """
+    @staticmethod
+    def _require_key(tasklist_key: str, action: str) -> Dict[str, Any] | None:
+        """Return an error dict if tasklist_key is missing, else None."""
         if not tasklist_key:
             return {
                 "ok": False,
-                "tool": self.NAME,
-                "action": "patch",
-                "error": {"code": "missing_key", "message": "tasklist_key is required for patch"},
+                "tool": "tasklists_manage",
+                "action": action,
+                "error": {"code": "missing_key", "message": "tasklist_key is required"},
             }
+        return None
 
-        # Parse payload if it's a JSON string
-        if isinstance(payload, str):
-            try:
-                payload = json.loads(payload)
-            except Exception:
-                return {
-                    "ok": False,
-                    "tool": self.NAME,
-                    "action": "patch",
-                    "tasklist_key": tasklist_key,
-                    "error": {"code": "invalid_payload", "message": "payload is not valid JSON"},
-                }
-
-        if not isinstance(payload, dict):
-            return {
-                "ok": False,
-                "tool": self.NAME,
-                "action": "patch",
-                "tasklist_key": tasklist_key,
-                "error": {"code": "invalid_payload", "message": "payload must be a JSON object with an 'operations' list"},
-            }
-
-        operations = payload.get("operations", [])
-        if not isinstance(operations, list):
-            return {
-                "ok": False,
-                "tool": self.NAME,
-                "action": "patch",
-                "tasklist_key": tasklist_key,
-                "error": {"code": "invalid_operations", "message": "'operations' must be a list"},
-            }
-
-        if not operations:
-            return {
-                "ok": False,
-                "tool": self.NAME,
-                "action": "patch",
-                "tasklist_key": tasklist_key,
-                "error": {"code": "empty_operations", "message": "at least one operation is required"},
-            }
-
-        # Load the existing tasklist
-        tl = self.storage.get_tasklist(account_name, tasklist_key)
+    def _require_found(self, tl: TaskList | None, tasklist_key: str, action: str) -> Dict[str, Any] | None:
+        """Return an error dict if tasklist is None, else None."""
         if tl is None:
             return {
                 "ok": False,
                 "tool": self.NAME,
-                "action": "patch",
+                "action": action,
                 "tasklist_key": tasklist_key,
                 "error": {"code": "not_found", "message": "tasklist not found"},
             }
+        return None
+
+    def _load_and_require(self, account_name: str, tasklist_key: str, action: str) -> tuple[TaskList | None, Dict[str, Any] | None]:
+        """Load tasklist and return (tasklist, error_or_none)."""
+        err = self._require_key(tasklist_key, action)
+        if err:
+            return None, err
+        tl = self.storage.get_tasklist(account_name, tasklist_key)
+        err = self._require_found(tl, tasklist_key, action)
+        return tl, err
+
+    # ------------------------------------------------------------------
+    # Action handlers
+    # ------------------------------------------------------------------
+
+    def _handle_list(self, account_name: str) -> Dict[str, Any]:
+        ids = self.storage.list_tasklists(account_name)
+        return {"ok": True, "tool": self.NAME, "action": "list", "tasklist_keys": ids}
+
+    def _handle_get(self, account_name: str, args: Dict[str, Any]) -> Dict[str, Any]:
+        tasklist_key = (args.get("tasklist_key") or "").strip()
+        tl, err = self._load_and_require(account_name, tasklist_key, "get")
+        if err:
+            return err
+        return {
+            "ok": True,
+            "tool": self.NAME,
+            "action": "get",
+            "tasklist_key": tasklist_key,
+            "tasklist": tl.to_dict(),
+        }
+
+    def _handle_delete(self, account_name: str, args: Dict[str, Any]) -> Dict[str, Any]:
+        tasklist_key = (args.get("tasklist_key") or "").strip()
+        err = self._require_key(tasklist_key, "delete")
+        if err:
+            return err
+        # delete is idempotent per storage contract
+        self.storage.delete_tasklist(account_name, tasklist_key)
+        return {"ok": True, "tool": self.NAME, "action": "delete", "tasklist_key": tasklist_key}
+
+    def _handle_reset(self, account_name: str, args: Dict[str, Any]) -> Dict[str, Any]:
+        tasklist_key = (args.get("tasklist_key") or "").strip()
+        validate_only = bool(args.get("validate_only", False))
+        tl, err = self._load_and_require(account_name, tasklist_key, "reset")
+        if err:
+            return err
 
         # Work on a copy to avoid mutating the original when validate_only=True
-        tl_copy = TaskList.from_dict(tl.to_dict())
-
-        # Apply each operation in order
-        for i, op in enumerate(operations):
-            if not isinstance(op, dict):
-                return {
-                    "ok": False,
-                    "tool": self.NAME,
-                    "action": "patch",
-                    "tasklist_key": tasklist_key,
-                    "error": {
-                        "code": "invalid_operation",
-                        "message": f"operation at index {i} is not a dict",
-                    },
-                }
-
-            op_type = op.get("op", "")
-            try:
-                self._apply_operation(tl_copy, op_type, op, i)
-            except (ValueError, TypeError, IndexError, KeyError) as e:
-                return {
-                    "ok": False,
-                    "tool": self.NAME,
-                    "action": "patch",
-                    "tasklist_key": tasklist_key,
-                    "error": {
-                        "code": "operation_failed",
-                        "message": f"operation {i} ('{op_type}') failed: {e}",
-                    },
-                }
+        reset_dict = tl.to_dict()
+        reset_dict["state"] = TASK_LIST_STATE_CREATED
+        reset_dict["current_task_id"] = None
+        for task in reset_dict["tasks"]:
+            task["state"] = TASK_STATE_PENDING
+            task["result"] = None
+            task["error"] = None
 
         if not validate_only:
-            self.storage.save_tasklist(account_name, tasklist_key, tl_copy.to_dict())
+            self.storage.save_tasklist(account_name, tasklist_key, reset_dict)
 
         return {
             "ok": True,
             "tool": self.NAME,
-            "action": "patch",
+            "action": "reset",
             "tasklist_key": tasklist_key,
-            "tasklist": tl_copy.to_dict(),
+            "tasklist": reset_dict,
         }
 
-    def _apply_operation(self, tl: TaskList, op_type: str, op: Dict[str, Any], index: int) -> None:
-        """Apply a single patch operation to *tl* in place."""
-        if op_type == "add_task":
-            task_dict = op.get("task")
-            if not isinstance(task_dict, dict):
-                raise ValueError("'task' must be a dict")
-            task = Task.from_dict(task_dict)
-            after_index = op.get("after_index")
-            if after_index is not None:
-                insert_at = min(int(after_index) + 1, len(tl.tasks))
-                tl.tasks.insert(insert_at, task)
-            else:
-                tl.tasks.append(task)
+    # ------------------------------------------------------------------
+    # _handle_put — convenience / explicit
+    # ------------------------------------------------------------------
 
-        elif op_type == "update_task":
-            task_id = str(op.get("task_id", ""))
-            if not task_id:
-                raise ValueError("'task_id' is required for update_task")
-            task_dict = op.get("task", {})
-            if not isinstance(task_dict, dict):
-                raise ValueError("'task' must be a dict")
-            # Find task by ID
-            target = None
-            for t in tl.tasks:
-                if str(t.id) == task_id:
-                    target = t
-                    break
-            if target is None:
-                raise ValueError(f"task with id '{task_id}' not found")
-            # Merge fields from task_dict into the existing Task
-            if "id" in task_dict:
-                target.id = str(task_dict["id"])
-            if "name" in task_dict:
-                target.name = str(task_dict["name"])
-            if "instructions" in task_dict:
-                target.instructions = str(task_dict["instructions"])
-            if "state" in task_dict:
-                target.state = str(task_dict["state"])
-            if "result" in task_dict:
-                target.result = task_dict["result"]
-            if "error" in task_dict:
-                target.error = task_dict["error"]
-            if "meta" in task_dict and isinstance(task_dict["meta"], dict):
-                target.meta.update(task_dict["meta"])
+    def _handle_put(self, account_name: str, args: Dict[str, Any]) -> Dict[str, Any]:
+        tasklist_key = (args.get("tasklist_key") or "").strip()
+        validate_only = bool(args.get("validate_only", False))
 
-        elif op_type == "remove_task":
-            task_id = str(op.get("task_id", ""))
-            if not task_id:
-                raise ValueError("'task_id' is required for remove_task")
-            # Find and remove task by ID
-            for i, t in enumerate(tl.tasks):
-                if str(t.id) == task_id:
-                    tl.tasks.pop(i)
-                    return
-            raise ValueError(f"task with id '{task_id}' not found")
+        err = self._require_key(tasklist_key, "put")
+        if err:
+            return err
 
-        elif op_type == "set_state":
-            state = op.get("state", "")
-            if not state:
-                raise ValueError("'state' is required for set_state")
-            tl.state = str(state)
+        # Convenience path: goal provided
+        if "goal" in args and args["goal"]:
+            return self._put_convenience(account_name, tasklist_key, args, validate_only)
 
-        elif op_type == "update_meta":
-            meta_update = op.get("meta", {})
-            if not isinstance(meta_update, dict):
-                raise ValueError("'meta' must be a dict")
-            tl.meta.update(meta_update)
+        # Explicit path: name + description provided
+        if "name" in args and args.get("name") and "description" in args and args.get("description"):
+            return self._put_explicit(account_name, tasklist_key, args, validate_only)
 
-        elif op_type == "set_general_instructions":
-            instructions = op.get("instructions", "")
-            tl.general_instructions = str(instructions)
+        return {
+            "ok": False,
+            "tool": self.NAME,
+            "action": "put",
+            "tasklist_key": tasklist_key,
+            "error": {"code": "missing_fields", "message": "must provide 'goal' or ('name' + 'description')"},
+        }
 
-        elif op_type == "set_name":
-            name = op.get("name", "")
-            if not name:
-                raise ValueError("'name' is required for set_name")
-            tl.name = str(name)
+    def _put_convenience(self, account_name: str, tasklist_key: str, args: Dict[str, Any], validate_only: bool) -> Dict[str, Any]:
+        goal = args["goal"]
+        files = args.get("files") or []
+        worker_agent = args.get("worker_agent")
 
-        elif op_type == "set_description":
-            description = op.get("description", "")
-            if not description:
-                raise ValueError("'description' is required for set_description")
-            tl.description = str(description)
+        # Derive human-readable name from key: "fix-handler-timeout" → "Fix Handler Timeout"
+        name = tasklist_key.replace("-", " ").replace("_", " ").title()
 
+        tl = TaskList(
+            id=tasklist_key,
+            schema_version=1,
+            state=TASK_LIST_STATE_CREATED,
+            name=name,
+            description=goal,
+            tasks=[],
+            meta={},
+            general_instructions=goal,
+        )
+
+        if files:
+            for i, filepath in enumerate(files):
+                fname = os.path.basename(filepath)
+                task_name = os.path.splitext(fname)[0]
+                task = Task(
+                    id=f"task-{i + 1}",
+                    name=task_name,
+                    instructions=goal,
+                    agent=worker_agent,
+                )
+                tl.add_task(task)
         else:
-            raise ValueError(f"unknown operation '{op_type}'")
+            task = Task(
+                id="task-1",
+                name="Execute goal",
+                instructions=goal,
+                agent=worker_agent,
+            )
+            tl.add_task(task)
+
+        payload = tl.to_dict()
+        if not validate_only:
+            self.storage.save_tasklist(account_name, tasklist_key, payload)
+
+        return {"ok": True, "tool": self.NAME, "action": "put", "tasklist_key": tasklist_key, "tasklist": payload}
+
+    def _put_explicit(self, account_name: str, tasklist_key: str, args: Dict[str, Any], validate_only: bool) -> Dict[str, Any]:
+        name = args["name"]
+        description = args["description"]
+        general_instructions = args.get("general_instructions", "")
+
+        tl = TaskList(
+            id=tasklist_key,
+            schema_version=1,
+            state=TASK_LIST_STATE_CREATED,
+            name=name,
+            description=description,
+            tasks=[],
+            meta={},
+            general_instructions=general_instructions,
+        )
+
+        payload = tl.to_dict()
+        if not validate_only:
+            self.storage.save_tasklist(account_name, tasklist_key, payload)
+
+        return {"ok": True, "tool": self.NAME, "action": "put", "tasklist_key": tasklist_key, "tasklist": payload}
+
+    # ------------------------------------------------------------------
+    # Per-action: task and metadata mutations
+    # ------------------------------------------------------------------
+
+    def _handle_add_task(self, account_name: str, args: Dict[str, Any]) -> Dict[str, Any]:
+        tasklist_key = (args.get("tasklist_key") or "").strip()
+        validate_only = bool(args.get("validate_only", False))
+        tl, err = self._load_and_require(account_name, tasklist_key, "add_task")
+        if err:
+            return err
+
+        task_id = args.get("task_id", "")
+        task_name = args.get("task_name", "")
+        if not task_id or not task_name:
+            return {
+                "ok": False,
+                "tool": self.NAME,
+                "action": "add_task",
+                "tasklist_key": tasklist_key,
+                "error": {"code": "missing_fields", "message": "task_id and task_name are required for add_task"},
+            }
+
+        task = Task(
+            id=task_id,
+            name=task_name,
+            instructions=args.get("task_instructions", ""),
+            state=args.get("task_state"),
+            agent=args.get("task_agent"),
+            meta=args.get("task_meta") or {},
+        )
+
+        after_index = args.get("after_index")
+        if after_index is not None:
+            insert_at = min(int(after_index) + 1, len(tl.tasks))
+            tl.tasks.insert(insert_at, task)
+        else:
+            tl.tasks.append(task)
+
+        payload = tl.to_dict()
+        if not validate_only:
+            self.storage.save_tasklist(account_name, tasklist_key, payload)
+
+        return {"ok": True, "tool": self.NAME, "action": "add_task", "tasklist_key": tasklist_key, "tasklist": payload}
+
+    def _handle_update_task(self, account_name: str, args: Dict[str, Any]) -> Dict[str, Any]:
+        tasklist_key = (args.get("tasklist_key") or "").strip()
+        validate_only = bool(args.get("validate_only", False))
+        tl, err = self._load_and_require(account_name, tasklist_key, "update_task")
+        if err:
+            return err
+
+        target_task_id = str(args.get("task_id", ""))
+        if not target_task_id:
+            return {
+                "ok": False,
+                "tool": self.NAME,
+                "action": "update_task",
+                "tasklist_key": tasklist_key,
+                "error": {"code": "missing_fields", "message": "task_id is required for update_task"},
+            }
+
+        # Find task
+        target = tl.get_task(target_task_id)
+        if target is None:
+            return {
+                "ok": False,
+                "tool": self.NAME,
+                "action": "update_task",
+                "tasklist_key": tasklist_key,
+                "error": {"code": "not_found", "message": f"task with id '{target_task_id}' not found"},
+            }
+
+        # Merge fields
+        if "task_name" in args:
+            target.name = str(args["task_name"])
+        if "task_instructions" in args:
+            target.instructions = str(args["task_instructions"])
+        if "task_state" in args:
+            target.state = str(args["task_state"])
+        if "task_result" in args:
+            target.result = args["task_result"]
+        if "task_error" in args:
+            target.error = args["task_error"]
+        if "task_meta" in args and isinstance(args["task_meta"], dict):
+            target.meta.update(args["task_meta"])
+        if "task_agent" in args:
+            target.agent = args["task_agent"]
+
+        payload = tl.to_dict()
+        if not validate_only:
+            self.storage.save_tasklist(account_name, tasklist_key, payload)
+
+        return {"ok": True, "tool": self.NAME, "action": "update_task", "tasklist_key": tasklist_key, "tasklist": payload}
+
+    def _handle_remove_task(self, account_name: str, args: Dict[str, Any]) -> Dict[str, Any]:
+        tasklist_key = (args.get("tasklist_key") or "").strip()
+        validate_only = bool(args.get("validate_only", False))
+        tl, err = self._load_and_require(account_name, tasklist_key, "remove_task")
+        if err:
+            return err
+
+        target_task_id = str(args.get("task_id", ""))
+        if not target_task_id:
+            return {
+                "ok": False,
+                "tool": self.NAME,
+                "action": "remove_task",
+                "tasklist_key": tasklist_key,
+                "error": {"code": "missing_fields", "message": "task_id is required for remove_task"},
+            }
+
+        for i, t in enumerate(tl.tasks):
+            if str(t.id) == target_task_id:
+                tl.tasks.pop(i)
+                break
+        else:
+            return {
+                "ok": False,
+                "tool": self.NAME,
+                "action": "remove_task",
+                "tasklist_key": tasklist_key,
+                "error": {"code": "not_found", "message": f"task with id '{target_task_id}' not found"},
+            }
+
+        payload = tl.to_dict()
+        if not validate_only:
+            self.storage.save_tasklist(account_name, tasklist_key, payload)
+
+        return {"ok": True, "tool": self.NAME, "action": "remove_task", "tasklist_key": tasklist_key, "tasklist": payload}
+
+    def _handle_set_state(self, account_name: str, args: Dict[str, Any]) -> Dict[str, Any]:
+        tasklist_key = (args.get("tasklist_key") or "").strip()
+        validate_only = bool(args.get("validate_only", False))
+        tl, err = self._load_and_require(account_name, tasklist_key, "set_state")
+        if err:
+            return err
+
+        state = args.get("state", "")
+        if not state:
+            return {
+                "ok": False,
+                "tool": self.NAME,
+                "action": "set_state",
+                "tasklist_key": tasklist_key,
+                "error": {"code": "missing_fields", "message": "state is required for set_state"},
+            }
+
+        tl.state = str(state)
+
+        payload = tl.to_dict()
+        if not validate_only:
+            self.storage.save_tasklist(account_name, tasklist_key, payload)
+
+        return {"ok": True, "tool": self.NAME, "action": "set_state", "tasklist_key": tasklist_key, "tasklist": payload}
+
+    def _handle_set_name(self, account_name: str, args: Dict[str, Any]) -> Dict[str, Any]:
+        tasklist_key = (args.get("tasklist_key") or "").strip()
+        validate_only = bool(args.get("validate_only", False))
+        tl, err = self._load_and_require(account_name, tasklist_key, "set_name")
+        if err:
+            return err
+
+        name = args.get("name", "")
+        if not name:
+            return {
+                "ok": False,
+                "tool": self.NAME,
+                "action": "set_name",
+                "tasklist_key": tasklist_key,
+                "error": {"code": "missing_fields", "message": "name is required for set_name"},
+            }
+
+        tl.name = str(name)
+
+        payload = tl.to_dict()
+        if not validate_only:
+            self.storage.save_tasklist(account_name, tasklist_key, payload)
+
+        return {"ok": True, "tool": self.NAME, "action": "set_name", "tasklist_key": tasklist_key, "tasklist": payload}
+
+    def _handle_set_description(self, account_name: str, args: Dict[str, Any]) -> Dict[str, Any]:
+        tasklist_key = (args.get("tasklist_key") or "").strip()
+        validate_only = bool(args.get("validate_only", False))
+        tl, err = self._load_and_require(account_name, tasklist_key, "set_description")
+        if err:
+            return err
+
+        description = args.get("description", "")
+        if not description:
+            return {
+                "ok": False,
+                "tool": self.NAME,
+                "action": "set_description",
+                "tasklist_key": tasklist_key,
+                "error": {"code": "missing_fields", "message": "description is required for set_description"},
+            }
+
+        tl.description = str(description)
+
+        payload = tl.to_dict()
+        if not validate_only:
+            self.storage.save_tasklist(account_name, tasklist_key, payload)
+
+        return {"ok": True, "tool": self.NAME, "action": "set_description", "tasklist_key": tasklist_key, "tasklist": payload}
+
+    def _handle_set_general_instructions(self, account_name: str, args: Dict[str, Any]) -> Dict[str, Any]:
+        tasklist_key = (args.get("tasklist_key") or "").strip()
+        validate_only = bool(args.get("validate_only", False))
+        tl, err = self._load_and_require(account_name, tasklist_key, "set_general_instructions")
+        if err:
+            return err
+
+        instructions = args.get("instructions", "")
+        tl.general_instructions = str(instructions)
+
+        payload = tl.to_dict()
+        if not validate_only:
+            self.storage.save_tasklist(account_name, tasklist_key, payload)
+
+        return {"ok": True, "tool": self.NAME, "action": "set_general_instructions", "tasklist_key": tasklist_key, "tasklist": payload}
+
+    def _handle_update_meta(self, account_name: str, args: Dict[str, Any]) -> Dict[str, Any]:
+        tasklist_key = (args.get("tasklist_key") or "").strip()
+        validate_only = bool(args.get("validate_only", False))
+        tl, err = self._load_and_require(account_name, tasklist_key, "update_meta")
+        if err:
+            return err
+
+        meta_update = args.get("meta", {})
+        if not isinstance(meta_update, dict):
+            return {
+                "ok": False,
+                "tool": self.NAME,
+                "action": "update_meta",
+                "tasklist_key": tasklist_key,
+                "error": {"code": "invalid_meta", "message": "meta must be a dict"},
+            }
+
+        tl.meta.update(meta_update)
+
+        payload = tl.to_dict()
+        if not validate_only:
+            self.storage.save_tasklist(account_name, tasklist_key, payload)
+
+        return {"ok": True, "tool": self.NAME, "action": "update_meta", "tasklist_key": tasklist_key, "tasklist": payload}

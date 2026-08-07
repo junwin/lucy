@@ -177,6 +177,13 @@ def app_process(live_config: Path, seeded_chat2_data: str, tmp_path: Path):
         backup = config_dest.with_suffix(".json.bak")
         config_dest.rename(backup)
 
+    # Also temporarily move aside config.local.json so local overrides do not interfere with test config
+    local_config_dest = Path(REPO_ROOT) / "config.local.json"
+    local_backup = None
+    if local_config_dest.exists():
+        local_backup = local_config_dest.with_suffix(".local.json.bak")
+        local_config_dest.rename(local_backup)
+
     # Copy temp config to repo root
     import shutil
     shutil.copy(str(live_config), str(config_dest))
@@ -206,6 +213,8 @@ def app_process(live_config: Path, seeded_chat2_data: str, tmp_path: Path):
         # Restore config before raising
         if backup and backup.exists():
             backup.rename(config_dest)
+        if local_backup and local_backup.exists():
+            local_backup.rename(local_config_dest)
         pytest.fail(
             f"App failed to start (exit code {poll}).\n"
             f"stdout: {stdout.decode()}\n"
@@ -227,6 +236,10 @@ def app_process(live_config: Path, seeded_chat2_data: str, tmp_path: Path):
         backup.rename(config_dest)
     elif config_dest.exists() and backup is None:
         config_dest.unlink()
+
+    # Restore original local config
+    if local_backup and local_backup.exists():
+        local_backup.rename(local_config_dest)
 
 
 # ---------------------------------------------------------------------------

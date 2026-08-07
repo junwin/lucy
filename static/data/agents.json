@@ -218,7 +218,7 @@
     "context_type": "hybrid",
     "max_prompt_conversations": 4,
     "max_prompt_documents": 4,
-    "partner_agent": "star",
+    "partner_agent": "colin",
     "temperature": 0,
     "save_responses": true,
     "model": "mistral-large-latest",

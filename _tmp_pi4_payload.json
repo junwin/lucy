@@ -1,0 +1,7 @@
+{
+  "question": "Install meshtasticd on this Debian 12 (bookworm) machine using the beta channel from OpenSUSE Build Service. Steps: 1. Add the repo: echo 'deb http://download.opensuse.org/repositories/network:/Meshtastic:/beta/Debian_12/ /' | sudo tee /etc/apt/sources.list.d/network:Meshtastic:beta.list  2. Add GPG key: curl -fsSL https://download.opensuse.org/repositories/network:Meshtastic:beta/Debian_12/Release.key | gpg --dearmor | sudo tee /etc/apt/trusted.gpg.d/network_Meshtastic_beta.gpg > /dev/null  3. sudo apt update && sudo apt install -y meshtasticd  After install, flash the Heltec WiFi LoRa 32 V3 (ESP32-S3, /dev/ttyUSB0) with Meshtastic firmware using the device-install tool. Report every step clearly.",
+  "accountName": "junwin",
+  "agentName": "peace",
+  "contextName": "lucyproject",
+  "sessionId": "66cfae38-f1cc-4f7f-8168-3160e64ed30c"
+}
