@@ -59,6 +59,7 @@ class PromptBuilder(PromptBuilderInterface):
         extra_system_messages: Optional[List[str]] = None,
         image_ids: Optional[List[str]] = None,
         file_ids: Optional[List[str]] = None,
+        supports_images: bool = True,
     ) -> List[Dict[str, Any]]:
         """Build the full prompt (list of messages) for a model call.
 
@@ -195,10 +196,13 @@ class PromptBuilder(PromptBuilderInterface):
             content_parts: List[Dict[str, Any]] = [
                 {"type": "text", "text": content_text}
             ]
+            agent_allowed_tools = agent.allowed_tools if agent else None
             content_parts.extend(self._resolve_attachments(
                 account_name=account_name,
                 image_ids=image_ids,
                 file_ids=file_ids,
+                agent_allowed_tools=agent_allowed_tools,
+                supports_images=supports_images,
             ))
             messages.append({"role": "user", "content": content_parts})
         else:
@@ -211,7 +215,7 @@ class PromptBuilder(PromptBuilderInterface):
         logging.info(
             "PromptBuilder.build_prompt: agent=%s account=%s session_id=%s "
             "context_type=%s context_name=%s history_messages=%d docs_used=%d "
-            "attachments=%d",
+            "attachments=%d supports_images=%s",
             agent_name,
             account_name,
             conversation_id,
@@ -220,6 +224,7 @@ class PromptBuilder(PromptBuilderInterface):
             len(history_messages),
             len(doc_contexts),
             attachment_count,
+            supports_images,
         )
 
         return messages
@@ -250,13 +255,26 @@ class PromptBuilder(PromptBuilderInterface):
         account_name: str,
         image_ids: Optional[List[str]],
         file_ids: Optional[List[str]],
+        agent_allowed_tools: Optional[List[str]] = None,
+        supports_images: bool = True,
     ) -> List[Dict[str, Any]]:
         """Resolve image_ids and file_ids into provider-agnostic content parts.
 
+        When supports_images is False, images are emitted as text markers
+        (image UUID + filename) instead of base64 data, so a text-only model
+        can still see that images exist. A mandatory instruction is appended
+        telling the agent to delegate image analysis via tasklists_manage +
+        tasklists_run to a vision-capable worker (colin).
+
+        File attachments are always inlined as text regardless.
+
         Returns a list of content-part dicts in intermediate format:
 
-            # Image part
+            # Image part (inline mode)
             {"type": "image", "source": {"data": "<base64>", "mime_type": "image/png"}}
+
+            # Image part (marker mode)
+            {"type": "text", "text": "[Attached image: <uuid> — foo.png]"}
 
             # File part (resolved to text)
             {"type": "text", "text": "[File: report.pdf]\\n...extracted content..."}
@@ -264,6 +282,9 @@ class PromptBuilder(PromptBuilderInterface):
         parts: List[Dict[str, Any]] = []
 
         images_dir = self._build_images_dir()
+
+        use_markers = not supports_images
+        any_image_marked = False
 
         for img_id in (image_ids or []):
             try:
@@ -276,27 +297,41 @@ class PromptBuilder(PromptBuilderInterface):
                     )
                     continue
 
-                with open(img_path, "rb") as f:
-                    raw = f.read()
+                if use_markers:
+                    filename = os.path.basename(img_path)
+                    parts.append({
+                        "type": "text",
+                        "text": f"[Attached image: {img_id} — {filename}]",
+                    })
+                    any_image_marked = True
 
-                b64 = base64.b64encode(raw).decode("ascii")
-                mime = self._guess_mime_from_path(img_path)
+                    logging.info(
+                        "PromptBuilder: marker for image_id=%s path=%s (supports_images=False)",
+                        img_id,
+                        img_path,
+                    )
+                else:
+                    with open(img_path, "rb") as f:
+                        raw = f.read()
 
-                parts.append({
-                    "type": "image",
-                    "source": {
-                        "data": b64,
-                        "mime_type": mime,
-                    },
-                })
+                    b64 = base64.b64encode(raw).decode("ascii")
+                    mime = self._guess_mime_from_path(img_path)
 
-                logging.info(
-                    "PromptBuilder: resolved image_id=%s path=%s size=%d mime=%s",
-                    img_id,
-                    img_path,
-                    len(raw),
-                    mime,
-                )
+                    parts.append({
+                        "type": "image",
+                        "source": {
+                            "data": b64,
+                            "mime_type": mime,
+                        },
+                    })
+
+                    logging.info(
+                        "PromptBuilder: resolved image_id=%s path=%s size=%d mime=%s",
+                        img_id,
+                        img_path,
+                        len(raw),
+                        mime,
+                    )
             except Exception as ex:
                 logging.warning(
                     "PromptBuilder: failed to resolve image_id=%s for account=%s: %s",
@@ -304,6 +339,20 @@ class PromptBuilder(PromptBuilderInterface):
                     account_name,
                     ex,
                 )
+
+        if any_image_marked:
+            parts.append({
+                "type": "text",
+                "text": (
+                    "Your model cannot see images. To analyze images: "
+                    "create a tasklist via tasklists_manage (action='put') "
+                    "with a task that includes the image UUIDs above in "
+                    "meta.image_ids as a list of strings. "
+                    "Example: \"meta\": {\"image_ids\": [\"<uuid>\"]}. "
+                    "Then run it with tasklists_run (worker_agent='colin'). "
+                    "Use the worker's output to answer the user."
+                ),
+            })
 
         for file_id in (file_ids or []):
             try:
@@ -353,7 +402,12 @@ class PromptBuilder(PromptBuilderInterface):
         """Find an image file by UUID in the account's images directory.
 
         Looks for `{img_id}.*` — returns the first matching file path or None.
+        If img_id is already a full, existing path, returns it directly.
         """
+        # Defensive: if img_id is a full path that exists, use it directly
+        if os.path.isabs(img_id) and os.path.isfile(img_id):
+            return img_id
+
         account_dir = os.path.join(images_dir, account_name)
         pattern = os.path.join(account_dir, f"{img_id}.*")
         matches = glob.glob(pattern)
@@ -364,8 +418,12 @@ class PromptBuilder(PromptBuilderInterface):
     def _find_file(self, images_dir: str, account_name: str, file_id: str) -> Optional[str]:
         """Find a general file by UUID in the account's directory.
 
-        Currently delegates to _find_image_file (files live in same dir structure).
+        If file_id is already a full, existing path, returns it directly.
+        Otherwise delegates to _find_image_file (files live in same dir structure).
         """
+        # Defensive: if file_id is a full path that exists, use it directly
+        if os.path.isabs(file_id) and os.path.isfile(file_id):
+            return file_id
         return self._find_image_file(images_dir, account_name, file_id)
 
     @staticmethod

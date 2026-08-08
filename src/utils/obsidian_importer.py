@@ -260,12 +260,15 @@ def index_obsidian_vault(
     *,
     kind: str = "obsidian_note",
     max_files: Optional[int] = None,
-    no_recursion: bool = False,
+    recursive: bool = False,
 ) -> list[DocumentRef]:
     """Index all .md files in an Obsidian vault as DocumentRef entries.
 
     This uses Storage.upsert_document so it works with the current
     JsonFileStorage implementation and future SQL/vector DB backends.
+
+    By default only indexes .md files directly inside *vault_path* (no
+    recursion).  Pass ``recursive=True`` to descend into subdirectories.
 
     Args:
         storage: Storage implementation to write documents to.
@@ -273,8 +276,8 @@ def index_obsidian_vault(
         vault_path: Root directory of the Obsidian vault.
         kind: Document kind label (defaults to "obsidian_note").
         max_files: Optional cap on number of files to index (for testing).
-        no_recursion: If True, only index .md files directly inside
-            vault_path, skipping all subdirectories.
+        recursive: If True, recursively index .md files in all subdirectories.
+            Default is False (top-level only).
 
     Returns:
         A list of DocumentRef objects that were upserted.
@@ -291,8 +294,9 @@ def index_obsidian_vault(
 
     vault_name = vault.name
 
-    # When no_recursion is set, only scan the top-level directory.
-    glob_pattern = vault.glob("*.md") if no_recursion else vault.rglob("*.md")
+    # Default: non-recursive (top-level .md files only).
+    # --recursive flag enables full tree scan.
+    glob_pattern = vault.rglob("*.md") if recursive else vault.glob("*.md")
 
     for md_file in glob_pattern:
         if max_files is not None and count >= max_files:

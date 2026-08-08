@@ -34,7 +34,8 @@ Options added:
 - --file: index a single .md file instead of a vault directory. When used
   together with --vault-root, the relative path and vault name are derived
   from that root.
-- --no-recursion: only index .md files directly in --vault-path, skip subdirectories.
+- --recursive: also index .md files in subdirectories. By default only the
+  top-level .md files inside --vault-path are processed.
 
 Validation behaviour:
 - If --vault-root (or --vault-root-name) is provided, the user MUST also
@@ -153,11 +154,12 @@ def main(argv: Optional[list[str]] = None) -> None:
         ),
     )
     parser.add_argument(
-        "--no-recursion",
+        "--recursive",
         action="store_true",
         help=(
-            "Only index .md files directly inside --vault-path, skipping all subdirectories. "
-            "Has no effect when used with --file."
+            "Recursively index .md files in all subdirectories under --vault-path. "
+            "By default only the top-level .md files are indexed. Has no effect when "
+            "used with --file."
         ),
     )
 
@@ -271,7 +273,7 @@ def main(argv: Optional[list[str]] = None) -> None:
         print(f"  resolved_vault: {vault}")
         print(f"  exists: {vault.exists()}")
         print(f"  is_dir: {vault.is_dir()}")
-        print(f"  no_recursion: {args.no_recursion}")
+        print(f"  recursive: {args.recursive}")
         sys.exit(0)
 
     if not vault.exists():
@@ -284,7 +286,7 @@ def main(argv: Optional[list[str]] = None) -> None:
         account_name=args.account,
         vault_path=vault,
         max_files=args.max_files,
-        no_recursion=args.no_recursion,
+        recursive=args.recursive,
     )
 
     print(f"Indexed {len(docs)} documents from {vault} for account {args.account}.")

@@ -72,7 +72,8 @@ class TestTasklistsRunHandler:
         assert td["name"] == "tasklists_run"
         assert "tasklist_id" in td["parameters"]["properties"]
         assert "mode" in td["parameters"]["properties"]
-        assert td["parameters"]["required"] == ["tasklist_id", "mode"]
+        assert "worker_agent" in td["parameters"]["properties"]
+        assert set(td["parameters"]["required"]) == {"tasklist_id", "mode", "worker_agent"}
 
     def test_result_schema_structure(self):
         """result_schema returns a valid JSON schema."""
@@ -265,3 +266,88 @@ class TestTasklistsRunHandler:
         )
         assert result["ok"] is True
         assert fake_ap.calls[0]["agent_name"] == "lucy"
+
+    # ------------------------------------------------------------------
+    # worker_agent delegation tests
+    # ------------------------------------------------------------------
+
+    def test_worker_agent_passed_through_to_execute_tasklist(self):
+        """worker_agent string is passed to execute_tasklist() when provided."""
+        fake_ap = FakeAutomationProcessor(result="[AutomationProcessor] mode=single-step state=completed task='T1' executed=1")
+        handler = TasklistsRunHandler(SimpleConfig())
+        ctx = make_context(automation_processor=fake_ap)
+
+        result = handler.execute(
+            {"tasklist_id": "tl1", "mode": "single-step", "worker_agent": "colin"},
+            account_name="alice",
+            **ctx,
+        )
+        assert result["ok"] is True
+        assert result.get("worker_agent") == "colin"
+
+        # Verify execute_tasklist was called with worker_agent
+        assert len(fake_ap.calls) == 1
+        assert fake_ap.calls[0]["worker_agent"] == "colin"
+
+    def test_worker_agent_defaults_to_none_when_not_provided(self):
+        """worker_agent is None when not in args."""
+        fake_ap = FakeAutomationProcessor()
+        handler = TasklistsRunHandler(SimpleConfig())
+        ctx = make_context(automation_processor=fake_ap)
+
+        result = handler.execute(
+            {"tasklist_id": "tl1", "mode": "single-step"},
+            account_name="alice",
+            **ctx,
+        )
+        assert result["ok"] is True
+        assert result.get("worker_agent") is None
+
+        # Verify execute_tasklist was called with worker_agent=None
+        assert len(fake_ap.calls) == 1
+        assert fake_ap.calls[0]["worker_agent"] is None
+
+    def test_worker_agent_empty_string_becomes_none(self):
+        """Empty worker_agent string is normalized to None."""
+        fake_ap = FakeAutomationProcessor()
+        handler = TasklistsRunHandler(SimpleConfig())
+        ctx = make_context(automation_processor=fake_ap)
+
+        result = handler.execute(
+            {"tasklist_id": "tl1", "mode": "single-step", "worker_agent": ""},
+            account_name="alice",
+            **ctx,
+        )
+        assert result["ok"] is True
+        assert result.get("worker_agent") is None
+
+        assert fake_ap.calls[0]["worker_agent"] is None
+
+    def test_worker_agent_whitespace_only_becomes_none(self):
+        """Whitespace-only worker_agent is normalized to None."""
+        fake_ap = FakeAutomationProcessor()
+        handler = TasklistsRunHandler(SimpleConfig())
+        ctx = make_context(automation_processor=fake_ap)
+
+        result = handler.execute(
+            {"tasklist_id": "tl1", "mode": "single-step", "worker_agent": "   "},
+            account_name="alice",
+            **ctx,
+        )
+        assert result["ok"] is True
+        assert result.get("worker_agent") is None
+
+        assert fake_ap.calls[0]["worker_agent"] is None
+
+    def test_worker_agent_in_tool_def(self):
+        """worker_agent is present in the tool definition parameters."""
+        td = TasklistsRunHandler.tool_def()
+        props = td["parameters"]["properties"]
+        assert "worker_agent" in props
+        assert props["worker_agent"]["type"] == "string"
+        assert "worker_agent" in td["parameters"]["required"]
+
+    def test_worker_agent_in_result_schema(self):
+        """worker_agent is present in the result schema."""
+        rs = TasklistsRunHandler.result_schema()
+        assert "worker_agent" in rs["properties"]

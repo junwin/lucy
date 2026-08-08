@@ -12,6 +12,10 @@ class LLMApi(Protocol):
     depend on the OpenAI SDK response object shape.
     """
 
+    def supports_image_processing(self, model: str) -> bool:
+        """Return True if models from this provider natively handle images."""
+        ...
+
     def create_response(
         self,
         *,

@@ -37,12 +37,12 @@ def list_tasklists_impl(storage, account_name: str) -> Tuple[Any, int]:
         return {"error": "An error occurred"}, 500
 
 
-def get_tasklist_impl(storage, account_name: str, tasklist_name: str) -> Tuple[Any, int]:
+def get_tasklist_impl(storage, account_name: str, tasklist_key: str) -> Tuple[Any, int]:
     if not account_name:
         return {"error": "Missing accountName"}, 400
 
     try:
-        tl = storage.get_tasklist(account_name, tasklist_name)
+        tl = storage.get_tasklist(account_name, tasklist_key)
         if tl is None:
             return {"error": "TaskList not found"}, 404
 
@@ -53,12 +53,12 @@ def get_tasklist_impl(storage, account_name: str, tasklist_name: str) -> Tuple[A
         logging.exception(
             "get_tasklist_impl: failed to get tasklist for account=%s name=%s",
             account_name,
-            tasklist_name,
+            tasklist_key,
         )
         return {"error": "An error occurred", "details": str(e)}, 500
 
 
-def put_tasklist_impl(storage, account_name: str, tasklist_name: str, payload: Dict) -> Tuple[Any, int]:
+def put_tasklist_impl(storage, account_name: str, tasklist_key: str, payload: Dict) -> Tuple[Any, int]:
     if not account_name:
         return {"error": "Missing accountName"}, 400
 
@@ -66,7 +66,7 @@ def put_tasklist_impl(storage, account_name: str, tasklist_name: str, payload: D
         return {"error": "Invalid JSON body"}, 400
 
     try:
-        storage.save_tasklist(account_name, tasklist_name, payload)
+        storage.save_tasklist(account_name, tasklist_key, payload)
         return {"ok": True}, 200
     except ValueError as e:
         return {"error": str(e)}, 400
@@ -74,22 +74,22 @@ def put_tasklist_impl(storage, account_name: str, tasklist_name: str, payload: D
         logging.exception(
             "put_tasklist_impl: failed to save tasklist for account=%s name=%s",
             account_name,
-            tasklist_name,
+            tasklist_key,
         )
         return {"error": "An error occurred", "details": str(e)}, 500
 
 
-def delete_tasklist_impl(storage, account_name: str, tasklist_name: str) -> Tuple[Any, int]:
+def delete_tasklist_impl(storage, account_name: str, tasklist_key: str) -> Tuple[Any, int]:
     if not account_name:
         return {"error": "Missing accountName"}, 400
 
     try:
-        storage.delete_tasklist(account_name, tasklist_name)
+        storage.delete_tasklist(account_name, tasklist_key)
         return {"ok": True}, 200
     except Exception:
         logging.exception(
             "delete_tasklist_impl: failed to delete tasklist for account=%s name=%s",
             account_name,
-            tasklist_name,
+            tasklist_key,
         )
         return {"error": "An error occurred"}, 500

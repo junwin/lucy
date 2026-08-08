@@ -1,4 +1,3 @@
-from __future__ import annotations
 from dataclasses import dataclass
 try:
     from injector import inject
@@ -10,6 +9,7 @@ except Exception:
 import logging
 from typing import Optional, Dict, Any, List, Iterable, Generator, Tuple
 import json
+import re
 import time
 
 from src.config_manager import ConfigManager
@@ -20,9 +20,14 @@ from src.handlers.handler_registry import HandlerRegistry
 from src.agent import Agent
 
 from src.llm.adapter_interface import LLMAdapter
+from src.llm.provider_registry import ProviderRegistry
 
 from src.chat2.facade import Chat2Store
 from src.chat2.models import ChatEvent
+
+from src.message_processors.automation_processor import AutomationProcessor
+from src.tasklists.task import Task
+from src.tasklists.task_list import TaskList
 
 
 class ToolResultTooLargeError(Exception):
@@ -45,6 +50,7 @@ class _ProcessorContext:
     max_iterations: int
     store_this_call: bool
     delegation_depth: int
+    provider: Optional[str] = None
 
 
 @dataclass(frozen=True)
@@ -63,12 +69,14 @@ class FunctionCallingProcessor(MessageProcessorInterface):
         prompt_builder: PromptBuilderInterface,
         llm_adapter: LLMAdapter,
         chat2_store: Optional[Chat2Store] = None,
+        automation_processor: Optional[AutomationProcessor] = None,
     ):
         self.config = config
         self.registry = registry
         self.prompt_builder = prompt_builder
         self.llm_adapter = llm_adapter
         self.chat2_store = chat2_store
+        self.automation_processor = automation_processor
 
     # ------------------------------------------------------------------
     # Internal helpers
@@ -136,6 +144,21 @@ class FunctionCallingProcessor(MessageProcessorInterface):
             )
             max_iterations = 1
 
+        # Resolve provider name if agent has explicit provider; otherwise None.
+        provider_explicit = getattr(primary_agent, "provider", None)
+        if provider_explicit:
+            try:
+                provider = ProviderRegistry.resolve_name(primary_agent.model, provider_explicit)
+            except ValueError:
+                logging.warning(
+                    "FCP: unknown provider '%s' for agent '%s', ignoring",
+                    provider_explicit,
+                    agent_name,
+                )
+                provider = None
+        else:
+            provider = None
+
         return _ProcessorContext(
             account_id=account_id,
             agent_name=agent_name,
@@ -147,6 +170,7 @@ class FunctionCallingProcessor(MessageProcessorInterface):
             max_iterations=max_iterations,
             store_this_call=bool(primary_agent.save_responses),
             delegation_depth=int(getattr(primary_agent, "delegation_depth", 0)),
+            provider=provider,
         )
 
     def _wrap_tool_calls(self, tool_calls: Iterable[Dict[str, Any]]) -> List[_ToolCall]:
@@ -173,115 +197,6 @@ class FunctionCallingProcessor(MessageProcessorInterface):
 
         # Keep as a single structured block to preserve formatting.
         return [env_block.strip()]
-
-
-    def _execute_simple_tasklist(
-        self,
-        tasklist: Dict[str, Any],
-        *,
-        supervisor_agent: Agent,
-        worker_agent: Optional[Agent],
-        account: Dict[str, Any],
-        conversation_id: str,
-        context_name: str,
-        processor_factory: Any,
-        delegation_depth: int,
-    ) -> Dict[str, Any]:
-        max_depth = int(getattr(supervisor_agent, "max_delegation_depth", 1))
-        if delegation_depth >= max_depth:
-            logging.warning(
-                "_execute_simple_tasklist: delegation depth %d >= max %d for agent=%s session_id=%s; refusing.",
-                delegation_depth,
-                max_depth,
-                supervisor_agent.name,
-                conversation_id,
-            )
-            return {"ok": False, "error": "Max delegation depth exceeded while executing the tasklist."}
-
-        tasks = tasklist.get("tasks") or []
-        if not isinstance(tasks, list):
-            return {"ok": False, "error": "tasklist.tasks must be a list."}
-
-        results: List[Dict[str, Any]] = []
-        tasklist_description = tasklist.get("description") or ""
-
-        logging.info(
-            "_execute_simple_tasklist: start supervisor=%s worker=%s session_id=%s tasks=%d depth=%d/%d desc=%r",
-            supervisor_agent.name,
-            worker_agent.name if worker_agent else None,
-            conversation_id,
-            len(tasks),
-            delegation_depth,
-            max_depth,
-            tasklist_description[:120],
-        )
-
-        for idx, task in enumerate(tasks, start=1):
-            task_id = task.get("id") or f"task-{idx}"
-            task_type = task.get("type", "task")
-            task_agent_name = task.get("agent") or (worker_agent.name if worker_agent else "")
-            task_title = task.get("title") or ""
-            instruction = task.get("instruction") or ""
-            file_path = task.get("file") or ""
-
-            logging.info(
-                "_execute_simple_tasklist: task %d/%d id=%s type=%s agent=%s title=%r",
-                idx,
-                len(tasks),
-                task_id,
-                task_type,
-                task_agent_name,
-                task_title[:80],
-            )
-
-            if task_type != "task":
-                results.append({"id": task_id, "ok": False, "error": f"Unsupported task type: {task_type}"})
-                continue
-
-            if not instruction:
-                results.append({"id": task_id, "ok": False, "error": "Task has no instruction to execute."})
-                continue
-
-            msg_parts = [instruction]
-            if file_path:
-                msg_parts.append(f"\n\nFocus file: {file_path}")
-            task_message = "".join(msg_parts)
-
-            if worker_agent and task_agent_name == worker_agent.name:
-                try:
-                    task_response = self.process_message(
-                        primary_agent=worker_agent,
-                        account=account,
-                        message=task_message,
-                        conversation_id=conversation_id,
-                        context_name=context_name,
-                        secondary_agent=None,
-                        processor_factory=processor_factory,
-                    )
-                    results.append({"id": task_id, "ok": True, "agent": task_agent_name, "response": task_response})
-                except ToolHandlerError as e:
-                    logging.exception("_execute_simple_tasklist: error executing worker task id=%s", task_id)
-                    results.append({"id": task_id, "ok": False, "agent": task_agent_name, "error": f"{type(e).__name__}: {e}"})
-                    break
-            else:
-                results.append({"id": task_id, "ok": False, "agent": task_agent_name, "error": f"Unknown agent: {task_agent_name}"})
-
-        summary = {
-            "ok": all(r.get("ok") for r in results) if results else False,
-            "description": tasklist_description,
-            "tasks": results,
-        }
-
-        logging.info(
-            "_execute_simple_tasklist: completed supervisor=%s worker=%s session_id=%s tasks=%d ok=%s",
-            supervisor_agent.name,
-            worker_agent.name if worker_agent else None,
-            conversation_id,
-            len(results),
-            summary["ok"],
-        )
-        return summary
-
 
 
 
@@ -351,7 +266,7 @@ class FunctionCallingProcessor(MessageProcessorInterface):
                     (tool_result_text or "")[:200],
                 )
 
-                if tc.name == "delegate_tasks" and secondary_agent is not None and processor_factory is not None:
+                if tc.name == "delegate_tasks" and secondary_agent is not None and processor_factory is not None and self.automation_processor is not None:
                     try:
                         maybe = json.loads(tool_result_text or "{}")
                     except Exception:
@@ -359,23 +274,77 @@ class FunctionCallingProcessor(MessageProcessorInterface):
 
                     if isinstance(maybe, dict) and maybe.get("ok") and maybe.get("kind") == "tasklist":
                         logging.info(
-                            "FunctionCallingProcessor: executing tasklist from delegate_tasks using supervisor=%s worker=%s session_id=%s call_id=%s",
+                            "FunctionCallingProcessor: delegating tasklist to AutomationProcessor supervisor=%s worker=%s session_id=%s call_id=%s",
                             ctx.agent_name,
                             secondary_agent.name,
                             ctx.conversation_id,
                             tc.call_id,
                         )
-                        tasklist_result = self._execute_simple_tasklist(
-                            tasklist=maybe,
-                            supervisor_agent=primary_agent,
-                            worker_agent=secondary_agent,
-                            account=account,
-                            conversation_id=ctx.conversation_id,
-                            context_name=ctx.context_name,
-                            processor_factory=processor_factory,
-                            delegation_depth=ctx.delegation_depth,
-                        )
-                        tool_result_text = json.dumps(tasklist_result, ensure_ascii=False)
+                        try:
+                            # Build TaskList from delegate_tasks result
+                            tasklist_id = f"auto-{ctx.conversation_id}"
+                            description = maybe.get("description") or ""
+                            tasks = maybe.get("tasks") or []
+
+                            task_objects = []
+                            for t in tasks:
+                                t_id = t.get("id") or f"task-{len(task_objects)+1}"
+                                t_name = t.get("title") or ""
+                                t_instruction = t.get("instruction") or ""
+                                t_meta = {}
+                                if t.get("file"):
+                                    t_meta["file"] = t["file"]
+                                if t.get("params"):
+                                    t_meta.update(t["params"])
+                                task_objects.append(Task(
+                                    id=t_id,
+                                    name=t_name,
+                                    instructions=t_instruction,
+                                    meta=t_meta,
+                                ))
+
+                            tasklist = TaskList(
+                                id=tasklist_id,
+                                name=description[:80] or "auto-tasklist",
+                                description=description,
+                                tasks=task_objects,
+                            )
+
+                            # Persist to storage via AutomationProcessor storage
+                            self.automation_processor.storage.save_tasklist(
+                                ctx.account_id, tasklist_id, tasklist.to_dict()
+                            )
+
+                            # Execute via AutomationProcessor
+                            result_text = self.automation_processor.execute_tasklist(
+                                tasklist_id=tasklist_id,
+                                mode="multi-step",
+                                account_name=ctx.account_id,
+                                agent_name=ctx.agent_name,
+                                conversation_id=ctx.conversation_id,
+                                context_name=ctx.context_name,
+                                primary_agent=primary_agent,
+                                account=account,
+                                secondary_agent=secondary_agent,
+                                processor_factory=processor_factory,
+                            )
+
+                            tool_result_text = json.dumps({
+                                "ok": True,
+                                "tasklist_id": tasklist_id,
+                                "result": result_text,
+                            }, ensure_ascii=False)
+
+                        except Exception as e:
+                            logging.exception(
+                                "FunctionCallingProcessor: AutomationProcessor delegation failed supervisor=%s session_id=%s",
+                                ctx.agent_name,
+                                ctx.conversation_id,
+                            )
+                            tool_result_text = json.dumps({
+                                "ok": False,
+                                "error": f"Tasklist delegation failed: {type(e).__name__}: {e}",
+                            }, ensure_ascii=False)
 
                 # Collect raw result before enforcing max size (for SSE action/image inspection)
                 raw_results.append((tc, tool_result_text))
@@ -386,7 +355,19 @@ class FunctionCallingProcessor(MessageProcessorInterface):
                 metrics["failures"] += 1
                 # Replace the too-large raw result with a compact error so the
                 # LLM sees a graceful tool-failure message instead of a hard crash.
-                error_dict = {"ok": False, "tool": tc.name, "error": str(e)}
+                error_msg = str(e)
+                if tc.name == "serve_image":
+                    # Parse char count and limit from the error string to craft
+                    # a helpful message that tells the LLM exactly what to do.
+                    m = re.match(r"Tool result too large: (\d+) chars \(limit (\d+)\)", error_msg)
+                    if m:
+                        error_msg = (
+                            f"Image too large for tool result ({m.group(1)} chars, limit {m.group(2)}). "
+                            "Please retry with max_dimension=512 or smaller."
+                        )
+                    else:
+                        error_msg += " Please retry with max_dimension=512 or smaller."
+                error_dict = {"ok": False, "tool": tc.name, "error": error_msg}
                 tool_result_text = json.dumps(error_dict, ensure_ascii=False)
                 raw_results.pop()  # remove the too-large entry
                 raw_results.append((tc, tool_result_text))
@@ -440,20 +421,48 @@ class FunctionCallingProcessor(MessageProcessorInterface):
             metrics["iterations"] = iteration
             metrics["openai_calls"] += 1
 
-            llm_response = self.llm_adapter.call_model(
-                model=ctx.model,
-                input=next_input_items,
-                temperature=ctx.temperature,
-                tools=function_defs,
-                tool_choice="auto" if function_defs else None,
-                store=ctx.store_this_call,
-                metadata={"conversation_id": ctx.conversation_id, "session_id": ctx.context_name or None},
-                previous_response_id=previous_response_id,
-            )
+            # --- Call model with empty-response retry ---
+            MAX_EMPTY_RETRIES = 2
+            llm_response = None
+            tool_calls: List[_ToolCall] = []
 
-            result_response_id = self.llm_adapter.get_response_id(llm_response)
-            if result_response_id:
-                previous_response_id = result_response_id
+            for retry_attempt in range(MAX_EMPTY_RETRIES + 1):
+                if retry_attempt > 0:
+                    metrics["openai_calls"] += 1
+                    logging.warning(
+                        "FCP: empty LLM response at iteration=%d, retry %d/%d agent=%s session_id=%s",
+                        iteration, retry_attempt, MAX_EMPTY_RETRIES, ctx.agent_name, ctx.conversation_id,
+                    )
+
+                llm_response = self.llm_adapter.call_model(
+                    model=ctx.model,
+                    input=next_input_items,
+                    temperature=ctx.temperature,
+                    tools=function_defs,
+                    tool_choice="auto" if function_defs else None,
+                    store=ctx.store_this_call,
+                    metadata={"conversation_id": ctx.conversation_id, "session_id": ctx.context_name or None},
+                    previous_response_id=previous_response_id,
+                    provider=ctx.provider,
+                )
+
+                result_response_id = self.llm_adapter.get_response_id(llm_response)
+                if result_response_id:
+                    previous_response_id = result_response_id
+
+                tool_calls_raw = self.llm_adapter.extract_tool_calls(llm_response)
+                tool_calls = self._wrap_tool_calls(tool_calls_raw)
+
+                if tool_calls or self.llm_adapter.get_text(llm_response):
+                    break  # got a real response
+            else:
+                # All retries exhausted — use fallback
+                response_text = "I received an empty response from the model — please try again."
+                logging.error(
+                    "FCP: empty LLM response after %d retries at iteration=%d agent=%s session_id=%s — using fallback",
+                    MAX_EMPTY_RETRIES, iteration, ctx.agent_name, ctx.conversation_id,
+                )
+                break
 
             logging.info(
                 "FunctionCallingProcessor: iteration=%d/%d agent=%s session_id=%s response_id=%s",
@@ -463,9 +472,6 @@ class FunctionCallingProcessor(MessageProcessorInterface):
                 ctx.conversation_id,
                 previous_response_id,
             )
-
-            tool_calls_raw = self.llm_adapter.extract_tool_calls(llm_response)
-            tool_calls = self._wrap_tool_calls(tool_calls_raw)
 
             if tool_calls:
                 # --- Duplicate tool call detection ---
@@ -538,6 +544,12 @@ class FunctionCallingProcessor(MessageProcessorInterface):
                         "I may not have completed all requested actions. Please try rephrasing or splitting your request."
                     )
                     break
+
+                # ── Provider throttle: pause between tool-call iterations ──
+                provider_name = ProviderRegistry.resolve_name(ctx.model, ctx.provider)
+                throttle_ms = self.config.get("provider_throttle_ms", {}).get(provider_name, 0)
+                if throttle_ms > 0:
+                    time.sleep(throttle_ms / 1000.0)
 
                 continue
 
@@ -636,20 +648,48 @@ class FunctionCallingProcessor(MessageProcessorInterface):
             metrics["iterations"] = iteration
             metrics["openai_calls"] += 1
 
-            llm_response = self.llm_adapter.call_model(
-                model=ctx.model,
-                input=next_input_items,
-                temperature=ctx.temperature,
-                tools=function_defs,
-                tool_choice="auto" if function_defs else None,
-                store=ctx.store_this_call,
-                metadata={"conversation_id": ctx.conversation_id, "session_id": ctx.context_name or None},
-                previous_response_id=previous_response_id,
-            )
+            # --- Call model with empty-response retry ---
+            MAX_EMPTY_RETRIES = 2
+            llm_response = None
+            tool_calls: List[_ToolCall] = []
 
-            result_response_id = self.llm_adapter.get_response_id(llm_response)
-            if result_response_id:
-                previous_response_id = result_response_id
+            for retry_attempt in range(MAX_EMPTY_RETRIES + 1):
+                if retry_attempt > 0:
+                    metrics["openai_calls"] += 1
+                    logging.warning(
+                        "FCP: empty LLM response at iteration=%d, retry %d/%d agent=%s session_id=%s",
+                        iteration, retry_attempt, MAX_EMPTY_RETRIES, ctx.agent_name, ctx.conversation_id,
+                    )
+
+                llm_response = self.llm_adapter.call_model(
+                    model=ctx.model,
+                    input=next_input_items,
+                    temperature=ctx.temperature,
+                    tools=function_defs,
+                    tool_choice="auto" if function_defs else None,
+                    store=ctx.store_this_call,
+                    metadata={"conversation_id": ctx.conversation_id, "session_id": ctx.context_name or None},
+                    previous_response_id=previous_response_id,
+                    provider=ctx.provider,
+                )
+
+                result_response_id = self.llm_adapter.get_response_id(llm_response)
+                if result_response_id:
+                    previous_response_id = result_response_id
+
+                tool_calls_raw = self.llm_adapter.extract_tool_calls(llm_response)
+                tool_calls = self._wrap_tool_calls(tool_calls_raw)
+
+                if tool_calls or self.llm_adapter.get_text(llm_response):
+                    break  # got a real response
+            else:
+                # All retries exhausted — use fallback
+                response_text = "I received an empty response from the model — please try again."
+                logging.error(
+                    "FCP: empty LLM response after %d retries at iteration=%d agent=%s session_id=%s — using fallback",
+                    MAX_EMPTY_RETRIES, iteration, ctx.agent_name, ctx.conversation_id,
+                )
+                break
 
             logging.info(
                 "FunctionCallingProcessor(streaming): iteration=%d/%d agent=%s session_id=%s response_id=%s",
@@ -660,8 +700,17 @@ class FunctionCallingProcessor(MessageProcessorInterface):
                 previous_response_id,
             )
 
-            tool_calls_raw = self.llm_adapter.extract_tool_calls(llm_response)
-            tool_calls = self._wrap_tool_calls(tool_calls_raw)
+            # ── Always extract and yield text BEFORE the tool_calls check ──
+            # Providers like DeepSeek often return text + tool_calls in the same
+            # response. We must surface the text to the frontend even when tool
+            # calls are also present.
+            response_text = self.llm_adapter.get_text(llm_response)
+            if response_text:
+                yield SSEEvent(
+                    type="text",
+                    content=response_text,
+                    message_id=f"msg-{ctx.conversation_id}-iter-{iteration}",
+                )
 
             if tool_calls:
                 # --- Duplicate tool call detection ---
@@ -729,9 +778,19 @@ class FunctionCallingProcessor(MessageProcessorInterface):
                     try:
                         result_json = json.loads(raw_text)
                         ok = result_json.get("ok", True) if isinstance(result_json, dict) else True
+                        if isinstance(result_json, dict):
+                            status = result_json.get("status")
+                        else:
+                            status = None
                     except (json.JSONDecodeError, TypeError):
                         ok = True
-                    yield SSEEvent(type="tool_result", call_id=call_id, ok=ok)
+                        status = None
+
+                    # Validate and infer status
+                    if status not in ("success", "warning", "error"):
+                        status = "success" if ok else "error"
+
+                    yield SSEEvent(type="tool_result", call_id=call_id, ok=ok, status=status)
 
                 # ── Phase 2+3: inspect raw results for action / image / svg keys ──
                 for event in self._inspect_raw_results(raw_results):
@@ -760,19 +819,29 @@ class FunctionCallingProcessor(MessageProcessorInterface):
                     )
                     break
 
+                # ── Provider throttle: pause between tool-call iterations ──
+                provider_name = ProviderRegistry.resolve_name(ctx.model, ctx.provider)
+                throttle_ms = self.config.get("provider_throttle_ms", {}).get(provider_name, 0)
+                if throttle_ms > 0:
+                    time.sleep(throttle_ms / 1000.0)
+
                 continue
 
-            # ── INJECTION C: final text ──
-            response_text = self.llm_adapter.get_text(llm_response)
+            # ── INJECTION C: final text (no tool calls) ──
+            # Text already extracted above. Yield again with 'final' message_id
+            # so the frontend can distinguish the final answer from intermediate
+            # text that came alongside tool calls.
             yield SSEEvent(
                 type="text",
                 content=response_text,
                 message_id=f"msg-{ctx.conversation_id}-final",
             )
+            response_text = ""  # prevent post-loop duplicate yield
             break
 
-        # If no text was yielded (e.g., loop break on duplicate detection / max iterations),
-        # still yield the text if we have it.
+        # Post-loop: yield text for early-exit paths (duplicate detection,
+        # max iterations, empty response fallback) where text was set but
+        # the normal INJECTION C path was not reached.
         if response_text:
             yield SSEEvent(
                 type="text",
@@ -904,11 +973,15 @@ class FunctionCallingProcessor(MessageProcessorInterface):
                         metadata={"agent": ctx.agent_name, "call_id": ev.call_id},
                     ))
                 elif ev.type == "tool_result":
+                    payload = {"call_id": ev.call_id, "ok": ev.ok}
+                    # Persist status so the frontend ticker can show warnings in history
+                    if ev.status:
+                        payload["status"] = ev.status
                     chat_events.append(ChatEvent(
                         role="tool",
                         actor="system",
                         kind="tool_result",
-                        payload={"call_id": ev.call_id, "ok": ev.ok},
+                        payload=payload,
                         metadata={"call_id": ev.call_id},
                     ))
 
@@ -1004,19 +1077,30 @@ class FunctionCallingProcessor(MessageProcessorInterface):
             metrics["failures"] += 1
             return "[FunctionCallingProcessor] Missing account.accountId."
 
+        # ── Determine if the model supports native image processing ──
+        supports_images = self.llm_adapter.supports_image_processing(ctx.model, ctx.provider)
+
         logging.info(
-            "FunctionCallingProcessor: start account=%s agent=%s session_id=%s context_type=%s max_iterations=%d",
+            "FunctionCallingProcessor: start account=%s agent=%s session_id=%s context_type=%s max_iterations=%d supports_images=%s",
             ctx.account_id,
             ctx.agent_name,
             ctx.conversation_id,
             ctx.context_type,
             ctx.max_iterations,
+            supports_images,
         )
 
         try:
             extra_system_messages = self._get_environment_system_messages()
             if extra_system_messages:
                 logging.debug("FunctionCallingProcessor: injecting %d environment system message(s) from environment_prompt_block", len(extra_system_messages))
+
+            # ── Provider prompt block: inject provider-specific rules ──
+            provider_name = ProviderRegistry.resolve_name(ctx.model, ctx.provider)
+            provider_block = self.config.get("provider_prompt_blocks", {}).get(provider_name, "")
+            if provider_block:
+                extra_system_messages.append(provider_block)
+                logging.debug("FunctionCallingProcessor: injecting provider prompt block for provider=%s (%d chars)", provider_name, len(provider_block))
 
             prompt_messages = self.prompt_builder.build_prompt(
                 content_text=message,
@@ -1029,6 +1113,7 @@ class FunctionCallingProcessor(MessageProcessorInterface):
                 extra_system_messages=extra_system_messages,
                 image_ids=image_ids,
                 file_ids=file_ids,
+                supports_images=supports_images,
             )
 
             # Get the global tool definitions from the registry. We'll filter this
@@ -1171,13 +1256,17 @@ class FunctionCallingProcessor(MessageProcessorInterface):
             yield SSEEvent(type="done").to_sse()
             return
 
+        # ── Determine if the model supports native image processing ──
+        supports_images = self.llm_adapter.supports_image_processing(ctx.model, ctx.provider)
+
         logging.info(
-            "FunctionCallingProcessor(streaming): start account=%s agent=%s session_id=%s context_type=%s max_iterations=%d",
+            "FunctionCallingProcessor(streaming): start account=%s agent=%s session_id=%s context_type=%s max_iterations=%d supports_images=%s",
             ctx.account_id,
             ctx.agent_name,
             ctx.conversation_id,
             ctx.context_type,
             ctx.max_iterations,
+            supports_images,
         )
 
         # Collect all SSE events for chat2 persistence
@@ -1187,6 +1276,13 @@ class FunctionCallingProcessor(MessageProcessorInterface):
             extra_system_messages = self._get_environment_system_messages()
             if extra_system_messages:
                 logging.debug("FunctionCallingProcessor(streaming): injecting %d environment system message(s) from environment_prompt_block", len(extra_system_messages))
+
+            # ── Provider prompt block: inject provider-specific rules ──
+            provider_name = ProviderRegistry.resolve_name(ctx.model, ctx.provider)
+            provider_block = self.config.get("provider_prompt_blocks", {}).get(provider_name, "")
+            if provider_block:
+                extra_system_messages.append(provider_block)
+                logging.debug("FunctionCallingProcessor(streaming): injecting provider prompt block for provider=%s (%d chars)", provider_name, len(provider_block))
 
             prompt_messages = self.prompt_builder.build_prompt(
                 content_text=message,
@@ -1199,6 +1295,7 @@ class FunctionCallingProcessor(MessageProcessorInterface):
                 extra_system_messages=extra_system_messages,
                 image_ids=image_ids,
                 file_ids=file_ids,
+                supports_images=supports_images,
             )
 
             function_defs = self.registry.tools()

@@ -84,3 +84,4 @@ data/completions/billy_junwin_conv.json
 data/context/junwin/*
 data/context/junwin/glinda_dorothy.json
 data/context/test22/glinda_dorothy.json
+config.local.json

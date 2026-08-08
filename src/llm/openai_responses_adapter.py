@@ -25,6 +25,9 @@ class OpenAIResponsesAdapter(LLMAdapter):
     def __init__(self, api: LLMApi) -> None:
         self._api = api
 
+    def supports_image_processing(self, model: str, provider: Optional[str] = None) -> bool:
+        return self._api.supports_image_processing(model, provider)
+
     def call_model(
         self,
         *,
@@ -37,6 +40,7 @@ class OpenAIResponsesAdapter(LLMAdapter):
         metadata: Optional[Dict[str, Any]] = None,
         previous_response_id: Optional[str] = None,
         text: Optional[Dict[str, Any]] = None,
+        provider: Optional[str] = None,
     ) -> Any:
         return self._api.create_response(
             model=model,
@@ -48,6 +52,7 @@ class OpenAIResponsesAdapter(LLMAdapter):
             metadata=metadata,
             previous_response_id=previous_response_id,
             text=text,
+            provider=provider,
         )
 
     def extract_tool_calls(self, response: Any) -> List[Dict[str, Any]]:

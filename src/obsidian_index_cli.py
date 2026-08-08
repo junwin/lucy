@@ -41,6 +41,10 @@ def main(argv: Optional[list[str]] = None) -> None:
 
     This function still performs the indexing to avoid breaking callers that
     import and call it directly.
+
+    Note: this shim defaults to recursive indexing (recursive=True) to
+    preserve backward compatibility. The canonical entrypoint defaults to
+    non-recursive (--recursive flag required to recurse).
     """
     parser = argparse.ArgumentParser(
         description="Index an Obsidian vault (or subfolder) into Lucy's document store.",
@@ -99,11 +103,14 @@ def main(argv: Optional[list[str]] = None) -> None:
     if not vault.is_absolute():
         vault = (_repo_root / vault).resolve()
 
+    # Default to recursive here to preserve backward compatibility.
+    # The canonical scripts/obsidian_index.py defaults to non-recursive.
     docs = index_obsidian_vault(
         storage=storage,
         account_name=args.account,
         vault_path=vault,
         max_files=args.max_files,
+        recursive=True,
     )
 
     print(f"Indexed {len(docs)} documents from {vault} for account {args.account}.")
