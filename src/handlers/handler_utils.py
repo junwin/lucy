@@ -2,7 +2,6 @@ import os
 import shlex
 import subprocess
 import logging
-from subprocess import check_output
 
 
 def get_base_path(config, account_name: str, relative_path: str = "") -> str:

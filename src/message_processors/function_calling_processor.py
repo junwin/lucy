@@ -29,6 +29,9 @@ from src.message_processors.automation_processor import AutomationProcessor
 from src.tasklists.task import Task
 from src.tasklists.task_list import TaskList
 
+# Import token estimator from prompt_builder
+from src.prompt_builders.prompt_builder import estimate_tokens_from_text
+
 
 class ToolResultTooLargeError(Exception):
     """Raised when a tool result exceeds the configured max_tool_result_chars."""
@@ -58,6 +61,49 @@ class _ToolCall:
     name: str
     call_id: str
     arguments_raw: str
+
+
+def _log_token_breakdown(ctx: _ProcessorContext, prompt_builder: Any, filtered_function_defs: List[Dict[str, Any]]) -> None:
+    """Measure and log token counts for all prompt sections including handler definitions.
+
+    Guarded against Mock objects in tests: if prompt_builder doesn't have a real
+    breakdown dict, logs zeros across the board.
+    """
+    try:
+        handlers_text = json.dumps(filtered_function_defs, ensure_ascii=False)
+        handler_tokens = estimate_tokens_from_text(handlers_text)
+    except Exception:
+        handler_tokens = 0
+
+    pb_breakdown = getattr(prompt_builder, "_last_prompt_token_breakdown", {})
+    if isinstance(pb_breakdown, dict):
+        system_tokens = pb_breakdown.get("system_session", 0)
+        context_tokens = pb_breakdown.get("context_text", 0)
+        obsidian_tokens = pb_breakdown.get("obsidian_notes", 0)
+        digest_tokens = pb_breakdown.get("digest_embeddings", 0)
+        history_tokens = pb_breakdown.get("chat_history", 0)
+        user_tokens = pb_breakdown.get("current_user_message", 0)
+        total_without_handlers = pb_breakdown.get("total_without_handlers", 0)
+    else:
+        # Mock or other non-dict — safe zeroes
+        system_tokens = context_tokens = obsidian_tokens = digest_tokens = history_tokens = user_tokens = total_without_handlers = 0
+
+    total_tokens = total_without_handlers + handler_tokens
+
+    logging.info(
+        "Prompt.token_breakdown: agent=%s account=%s session=%s system=%d handlers=%d context=%d obsidian=%d digest=%d history=%d user=%d total=%d",
+        ctx.agent_name,
+        ctx.account_id,
+        ctx.conversation_id,
+        system_tokens,
+        handler_tokens,
+        context_tokens,
+        obsidian_tokens,
+        digest_tokens,
+        history_tokens,
+        user_tokens,
+        total_tokens,
+    )
 
 
 class FunctionCallingProcessor(MessageProcessorInterface):
@@ -1147,6 +1193,9 @@ class FunctionCallingProcessor(MessageProcessorInterface):
                 allowed_set = set([n for n in allowed_list if n in available_names])
                 filtered_function_defs = [fd for fd in function_defs if fd.get("name") in allowed_set]
 
+            # --- Measure handler definitions tokens and combine with prompt breakdown ---
+            _log_token_breakdown(ctx, self.prompt_builder, filtered_function_defs)
+
             response_text = self._run_llm_loop(
                 ctx=ctx,
                 prompt_messages=prompt_messages,
@@ -1321,6 +1370,9 @@ class FunctionCallingProcessor(MessageProcessorInterface):
 
                 allowed_set = set([n for n in allowed_list if n in available_names])
                 filtered_function_defs = [fd for fd in function_defs if fd.get("name") in allowed_set]
+
+            # --- Measure handler definitions tokens and combine with prompt breakdown ---
+            _log_token_breakdown(ctx, self.prompt_builder, filtered_function_defs)
 
             # Yield SSE events from the streaming loop
             for event in self._run_llm_loop_streaming(
