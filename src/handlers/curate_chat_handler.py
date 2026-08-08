@@ -17,6 +17,7 @@ from src.config_manager import ConfigManager
 from src.handlers.handler_v2 import HandlerV2
 from src.curation.core import CurationEngine
 from src.curation.resolver import resolve_session
+from src.embeddings.facade import EmbeddingFacade
 from src.llm.interface import LLMApi
 from src.llm.router_api import RouterApi
 
@@ -55,6 +56,9 @@ class CurateChatHandler(HandlerV2):
 
     def _build_engine(self) -> CurationEngine:
         """Build the curation engine with paths from config."""
+        from src.storage.json_file_storage import JsonFileStorage
+        from src.storage_paths.storage_paths import StoragePaths
+
         # Determine external root for lucy_data_files
         external_roots = self.config.get("external_roots", {})
         lucy_data_root = external_roots.get("lucy_data_files", "/home/junwin/lucy_storage")
@@ -67,12 +71,21 @@ class CurateChatHandler(HandlerV2):
 
         llm_model = self.config.get("curation_llm_model", "gpt-4o-mini")
 
+        # Build embedding facade and storage for digest embeddings
+        embedding_facade = EmbeddingFacade()
+        storage_root = self.config.get("storage_root_path") or "/home/junwin/lucydata"
+        storage_ns = self.config.get("storage_namespace") or "data"
+        sp = StoragePaths(storage_root, storage_ns)
+        storage = JsonFileStorage(sp)
+
         return CurationEngine(
             chat2_store=self.chat2_store,
             llm_api=self.llm_api,
             llm_model=llm_model,
             digests_root=data_base / "digests",
             archives_root=data_base / "archives",
+            embedding_facade=embedding_facade,
+            storage=storage,
         )
 
     @classmethod

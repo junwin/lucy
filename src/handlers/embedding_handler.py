@@ -395,7 +395,7 @@ class EmbeddingHandler(HandlerV2):
         try:
             storage = self._get_storage()
             results = storage.query_embeddings(
-                namespace=namespace,
+                namespaces=[namespace],
                 account_name=account,
                 query_vector=query_vector,
                 top_k=k,

@@ -38,6 +38,8 @@ from src.chat2.adapters.jfs_adapter import JfsChat2Primitives
 
 from src.message_processors.automation_processor import AutomationProcessor
 
+from src.embeddings.facade import EmbeddingFacade
+
 
 config = ConfigManager("config.json")
 
@@ -100,6 +102,14 @@ class StorageModule(Module):
         return Chat2Store(adapter)
 
 
+class EmbeddingModule(Module):
+    @provider
+    @singleton
+    def provide_embedding_facade(self) -> EmbeddingFacade:
+        """Provide the embedding facade for digest search and other uses."""
+        return EmbeddingFacade()
+
+
 class HandlerRegistryModule(Module):
     @provider
     @singleton
@@ -116,12 +126,14 @@ class PromptBuilderModule(Module):
         config: ConfigManager,
         storage: Storage,
         chat2_store: Chat2Store,
+        embedding_facade: EmbeddingFacade,
     ) -> PromptBuilderInterface:
         return PromptBuilder(
             agent_manager=agent_manager,
             config=config,
             storage=storage,
             chat2_store=chat2_store,
+            embedding_facade=embedding_facade,
         )
 
 
@@ -206,6 +218,7 @@ def configure_container():
             AgentManagerModule(),
             ConfigManagerModule(),
             StorageModule(),
+            EmbeddingModule(),
             HandlerRegistryModule(),
             ProcessorFactoryModule(),
             PromptBuilderModule(),

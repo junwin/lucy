@@ -13,6 +13,7 @@ from src.agent import AgentManager, Agent
 from src.storage.base import Storage
 from src.prompt_builders.prompt_builder_interface import PromptBuilderInterface
 from src.utils.document_context import get_document_context
+from src.utils.text_snippet_loader import load_text_snippet
 
 from src.chat2.facade import Chat2Store
 from src.chat2.prompt_slice import get_last_n_events
@@ -24,6 +25,13 @@ DEFAULT_SOURCE_BUDGETS = {
     "account": 0.4,
     "context": 0.2,
 }
+
+# Minimum cosine similarity score for a digest to be included as context.
+# Derived from Step 3a evaluation: positive queries ≥0.29, negatives ≤0.18.
+DIGEST_SCORE_THRESHOLD = 0.25
+
+# Score threshold for embedding-based document retrieval.
+DOC_EMBEDDING_SCORE_THRESHOLD = 0.25
 
 
 def estimate_tokens_from_text(text: str) -> int:
@@ -40,11 +48,13 @@ class PromptBuilder(PromptBuilderInterface):
         config: ConfigManager,
         storage: Storage,
         chat2_store: Optional[Chat2Store] = None,
+        embedding_facade=None,  # Optional[EmbeddingFacade] — lazy import
     ):
         self.agent_manager = agent_manager
         self.config = config
         self.storage = storage
         self.chat2_store = chat2_store
+        self.embedding_facade = embedding_facade
 
     def build_prompt(
         self,
@@ -71,6 +81,7 @@ class PromptBuilder(PromptBuilderInterface):
         logging.info("PromptBuilder.build_prompt: context_type=%s", context_type)
 
         agent: Optional[Agent] = self.agent_manager.get_agent(agent_name)
+        use_embeddings: bool = bool(agent and agent.use_embeddings)
 
         system_message = self._build_agent_system_message(agent_name, agent)
 
@@ -153,15 +164,24 @@ class PromptBuilder(PromptBuilderInterface):
 
                 logging.info("PromptBuilder.build_prompt: docs_tag=%s", docs_tag)
 
-                doc_contexts = get_document_context(
-                    storage=self.storage,
-                    account_name=account_name,
-                    query=content_text,
-                    kind="obsidian_note",
-                    docs_tag=docs_tag,
-                    limit=3,
-                    max_chars=9000,
-                )
+                if use_embeddings:
+                    doc_contexts = self._get_document_embedding_context(
+                        query=content_text,
+                        account_name=account_name,
+                        top_k=agent.max_prompt_documents if agent else 3,
+                        max_chars=9000,
+                    )
+                else:
+                    doc_contexts = get_document_context(
+                        storage=self.storage,
+                        account_name=account_name,
+                        query=content_text,
+                        kind="obsidian_note",
+                        docs_tag=docs_tag,
+                        limit=agent.max_prompt_documents if agent else 3,
+                        max_chars=9000,
+                    )
+
                 if doc_contexts:
                     doc_lines: List[str] = [
                         "The following Obsidian notes may be relevant to the user's question:",
@@ -190,6 +210,41 @@ class PromptBuilder(PromptBuilderInterface):
                     ex,
                 )
 
+        # --- Digest embeddings ---
+        digest_contexts: List[Dict[str, Any]] = []
+        try:
+            digest_contexts = self._get_digest_context(
+                query=content_text,
+                account_name=account_name,
+                top_k=3,
+                max_chars=3000,
+            )
+            if digest_contexts:
+                digest_lines: List[str] = [
+                    "The following archived chat session digests may be relevant:",
+                ]
+                for idx, dctx in enumerate(digest_contexts, start=1):
+                    session_id = dctx.get("session_id") or "unknown"
+                    score = dctx.get("score", 0)
+                    snippet = dctx.get("snippet") or ""
+                    truncated = dctx.get("truncated") or False
+                    digest_lines.append(
+                        f"{idx}. Session {session_id} (score: {score:.3f})"
+                    )
+                    digest_lines.append(snippet)
+                    if truncated:
+                        digest_lines.append("[Digest truncated]")
+                    digest_lines.append("")
+
+                messages.append({"role": "system", "content": "\n".join(digest_lines).strip()})
+        except Exception as ex:
+            logging.warning(
+                "PromptBuilder: failed to load digest context for %s/%s: %s",
+                account_name,
+                agent_name,
+                ex,
+            )
+
         # --- Current user message ---
         has_attachments = bool(image_ids or file_ids)
         if has_attachments:
@@ -215,7 +270,7 @@ class PromptBuilder(PromptBuilderInterface):
         logging.info(
             "PromptBuilder.build_prompt: agent=%s account=%s session_id=%s "
             "context_type=%s context_name=%s history_messages=%d docs_used=%d "
-            "attachments=%d supports_images=%s",
+            "digest_docs_used=%d attachments=%d supports_images=%s use_embeddings=%s",
             agent_name,
             account_name,
             conversation_id,
@@ -223,8 +278,10 @@ class PromptBuilder(PromptBuilderInterface):
             context_name,
             len(history_messages),
             len(doc_contexts),
+            len(digest_contexts),
             attachment_count,
             supports_images,
+            use_embeddings,
         )
 
         return messages
@@ -248,6 +305,226 @@ class PromptBuilder(PromptBuilderInterface):
             parts.append(agent.style_prompt)
 
         return "\n\n".join(parts)
+
+    def _get_document_embedding_context(
+        self,
+        *,
+        query: str,
+        account_name: str,
+        namespaces: Optional[List[str]] = None,
+        top_k: int = 3,
+        max_chars: int = 9000,
+        score_threshold: float = DOC_EMBEDDING_SCORE_THRESHOLD,
+    ) -> List[Dict[str, Any]]:
+        """Search embedding store for relevant documents using semantic similarity.
+
+        Similar to _get_digest_context but tuned for document retrieval:
+        larger max_chars, different default threshold, and includes title/tags.
+
+        If namespaces is None, auto-discovers all available embedding namespaces
+        for the account (same as digest path). Documents and digests share the
+        same embedding store — this method loads snippets from whatever matches,
+        which callers can then present as "notes" or "documents" as appropriate.
+        """
+        if self.embedding_facade is None:
+            logging.info(
+                "PromptBuilder._get_document_embedding_context: "
+                "no embedding_facade — returning empty"
+            )
+            return []
+
+        if not query or not query.strip():
+            return []
+
+        try:
+            # Embed the user query
+            resp = self.embedding_facade.embed(
+                [query], model="text-embedding-3-small"
+            )
+            query_vector = resp.embeddings[0]
+
+            # Auto-discover namespaces if not explicitly provided
+            if namespaces is None:
+                namespaces = self.storage.list_embedding_namespaces(account_name)
+                logging.info(
+                    "PromptBuilder._get_document_embedding_context: "
+                    "auto-discovered namespaces=%s",
+                    namespaces,
+                )
+
+            results = self.storage.query_embeddings(
+                namespaces=namespaces,
+                account_name=account_name,
+                query_vector=query_vector,
+                top_k=top_k,
+            )
+
+            # Log raw results before threshold filtering
+            query_preview = query[:120].replace("\n", " ")
+            raw_summary = ", ".join(
+                f"{r.source_id}={s:.3f}" for r, s in results
+            )
+            logging.info(
+                "PromptBuilder._get_document_embedding_context: "
+                "query='%s' top_k=%d raw=[%s]",
+                query_preview,
+                top_k,
+                raw_summary,
+            )
+
+            contexts: List[Dict[str, Any]] = []
+
+            for record, score in results:
+                if score < score_threshold:
+                    continue
+
+                path = record.source_metadata.get("path") if record.source_metadata else None
+                if not path:
+                    continue
+
+                snippet, truncated = load_text_snippet(path, max_chars=max_chars)
+                if not snippet.strip():
+                    continue
+
+                title = record.source_metadata.get("title") or os.path.basename(path)
+                tags = record.source_metadata.get("tags") or []
+
+                contexts.append({
+                    "title": title,
+                    "tags": tags,
+                    "snippet": snippet,
+                    "truncated": truncated,
+                    "score": score,
+                    "source_id": record.source_id,
+                })
+
+            if contexts:
+                selected_summary = ", ".join(
+                    f"{c['source_id']}={c['score']:.3f}" for c in contexts
+                )
+                logging.info(
+                    "PromptBuilder._get_document_embedding_context: selected=%d [%s]",
+                    len(contexts),
+                    selected_summary,
+                )
+            else:
+                logging.info(
+                    "PromptBuilder._get_document_embedding_context: "
+                    "selected=0 (none above threshold %.2f)",
+                    score_threshold,
+                )
+
+            return contexts
+
+        except Exception as ex:
+            logging.warning(
+                "PromptBuilder._get_document_embedding_context: "
+                "failed for account=%s: %s",
+                account_name,
+                ex,
+            )
+            return []
+
+    def _get_digest_context(
+        self,
+        *,
+        query: str,
+        account_name: str,
+        namespaces: Optional[List[str]] = None,
+        top_k: int = 3,
+        max_chars: int = 3000,
+    ) -> List[Dict[str, Any]]:
+        """Search embeddings across one or more namespaces and return relevant snippets.
+
+        If namespaces is None, auto-discovers all available embedding namespaces
+        for the account via storage.list_embedding_namespaces().
+        """
+        if self.embedding_facade is None:
+            return []
+
+        if not query or not query.strip():
+            return []
+
+        try:
+            # Embed the user query
+            resp = self.embedding_facade.embed(
+                [query], model="text-embedding-3-small"
+            )
+            query_vector = resp.embeddings[0]
+
+            # Auto-discover namespaces if not explicitly provided
+            if namespaces is None:
+                namespaces = self.storage.list_embedding_namespaces(account_name)
+                logging.info(
+                    "PromptBuilder._get_digest_context: auto-discovered namespaces=%s",
+                    namespaces,
+                )
+
+            results = self.storage.query_embeddings(
+                namespaces=namespaces,
+                account_name=account_name,
+                query_vector=query_vector,
+                top_k=top_k,
+            )
+
+            # Log raw top_k results (before threshold filtering) for eval
+            query_preview = query[:120].replace("\n", " ")
+            raw_summary = ", ".join(
+                f"{r.source_id}={s:.3f}" for r, s in results
+            )
+            logging.info(
+                "PromptBuilder._get_digest_context: query='%s' top_k=%d raw=[%s]",
+                query_preview,
+                top_k,
+                raw_summary,
+            )
+
+            contexts: List[Dict[str, Any]] = []
+
+            for record, score in results:
+                if score < DIGEST_SCORE_THRESHOLD:
+                    continue
+
+                path = record.source_metadata.get("path") if record.source_metadata else None
+                if not path:
+                    continue
+
+                snippet, truncated = load_text_snippet(path, max_chars=max_chars)
+                if not snippet.strip():
+                    continue
+
+                contexts.append({
+                    "session_id": record.source_id,
+                    "snippet": snippet,
+                    "truncated": truncated,
+                    "score": score,
+                })
+
+            # Log which digests passed the threshold
+            if contexts:
+                selected_summary = ", ".join(
+                    f"{c['session_id']}={c['score']:.3f}" for c in contexts
+                )
+                logging.info(
+                    "PromptBuilder._get_digest_context: selected=%d [%s]",
+                    len(contexts),
+                    selected_summary,
+                )
+            else:
+                logging.info(
+                    "PromptBuilder._get_digest_context: selected=0 (none above threshold %.2f)",
+                    DIGEST_SCORE_THRESHOLD,
+                )
+
+            return contexts
+
+        except Exception as ex:
+            logging.warning(
+                "PromptBuilder._get_digest_context: failed for account=%s: %s",
+                account_name,
+                ex,
+            )
+            return []
 
     def _resolve_attachments(
         self,

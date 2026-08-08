@@ -34,6 +34,12 @@ class Agent:
         - Budget per sub-task when decomposed via AutomationProcessor (default 10).
         - Separate from max_function_call_iterations so the agent keeps a high
           budget for orchestration but each sub-task gets a small, clean context.
+
+    use_embeddings: bool
+        - When True, document context retrieval uses embedding-based semantic
+          search instead of keyword matching (the default).
+        - Requires embeddings to exist in storage for the document namespace(s).
+        - Default False (keyword matching preserved for backward compatibility).
     """
 
     name: str
@@ -53,6 +59,7 @@ class Agent:
     persona: str = ""
     allowed_tools: Optional[List[str]] = None
     provider: Optional[str] = None
+    use_embeddings: bool = False
 
     @staticmethod
     def _coerce_bool(value: Any) -> bool:
@@ -198,6 +205,14 @@ class Agent:
                     f"Agent '{agent_name}' has invalid save_responses={raw.get('save_responses')!r}; expected bool"
                 )
 
+        if "use_embeddings" in raw:
+            try:
+                raw["use_embeddings"] = Agent._coerce_bool(raw["use_embeddings"])
+            except Exception:
+                raise ValueError(
+                    f"Agent '{agent_name}' has invalid use_embeddings={raw.get('use_embeddings')!r}; expected bool"
+                )
+
         # Finally, construct Agent using only allowed fields (any missing fields will use dataclass defaults)
         try:
             return Agent(**raw)
@@ -227,6 +242,7 @@ class Agent:
             "persona": self.persona,
             "allowed_tools": self.allowed_tools,
             "provider": self.provider,
+            "use_embeddings": self.use_embeddings,
         }
 
     def allows_tool(self, tool_name: str) -> bool:

@@ -22,21 +22,19 @@ logger = logging.getLogger(__name__)
 
 SUMMARIZE_SYSTEM_PROMPT = """You are a chat session summarizer. Your job is to distill a conversation into a structured Markdown digest.
 
-Keep these types of events:
-- User questions that led to a design decision
-- File saves (new code, config changes)
-- Commands that produced a lasting result (test passes, git commits)
-- Explicit user confirmations ("that looks good", "ship it")
-- Design discussions that were stored away (reference the document)
+First, scan the entire conversation and identify all distinct topic clusters. These could be:
+- Code/config changes (file edits, tool outputs, test results)
+- Design discussions or architectural decisions
+- Creative or analytical conversations (poetry, books, ideas, comparisons, opinions)
+- Problem-solving threads (debugging, troubleshooting)
+- Meta-discussion about process or workflow
 
-Discard these types of events:
-- Tool calls + results (can re-run if needed)
-- Failed commands / error messages
-- Back-and-forth clarification ("what about X?", "let me check...")
-- Search/grep results (the files are still there)
-- Anything the user said "never mind" to
+Then produce a digest that covers ALL clusters proportionally. Do NOT drop a topic just because it is "subjective" or "not actionable." A poetry discussion or casual exchange is just as important as a file save. Represent what actually happened, not just what produced artifacts.
 
 Output format (Markdown):
+
+## Topics discussed
+- Brief summary of each distinct topic cluster in the conversation
 
 ## Decisions made
 - ...
@@ -44,7 +42,7 @@ Output format (Markdown):
 ## Files created/modified
 - ...
 
-## Commands run (with outcomes)
+## Key outcomes
 - ...
 
 ## Open questions / next steps
@@ -112,9 +110,10 @@ Conversation events:
 {events_text}
 
 Produce a structured Markdown digest with these sections:
+- Topics discussed
 - Decisions made
 - Files created/modified
-- Commands run (with outcomes)
+- Key outcomes
 - Open questions / next steps
 """
 
