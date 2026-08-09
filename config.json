@@ -18,7 +18,7 @@
   "api_url": "/static/swagger.json",
   "app_name": "Lucy API Test",
   "host": "127.0.0.1",
-  "port": 5010,
+  "port": 5000,
   "debug": false,
   "elapsed_new_session_seconds": 600,
   "max_tool_result_chars": 96000,

@@ -20,17 +20,17 @@ The class does not exhibit inheritance or complex relationships with other class
 ## 3. Key Classes
 | Class         | Base/Parent | Purpose                                           |
 |---------------|-------------|---------------------------------------------------|
-| StoragePaths  | None        | Manages and resolves user-data paths securely.    |
+| StoragePaths  | None        | Manages and resolves user-data file paths.       |
 
 ## 4. Source Files
-| File                        | Responsibility                                      | Notable Exports       |
-|-----------------------------|----------------------------------------------------|-----------------------|
-| `storage_paths.py`         | Defines the `StoragePaths` class for path management. | `StoragePaths`        |
-| `__init__.py` (if present) | N/A — no `__init__.py` file present.              | None                  |
+| File                        | Responsibility                                      | Notable Exports         |
+|-----------------------------|----------------------------------------------------|-------------------------|
+| `storage_paths.py`         | Defines the `StoragePaths` class for path management. | `StoragePaths`          |
+| `__init__.py` (if present) | N/A — no additional exports.                       | None                    |
 
 ## 5. Dependencies
 - **Standard library**:
-  - `pathlib`: Used for path manipulations.
+  - `pathlib`: Used for path manipulations and validations.
   
 - **Third-party packages**: None.
 
@@ -44,7 +44,7 @@ None.
 ## 7. Exceptions
 | Exception      | Base         | When Raised                                      |
 |----------------|--------------|--------------------------------------------------|
-| ValueError     | Exception    | Raised when paths escape the defined storage structure. |
+| ValueError     | Exception    | Raised when paths escape the defined storage root or when required parameters are missing. |
 
 ## 8. Module-Level Constants
 None.
@@ -52,19 +52,19 @@ None.
 ## 9. Methods (by class)
 
 ### StoragePaths
-| Method               | Type         | Signature                                         | Description                                                                                       |
-|----------------------|--------------|---------------------------------------------------|---------------------------------------------------------------------------------------------------|
-| `__init__`           | Instance     | `def __init__(self, storage_root_path: str, storage_namespace: str)` | Initializes the `StoragePaths` object, setting the root and namespace, and validating the configuration. Raises `ValueError` if the namespace escapes the root path. |
-| `contexts`           | Property     | `def contexts(self) -> Path`                      | Returns the path for the contexts directory within the storage namespace.                        |
-| `chats`              | Property     | `def chats(self) -> Path`                         | Returns the path for the chats directory within the storage namespace.                           |
-| `documents`          | Property     | `def documents(self) -> Path`                     | Returns the path for the documents directory within the storage namespace.                       |
-| `tasklists`          | Property     | `def tasklists(self) -> Path`                     | Returns the path for the tasklists directory within the storage namespace.                       |
-| `skills`             | Property     | `def skills(self) -> Path`                        | Returns the path for the skills directory within the storage namespace.                          |
-| `users`              | Property     | `def users(self) -> Path`                         | Returns the path for the users directory within the storage namespace.                           |
-| `agents`             | Property     | `def agents(self) -> Path`                        | Returns the path for the agents directory within the storage namespace.                          |
-| `resolve_relative`    | Instance     | `def resolve_relative(self, relative_path: str) -> Path` | Safely resolves a user-supplied relative path under the storage base, rejecting absolute paths and symlink escapes. Raises `ValueError` if the path escapes the namespace. |
-| `index_for`          | Instance     | `def index_for(self, domain: str, account: str, filename: str = "index.json") -> Path` | Returns the canonical path for an index file for a given domain and account. Raises `ValueError` if domain or account is not provided. |
-| `domain_index`       | Instance     | `def domain_index(self, domain: str, *subpaths: str) -> Path` | Builds a flexible domain-local index path. Raises `ValueError` if the domain is not provided. |
+| Method              | Type         | Signature                                         | Description                                                                                       |
+|---------------------|--------------|---------------------------------------------------|---------------------------------------------------------------------------------------------------|
+| `__init__`          | Instance     | `def __init__(self, storage_root_path: str, storage_namespace: str)` | Initializes the `StoragePaths` object, setting the root and namespace, and validates the configuration. |
+| `contexts`          | Property     | `def contexts(self) -> Path`                      | Returns the path for contexts.                                                                    |
+| `chats`             | Property     | `def chats(self) -> Path`                         | Returns the path for chats.                                                                       |
+| `documents`         | Property     | `def documents(self) -> Path`                     | Returns the path for documents.                                                                    |
+| `tasklists`         | Property     | `def tasklists(self) -> Path`                     | Returns the path for task lists.                                                                   |
+| `skills`            | Property     | `def skills(self) -> Path`                        | Returns the path for skills.                                                                       |
+| `users`             | Property     | `def users(self) -> Path`                         | Returns the path for users.                                                                        |
+| `agents`            | Property     | `def agents(self) -> Path`                        | Returns the path for agents.                                                                       |
+| `resolve_relative`  | Instance     | `def resolve_relative(self, relative_path: str) -> Path` | Safely resolves a user-supplied relative path under the storage base, rejecting unsafe paths.     |
+| `index_for`         | Instance     | `def index_for(self, domain: str, account: str, filename: str = "index.json") -> Path` | Returns the canonical path for an index file for a given domain and account.                      |
+| `domain_index`      | Instance     | `def domain_index(self, domain: str, *subpaths: str) -> Path` | Builds domain-local index paths, allowing for flexible path construction.                         |
 
 ## 10. Usage Examples
 ```python
@@ -73,17 +73,15 @@ from storage_paths import StoragePaths
 # Initialize the StoragePaths with a root and namespace
 storage = StoragePaths("/data/storage", "user_data")
 
-# Access the path for user contexts
-contexts_path = storage.contexts
-
-# Resolve a relative path safely
-resolved_path = storage.resolve_relative("chats/alice/messages.json")
+# Access specific paths
+chat_path = storage.chats
+index_path = storage.index_for("chats", "alice")
 ```
 
 ## 11. Edge Cases & Gotchas
-- The `resolve_relative` method is designed to be robust against various path manipulation techniques, ensuring that users cannot escape the defined storage namespace.
-- The class does not handle multi-threading concerns, so users should ensure that instances are not shared across threads without proper synchronization.
-- The design assumes that the provided `storage_root_path` and `storage_namespace` are valid and correctly formatted.
+- The `StoragePaths` class employs a fail-fast approach by raising `ValueError` exceptions when invalid paths are provided or when required parameters are missing.
+- The class does not handle legacy field mapping or backward compatibility, as it appears to be designed for current use cases only.
+- There are no explicit thread-safety concerns mentioned, but users should be aware of potential issues if multiple threads modify paths concurrently.
 
 ## 12. Consumers
 | Consumer         | What it uses                                   |
