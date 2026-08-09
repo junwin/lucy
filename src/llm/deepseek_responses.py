@@ -112,6 +112,34 @@ class DeepSeekApi(LLMApi):
             "tool_calls": formatted_tool_calls
         }
 
+    @staticmethod
+    def _reconstruct_tool_calls_from_outputs(
+        items: List[Dict[str, Any]],
+    ) -> List[ToolCall]:
+        """Build minimal ToolCall stubs from function_call_output items.
+
+        Used as a defensive fallback when _conversation_context is missing
+        and no previous_tool_calls metadata was provided. The call_id is
+        the critical field — the API uses it to match tool messages to
+        the assistant's tool_calls. Tool name is a placeholder since it
+        isn't validated for this purpose.
+        """
+        seen: set[str] = set()
+        stubs: List[ToolCall] = []
+        for item in items:
+            if item.get("type") != "function_call_output":
+                continue
+            call_id = item.get("call_id", "")
+            if not call_id or call_id in seen:
+                continue
+            seen.add(call_id)
+            stubs.append(ToolCall(
+                call_id=str(call_id),
+                name="__reconstructed__",
+                arguments_json="{}",
+            ))
+        return stubs
+
     def _normalize_input_to_messages(
         self,
         input: Any,
@@ -133,6 +161,21 @@ class DeepSeekApi(LLMApi):
                 if previous_tool_calls:
                     assistant_msg = self._convert_tool_calls_to_assistant_message(previous_tool_calls)
                     context_messages.append(assistant_msg)
+                elif not context_messages:
+                    # Defensive fallback: reconstruct tool_calls from the outputs themselves.
+                    # This handles the case where _conversation_context is empty (e.g.
+                    # response_id was None, or context was never stored for this ID) and
+                    # the caller didn't pass previous_tool_calls in metadata.
+                    reconstructed = self._reconstruct_tool_calls_from_outputs(input)
+                    if reconstructed:
+                        logging.warning(
+                            "DeepSeekApi: _conversation_context missing for response_id=%s "
+                            "and no previous_tool_calls in metadata — reconstructed %d tool_calls from function_call_output items",
+                            previous_response_id,
+                            len(reconstructed),
+                        )
+                        assistant_msg = self._convert_tool_calls_to_assistant_message(reconstructed)
+                        context_messages.append(assistant_msg)
 
                 # Convert tool outputs to tool response messages
                 for item in input:

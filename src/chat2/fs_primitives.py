@@ -74,8 +74,8 @@ class FileChat2Primitives:
         keys: list[StoreKey] = []
         for path in base.rglob("*"):
             if path.is_file():
-                rel = path.relative_to(self._root)
-                keys.append(StoreKey(str(rel)))
+                rel = str(path.relative_to(self._root)).replace("\\", "/")
+                keys.append(StoreKey(rel))
         return keys
 
 

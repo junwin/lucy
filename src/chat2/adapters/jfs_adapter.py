@@ -88,8 +88,8 @@ class JfsChat2Primitives:
         keys: list[StoreKey] = []
         for p in base.rglob("*"):
             if p.is_file():
-                rel = p.relative_to(self._root)
-                keys.append(StoreKey(str(rel)))
+                rel = str(p.relative_to(self._root)).replace("\\", "/")
+                keys.append(StoreKey(rel))
         return keys
 
 

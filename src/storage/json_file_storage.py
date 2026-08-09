@@ -816,6 +816,40 @@ class JsonFileStorage(Storage):
         namespaces.sort()
         return namespaces
 
+    def delete_embeddings(
+        self,
+        namespace: str,
+        account_name: str,
+        *,
+        source_id: Optional[str] = None,
+        source_type: Optional[str] = None,
+    ) -> int:
+        """Delete embedding records matching the given filters.
+
+        Returns count of deleted records. Idempotent: returns 0 if no
+        matching records exist.
+        """
+        path = self.storage_paths.base / "embeddings" / account_name / namespace
+        if not path.exists():
+            return 0
+
+        deleted = 0
+        for emb_file in path.glob("*.json"):
+            data = self._load_json(emb_file)
+            if not data:
+                continue
+            if source_id is not None and data.get("source_id") != source_id:
+                continue
+            if source_type is not None and data.get("source_type") != source_type:
+                continue
+            try:
+                emb_file.unlink()
+                deleted += 1
+            except Exception as e:
+                logging.error("Failed to delete embedding file %s: %s", emb_file, e)
+
+        return deleted
+
     def query_embeddings(
         self,
         namespaces: List[str],
