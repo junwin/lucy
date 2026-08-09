@@ -218,6 +218,22 @@ class Storage(ABC):
         """
         pass
 
+    @abstractmethod
+    def delete_embeddings(
+        self,
+        namespace: str,
+        account_name: str,
+        *,
+        source_id: Optional[str] = None,
+        source_type: Optional[str] = None,
+    ) -> int:
+        """Delete embedding records matching the given filters.
+
+        Returns count of deleted records. Idempotent: returns 0 if no
+        matching records exist.
+        """
+        pass
+
     def list_embedding_namespaces(self, account_name: str) -> List[str]:
         """List available embedding namespaces for an account.
 

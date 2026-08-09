@@ -392,6 +392,15 @@ class CurationEngine:
             return
 
         try:
+            # Before upserting, delete any existing embeddings for this session.
+            # This prevents duplicate near-identical vectors when a session is
+            # re-curated (summarize/archive with publish) multiple times.
+            self.storage.delete_embeddings(
+                namespace="digests",
+                account_name=account,
+                source_id=session_id,
+            )
+
             # Truncate to a safe limit (most embedding models handle ~8k tokens)
             text = note_text[:32000]
 
