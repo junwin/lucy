@@ -205,14 +205,27 @@ class Storage(ABC):
     @abstractmethod
     def query_embeddings(
         self,
-        namespace: str,
+        namespaces: List[str],
         account_name: str,
         query_vector: List[float],
         top_k: int = 10,
         filter: Optional[Dict[str, Any]] = None,
     ) -> List[Tuple[EmbeddingRecord, float]]:
-        """Vector search: return [(EmbeddingRecord, score), ...]."""
+        """Vector search across one or more namespaces.
+
+        Queries each namespace, merges all results, sorts by score descending,
+        and returns the top_k across all namespaces combined.
+        """
         pass
+
+    def list_embedding_namespaces(self, account_name: str) -> List[str]:
+        """List available embedding namespaces for an account.
+
+        Returns subdirectory names under embeddings/<account_name>/.
+        This is non-abstract for backward compatibility with custom Storage
+        implementations. Returns empty list if the account has no embeddings.
+        """
+        return []
 
     @abstractmethod
     def health_check(self) -> bool:

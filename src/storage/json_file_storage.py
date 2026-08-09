@@ -797,50 +797,74 @@ class JsonFileStorage(Storage):
 
         self._atomic_write(path / f"{record.id}.json", data)
 
+    def list_embedding_namespaces(self, account_name: str) -> List[str]:
+        """List available embedding namespaces for an account.
+
+        Returns subdirectory names under embeddings/<account_name>/,
+        sorted alphabetically. Returns empty list if the account has
+        no embeddings.
+        """
+        emb_dir = self.storage_paths.base / "embeddings" / account_name
+        if not emb_dir.exists() or not emb_dir.is_dir():
+            return []
+
+        namespaces: List[str] = []
+        for p in emb_dir.iterdir():
+            if p.is_dir():
+                namespaces.append(p.name)
+
+        namespaces.sort()
+        return namespaces
+
     def query_embeddings(
         self,
-        namespace: str,
+        namespaces: List[str],
         account_name: str,
         query_vector: List[float],
         top_k: int = 10,
         filter: Optional[Dict[str, Any]] = None,
     ) -> List[Tuple[EmbeddingRecord, float]]:
+        """Vector search across one or more namespaces.
 
-        path = self.storage_paths.base / "embeddings" / account_name / namespace
-        if not path.exists():
-            return []
+        Queries each namespace, merges all results, sorts by score descending,
+        and returns the top_k across all namespaces combined.
+        """
+        results: List[Tuple[EmbeddingRecord, float]] = []
 
-        results = []
-        for emb_file in path.glob("*.json"):
-            data = self._load_json(emb_file)
-            if not data:
+        for namespace in namespaces:
+            path = self.storage_paths.base / "embeddings" / account_name / namespace
+            if not path.exists():
                 continue
 
-            if filter and "source_type" in filter:
-                if data.get("source_type") != filter["source_type"]:
+            for emb_file in path.glob("*.json"):
+                data = self._load_json(emb_file)
+                if not data:
                     continue
 
-            vector = data["vector"]
-            similarity = self._cosine_similarity(query_vector, vector)
+                if filter and "source_type" in filter:
+                    if data.get("source_type") != filter["source_type"]:
+                        continue
 
-            record = EmbeddingRecord(
-                id=data["id"],
-                namespace=data["namespace"],
-                account_name=data["account_name"],
-                vector=vector,
-                source_type=data["source_type"],
-                source_id=data["source_id"],
-                source_metadata=data.get("source_metadata", {}),
-                created_at=_parse_dt_utc(data.get("created_at", "")),
-            )
+                vector = data["vector"]
+                similarity = self._cosine_similarity(query_vector, vector)
 
-            results.append((record, similarity))
+                record = EmbeddingRecord(
+                    id=data["id"],
+                    namespace=data["namespace"],
+                    account_name=data["account_name"],
+                    vector=vector,
+                    source_type=data["source_type"],
+                    source_id=data["source_id"],
+                    source_metadata=data.get("source_metadata", {}),
+                    created_at=_parse_dt_utc(data.get("created_at", "")),
+                )
+
+                results.append((record, similarity))
 
         results.sort(key=lambda x: x[1], reverse=True)
         return results[:top_k]
 
     # ----------------------------------------------------------------------
-
     def _cosine_similarity(self, vec1: List[float], vec2: List[float]) -> float:
         import math
 

@@ -18,7 +18,9 @@ from src.curation.resolver import resolve_session
 from src.curation.templates import render_template, resolve_template
 from src.curation.summarizer import summarize_session
 from src.curation.archiver import archive_session
+from src.embeddings.facade import EmbeddingFacade
 from src.llm.interface import LLMApi
+from src.storage.models import EmbeddingRecord
 
 logger = logging.getLogger(__name__)
 
@@ -33,6 +35,8 @@ class CurationEngine:
         digests_root: Base path for digest output (e.g. Path("data/digests")).
         archives_root: Base path for archive output (e.g. Path("data/archives")).
         chats_index_path: Optional path to index.json for friendly-name resolution.
+        embedding_facade: Optional EmbeddingFacade to embed digests at creation time.
+        storage: Optional Storage to persist embedding records.
     """
 
     def __init__(
@@ -43,6 +47,8 @@ class CurationEngine:
         digests_root: Optional[Path] = None,
         archives_root: Optional[Path] = None,
         chats_index_path: Optional[Path] = None,
+        embedding_facade: Optional[EmbeddingFacade] = None,
+        storage: Optional[Any] = None,
     ) -> None:
         self.chat2_store = chat2_store
         self.llm_api = llm_api
@@ -50,6 +56,8 @@ class CurationEngine:
         self.digests_root = digests_root or Path("data/digests")
         self.archives_root = archives_root or Path("data/archives")
         self.chats_index_path = chats_index_path
+        self.embedding_facade = embedding_facade
+        self.storage = storage
 
     def curate(
         self,
@@ -221,7 +229,7 @@ class CurationEngine:
             account=account,
         )
 
-        # Resolve and render template
+        # Resolve and render template (no archive for summarize mode)
         template = resolve_template(
             template_name,
             context_state_override=context_state_template,
@@ -231,6 +239,7 @@ class CurationEngine:
             friendly_name=friendly_name,
             session_id=sid,
             account=account,
+            archive_path="",
             events=events,
             summary_text=digest,
         )
@@ -245,6 +254,7 @@ class CurationEngine:
 
         if publish:
             output_path = self._write_digest(sid, account, note_text)
+            self._maybe_embed_digest(note_text, output_path, sid, account)
             return {
                 "status": "published",
                 "note_text": note_text,
@@ -281,6 +291,10 @@ class CurationEngine:
             account=account,
         )
 
+        # Compute archive path for the template reference.
+        # Use a glob since the exact timestamp is assigned at archive time.
+        archive_ref = str(self.archives_root / account / f"{sid}_*.jsonl")
+
         # Resolve and render template
         template = resolve_template(
             template_name,
@@ -291,6 +305,7 @@ class CurationEngine:
             friendly_name=friendly_name,
             session_id=sid,
             account=account,
+            archive_path=archive_ref,
             events=events,
             summary_text=digest,
         )
@@ -307,6 +322,7 @@ class CurationEngine:
         output_path = None
         if publish:
             output_path = self._write_digest(sid, account, note_text)
+            self._maybe_embed_digest(note_text, output_path, sid, account)
 
         # Archive original events (timestamped) and replace with digest
         archived = archive_session(
@@ -355,3 +371,50 @@ class CurationEngine:
             account,
         )
         return output_path
+
+    def _maybe_embed_digest(
+        self,
+        note_text: str,
+        note_path: Path,
+        session_id: str,
+        account: str,
+    ) -> None:
+        """Embed the digest text for semantic search, if embedding deps are available.
+
+        Gracefully skips if embedding_facade or storage is not configured,
+        or if the digest is too short to be useful.
+        """
+        if self.embedding_facade is None or self.storage is None:
+            return
+
+        if len(note_text.strip()) < 100:
+            logger.debug("curation: skipping embed — digest too short (%d chars)", len(note_text))
+            return
+
+        try:
+            # Truncate to a safe limit (most embedding models handle ~8k tokens)
+            text = note_text[:32000]
+
+            resp = self.embedding_facade.embed([text], model="text-embedding-3-small")
+            vector = resp.embeddings[0]
+
+            record = EmbeddingRecord(
+                id=note_path.stem,
+                namespace="digests",
+                account_name=account,
+                vector=vector,
+                source_type="digest",
+                source_id=session_id,
+                source_metadata={
+                    "path": str(note_path),
+                    "session_id": session_id,
+                },
+            )
+            self.storage.upsert_embedding(record)
+            logger.info(
+                "curation: embedded digest %s (session=%s)",
+                note_path.stem,
+                session_id,
+            )
+        except Exception as e:
+            logger.warning("curation: failed to embed digest %s: %s", note_path.stem, e)

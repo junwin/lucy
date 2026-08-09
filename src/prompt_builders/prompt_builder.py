@@ -13,17 +13,29 @@ from src.agent import AgentManager, Agent
 from src.storage.base import Storage
 from src.prompt_builders.prompt_builder_interface import PromptBuilderInterface
 from src.utils.document_context import get_document_context
+from src.utils.text_snippet_loader import load_text_snippet
 
 from src.chat2.facade import Chat2Store
 from src.chat2.prompt_slice import get_last_n_events
 
 DEFAULT_PROMPT_BUDGET_TOKENS = 12000
+PROMPT_BUDGET_SAFETY_MARGIN = 500
 
 DEFAULT_SOURCE_BUDGETS = {
     "agent": 0.4,
     "account": 0.4,
     "context": 0.2,
 }
+
+# Minimum cosine similarity score for a digest to be included as context.
+# Derived from Step 3a evaluation: positive queries ≥0.29, negatives ≤0.18.
+DIGEST_SCORE_THRESHOLD = 0.25
+
+# Score threshold for embedding-based document retrieval.
+DOC_EMBEDDING_SCORE_THRESHOLD = 0.25
+
+# Soft max tokens for front-loaded context (can be overridden by env/config)
+CONTEXT_TEXT_SOFT_MAX_TOKENS = int(os.getenv("PROMPT_BUILDER_CONTEXT_SOFT_MAX_TOKENS", "2000"))
 
 
 def estimate_tokens_from_text(text: str) -> int:
@@ -40,11 +52,15 @@ class PromptBuilder(PromptBuilderInterface):
         config: ConfigManager,
         storage: Storage,
         chat2_store: Optional[Chat2Store] = None,
+        embedding_facade=None,  # Optional[EmbeddingFacade] — lazy import
     ):
         self.agent_manager = agent_manager
         self.config = config
         self.storage = storage
         self.chat2_store = chat2_store
+        self.embedding_facade = embedding_facade
+        # last prompt breakdown for instrumentation by processors
+        self._last_prompt_token_breakdown: Dict[str, int] = {}
 
     def build_prompt(
         self,
@@ -71,17 +87,22 @@ class PromptBuilder(PromptBuilderInterface):
         logging.info("PromptBuilder.build_prompt: context_type=%s", context_type)
 
         agent: Optional[Agent] = self.agent_manager.get_agent(agent_name)
+        use_embeddings: bool = bool(agent and agent.use_embeddings)
 
         system_message = self._build_agent_system_message(agent_name, agent)
 
         messages: List[Dict[str, Any]] = [{"role": "system", "content": system_message}]
 
+        # keep a textual copy of system/session messages for token accounting
+        system_text_parts: List[str] = [system_message]
+
         # --- Inject conversation_id so the agent can reference it ---
         if conversation_id and conversation_id not in ("none", "new"):
-            messages.append({
-                "role": "system",
-                "content": f"Current session ID: {conversation_id}",
-            })
+            session_info_msg = (
+                f"Current session ID: {conversation_id}"
+            )
+            messages.append({"role": "system", "content": session_info_msg})
+            system_text_parts.append(session_info_msg)
 
         # --- Session info: agent, context, elapsed time ---
         if self.chat2_store is not None and conversation_id not in ("none", "new", ""):
@@ -108,6 +129,7 @@ class PromptBuilder(PromptBuilderInterface):
                     info += f", last activity {elapsed} (timestamp: {meta.updated_at.isoformat()}Z)"
 
                     messages.append({"role": "system", "content": info})
+                    system_text_parts.append(info)
             except Exception:
                 # best-effort: if session lookup fails, just skip the info line
                 pass
@@ -115,16 +137,7 @@ class PromptBuilder(PromptBuilderInterface):
         for extra in (extra_system_messages or []):
             if extra and extra.strip():
                 messages.append({"role": "system", "content": extra.strip()})
-
-        # --- Chat history ---
-        max_prompt_conversations = agent.max_prompt_conversations if agent else 0
-        history_messages = self._get_chat_history_messages(
-            conversation_id=conversation_id,
-            account_name=account_name,
-            agent_name=agent_name,
-            max_conversations=max_prompt_conversations,
-        )
-        messages.extend(history_messages)
+                system_text_parts.append(extra.strip())
 
         # --- Named context (from storage) ---
         context_text = self._get_context_text(account_name=account_name, context_name=context_name)
@@ -153,35 +166,24 @@ class PromptBuilder(PromptBuilderInterface):
 
                 logging.info("PromptBuilder.build_prompt: docs_tag=%s", docs_tag)
 
-                doc_contexts = get_document_context(
-                    storage=self.storage,
-                    account_name=account_name,
-                    query=content_text,
-                    kind="obsidian_note",
-                    docs_tag=docs_tag,
-                    limit=3,
-                    max_chars=9000,
-                )
-                if doc_contexts:
-                    doc_lines: List[str] = [
-                        "The following Obsidian notes may be relevant to the user's question:",
-                    ]
-                    for idx, ctx in enumerate(doc_contexts, start=1):
-                        title = ctx.get("title") or "(untitled)"
-                        tags = ctx.get("tags") or []
-                        snippet = ctx.get("snippet") or ""
-                        truncated = ctx.get("truncated") or False
-                        tag_str = ", ".join(tags)
-                        header = f"{idx}. Title: {title}"
-                        if tag_str:
-                            header += f" | Tags: {tag_str}"
-                        doc_lines.append(header)
-                        doc_lines.append(snippet)
-                        if truncated:
-                            doc_lines.append("[Note: content truncated]")
-                        doc_lines.append("")
+                if use_embeddings:
+                    doc_contexts = self._get_document_embedding_context(
+                        query=content_text,
+                        account_name=account_name,
+                        top_k=agent.max_prompt_documents if agent else 3,
+                        max_chars=9000,
+                    )
+                else:
+                    doc_contexts = get_document_context(
+                        storage=self.storage,
+                        account_name=account_name,
+                        query=content_text,
+                        kind="obsidian_note",
+                        docs_tag=docs_tag,
+                        limit=agent.max_prompt_documents if agent else 3,
+                        max_chars=9000,
+                    )
 
-                    messages.append({"role": "system", "content": "\n".join(doc_lines).strip()})
             except Exception as ex:
                 logging.warning(
                     "PromptBuilder: failed to load document context for %s/%s: %s",
@@ -189,6 +191,29 @@ class PromptBuilder(PromptBuilderInterface):
                     agent_name,
                     ex,
                 )
+
+        # build obsidian notes text for token accounting
+        obsidian_text = "\n\n".join((ctx.get("snippet") or "") for ctx in doc_contexts) if doc_contexts else ""
+
+        # --- Digest embeddings ---
+        digest_contexts: List[Dict[str, Any]] = []
+        try:
+            digest_contexts = self._get_digest_context(
+                query=content_text,
+                account_name=account_name,
+                top_k=3,
+                max_chars=3000,
+            )
+        except Exception as ex:
+            logging.warning(
+                "PromptBuilder: failed to load digest context for %s/%s: %s",
+                account_name,
+                agent_name,
+                ex,
+            )
+
+        # build digest text for token accounting
+        digest_text = "\n\n".join((d.get("snippet") or "") for d in digest_contexts) if digest_contexts else ""
 
         # --- Current user message ---
         has_attachments = bool(image_ids or file_ids)
@@ -204,28 +229,253 @@ class PromptBuilder(PromptBuilderInterface):
                 agent_allowed_tools=agent_allowed_tools,
                 supports_images=supports_images,
             ))
-            messages.append({"role": "user", "content": content_parts})
+            user_message = {"role": "user", "content": content_parts}
         else:
-            messages.append({"role": "user", "content": content_text})
+            user_message = {"role": "user", "content": content_text}
 
-        messages = self._ensure_current_query(messages, content_text)
+        # --- Token accounting instrumentation ---
+        try:
+            system_text = "\n\n".join(system_text_parts)
+            system_tokens = estimate_tokens_from_text(system_text)
+            context_tokens = estimate_tokens_from_text(context_text or "")
+            obsidian_tokens = estimate_tokens_from_text(obsidian_text or "")
+            digest_tokens = estimate_tokens_from_text(digest_text or "")
+            user_tokens = estimate_tokens_from_text(content_text or "")
 
-        # --- Summary logging ---
-        attachment_count = len(image_ids or []) + len(file_ids or [])
-        logging.info(
-            "PromptBuilder.build_prompt: agent=%s account=%s session_id=%s "
-            "context_type=%s context_name=%s history_messages=%d docs_used=%d "
-            "attachments=%d supports_images=%s",
-            agent_name,
-            account_name,
-            conversation_id,
-            context_type,
-            context_name,
-            len(history_messages),
-            len(doc_contexts),
-            attachment_count,
-            supports_images,
-        )
+            total_without_history = (
+                system_tokens + context_tokens + obsidian_tokens + digest_tokens + user_tokens
+            )
+
+            self._last_prompt_token_breakdown = {
+                "system_session": system_tokens,
+                "context_text": context_tokens,
+                "obsidian_notes": obsidian_tokens,
+                "digest_embeddings": digest_tokens,
+                "current_user_message": user_tokens,
+                "total_without_history": total_without_history,
+            }
+
+            logging.info(
+                "PromptBuilder.token_breakdown: agent=%s account=%s session=%s system=%d context=%d obsidian=%d digest=%d user=%d total_without_history=%d",
+                agent_name,
+                account_name,
+                conversation_id,
+                system_tokens,
+                context_tokens,
+                obsidian_tokens,
+                digest_tokens,
+                user_tokens,
+                total_without_history,
+            )
+
+            # Soft-max warning for front-loaded context
+            try:
+                soft_max = self._get_context_soft_max_tokens()
+                if context_tokens > soft_max:
+                    logging.warning(
+                        "PromptBuilder: context text (%d tokens) exceeds soft max (%d tokens) \\u2014 "
+                        "agent=%s account=%s context=%s; consider trimming the context file",
+                        context_tokens,
+                        soft_max,
+                        agent_name,
+                        account_name,
+                        context_name or "(none)",
+                    )
+            except Exception:
+                logging.exception("PromptBuilder: failed to check context soft max")
+
+            # Resolve ceiling (order: env, config, module default)
+            ceiling = None
+            env_val = os.getenv("PROMPT_BUDGET_MAX_TOKENS")
+            if env_val:
+                try:
+                    ceiling = int(env_val)
+                except Exception:
+                    logging.warning("PromptBuilder: invalid PROMPT_BUDGET_MAX_TOKENS=%s; ignoring", env_val)
+
+            if ceiling is None:
+                try:
+                    cfg_val = None
+                    if hasattr(self.config, "get"):
+                        cfg_val = self.config.get("prompt_budget_max_tokens", None)
+                    if cfg_val is not None:
+                        ceiling = int(cfg_val)
+                except Exception:
+                    logging.debug("PromptBuilder: failed to read prompt budget ceiling from config; using default")
+
+            if ceiling is None:
+                ceiling = DEFAULT_PROMPT_BUDGET_TOKENS
+
+            # Safety margin: module constant (not configurable)
+            safety_margin = PROMPT_BUDGET_SAFETY_MARGIN
+
+            # Calculate history budget
+            history_budget = ceiling - system_tokens - context_tokens - obsidian_tokens - digest_tokens - user_tokens - safety_margin
+
+            logging.info(
+                "PromptBuilder.history_budget: ceiling=%d system=%d context=%d obsidian=%d digest=%d user=%d safety_margin=%d -> history_budget=%d",
+                ceiling,
+                system_tokens,
+                context_tokens,
+                obsidian_tokens,
+                digest_tokens,
+                user_tokens,
+                safety_margin,
+                history_budget,
+            )
+
+            # --- Chat history selection by tokens ---
+            history_messages: List[Dict[str, str]] = []
+            try:
+                if self.chat2_store is not None and conversation_id not in ("none", "new", ""):
+                    if self.chat2_store.session_exists(conversation_id):
+                        events = list(self.chat2_store.stream_events(conversation_id))
+                        # Filter to conversational kinds (user/assistant)
+                        matching = [e for e in events if e.kind in getattr(__import__("src.chat2.prompt_slice", fromlist=["_CONVERSATION_KINDS"]), "_CONVERSATION_KINDS")]
+
+                        # Walk from most recent backward and pick messages until budget exhausted.
+                        remaining = history_budget
+                        included: List = []
+                        for e in reversed(matching):
+                            payload = e.payload if isinstance(e.payload, str) else str(e.payload)
+                            tok = estimate_tokens_from_text(payload)
+                            if remaining >= tok:
+                                included.insert(0, e)
+                                remaining -= tok
+                            else:
+                                # If nothing has been included yet, include the single large message
+                                if not included:
+                                    included.insert(0, e)
+                                break
+
+                        # Any messages in `matching` that are not in `included` are older and were dropped
+                        included_set = set(id(x) for x in included)
+                        dropped = [e for e in matching if id(e) not in included_set]
+
+                        if dropped:
+                            try:
+                                dropped_texts = [e.payload if isinstance(e.payload, str) else str(e.payload) for e in dropped]
+                                digest_snippet = self._summarize_overflow(dropped_texts)
+
+                                ctx_id = f"session_digest:{conversation_id}"
+                                saved_digest = None
+                                try:
+                                    if hasattr(self.storage, "get_or_create_context"):
+                                        ctx = self.storage.get_or_create_context(account_name, ctx_id)
+                                    else:
+                                        ctx = self.storage.get_context(account_name, ctx_id)
+
+                                    if ctx is not None:
+                                        data = getattr(ctx, "data", None) or {}
+                                        existing = data.get("digest", "") if isinstance(data, dict) else ""
+                                        if existing and existing.strip():
+                                            new_digest = existing.strip() + "\n\n" + digest_snippet
+                                        else:
+                                            new_digest = digest_snippet
+                                        data["digest"] = new_digest
+                                        ctx.data = data
+                                        if hasattr(self.storage, "save_context"):
+                                            self.storage.save_context(ctx)
+                                        saved_digest = new_digest
+                                except Exception:
+                                    saved_digest = None
+
+                                if saved_digest:
+                                    messages.append({"role": "system", "content": f"Earlier in this session:\n{saved_digest}"})
+                                else:
+                                    messages.append({"role": "system", "content": f"Earlier in this session:\n{digest_snippet}"})
+                            except Exception as ex:
+                                logging.warning(
+                                    "PromptBuilder: failed to persist session digest for %s: %s",
+                                    conversation_id,
+                                    ex,
+                                )
+
+                        history_messages = [
+                            {"role": e.role, "content": e.payload if isinstance(e.payload, str) else str(e.payload)}
+                            for e in included
+                        ]
+            except Exception as ex:
+                logging.warning(
+                    "PromptBuilder: chat2 history failed for session %s account=%s agent=%s: %s; returning empty history",
+                    conversation_id,
+                    account_name,
+                    agent_name,
+                    ex,
+                )
+
+            # Now assemble final messages: system messages already present in messages
+            # Insert history after system messages
+            messages.extend(history_messages)
+
+            # --- Append document contexts if any ---
+            if doc_contexts:
+                doc_lines: List[str] = [
+                    "The following Obsidian notes may be relevant to the user's question:",
+                ]
+                for idx, ctx in enumerate(doc_contexts, start=1):
+                    title = ctx.get("title") or "(untitled)"
+                    tags = ctx.get("tags") or []
+                    snippet = ctx.get("snippet") or ""
+                    truncated = ctx.get("truncated") or False
+                    tag_str = ", ".join(tags)
+                    header = f"{idx}. Title: {title}"
+                    if tag_str:
+                        header += f" | Tags: {tag_str}"
+                    doc_lines.append(header)
+                    doc_lines.append(snippet)
+                    if truncated:
+                        doc_lines.append("[Note: content truncated]")
+                    doc_lines.append("")
+
+                messages.append({"role": "system", "content": "\n".join(doc_lines).strip()})
+
+            # --- Append digest contexts if any ---
+            if digest_contexts:
+                digest_lines: List[str] = [
+                    "The following archived chat session digests may be relevant:",
+                ]
+                for idx, dctx in enumerate(digest_contexts, start=1):
+                    session_id = dctx.get("session_id") or "unknown"
+                    score = dctx.get("score", 0)
+                    snippet = dctx.get("snippet") or ""
+                    truncated = dctx.get("truncated") or False
+                    digest_lines.append(
+                        f"{idx}. Session {session_id} (score: {score:.3f})"
+                    )
+                    digest_lines.append(snippet)
+                    if truncated:
+                        digest_lines.append("[Digest truncated]")
+                    digest_lines.append("")
+
+                messages.append({"role": "system", "content": "\n".join(digest_lines).strip()})
+
+            # Finally append the user message
+            current_user_content = user_message["content"]
+            # Use _ensure_current_query which handles both list and str content
+            messages = self._ensure_current_query(messages, current_user_content)
+
+            # --- Summary logging ---
+            attachment_count = len(image_ids or []) + len(file_ids or [])
+            logging.info(
+                "PromptBuilder.build_prompt: agent=%s account=%s session_id=%s "
+                "context_type=%s context_name=%s history_messages=%d docs_used=%d "
+                "digest_docs_used=%d attachments=%d supports_images=%s use_embeddings=%s",
+                agent_name,
+                account_name,
+                conversation_id,
+                context_type,
+                context_name,
+                len(history_messages),
+                len(doc_contexts),
+                len(digest_contexts),
+                attachment_count,
+                supports_images,
+                use_embeddings,
+            )
+
+        except Exception as ex:
+            logging.exception("PromptBuilder: failed to compute token breakdown: %s", ex)
 
         return messages
 
@@ -248,6 +498,226 @@ class PromptBuilder(PromptBuilderInterface):
             parts.append(agent.style_prompt)
 
         return "\n\n".join(parts)
+
+    def _get_document_embedding_context(
+        self,
+        *,
+        query: str,
+        account_name: str,
+        namespaces: Optional[List[str]] = None,
+        top_k: int = 3,
+        max_chars: int = 9000,
+        score_threshold: float = DOC_EMBEDDING_SCORE_THRESHOLD,
+    ) -> List[Dict[str, Any]]:
+        """Search embedding store for relevant documents using semantic similarity.
+
+        Similar to _get_digest_context but tuned for document retrieval:
+        larger max_chars, different default threshold, and includes title/tags.
+
+        If namespaces is None, auto-discovers all available embedding namespaces
+        for the account (same as digest path). Documents and digests share the
+        same embedding store — this method loads snippets from whatever matches,
+        which callers can then present as "notes" or "documents" as appropriate.
+        """
+        if self.embedding_facade is None:
+            logging.info(
+                "PromptBuilder._get_document_embedding_context: "
+                "no embedding_facade — returning empty"
+            )
+            return []
+
+        if not query or not query.strip():
+            return []
+
+        try:
+            # Embed the user query
+            resp = self.embedding_facade.embed(
+                [query], model="text-embedding-3-small"
+            )
+            query_vector = resp.embeddings[0]
+
+            # Auto-discover namespaces if not explicitly provided
+            if namespaces is None:
+                namespaces = self.storage.list_embedding_namespaces(account_name)
+                logging.info(
+                    "PromptBuilder._get_document_embedding_context: "
+                    "auto-discovered namespaces=%s",
+                    namespaces,
+                )
+
+            results = self.storage.query_embeddings(
+                namespaces=namespaces,
+                account_name=account_name,
+                query_vector=query_vector,
+                top_k=top_k,
+            )
+
+            # Log raw results before threshold filtering
+            query_preview = query[:120].replace("\n", " ")
+            raw_summary = ", ".join(
+                f"{r.source_id}={s:.3f}" for r, s in results
+            )
+            logging.info(
+                "PromptBuilder._get_document_embedding_context: "
+                "query='%s' top_k=%d raw=[%s]",
+                query_preview,
+                top_k,
+                raw_summary,
+            )
+
+            contexts: List[Dict[str, Any]] = []
+
+            for record, score in results:
+                if score < score_threshold:
+                    continue
+
+                path = record.source_metadata.get("path") if record.source_metadata else None
+                if not path:
+                    continue
+
+                snippet, truncated = load_text_snippet(path, max_chars=max_chars)
+                if not snippet.strip():
+                    continue
+
+                title = record.source_metadata.get("title") or os.path.basename(path)
+                tags = record.source_metadata.get("tags") or []
+
+                contexts.append({
+                    "title": title,
+                    "tags": tags,
+                    "snippet": snippet,
+                    "truncated": truncated,
+                    "score": score,
+                    "source_id": record.source_id,
+                })
+
+            if contexts:
+                selected_summary = ", ".join(
+                    f"{c['source_id']}={c['score']:.3f}" for c in contexts
+                )
+                logging.info(
+                    "PromptBuilder._get_document_embedding_context: selected=%d [%s]",
+                    len(contexts),
+                    selected_summary,
+                )
+            else:
+                logging.info(
+                    "PromptBuilder._get_document_embedding_context: "
+                    "selected=0 (none above threshold %.2f)",
+                    score_threshold,
+                )
+
+            return contexts
+
+        except Exception as ex:
+            logging.warning(
+                "PromptBuilder._get_document_embedding_context: "
+                "failed for account=%s: %s",
+                account_name,
+                ex,
+            )
+            return []
+
+    def _get_digest_context(
+        self,
+        *,
+        query: str,
+        account_name: str,
+        namespaces: Optional[List[str]] = None,
+        top_k: int = 3,
+        max_chars: int = 3000,
+    ) -> List[Dict[str, Any]]:
+        """Search embeddings across one or more namespaces and return relevant snippets.
+
+        If namespaces is None, auto-discovers all available embedding namespaces
+        for the account via storage.list_embedding_namespaces().
+        """
+        if self.embedding_facade is None:
+            return []
+
+        if not query or not query.strip():
+            return []
+
+        try:
+            # Embed the user query
+            resp = self.embedding_facade.embed(
+                [query], model="text-embedding-3-small"
+            )
+            query_vector = resp.embeddings[0]
+
+            # Auto-discover namespaces if not explicitly provided
+            if namespaces is None:
+                namespaces = self.storage.list_embedding_namespaces(account_name)
+                logging.info(
+                    "PromptBuilder._get_digest_context: auto-discovered namespaces=%s",
+                    namespaces,
+                )
+
+            results = self.storage.query_embeddings(
+                namespaces=namespaces,
+                account_name=account_name,
+                query_vector=query_vector,
+                top_k=top_k,
+            )
+
+            # Log raw top_k results (before threshold filtering) for eval
+            query_preview = query[:120].replace("\n", " ")
+            raw_summary = ", ".join(
+                f"{r.source_id}={s:.3f}" for r, s in results
+            )
+            logging.info(
+                "PromptBuilder._get_digest_context: query='%s' top_k=%d raw=[%s]",
+                query_preview,
+                top_k,
+                raw_summary,
+            )
+
+            contexts: List[Dict[str, Any]] = []
+
+            for record, score in results:
+                if score < DIGEST_SCORE_THRESHOLD:
+                    continue
+
+                path = record.source_metadata.get("path") if record.source_metadata else None
+                if not path:
+                    continue
+
+                snippet, truncated = load_text_snippet(path, max_chars=max_chars)
+                if not snippet.strip():
+                    continue
+
+                contexts.append({
+                    "session_id": record.source_id,
+                    "snippet": snippet,
+                    "truncated": truncated,
+                    "score": score,
+                })
+
+            # Log which digests passed the threshold
+            if contexts:
+                selected_summary = ", ".join(
+                    f"{c['session_id']}={c['score']:.3f}" for c in contexts
+                )
+                logging.info(
+                    "PromptBuilder._get_digest_context: selected=%d [%s]",
+                    len(contexts),
+                    selected_summary,
+                )
+            else:
+                logging.info(
+                    "PromptBuilder._get_digest_context: selected=0 (none above threshold %.2f)",
+                    DIGEST_SCORE_THRESHOLD,
+                )
+
+            return contexts
+
+        except Exception as ex:
+            logging.warning(
+                "PromptBuilder._get_digest_context: failed for account=%s: %s",
+                account_name,
+                ex,
+            )
+            return []
 
     def _resolve_attachments(
         self,
@@ -451,6 +921,9 @@ class PromptBuilder(PromptBuilderInterface):
         if max_conversations <= 0:
             return []
 
+        # This method is kept for backward compatibility but is no longer used
+        # in the token-based prompt budget flow. It mirrors the legacy behavior
+        # of returning the last N conversation events.
         # --- Try chat2 only ---
         if self.chat2_store is not None:
             try:
@@ -574,3 +1047,74 @@ class PromptBuilder(PromptBuilderInterface):
             elif isinstance(last_content, str) and last_content == current_query:
                 return messages
         return messages + [{"role": "user", "content": current_query}]
+
+    def _get_context_soft_max_tokens(self) -> int:
+        """Resolve the soft max tokens for front-loaded context.
+
+        Order of precedence:
+          1. Environment variable PROMPT_BUILDER_CONTEXT_SOFT_MAX_TOKENS
+          2. config.get('context_text_soft_max_tokens') if available
+          3. module default (CONTEXT_TEXT_SOFT_MAX_TOKENS)
+
+        Returns an int >= 0.
+        """
+        # 1) Check environment
+        env_val = os.getenv("PROMPT_BUILDER_CONTEXT_SOFT_MAX_TOKENS")
+        if env_val:
+            try:
+                v = int(env_val)
+                if v >= 0:
+                    return v
+            except Exception:
+                logging.warning(
+                    "PromptBuilder: invalid PROMPT_BUILDER_CONTEXT_SOFT_MAX_TOKENS=%s; using fallback",
+                    env_val,
+                )
+
+        # 2) Check config (ConfigManager-like object with .get)
+        try:
+            cfg_val = None
+            if hasattr(self.config, "get"):
+                cfg_val = self.config.get("context_text_soft_max_tokens", None)
+            if cfg_val is not None:
+                try:
+                    v = int(cfg_val)
+                    if v >= 0:
+                        return v
+                except Exception:
+                    logging.warning(
+                        "PromptBuilder: invalid context_text_soft_max_tokens in config: %s; using fallback",
+                        cfg_val,
+                    )
+        except Exception:
+            logging.debug("PromptBuilder: failed to read config for soft max tokens; using default")
+
+        # 3) Fallback to module-level default
+        return CONTEXT_TEXT_SOFT_MAX_TOKENS
+
+    def _summarize_overflow(self, texts: List[str], max_chars: int = 800) -> str:
+        """Create a short human-readable digest from a list of earlier message texts.
+
+        This is intentionally simple and deterministic: concatenate leading
+        excerpts from the first few messages until max_chars is reached, and
+        prepend a short header describing how many messages were summarized.
+        """
+        if not texts:
+            return ""
+
+        header = f"{len(texts)} earlier messages were summarized."
+        out_parts: List[str] = [header]
+        remaining = max_chars - len(header) - 2
+        for t in texts:
+            if remaining <= 0:
+                break
+            snippet = t.strip().replace("\n", " ")
+            if not snippet:
+                continue
+            take = min(len(snippet), remaining)
+            out_parts.append(snippet[:take])
+            remaining -= take + 2
+        combined = "\n\n".join(out_parts)
+        if len(combined) > max_chars:
+            combined = combined[: max_chars - 3] + "..."
+        return combined

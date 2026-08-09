@@ -24,6 +24,7 @@ FALLBACK_TEMPLATE = """# Session Digest: {friendly_name}
 - **Session ID**: {session_id}
 - **Date**: {date}
 - **Account**: {account}
+- **Source**: {archive_path}
 
 ## Summary
 
@@ -42,6 +43,7 @@ DEFAULT_SUMMARIZE_TEMPLATE = """# Session Digest: {friendly_name}
 - **Session ID**: {session_id}
 - **Date**: {date}
 - **Account**: {account}
+- **Source**: {archive_path}
 
 {summary_text}
 """
@@ -104,6 +106,7 @@ def render_template(
     friendly_name: str = "",
     session_id: str = "",
     account: str = "",
+    archive_path: str = "",
     events: Optional[List[ChatEvent]] = None,
     summary_text: str = "",
     decisions: str = "",
@@ -121,6 +124,7 @@ def render_template(
         friendly_name: Session friendly name.
         session_id: Session UUID.
         account: Account name.
+        archive_path: Path to the archived JSONL source (empty if no archive).
         events: List of ChatEvent objects (used to build events_bullets).
         summary_text: Free-text summary (the LLM digest).
         decisions: Decisions made section content.
@@ -149,6 +153,7 @@ def render_template(
         "session_id": session_id,
         "date": now.strftime("%Y-%m-%d %H:%M UTC"),
         "account": account,
+        "archive_path": archive_path,
         "summary_text": summary_text,
         "events_bullets": events_bullets,
         "decisions": decisions,

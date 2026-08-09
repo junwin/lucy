@@ -260,6 +260,7 @@ class _FakeAgent:
     persona = ""
     style_prompt = ""
     max_prompt_conversations = 0
+    use_embeddings = False
 
 
 class _FakeAgentManager:
