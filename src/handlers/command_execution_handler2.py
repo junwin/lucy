@@ -56,7 +56,7 @@ class CommandExecutionHandler2(HandlerV2):
         else:
             shell_example = "bash -lc '\"...\"'"
             shell_note = "(bash is available in the environment.)"
-            example_usage = "bash -lc '\"grep -R \\\'pattern\\\' . | sed -n '1,10p\\\"'"
+            example_usage = "bash -lc '\"grep -R \\'pattern\\' . | sed -n '1,10p\\\"'"
             command_wrap_example = "bash -lc '\"your full command here\"'"
 
         return {
@@ -129,7 +129,7 @@ class CommandExecutionHandler2(HandlerV2):
                     },
                 },
                 # STRICT RULE: required must include EVERY property key
-                "required": ["location", "external_root", "command", "working_directory", "timeout_seconds", "success_exit_codes"],
+                "required": ["location", "external_root", "command", "working_directory", "timeout_seconds", "success_exit_codes", "wrapper"],
                 "additionalProperties": False,
             },
             "strict": True,
