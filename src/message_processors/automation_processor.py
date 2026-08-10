@@ -610,9 +610,9 @@ class AutomationProcessor(MessageProcessorInterface):
                         # Save and override the worker agent's max_function_call_iterations
                         # with task_max_iterations so each sub-task gets a small, clean budget.
                         original_max = task_agent.max_function_call_iterations
-                        task_agent.max_function_call_iterations = worker_task_iterations
+                        # task_agent.max_function_call_iterations = worker_task_iterations
                         logger.info(
-                            "AutomationProcessor: capping iterations for task=%s agent=%s from %d to %d",
+                            "AutomationProcessor: NOT IN USE capping iterations for task=%s agent=%s from %d to %d",
                             last_task_name,
                             task_agent_name,
                             original_max,
