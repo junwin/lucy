@@ -209,7 +209,13 @@ class AutomationProcessor(MessageProcessorInterface):
     # Chat2 event helpers
     # ------------------------------------------------------------------
 
-    def _ensure_chat2_session(self, conversation_id: str, account_name: str, agent_name: str) -> None:
+    def _ensure_chat2_session(
+        self,
+        conversation_id: str,
+        account_name: str,
+        agent_name: str,
+        friendly_name: Optional[str] = None,
+    ) -> None:
         """Create a chat2 session if one doesn't exist for this conversation_id.
 
         Best-effort: failures are logged but not propagated.
@@ -224,12 +230,14 @@ class AutomationProcessor(MessageProcessorInterface):
                 account_name=account_name,
                 agent_name=agent_name,
                 session_id=conversation_id,
+                friendly_name=friendly_name,
             )
             logger.info(
-                "chat2: created session %s for account=%s agent=%s",
+                "chat2: created session %s for account=%s agent=%s friendly_name=%s",
                 conversation_id,
                 account_name,
                 agent_name,
+                friendly_name,
             )
         except Exception:
             logger.exception(
@@ -247,6 +255,7 @@ class AutomationProcessor(MessageProcessorInterface):
         kind: str,
         payload: str,
         metadata: Optional[Dict[str, Any]] = None,
+        friendly_name: Optional[str] = None,
     ) -> None:
         """Write a single event to chat2 storage.
 
@@ -255,7 +264,10 @@ class AutomationProcessor(MessageProcessorInterface):
         if self.chat2_store is None:
             return
         try:
-            self._ensure_chat2_session(conversation_id, account_name, agent_name)
+            self._ensure_chat2_session(
+                conversation_id, account_name, agent_name,
+                friendly_name=friendly_name,
+            )
 
             # Map automation-specific kind to a valid ChatEvent kind.
             mapped_kind = _map_chat2_kind(kind)
@@ -457,6 +469,19 @@ class AutomationProcessor(MessageProcessorInterface):
             )
 
         tasklist: TaskList = raw_tasklist
+
+        # Derive a friendly_name for the chat2 session so automated runs
+        # don't create sketchy null-name sessions.
+        auto_friendly_name = f"auto_{resolved_key}"
+
+        # Ensure the chat2 session exists BEFORE any sub-calls to FCP
+        # (which would otherwise create it with a null friendly_name).
+        self._ensure_chat2_session(
+            conversation_id=conversation_id,
+            account_name=account_name,
+            agent_name=agent_name,
+            friendly_name=auto_friendly_name,
+        )
 
         try:
             if tasklist.state == TASK_LIST_STATE_CREATED:
@@ -681,6 +706,7 @@ class AutomationProcessor(MessageProcessorInterface):
                     "error": task_error,
                 }),
                 metadata={"tasklist_id": tasklist_id, "mode": mode},
+                friendly_name=auto_friendly_name,
             )
 
             # Persist after each task (COMPLETED or FAILED checkpoint).
@@ -753,6 +779,7 @@ class AutomationProcessor(MessageProcessorInterface):
                 "warnings": warning_messages,
             }),
             metadata={"tasklist_id": tasklist_id, "mode": mode},
+            friendly_name=auto_friendly_name,
         )
 
         # Structured final log for observability
@@ -845,6 +872,9 @@ class AutomationProcessor(MessageProcessorInterface):
         )
         logger.debug("Incoming message preview: %s", _safe_preview(message, 800))
 
+        # Derive a friendly_name for the chat2 session.
+        auto_friendly_name = f"auto_{tasklist_id}"
+
         # Write user command event to chat2
         self._write_chat2_event(
             conversation_id=conversation_id,
@@ -854,6 +884,7 @@ class AutomationProcessor(MessageProcessorInterface):
             kind="automation_command",
             payload=message,
             metadata={"tasklist_id": tasklist_id, "mode": mode},
+            friendly_name=auto_friendly_name,
         )
 
         # Delegate to the extracted execution method.

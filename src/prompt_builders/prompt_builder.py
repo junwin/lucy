@@ -5,6 +5,7 @@ import glob
 import logging
 import os
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any, Dict, List, Optional
 from injector import inject
 
@@ -16,7 +17,7 @@ from src.utils.document_context import get_document_context
 from src.utils.text_snippet_loader import load_text_snippet
 
 from src.chat2.facade import Chat2Store
-from src.chat2.prompt_slice import get_last_n_events
+from src.chat2.prompt_slice import get_last_n_events, _CONVERSATION_KINDS
 
 DEFAULT_PROMPT_BUDGET_TOKENS = 12000
 PROMPT_BUDGET_SAFETY_MARGIN = 500
@@ -36,6 +37,9 @@ DOC_EMBEDDING_SCORE_THRESHOLD = 0.25
 
 # Soft max tokens for front-loaded context (can be overridden by env/config)
 CONTEXT_TEXT_SOFT_MAX_TOKENS = int(os.getenv("PROMPT_BUILDER_CONTEXT_SOFT_MAX_TOKENS", "2000"))
+
+# Default embedding namespaces to search when no context specifies them.
+DEFAULT_SEARCH_NAMESPACES = ["external"]
 
 
 def estimate_tokens_from_text(text: str) -> int:
@@ -149,27 +153,36 @@ class PromptBuilder(PromptBuilderInterface):
                 }
             )
 
+        # --- Read context data for search_namespaces and docs_tag ---
+        context_data: Dict[str, Any] = {}
+        if context_name and context_name != "none":
+            ctx = self._get_context_state(account_name=account_name, context_name=context_name)
+            if ctx is not None:
+                data = getattr(ctx, "data", None)
+                if isinstance(data, dict):
+                    context_data = data
+
         # --- External documents ---
         doc_contexts: List[Dict[str, Any]] = []
         if context_type in ("documents", "hybrid"):
             try:
                 # Read optional docs_tag from the context state if available.
                 docs_tag: Optional[str] = None
-                if context_name and context_name != "none":
-                    ctx = self._get_context_state(account_name=account_name, context_name=context_name)
-                    if ctx is not None:
-                        data = getattr(ctx, "data", None)
-                        if isinstance(data, dict):
-                            tag_val = data.get("tag")
-                            if isinstance(tag_val, str) and tag_val.strip():
-                                docs_tag = tag_val.strip()
+                if isinstance(context_data.get("tag"), str) and context_data["tag"].strip():
+                    docs_tag = context_data["tag"].strip()
 
                 logging.info("PromptBuilder.build_prompt: docs_tag=%s", docs_tag)
+
+                # Read search_namespaces from context, fall back to default
+                search_namespaces = context_data.get("search_namespaces")
+                if not search_namespaces:
+                    search_namespaces = DEFAULT_SEARCH_NAMESPACES
 
                 if use_embeddings:
                     doc_contexts = self._get_document_embedding_context(
                         query=content_text,
                         account_name=account_name,
+                        namespaces=search_namespaces,
                         top_k=agent.max_prompt_documents if agent else 3,
                         max_chars=9000,
                     )
@@ -324,14 +337,39 @@ class PromptBuilder(PromptBuilderInterface):
                 history_budget,
             )
 
-            # --- Chat history selection by tokens ---
+            # --- Chat history selection by tokens, capped by max_prompt_conversations ---
             history_messages: List[Dict[str, str]] = []
             try:
                 if self.chat2_store is not None and conversation_id not in ("none", "new", ""):
                     if self.chat2_store.session_exists(conversation_id):
                         events = list(self.chat2_store.stream_events(conversation_id))
                         # Filter to conversational kinds (user/assistant)
-                        matching = [e for e in events if e.kind in getattr(__import__("src.chat2.prompt_slice", fromlist=["_CONVERSATION_KINDS"]), "_CONVERSATION_KINDS")]
+                        matching = [e for e in events if e.kind in _CONVERSATION_KINDS]
+
+                        # Apply max_prompt_conversations as a hard event-count cap.
+                        # 0 = no history. N = at most the last N events. Token budget
+                        # still applies as a secondary limit within those N events.
+                        max_convs = agent.max_prompt_conversations if agent else 6
+                        original_match_count = len(matching)
+                        if max_convs <= 0:
+                            matching = []
+                        else:
+                            matching = matching[-max_convs:]
+
+                        if max_convs <= 0:
+                            logging.info(
+                                "PromptBuilder.history: max_prompt_conversations=%d — skipping all chat history for agent=%s",
+                                max_convs,
+                                agent_name,
+                            )
+                        elif len(matching) < original_match_count:
+                            logging.info(
+                                "PromptBuilder.history: max_prompt_conversations=%d capped %d events down to %d for agent=%s",
+                                max_convs,
+                                original_match_count,
+                                len(matching),
+                                agent_name,
+                            )
 
                         # Walk from most recent backward and pick messages until budget exhausted.
                         remaining = history_budget
@@ -357,28 +395,11 @@ class PromptBuilder(PromptBuilderInterface):
                                 dropped_texts = [e.payload if isinstance(e.payload, str) else str(e.payload) for e in dropped]
                                 digest_snippet = self._summarize_overflow(dropped_texts)
 
-                                ctx_id = f"session_digest:{conversation_id}"
-                                saved_digest = None
-                                try:
-                                    if hasattr(self.storage, "get_or_create_context"):
-                                        ctx = self.storage.get_or_create_context(account_name, ctx_id)
-                                    else:
-                                        ctx = self.storage.get_context(account_name, ctx_id)
-
-                                    if ctx is not None:
-                                        data = getattr(ctx, "data", None) or {}
-                                        existing = data.get("digest", "") if isinstance(data, dict) else ""
-                                        if existing and existing.strip():
-                                            new_digest = existing.strip() + "\n\n" + digest_snippet
-                                        else:
-                                            new_digest = digest_snippet
-                                        data["digest"] = new_digest
-                                        ctx.data = data
-                                        if hasattr(self.storage, "save_context"):
-                                            self.storage.save_context(ctx)
-                                        saved_digest = new_digest
-                                except Exception:
-                                    saved_digest = None
+                                saved_digest = self._save_overflow_digest(
+                                    account_name=account_name,
+                                    conversation_id=conversation_id,
+                                    new_snippet=digest_snippet,
+                                )
 
                                 if saved_digest:
                                     messages.append({"role": "system", "content": f"Earlier in this session:\n{saved_digest}"})
@@ -514,10 +535,8 @@ class PromptBuilder(PromptBuilderInterface):
         Similar to _get_digest_context but tuned for document retrieval:
         larger max_chars, different default threshold, and includes title/tags.
 
-        If namespaces is None, auto-discovers all available embedding namespaces
-        for the account (same as digest path). Documents and digests share the
-        same embedding store — this method loads snippets from whatever matches,
-        which callers can then present as "notes" or "documents" as appropriate.
+        Namespaces must be provided explicitly. If not, falls back to
+        DEFAULT_SEARCH_NAMESPACES (["external"]).
         """
         if self.embedding_facade is None:
             logging.info(
@@ -529,6 +548,9 @@ class PromptBuilder(PromptBuilderInterface):
         if not query or not query.strip():
             return []
 
+        if namespaces is None:
+            namespaces = DEFAULT_SEARCH_NAMESPACES
+
         try:
             # Embed the user query
             resp = self.embedding_facade.embed(
@@ -536,14 +558,11 @@ class PromptBuilder(PromptBuilderInterface):
             )
             query_vector = resp.embeddings[0]
 
-            # Auto-discover namespaces if not explicitly provided
-            if namespaces is None:
-                namespaces = self.storage.list_embedding_namespaces(account_name)
-                logging.info(
-                    "PromptBuilder._get_document_embedding_context: "
-                    "auto-discovered namespaces=%s",
-                    namespaces,
-                )
+            logging.info(
+                "PromptBuilder._get_document_embedding_context: "
+                "searching namespaces=%s",
+                namespaces,
+            )
 
             results = self.storage.query_embeddings(
                 namespaces=namespaces,
@@ -867,6 +886,61 @@ class PromptBuilder(PromptBuilderInterface):
         storage_root = self.config.get("storage_root_path", "/home/junwin/lucy_storage")
         storage_ns = self.config.get("storage_namespace", "data")
         return os.path.join(storage_root, storage_ns, "images")
+
+    def _build_digests_dir(self, account_name: str) -> Path:
+        """Return the path to the account's digests directory.
+
+        Uses the same convention as curation: data/digests/<account>/,
+        resolved relative to the repo root (CWD).
+        """
+        return Path("data") / "digests" / account_name
+
+    def _save_overflow_digest(
+        self,
+        *,
+        account_name: str,
+        conversation_id: str,
+        new_snippet: str,
+    ) -> Optional[str]:
+        """Save an overflow digest to data/digests/<account>/<session_id>_overflow.md.
+
+        Appends new_snippet to any existing digest for the same session.
+        Returns the full digest text (existing + new) or the new snippet alone
+        if the file couldn't be written.
+        """
+        digest_dir = self._build_digests_dir(account_name)
+        digest_dir.mkdir(parents=True, exist_ok=True)
+
+        output_path = digest_dir / f"{conversation_id}_overflow.md"
+
+        existing = ""
+        try:
+            if output_path.exists():
+                existing = output_path.read_text(encoding="utf-8").strip()
+        except Exception:
+            pass
+
+        if existing:
+            combined = existing + "\n\n" + new_snippet
+        else:
+            combined = new_snippet
+
+        try:
+            output_path.write_text(combined, encoding="utf-8")
+            logging.info(
+                "PromptBuilder: saved overflow digest to %s (session=%s, chars=%d)",
+                output_path,
+                conversation_id,
+                len(combined),
+            )
+            return combined
+        except Exception as ex:
+            logging.warning(
+                "PromptBuilder: failed to write overflow digest for %s: %s",
+                conversation_id,
+                ex,
+            )
+            return None
 
     def _find_image_file(self, images_dir: str, account_name: str, img_id: str) -> Optional[str]:
         """Find an image file by UUID in the account's images directory.

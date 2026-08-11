@@ -9,10 +9,10 @@ from src.prompt_builders import prompt_builder as pb_module
 from src.prompt_builders.prompt_builder import PromptBuilder
 
 
-def _make_prompt_builder_with_config(chat2_store, model_limit):
+def _make_prompt_builder_with_config(chat2_store, model_limit, max_prompt_conversations=10):
     agent_manager = Mock()
     mock_agent = Mock()
-    mock_agent.max_prompt_conversations = 10
+    mock_agent.max_prompt_conversations = max_prompt_conversations
     mock_agent.system_prompt = None
     mock_agent.persona = None
     mock_agent.style_prompt = None
@@ -49,6 +49,11 @@ def _system_token_estimate_for_fake_agent():
     return (34 + 55 + 90 + 20) // 4  # rough estimate in real-token terms
 
 
+def _history_only(messages, current_query):
+    """Return history messages, excluding the current user query."""
+    return [m["content"] for m in messages if m.get("role") in ("user", "assistant") and m.get("content") != current_query]
+
+
 def test_history_token_allocation_normal_case():
     """Many small messages — the most recent ones that fit the budget are included."""
     sys_est = _system_token_estimate_for_fake_agent()
@@ -77,7 +82,7 @@ def test_history_token_allocation_normal_case():
         context_type="none",
     )
 
-    hist_contents = [m["content"] for m in prompt if m.get("role") in ("user", "assistant")]
+    hist_contents = _history_only(prompt, "query")
     # msg4 and msg5 should be the most recent that fit
     assert any("msg4-" in c for c in hist_contents), "Expected msg4 in history"
     assert any("msg5-" in c for c in hist_contents), "Expected msg5 in history"
@@ -103,7 +108,7 @@ def test_history_token_allocation_giant_message_included():
         context_type="none",
     )
 
-    hist_contents = [m["content"] for m in prompt if m.get("role") in ("user", "assistant")]
+    hist_contents = _history_only(prompt, "query")
     # Giant message should be present despite being over budget
     assert any(len(c) >= 4000 for c in hist_contents), "Expected giant message included in history"
 
@@ -136,7 +141,100 @@ def test_history_token_allocation_boundary_exact_fit():
         context_type="none",
     )
 
-    hist_contents = [m["content"] for m in prompt if m.get("role") in ("user", "assistant")]
+    hist_contents = _history_only(prompt, "q")
     assert any("h1-" in c for c in hist_contents), "Expected h1 in history"
     assert any("h2-" in c for c in hist_contents), "Expected h2 in history"
     assert any("h3-" in c for c in hist_contents), "Expected h3 in history"
+
+
+# --- max_prompt_conversations tests ---
+
+def test_max_prompt_conversations_zero_no_history():
+    """max_prompt_conversations=0 skips all chat history regardless of token budget."""
+    store = Chat2Store(InMemoryStore())
+    meta = store.create_session(user_id="u", account_name="acct", agent_name="a")
+    sid = meta.session_id
+
+    for i in range(5):
+        store.add_event(sid, ChatEvent(role="user", actor="u", kind="user_message", payload=f"msg-{i} " + ("x" * 20)))
+
+    # Huge token budget, but max_prompt_conversations=0 should block all history
+    pb = _make_prompt_builder_with_config(store, model_limit=100000, max_prompt_conversations=0)
+
+    prompt = pb.build_prompt(
+        content_text="query",
+        conversation_id=sid,
+        agent_name="a",
+        account_name="acct",
+        context_type="none",
+    )
+
+    hist_contents = _history_only(prompt, "query")
+    assert len(hist_contents) == 0, f"Expected no history messages, got {hist_contents}"
+
+
+def test_max_prompt_conversations_caps_event_count():
+    """max_prompt_conversations=N limits history to at most N events, with token budget as secondary limit."""
+    store = Chat2Store(InMemoryStore())
+    meta = store.create_session(user_id="u", account_name="acct", agent_name="a")
+    sid = meta.session_id
+
+    # 10 small messages
+    for i in range(10):
+        store.add_event(sid, ChatEvent(role="user", actor="u", kind="user_message", payload=f"msg-{i} " + ("x" * 20)))
+
+    # Huge token budget, but max_prompt_conversations=3 should cap at last 3
+    pb = _make_prompt_builder_with_config(store, model_limit=100000, max_prompt_conversations=3)
+
+    prompt = pb.build_prompt(
+        content_text="query",
+        conversation_id=sid,
+        agent_name="a",
+        account_name="acct",
+        context_type="none",
+    )
+
+    hist_contents = _history_only(prompt, "query")
+    assert len(hist_contents) == 3, f"Expected 3 history messages, got {len(hist_contents)}: {hist_contents}"
+    # Should be the last 3: msg-7, msg-8, msg-9
+    assert any("msg-7" in c for c in hist_contents)
+    assert any("msg-8" in c for c in hist_contents)
+    assert any("msg-9" in c for c in hist_contents)
+    # Should NOT include early messages
+    assert not any("msg-0" in c for c in hist_contents)
+
+
+def test_max_prompt_conversations_cap_and_budget_combined():
+    """When both max_prompt_conversations and token budget constrain, the tighter one wins."""
+    store = Chat2Store(InMemoryStore())
+    meta = store.create_session(user_id="u", account_name="acct", agent_name="a")
+    sid = meta.session_id
+
+    # 10 messages — put the large ones early, small ones late
+    for i in range(5):
+        store.add_event(sid, ChatEvent(role="user", actor="u", kind="user_message", payload=f"small-{i} " + ("s" * 10)))
+    for i in range(5, 10):
+        store.add_event(sid, ChatEvent(role="user", actor="u", kind="user_message", payload=f"large-{i} " + ("L" * 2000)))
+
+    sys_est = _system_token_estimate_for_fake_agent()
+    user_tok = max(1, len("q") // 4)
+    small_tok = max(1, 25 // 4)  # ~7 tokens per small message
+    large_tok = max(1, 2010 // 4)  # ~503 tokens per large
+
+    # Token budget: only enough for ~2 small + 1 large (with cap at 5)
+    model_limit = sys_est + small_tok * 2 + large_tok + user_tok + pb_module.PROMPT_BUDGET_SAFETY_MARGIN
+
+    pb = _make_prompt_builder_with_config(store, model_limit=model_limit, max_prompt_conversations=5)
+
+    prompt = pb.build_prompt(
+        content_text="q",
+        conversation_id=sid,
+        agent_name="a",
+        account_name="acct",
+        context_type="none",
+    )
+
+    hist_contents = _history_only(prompt, "q")
+    # Should have at most 5 (the cap) and the token budget will further restrict.
+    # With the budget above, we expect ~2-3 messages.
+    assert 1 <= len(hist_contents) <= 5, f"Expected 1-5 history messages, got {len(hist_contents)}"
