@@ -596,14 +596,8 @@ def get_processor_name(agent_name, account_name):
 
 
 if __name__ == "__main__":
-    context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
-    context.load_cert_chain(
-        config.get("ssl_cert", "192.168.1.245.pem"),
-        config.get("ssl_key", "192.168.1.245-key.pem"),
-    )
     app.run(
         host=config.get("host", "0.0.0.0"),
         port=config.get("port", 5000),
-        ssl_context=context,
         debug=config.get("debug", True),
     )

@@ -4,6 +4,7 @@ Covers:
   - OpenAIResponsesApi → True
   - MistralApi → True
   - DeepSeekApi → False
+  - OllamaApi → False
   - RouterApi → routes correctly to each provider (explicit provider param)
   - RouterApi → prefix fallback still works
   - RouterApi → unknown model with no provider defaults to openai
@@ -16,6 +17,7 @@ import pytest
 from src.llm.openai_responses import OpenAIResponsesApi
 from src.llm.mistral_api import MistralApi
 from src.llm.deepseek_responses import DeepSeekApi
+from src.llm.ollama_api import OllamaApi
 from src.llm.router_api import RouterApi
 
 
@@ -53,6 +55,17 @@ def test_supports_image_processing_deepseek() -> None:
 
 
 # ---------------------------------------------------------------------------
+# OllamaApi
+# ---------------------------------------------------------------------------
+
+def test_supports_image_processing_ollama() -> None:
+    api = OllamaApi()
+    assert api.supports_image_processing("llama3.1") is False
+    assert api.supports_image_processing("qwen3") is False
+    assert api.supports_image_processing("gemma3") is False
+
+
+# ---------------------------------------------------------------------------
 # RouterApi
 # ---------------------------------------------------------------------------
 
@@ -62,6 +75,7 @@ def test_router_explicit_provider_routing() -> None:
     assert router.supports_image_processing("anything", provider="mistral") is True
     assert router.supports_image_processing("anything", provider="deepseek") is False
     assert router.supports_image_processing("anything", provider="openai") is True
+    assert router.supports_image_processing("anything", provider="ollama") is False
 
 
 def test_router_prefix_fallback_still_works() -> None:
@@ -69,6 +83,7 @@ def test_router_prefix_fallback_still_works() -> None:
     assert router.supports_image_processing("deepseek-chat") is False
     assert router.supports_image_processing("mistral-large") is True
     assert router.supports_image_processing("gpt-4o") is True
+    assert router.supports_image_processing("ollama/llama3.1") is False
 
 
 def test_router_unknown_model_defaults_to_openai() -> None:

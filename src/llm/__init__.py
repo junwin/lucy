@@ -18,6 +18,11 @@ except Exception:
     MistralApi = None
     MistralResponsesAdapter = None
 
+try:
+    from .ollama_api import OllamaApi
+except Exception:
+    OllamaApi = None
+
 __all__ = [
     "LLMApi",
     "LLMAdapter",
@@ -28,4 +33,5 @@ __all__ = [
     "OpenAIResponsesAdapter",
     "MistralApi",
     "MistralResponsesAdapter",
+    "OllamaApi",
 ]
