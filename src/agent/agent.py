@@ -30,11 +30,6 @@ class Agent:
         - If an empty list, no tools are allowed.
         - If a non-empty list, only the named tools are permitted for this agent.
 
-    task_max_iterations: int
-        - Budget per sub-task when decomposed via AutomationProcessor (default 10).
-        - Separate from max_function_call_iterations so the agent keeps a high
-          budget for orchestration but each sub-task gets a small, clean context.
-
     use_embeddings: bool
         - When True, document context retrieval uses embedding-based semantic
           search instead of keyword matching (the default).
@@ -52,7 +47,6 @@ class Agent:
     model: str = "gpt-5.1"
     message_processor: str = "function_calling_processor"
     max_function_call_iterations: int = 10
-    task_max_iterations: int = 10
     partner_agent: Optional[str] = None
     system_prompt: str = ""
     style_prompt: str = ""
@@ -60,6 +54,8 @@ class Agent:
     allowed_tools: Optional[List[str]] = None
     provider: Optional[str] = None
     use_embeddings: bool = False
+    # Optional default context name for this agent (can be overridden at runtime)
+    default_context: Optional[str] = None
 
     @staticmethod
     def _coerce_bool(value: Any) -> bool:
@@ -117,6 +113,10 @@ class Agent:
         if "save_reposnses" in raw and "save_responses" not in raw:
             raw["save_responses"] = raw.pop("save_reposnses")
             logger.debug("Mapped legacy field 'save_reposnses' -> 'save_responses' for agent: %s", raw.get("name"))
+        # Support camelCase/defaultContext coming from some config sources
+        if "defaultContext" in raw and "default_context" not in raw:
+            raw["default_context"] = raw.pop("defaultContext")
+            logger.debug("Mapped camelCase 'defaultContext' -> 'default_context' for agent: %s", raw.get("name"))
 
         # Required field: name
         if "name" not in raw or not raw["name"]:
@@ -176,7 +176,6 @@ class Agent:
             "max_prompt_conversations",
             "max_prompt_documents",
             "max_function_call_iterations",
-            "task_max_iterations",
         ]
         for fname in int_fields:
             if fname in raw:
@@ -235,7 +234,6 @@ class Agent:
             "model": self.model,
             "message_processor": self.message_processor,
             "max_function_call_iterations": self.max_function_call_iterations,
-            "task_max_iterations": self.task_max_iterations,
             "partner_agent": self.partner_agent,
             "system_prompt": self.system_prompt,
             "style_prompt": self.style_prompt,
@@ -243,6 +241,7 @@ class Agent:
             "allowed_tools": self.allowed_tools,
             "provider": self.provider,
             "use_embeddings": self.use_embeddings,
+            "default_context": self.default_context,
         }
 
     def allows_tool(self, tool_name: str) -> bool:

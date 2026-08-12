@@ -71,6 +71,7 @@ class CurationEngine:
         template_name: str = "default",
         context_state_template: Optional[str] = None,
         curation_rules: Optional[Dict[str, Any]] = None,
+        max_chars: int = 32000,
     ) -> Dict[str, Any]:
         """Run curation on a session.
 
@@ -84,6 +85,7 @@ class CurationEngine:
             template_name: Named template to use.
             context_state_template: Optional template override from ContextState.
             curation_rules: Rules dict for filter mode (remove_kinds, keep_roles, deduplicate).
+            max_chars: Max characters for the events text block fed to the LLM.
 
         Returns:
             Result dict with status, note_text, output_path, etc.
@@ -128,6 +130,7 @@ class CurationEngine:
                 context_state_template=context_state_template,
                 preview=preview,
                 publish=publish,
+                max_chars=max_chars,
             )
 
         elif mode == "archive":
@@ -140,6 +143,7 @@ class CurationEngine:
                 context_state_template=context_state_template,
                 preview=preview,
                 publish=publish,
+                max_chars=max_chars,
             )
 
         else:
@@ -217,6 +221,7 @@ class CurationEngine:
         context_state_template: Optional[str],
         preview: bool,
         publish: bool,
+        max_chars: int = 32000,
     ) -> Dict[str, Any]:
         """Generate an LLM digest and optionally write it."""
         # Generate digest
@@ -227,6 +232,7 @@ class CurationEngine:
             friendly_name=friendly_name,
             session_id=sid,
             account=account,
+            max_chars=max_chars,
         )
 
         # Resolve and render template (no archive for summarize mode)
@@ -279,6 +285,7 @@ class CurationEngine:
         context_state_template: Optional[str],
         preview: bool,
         publish: bool,
+        max_chars: int = 32000,
     ) -> Dict[str, Any]:
         """Summarize, archive original events, replace with digest."""
         # Generate digest
@@ -289,6 +296,7 @@ class CurationEngine:
             friendly_name=friendly_name,
             session_id=sid,
             account=account,
+            max_chars=max_chars,
         )
 
         # Compute archive path for the template reference.

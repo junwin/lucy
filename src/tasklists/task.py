@@ -18,6 +18,9 @@ class _TaskModel(BaseModel):
     error: Optional[str] = None
     meta: Dict[str, Any] = Field(default_factory=dict)
     agent: Optional[str] = None
+    position: Optional[int] = None
+    files: list[str] = Field(default_factory=list)
+    parent_id: Optional[str] = None
 
     model_config = {"extra": "forbid"}
 
@@ -32,6 +35,9 @@ class Task:
     error: Optional[str] = None
     meta: Dict[str, Any] = field(default_factory=dict)
     agent: Optional[str] = None
+    position: Optional[int] = None
+    files: list[str] = field(default_factory=list)
+    parent_id: Optional[str] = None
 
     def __init__(
         self,
@@ -44,6 +50,9 @@ class Task:
         error: Optional[str] = None,
         meta: Optional[Dict[str, Any]] = None,
         agent: Optional[str] = None,
+        position: Optional[int] = None,
+        files: Optional[list[str]] = None,
+        parent_id: Optional[str] = None,
     ) -> None:
         # Accept flexible id types (int, str, uuid). Persist as string
         self.id = str(id)
@@ -55,6 +64,9 @@ class Task:
         self.error = error
         self.meta = meta or {}
         self.agent = agent
+        self.position = position
+        self.files = list(files or [])
+        self.parent_id = parent_id
 
     def to_dict(self) -> Dict[str, Any]:
         d: Dict[str, Any] = {
@@ -68,6 +80,12 @@ class Task:
         }
         if self.agent:
             d["agent"] = self.agent
+        if self.position is not None:
+            d["position"] = self.position
+        if self.files:
+            d["files"] = list(self.files)
+        if self.parent_id:
+            d["parent_id"] = self.parent_id
         return d
 
     @classmethod
@@ -91,6 +109,9 @@ class Task:
             error=validated.error,
             meta=validated.meta,
             agent=validated.agent,
+            position=validated.position,
+            files=validated.files,
+            parent_id=validated.parent_id,
         )
 
     def to_json(self) -> str:

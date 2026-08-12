@@ -29,6 +29,9 @@ from src.handlers.reset_session_handler import ResetSessionHandler
 from src.handlers.serve_image_handler import ServeImageHandler
 from src.handlers.generate_svg_handler import GenerateSvgHandler
 from src.handlers.embedding_handler import EmbeddingHandler
+from src.handlers.remote_execute_handler import RemoteExecuteHandler
+from src.handlers.tool_handler_meta_handler import ToolHandlerMetaHandler
+from src.handlers.agents_manage_handler import AgentsManageHandler
 
 try:
     from src.handlers.generate_image_handler import GenerateImageHandler
@@ -107,6 +110,16 @@ def build_registry() -> HandlerRegistry:
 
     # Embeddings — vector generation and comparison
     reg.register(EmbeddingHandler)
+
+    # Remote execution — query a remote Lucy instance's /ask endpoint
+    reg.register(RemoteExecuteHandler)
+
+    # Tool metadata inspector
+    reg.register(ToolHandlerMetaHandler)
+
+    # Agent management (list/get/upsert/delete/reload)
+    reg.register(AgentsManageHandler)
+
 
     logger.info("Handler registry built with %d handlers.", len(reg.tool_names()))
     return reg

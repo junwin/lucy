@@ -18,6 +18,7 @@ from src.message_processors.sse_events import SSEEvent
 from src.prompt_builders.prompt_builder_interface import PromptBuilderInterface
 from src.handlers.handler_registry import HandlerRegistry
 from src.agent import Agent
+from src.agent.agent_manager import AgentManager
 
 from src.llm.adapter_interface import LLMAdapter
 from src.llm.provider_registry import ProviderRegistry
@@ -116,6 +117,7 @@ class FunctionCallingProcessor(MessageProcessorInterface):
         llm_adapter: LLMAdapter,
         chat2_store: Optional[Chat2Store] = None,
         automation_processor: Optional[AutomationProcessor] = None,
+        agent_manager: Optional[AgentManager] = None,
     ):
         self.config = config
         self.registry = registry
@@ -123,6 +125,7 @@ class FunctionCallingProcessor(MessageProcessorInterface):
         self.llm_adapter = llm_adapter
         self.chat2_store = chat2_store
         self.automation_processor = automation_processor
+        self.agent_manager = agent_manager
 
     # ------------------------------------------------------------------
     # Internal helpers
@@ -266,6 +269,7 @@ class FunctionCallingProcessor(MessageProcessorInterface):
         handler_context: Dict[str, Any] = {
             "primary_agent": primary_agent,
             "secondary_agent": secondary_agent,
+            "secondary_agent_default_context": getattr(secondary_agent, "default_context", None),
             "processor_factory": processor_factory,
             "account": account,
             "conversation_id": ctx.conversation_id,
@@ -277,6 +281,7 @@ class FunctionCallingProcessor(MessageProcessorInterface):
             "config": self.config,
             "chat2_store": self.chat2_store,
             "llm_adapter": self.llm_adapter,
+            "agent_manager": self.agent_manager,
         }
 
         for tc in tool_calls:

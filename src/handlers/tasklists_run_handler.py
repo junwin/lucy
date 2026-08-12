@@ -154,6 +154,7 @@ class TasklistsRunHandler(HandlerV2):
         conversation_id = context.get("conversation_id", "0")
         context_name = context.get("context_name", "")
         secondary_agent = context.get("secondary_agent")
+        secondary_agent_default_context = context.get("secondary_agent_default_context")
 
         if primary_agent is None:
             return {
@@ -185,7 +186,7 @@ class TasklistsRunHandler(HandlerV2):
                 account_name=account_name,
                 agent_name=agent_name,
                 conversation_id=conversation_id,
-                context_name=context_name,
+                context_name=secondary_agent_default_context,
                 primary_agent=primary_agent,
                 account=account,
                 secondary_agent=secondary_agent,

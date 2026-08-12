@@ -23,6 +23,7 @@ PROVIDERS: Dict[str, str] = {
     "openai": "src.llm.openai_responses.OpenAIResponsesApi",
     "deepseek": "src.llm.deepseek_responses.DeepSeekApi",
     "mistral": "src.llm.mistral_api.MistralApi",
+    "ollama": "src.llm.ollama_api.OllamaApi",
 }
 
 # Prefix map: model-name prefix -> provider name (checked in order of the keys)
@@ -30,6 +31,7 @@ PREFIX_MAP: Dict[str, str] = {
     # explicit provider-style prefixes
     "deepseek": "deepseek",
     "mistral": "mistral",
+    "ollama": "ollama",
     # common openai-style prefixes
     "gpt": "openai",
     "o1": "openai",

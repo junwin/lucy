@@ -1,5 +1,5 @@
 {
-  "storage_root_path": "/home/junwin/lucy_storage",
+  "storage_root_path": "C:/Users/junwi/lucy_storage",
   "storage_namespace": "data",
   "external_roots": {
     "repo_lucy": "/home/junwin/src/repos/lucy",
@@ -12,7 +12,7 @@
     "lucy_stable": "/home/junwin/src/stable/lucy"
   },
   "agents_path": "static/data/agents.json",
-  "code_sandbox_path": "/tmp/pytest-of-junwin/pytest-66/test_live_prompt_builder_retur0/sandbox",
+  "code_sandbox_path": "C:/Users/junwi/src",
   "python_utils_path": "src/utils",
   "swagger_url": "/api/docs",
   "api_url": "/static/swagger.json",
@@ -22,5 +22,6 @@
   "debug": false,
   "elapsed_new_session_seconds": 600,
   "max_tool_result_chars": 96000,
-  "environment_prompt_block": "ENVIRONMENT\n- Test mode"
+  "environment_prompt_block": "ENVIRONMENT\n- Test mode",
+  "curation_max_chars": 32000
 }

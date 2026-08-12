@@ -114,6 +114,20 @@ class TasklistsManageHandler(HandlerV2):
                         "description": "Key-value context for the task. Merged into existing meta on update_task.",
                         "additionalProperties": False,
                     },
+                    # --- new task fields: optional ---
+                    "task_position": {
+                        "type": ["integer", "null"],
+                        "description": "Task ordering position (null = append).",
+                    },
+                    "task_parent_id": {
+                        "type": ["string", "null"],
+                        "description": "Parent task ID for subtask nesting.",
+                    },
+                    "task_files": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "File paths associated with this task.",
+                    },
                     # --- update_task specific ---
                     "task_result": {
                         "type": "object",
@@ -441,6 +455,9 @@ class TasklistsManageHandler(HandlerV2):
             state=args.get("task_state"),
             agent=args.get("task_agent"),
             meta=args.get("task_meta") or {},
+            position=args.get("task_position"),
+            parent_id=args.get("task_parent_id"),
+            files=args.get("task_files"),
         )
 
         after_index = args.get("after_index")
@@ -499,6 +516,12 @@ class TasklistsManageHandler(HandlerV2):
             target.meta.update(args["task_meta"])
         if "task_agent" in args:
             target.agent = args["task_agent"]
+        if "task_position" in args:
+            target.position = args["task_position"]
+        if "task_parent_id" in args:
+            target.parent_id = args["task_parent_id"]
+        if "task_files" in args:
+            target.files = list(args["task_files"] or [])
 
         payload = tl.to_dict()
         if not validate_only:

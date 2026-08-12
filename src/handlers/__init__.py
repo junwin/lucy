@@ -15,6 +15,9 @@ from .web_search_handler2 import WebSearchHandler2
 from .delegate_tasks_handler import DelegateTasksHandler
 from .chat2_handler import Chat2Handler
 from .reset_session_handler import ResetSessionHandler
+from .remote_execute_handler import RemoteExecuteHandler
+from .tool_handler_meta_handler import ToolHandlerMetaHandler
+from .agents_manage_handler import AgentsManageHandler
 
 # Optional: GetKeywordsHandler depends on NLP libraries (spaCy/nltk/sklearn).
 # Import defensively so consumers can still import src.handlers when those
@@ -33,6 +36,9 @@ __all__ = [
     "DelegateTasksHandler",
     "Chat2Handler",
     "ResetSessionHandler",
+    "RemoteExecuteHandler",
+    "ToolHandlerMetaHandler",
+    "AgentsManageHandler",
 ]
 
 if GetKeywordsHandler is not None:

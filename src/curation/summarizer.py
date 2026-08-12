@@ -84,6 +84,7 @@ def summarize_session(
     session_id: str = "",
     account: str = "",
     temperature: float = 0.0,
+    max_chars: int = 32000,
 ) -> str:
     """Summarize session events into a structured Markdown digest.
 
@@ -95,11 +96,12 @@ def summarize_session(
         session_id: Session UUID (for context).
         account: Account name (for context).
         temperature: LLM temperature.
+        max_chars: Max characters for the events text block fed to the LLM.
 
     Returns:
         Structured Markdown digest string.
     """
-    events_text = _build_events_text(events)
+    events_text = _build_events_text(events, max_chars=max_chars)
 
     user_prompt = f"""Summarize this chat session.
 

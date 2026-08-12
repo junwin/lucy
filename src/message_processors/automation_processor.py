@@ -209,7 +209,13 @@ class AutomationProcessor(MessageProcessorInterface):
     # Chat2 event helpers
     # ------------------------------------------------------------------
 
-    def _ensure_chat2_session(self, conversation_id: str, account_name: str, agent_name: str) -> None:
+    def _ensure_chat2_session(
+        self,
+        conversation_id: str,
+        account_name: str,
+        agent_name: str,
+        friendly_name: Optional[str] = None,
+    ) -> None:
         """Create a chat2 session if one doesn't exist for this conversation_id.
 
         Best-effort: failures are logged but not propagated.
@@ -224,12 +230,14 @@ class AutomationProcessor(MessageProcessorInterface):
                 account_name=account_name,
                 agent_name=agent_name,
                 session_id=conversation_id,
+                friendly_name=friendly_name,
             )
             logger.info(
-                "chat2: created session %s for account=%s agent=%s",
+                "chat2: created session %s for account=%s agent=%s friendly_name=%s",
                 conversation_id,
                 account_name,
                 agent_name,
+                friendly_name,
             )
         except Exception:
             logger.exception(
@@ -247,6 +255,7 @@ class AutomationProcessor(MessageProcessorInterface):
         kind: str,
         payload: str,
         metadata: Optional[Dict[str, Any]] = None,
+        friendly_name: Optional[str] = None,
     ) -> None:
         """Write a single event to chat2 storage.
 
@@ -255,7 +264,10 @@ class AutomationProcessor(MessageProcessorInterface):
         if self.chat2_store is None:
             return
         try:
-            self._ensure_chat2_session(conversation_id, account_name, agent_name)
+            self._ensure_chat2_session(
+                conversation_id, account_name, agent_name,
+                friendly_name=friendly_name,
+            )
 
             # Map automation-specific kind to a valid ChatEvent kind.
             mapped_kind = _map_chat2_kind(kind)
@@ -458,6 +470,19 @@ class AutomationProcessor(MessageProcessorInterface):
 
         tasklist: TaskList = raw_tasklist
 
+        # Derive a friendly_name for the chat2 session so automated runs
+        # don't create sketchy null-name sessions.
+        auto_friendly_name = f"auto_{resolved_key}"
+
+        # Ensure the chat2 session exists BEFORE any sub-calls to FCP
+        # (which would otherwise create it with a null friendly_name).
+        self._ensure_chat2_session(
+            conversation_id=conversation_id,
+            account_name=account_name,
+            agent_name=agent_name,
+            friendly_name=auto_friendly_name,
+        )
+
         try:
             if tasklist.state == TASK_LIST_STATE_CREATED:
                 tasklist.state = TASK_LIST_STATE_RUNNING
@@ -479,13 +504,6 @@ class AutomationProcessor(MessageProcessorInterface):
                 "Failed to obtain function_calling_processor from processor_factory; falling back to no-op execution"
             )
             function_processor = None
-
-        # Determine the per-task iteration cap.
-        # Use the resolved worker agent's config when available, otherwise primary_agent.
-        cap_agent = resolved_worker if resolved_worker is not None else primary_agent
-        worker_task_iterations = int(getattr(cap_agent, "task_max_iterations", 10) or 10)
-        if worker_task_iterations <= 0:
-            worker_task_iterations = 10
 
         while True:
             idx, task = _find_next_pending_task(tasklist)
@@ -606,34 +624,17 @@ class AutomationProcessor(MessageProcessorInterface):
                             "warning": "Task has no instructions. Provide task.instructions to execute.",
                         }
                     else:
-                        # --- Cap sub-call iterations per design doc step 2 ---
-                        # Save and override the worker agent's max_function_call_iterations
-                        # with task_max_iterations so each sub-task gets a small, clean budget.
-                        original_max = task_agent.max_function_call_iterations
-                        task_agent.max_function_call_iterations = worker_task_iterations
-                        logger.info(
-                            "AutomationProcessor: capping iterations for task=%s agent=%s from %d to %d",
-                            last_task_name,
-                            task_agent_name,
-                            original_max,
-                            worker_task_iterations,
+                        response = function_processor.process_message(
+                            primary_agent=task_agent,
+                            account=account,
+                            message=task_message,
+                            conversation_id=conversation_id,
+                            context_name=context_name,
+                            secondary_agent=secondary_agent,
+                            processor_factory=processor_factory,
+                            image_ids=image_ids,
+                            file_ids=file_ids,
                         )
-                        try:
-                            response = function_processor.process_message(
-                                primary_agent=task_agent,
-                                account=account,
-                                message=task_message,
-                                conversation_id=conversation_id,
-                                context_name=context_name,
-                                secondary_agent=secondary_agent,
-                                processor_factory=processor_factory,
-                                image_ids=image_ids,
-                                file_ids=file_ids,
-                            )
-                        finally:
-                            # Restore the original value so subsequent tasks and
-                            # the calling code are not affected.
-                            task_agent.max_function_call_iterations = original_max
 
                         task_result = {"timestamp": _now_utc().isoformat(), "output": response}
                 else:
@@ -681,6 +682,7 @@ class AutomationProcessor(MessageProcessorInterface):
                     "error": task_error,
                 }),
                 metadata={"tasklist_id": tasklist_id, "mode": mode},
+                friendly_name=auto_friendly_name,
             )
 
             # Persist after each task (COMPLETED or FAILED checkpoint).
@@ -753,6 +755,7 @@ class AutomationProcessor(MessageProcessorInterface):
                 "warnings": warning_messages,
             }),
             metadata={"tasklist_id": tasklist_id, "mode": mode},
+            friendly_name=auto_friendly_name,
         )
 
         # Structured final log for observability
@@ -845,6 +848,9 @@ class AutomationProcessor(MessageProcessorInterface):
         )
         logger.debug("Incoming message preview: %s", _safe_preview(message, 800))
 
+        # Derive a friendly_name for the chat2 session.
+        auto_friendly_name = f"auto_{tasklist_id}"
+
         # Write user command event to chat2
         self._write_chat2_event(
             conversation_id=conversation_id,
@@ -854,6 +860,7 @@ class AutomationProcessor(MessageProcessorInterface):
             kind="automation_command",
             payload=message,
             metadata={"tasklist_id": tasklist_id, "mode": mode},
+            friendly_name=auto_friendly_name,
         )
 
         # Delegate to the extracted execution method.

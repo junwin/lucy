@@ -6,6 +6,7 @@
 
 import json
 import os
+import shutil
 import uuid
 import logging
 from pathlib import Path
@@ -107,18 +108,63 @@ class JsonFileStorage(Storage):
     # ----------------------------------------------------------------------
 
     def _atomic_write(self, path: Path, data: Dict[str, Any]) -> None:
-        """Write JSON atomically."""
+        """Write JSON atomically.
+
+        Uses shutil.move (handles cross-filesystem moves) with a
+        PermissionError fallback: copy + delete the tmp file.
+        """
         tmp_path = path.with_suffix(".tmp")
         with open(tmp_path, "w", encoding="utf-8") as f:
             json.dump(data, f, indent=2, ensure_ascii=False)
-        os.replace(tmp_path, path)
+        self._atomic_replace(tmp_path, path)
 
     def _atomic_write_text(self, path: Path, text: str) -> None:
-        """Write text (e.g. Markdown) atomically."""
+        """Write text (e.g. Markdown) atomically.
+
+        Uses shutil.move (handles cross-filesystem moves) with a
+        PermissionError fallback: copy + delete the tmp file.
+        """
         tmp_path = path.with_suffix(".tmp")
         with open(tmp_path, "w", encoding="utf-8") as f:
             f.write(text)
-        os.replace(tmp_path, path)
+        self._atomic_replace(tmp_path, path)
+
+    def _atomic_replace(self, tmp_path: Path, target_path: Path) -> None:
+        """Replace target_path with tmp_path atomically.
+
+        Uses shutil.move() which handles cross-filesystem moves (unlike
+        os.replace). If shutil.move fails with PermissionError (e.g. target
+        locked by antivirus), falls back to a non-atomic copy + delete.
+
+        All errors are logged so data loss is never silent.
+        """
+        try:
+            shutil.move(str(tmp_path), str(target_path))
+        except PermissionError:
+            logging.warning(
+                "shutil.move failed (PermissionError) for %s → %s; falling back to copy+delete",
+                tmp_path, target_path,
+            )
+            try:
+                shutil.copy2(str(tmp_path), str(target_path))
+                tmp_path.unlink()
+            except Exception as e:
+                logging.error(
+                    "Fallback copy+delete also failed for %s → %s: %s",
+                    tmp_path, target_path, e,
+                )
+                raise
+        except Exception as e:
+            logging.error(
+                "Atomic write failed for %s → %s: %s",
+                tmp_path, target_path, e,
+            )
+            # Clean up tmp file on failure
+            try:
+                tmp_path.unlink()
+            except Exception:
+                pass
+            raise
 
     def _load_json(self, path: Path) -> Optional[Dict[str, Any]]:
         if not path.exists():

@@ -18,9 +18,31 @@ from src.chat2.models import ChatEvent
 logger = logging.getLogger(__name__)
 
 
-def _timestamp() -> str:
-    """Return a compact UTC timestamp string for filenames."""
-    return datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+def _next_archive_path(archive_account_dir: Path, session_id: str) -> Path:
+    """Find the next sequential archive number for a session.
+
+    Scans for existing <session_id>_<N>.jsonl files and returns
+    <session_id>_<N+1>.jsonl (or <session_id>_1.jsonl if none exist).
+
+    Non-numeric suffixes (e.g. old timestamp-format files) are ignored
+    in the count — only number-suffixed files contribute.
+    """
+    existing = sorted(archive_account_dir.glob(f"{session_id}_*.jsonl"))
+    if not existing:
+        return archive_account_dir / f"{session_id}_1.jsonl"
+
+    max_n = 0
+    for p in existing:
+        stem = p.stem  # e.g. "abc-123_1" or "abc-123_20240801T120000Z"
+        try:
+            n = int(stem.rsplit("_", 1)[-1])
+            if n > max_n:
+                max_n = n
+        except ValueError:
+            # Non-numeric suffix (old timestamp format) — skip
+            pass
+
+    return archive_account_dir / f"{session_id}_{max_n + 1}.jsonl"
 
 
 def archive_session(
@@ -35,7 +57,8 @@ def archive_session(
 
     Steps:
     1. Read all events from the session.
-    2. Write them to <archive_dir>/<account>/<session_id>_<timestamp>.jsonl
+    2. Write them to <archive_dir>/<account>/<session_id>_<N>.jsonl
+       where N is the next sequential number for this session.
     3. Reset the session events.
     4. Add a single digest event with the digest text.
 
@@ -62,11 +85,10 @@ def archive_session(
         _replace_with_digest(chat2_store, session_id, digest_text)
         return True
 
-    # 2) Write archive file with timestamp
+    # 2) Write archive file with next sequential number
     archive_account_dir = archive_dir / account
     archive_account_dir.mkdir(parents=True, exist_ok=True)
-    ts = _timestamp()
-    archive_path = archive_account_dir / f"{session_id}_{ts}.jsonl"
+    archive_path = _next_archive_path(archive_account_dir, session_id)
 
     try:
         with open(archive_path, "w", encoding="utf-8") as f:

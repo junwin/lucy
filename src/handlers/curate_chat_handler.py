@@ -23,6 +23,9 @@ from src.llm.router_api import RouterApi
 
 logger = logging.getLogger(__name__)
 
+# Default max_chars for the events text block fed to the LLM during summarization.
+DEFAULT_MAX_CHARS = 32000
+
 
 class CurateChatHandler(HandlerV2):
     """Handler for chat curation (summarize, archive, filter).
@@ -151,6 +154,14 @@ class CurateChatHandler(HandlerV2):
                         ),
                         "default": "",
                     },
+                    "max_chars": {
+                        "type": "integer",
+                        "description": (
+                            "Max characters for the events text block fed to the LLM "
+                            "during summarize/archive modes (default from config or 32000)."
+                        ),
+                        "default": 32000,
+                    },
                 },
                 "required": [
                     "friendly_name",
@@ -161,6 +172,7 @@ class CurateChatHandler(HandlerV2):
                     "publish",
                     "template_name",
                     "curation_rules",
+                    "max_chars",
                 ],
                 "additionalProperties": False,
             },
@@ -204,6 +216,10 @@ class CurateChatHandler(HandlerV2):
         template_name = (args.get("template_name") or "default").strip()
         curation_rules_raw = args.get("curation_rules") or ""
 
+        # max_chars: caller arg → config.json → module-level default
+        config_default = self.config.get("curation_max_chars", DEFAULT_MAX_CHARS)
+        max_chars = int(args.get("max_chars", config_default))
+
         if not account:
             return {
                 "ok": False,
@@ -234,13 +250,14 @@ class CurateChatHandler(HandlerV2):
                 }
 
         logger.info(
-            "curate_chat: account=%s mode=%s friendly_name=%s session_id=%s preview=%s publish=%s",
+            "curate_chat: account=%s mode=%s friendly_name=%s session_id=%s preview=%s publish=%s max_chars=%d",
             account,
             mode,
             friendly_name,
             session_id,
             preview,
             publish,
+            max_chars,
         )
 
         try:
@@ -253,6 +270,7 @@ class CurateChatHandler(HandlerV2):
                 publish=publish,
                 template_name=template_name,
                 curation_rules=curation_rules,
+                max_chars=max_chars,
             )
 
             ok = result.get("status") != "error"

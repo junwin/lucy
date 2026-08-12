@@ -132,6 +132,14 @@ class TaskList:
         if new_state is not None:
             t.state = new_state
 
+    def get_children(self, parent_id: str) -> List[Task]:
+        """
+        Return all tasks whose parent_id equals the provided parent_id.
+        This is a simple filter (no ordering or execution logic).
+        If there are no matching children, returns an empty list.
+        """
+        return [t for t in self.tasks if t.parent_id == parent_id]
+
     # -----------------
     # Persistence
     # -----------------
@@ -169,7 +177,7 @@ class TaskList:
         try:
             validated = _TaskListModel.model_validate(payload)
         except Exception as exc:
-            raise ValueError(f"TaskList validation error: {exc}") from exc
+            raise ValueError(f"TaskList.validation error: {exc}") from exc
 
         # Build Task domain objects from validated tasks
         tasks: List[Task] = []
@@ -185,6 +193,9 @@ class TaskList:
                     error=t.error,
                     meta=t.meta,
                     agent=t.agent,
+                    position=getattr(t, "position", None),
+                    files=getattr(t, "files", []) or [],
+                    parent_id=getattr(t, "parent_id", None),
                 )
             )
 

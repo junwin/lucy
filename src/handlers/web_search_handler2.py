@@ -1,5 +1,6 @@
 import json
 import logging
+import os
 from typing import Any, Dict, List
 
 import requests
@@ -18,7 +19,8 @@ class WebSearchHandler2(HandlerV2):
         self.config = config
 
         credential_path = self.config.get("credential_path")
-        with open(f"{credential_path}/brave.json", "r", encoding="utf-8") as config_file:
+        brave_path = os.path.join(credential_path, "brave.json")
+        with open(brave_path, "r", encoding="utf-8") as config_file:
             config_data = json.load(config_file)
 
         self.subscription_key = config_data["subscription_key"]

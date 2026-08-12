@@ -1,6 +1,7 @@
 import json
 import logging
 import shlex
+import sys
 from typing import Any, Dict
 
 from src.config_manager import ConfigManager
@@ -71,7 +72,7 @@ class ScrapeWebPageHandler2(HandlerV2):
 
         # Run from repo root so the script path is stable.
         base_path = "."
-        command = f"python3 src/utils/scrape.py {shlex.quote(page_url)}"
+        command = f"{sys.executable} src/utils/scrape.py {shlex.quote(page_url)}"
 
         try:
             logger.debug("Executing command: %s", command)
