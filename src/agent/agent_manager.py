@@ -107,3 +107,14 @@ class AgentManager:
                 break
         else:
             self.agents.append(agent)
+
+    def remove_agent(self, name: str) -> bool:
+        """Remove an agent by name (does not auto-save).
+
+        Returns True if an agent was removed, False if no agent matched.
+        """
+        for idx, existing in enumerate(self.agents):
+            if existing.name == name:
+                self.agents.pop(idx)
+                return True
+        return False
