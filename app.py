@@ -600,4 +600,5 @@ if __name__ == "__main__":
         host=config.get("host", "0.0.0.0"),
         port=config.get("port", 5000),
         debug=config.get("debug", True),
+        use_reloader=False,
     )

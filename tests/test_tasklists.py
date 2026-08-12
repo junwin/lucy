@@ -82,3 +82,91 @@ def test_round_trip_dump_load():
     loaded2 = TaskList.from_json(js)
     assert loaded2.id == tl.id
     assert len(loaded2.tasks) == 2
+
+
+# -------------------------
+# New tests for Task additions
+# -------------------------
+
+
+def test_task_creation_with_new_fields():
+    tid = str(uuid.uuid4())
+    t = Task(id=tid, name="T1", instructions="Do", position=5, files=["a.txt", "b.txt"], parent_id="parent-1")
+    assert t.id == tid
+    assert t.position == 5
+    assert t.files == ["a.txt", "b.txt"]
+    assert t.parent_id == "parent-1"
+
+
+def test_task_defaults_for_new_fields():
+    t = Task(id=str(uuid.uuid4()), name="T2", instructions="Do")
+    assert t.position is None
+    assert isinstance(t.files, list) and t.files == []
+    assert t.parent_id is None
+
+
+def test_task_to_dict_omits_none_and_empty_fields():
+    t = Task(id=str(uuid.uuid4()), name="T3", instructions="Do")
+    d = t.to_dict()
+    assert "position" not in d
+    assert "files" not in d
+    assert "parent_id" not in d
+
+    t2 = Task(id=str(uuid.uuid4()), name="T4", instructions="Do", position=0, files=["f"], parent_id="p")
+    d2 = t2.to_dict()
+    assert d2["position"] == 0
+    assert d2["files"] == ["f"]
+    assert d2["parent_id"] == "p"
+
+
+def test_task_from_dict_with_missing_new_fields():
+    data = {"id": str(uuid.uuid4()), "name": "T5", "instructions": "Do"}
+    t = Task.from_dict(data)
+    assert t.position is None
+    assert t.files == []
+    assert t.parent_id is None
+
+
+def test_task_from_dict_with_all_new_fields_present():
+    data = {
+        "id": str(uuid.uuid4()),
+        "name": "T6",
+        "instructions": "Do",
+        "position": 7,
+        "files": ["x"],
+        "parent_id": "p6",
+    }
+    t = Task.from_dict(data)
+    assert t.position == 7
+    assert t.files == ["x"]
+    assert t.parent_id == "p6"
+
+
+def test_task_full_round_trip_dict_task():
+    t1 = Task(id=str(uuid.uuid4()), name="T7", instructions="Do", position=3, files=["z"], parent_id="par")
+    d = t1.to_dict()
+    t2 = Task.from_dict(d)
+    assert t2.id == t1.id
+    assert t2.name == t1.name
+    assert t2.instructions == t1.instructions
+    assert t2.position == t1.position
+    assert t2.files == t1.files
+    assert t2.parent_id == t1.parent_id
+
+
+def test_tasklist_get_children_basic_filter():
+    t1 = Task(id="1", name="A", instructions="x", parent_id="p")
+    t2 = Task(id="2", name="B", instructions="y", parent_id="p")
+    t3 = Task(id="3", name="C", instructions="z", parent_id="other")
+    tl = TaskList(id="tl1", name="n", description="d", tasks=[t1, t2, t3])
+    children = tl.get_children("p")
+    assert len(children) == 2
+    ids = {c.id for c in children}
+    assert ids == {"1", "2"}
+
+
+def test_tasklist_get_children_no_matches_returns_empty():
+    t1 = Task(id="1", name="A", instructions="x", parent_id="p")
+    tl = TaskList(id="tl2", name="n", description="d", tasks=[t1])
+    children = tl.get_children("nomatch")
+    assert children == []
