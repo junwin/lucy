@@ -4,6 +4,36 @@ Lucy is a self-hosted AI chat platform running on a Raspberry Pi 5. It supports 
 
 ## Quick Start
 
+### 1. Create a virtual environment
+
+**Linux / Raspberry Pi:**
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+```
+
+**Windows (PowerShell):**
+
+```powershell
+python -m venv .venv
+.venv\Scripts\Activate.ps1
+pip install -r requirements.txt
+```
+
+**Windows (Command Prompt):**
+
+```cmd
+python -m venv .venv
+.venv\Scripts\activate.bat
+pip install -r requirements.txt
+```
+
+### 2. Run Lucy
+
+Once the venv is active:
+
 ```bash
 # Server (from repo root)
 python app.py
@@ -74,13 +104,19 @@ Agents are defined in `static/data/agents.json`. Each has:
 
 ## Configuration
 
-Main config in `config.json` (repo root):
+Main config lives in `config.json` (repo root). This file is checked into git.
+
+Machine-specific overrides go in `config.local.json` (not tracked by git). Lucy merges it on top of `config.json` at startup — any key in `config.local.json` overrides the matching key in `config.json`. Typical uses:
+
+- API keys (different per machine)
+- Storage paths (different filesystem layouts)
+- Port or host overrides
+
+Config keys:
 
 - **LLM providers**: API keys, base URLs, available models
 - **Storage paths**: Where chats, contexts, and data live
 - **Server settings**: Host, port, debug mode
-
-For machine-specific overrides, create a `config.local.json` (not checked into git).
 
 ## Development
 

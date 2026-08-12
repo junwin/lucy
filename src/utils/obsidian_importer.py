@@ -201,7 +201,7 @@ def index_obsidian_file(
         if not vault.is_dir():
             raise ValueError(f"Vault root is not a directory: {vault}")
         try:
-            relative_path = str(md.relative_to(vault))
+            relative_path = str(md.relative_to(vault)).replace("\\", "/")
         except ValueError:
             raise ValueError(
                 f"File {md} is not inside vault root {vault}"
@@ -308,7 +308,7 @@ def index_obsidian_vault(
             logging.warning("Failed to read %s: %s", md_file, e)
             continue
 
-        relative_path = str(md_file.relative_to(vault))
+        relative_path = str(md_file.relative_to(vault)).replace("\\", "/")
         doc_id = _stable_doc_id_from_path(vault_name, relative_path)
         title = _extract_title(md_file, text)
         tags = _extract_tags(text)

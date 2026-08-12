@@ -186,7 +186,7 @@ class GenerateDocHandler(HandlerV2):
         # --- 2. Read files ---
         files: Dict[str, str] = {}
         for f in py_files:
-            rel = str(f.relative_to(self.repo_root))
+            rel = str(f.relative_to(self.repo_root)).replace("\\", "/")
             files[rel] = f.read_text()
 
         # --- 3. Hash + skip-if-unchanged ---

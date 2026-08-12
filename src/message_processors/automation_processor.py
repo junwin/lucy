@@ -505,13 +505,6 @@ class AutomationProcessor(MessageProcessorInterface):
             )
             function_processor = None
 
-        # Determine the per-task iteration cap.
-        # Use the resolved worker agent's config when available, otherwise primary_agent.
-        cap_agent = resolved_worker if resolved_worker is not None else primary_agent
-        worker_task_iterations = int(getattr(cap_agent, "task_max_iterations", 10) or 10)
-        if worker_task_iterations <= 0:
-            worker_task_iterations = 10
-
         while True:
             idx, task = _find_next_pending_task(tasklist)
             if task is None or idx is None:
@@ -631,34 +624,17 @@ class AutomationProcessor(MessageProcessorInterface):
                             "warning": "Task has no instructions. Provide task.instructions to execute.",
                         }
                     else:
-                        # --- Cap sub-call iterations per design doc step 2 ---
-                        # Save and override the worker agent's max_function_call_iterations
-                        # with task_max_iterations so each sub-task gets a small, clean budget.
-                        original_max = task_agent.max_function_call_iterations
-                        # task_agent.max_function_call_iterations = worker_task_iterations
-                        logger.info(
-                            "AutomationProcessor: NOT IN USE capping iterations for task=%s agent=%s from %d to %d",
-                            last_task_name,
-                            task_agent_name,
-                            original_max,
-                            worker_task_iterations,
+                        response = function_processor.process_message(
+                            primary_agent=task_agent,
+                            account=account,
+                            message=task_message,
+                            conversation_id=conversation_id,
+                            context_name=context_name,
+                            secondary_agent=secondary_agent,
+                            processor_factory=processor_factory,
+                            image_ids=image_ids,
+                            file_ids=file_ids,
                         )
-                        try:
-                            response = function_processor.process_message(
-                                primary_agent=task_agent,
-                                account=account,
-                                message=task_message,
-                                conversation_id=conversation_id,
-                                context_name=context_name,
-                                secondary_agent=secondary_agent,
-                                processor_factory=processor_factory,
-                                image_ids=image_ids,
-                                file_ids=file_ids,
-                            )
-                        finally:
-                            # Restore the original value so subsequent tasks and
-                            # the calling code are not affected.
-                            task_agent.max_function_call_iterations = original_max
 
                         task_result = {"timestamp": _now_utc().isoformat(), "output": response}
                 else:
