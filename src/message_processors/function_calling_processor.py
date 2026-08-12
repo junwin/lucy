@@ -266,6 +266,7 @@ class FunctionCallingProcessor(MessageProcessorInterface):
         handler_context: Dict[str, Any] = {
             "primary_agent": primary_agent,
             "secondary_agent": secondary_agent,
+            "secondary_agent_default_context": getattr(secondary_agent, "default_context", None),
             "processor_factory": processor_factory,
             "account": account,
             "conversation_id": ctx.conversation_id,

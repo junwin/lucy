@@ -160,6 +160,12 @@ class AskRequestHandler:
         # If a context_name is provided, ensure it exists immediately.
         # This supports durable project state (tasklists, progress, flags) without
         # requiring a separate "create context" call.
+        # If no runtime context_name provided, fall back to the agent's default context
+        if not context_name:
+            default_ctx = getattr(primary_agent, "default_context", None)
+            if default_ctx:
+                context_name = str(default_ctx).strip() or None
+
         if context_name:
             if hasattr(self.storage, "get_or_create_context"):
                 self.storage.get_or_create_context(
@@ -421,6 +427,12 @@ class AskRequestHandler:
             return
 
         account = {"accountId": accountName}
+
+        # If no runtime context provided, fall back to agent default
+        if not context_name:
+            default_ctx = getattr(primary_agent, "default_context", None)
+            if default_ctx:
+                context_name = str(default_ctx).strip() or None
 
         if context_name:
             if hasattr(self.storage, "get_or_create_context"):

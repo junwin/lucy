@@ -93,6 +93,12 @@ class PromptBuilder(PromptBuilderInterface):
         agent: Optional[Agent] = self.agent_manager.get_agent(agent_name)
         use_embeddings: bool = bool(agent and agent.use_embeddings)
 
+        # Resolve context name: runtime override wins, otherwise use agent default
+        if not context_name and agent is not None:
+            resolved = getattr(agent, "default_context", None)
+            if resolved:
+                context_name = str(resolved).strip() or ""
+
         system_message = self._build_agent_system_message(agent_name, agent)
 
         messages: List[Dict[str, Any]] = [{"role": "system", "content": system_message}]
@@ -145,6 +151,28 @@ class PromptBuilder(PromptBuilderInterface):
 
         # --- Named context (from storage) ---
         context_text = self._get_context_text(account_name=account_name, context_name=context_name)
+
+        # Enforce soft max for front-loaded context by truncating the text when it
+        # exceeds the configured soft maximum. This reduces prompt size early and
+        # prevents huge contexts from pushing history out of the budget.
+        try:
+            soft_max = self._get_context_soft_max_tokens()
+            ctx_tokens = estimate_tokens_from_text(context_text or "")
+            if ctx_tokens > soft_max:
+                # Approximate character budget (estimate_tokens uses len//4)
+                allowed_chars = max(0, soft_max * 4)
+                context_text = (context_text or "")[:allowed_chars]
+                context_text = context_text + "\n\n[Context truncated due to token budget]"
+                logging.info(
+                    "PromptBuilder: truncated context_text to %d chars (soft_max=%d tokens) for account=%s context=%s",
+                    len(context_text),
+                    soft_max,
+                    account_name,
+                    context_name or "(none)",
+                )
+        except Exception:
+            logging.exception("PromptBuilder: failed while enforcing context soft max")
+
         if context_text:
             messages.append(
                 {

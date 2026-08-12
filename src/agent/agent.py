@@ -54,6 +54,8 @@ class Agent:
     allowed_tools: Optional[List[str]] = None
     provider: Optional[str] = None
     use_embeddings: bool = False
+    # Optional default context name for this agent (can be overridden at runtime)
+    default_context: Optional[str] = None
 
     @staticmethod
     def _coerce_bool(value: Any) -> bool:
@@ -111,6 +113,10 @@ class Agent:
         if "save_reposnses" in raw and "save_responses" not in raw:
             raw["save_responses"] = raw.pop("save_reposnses")
             logger.debug("Mapped legacy field 'save_reposnses' -> 'save_responses' for agent: %s", raw.get("name"))
+        # Support camelCase/defaultContext coming from some config sources
+        if "defaultContext" in raw and "default_context" not in raw:
+            raw["default_context"] = raw.pop("defaultContext")
+            logger.debug("Mapped camelCase 'defaultContext' -> 'default_context' for agent: %s", raw.get("name"))
 
         # Required field: name
         if "name" not in raw or not raw["name"]:
@@ -235,6 +241,7 @@ class Agent:
             "allowed_tools": self.allowed_tools,
             "provider": self.provider,
             "use_embeddings": self.use_embeddings,
+            "default_context": self.default_context,
         }
 
     def allows_tool(self, tool_name: str) -> bool:

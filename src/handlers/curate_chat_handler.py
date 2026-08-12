@@ -172,6 +172,7 @@ class CurateChatHandler(HandlerV2):
                     "publish",
                     "template_name",
                     "curation_rules",
+                    "max_chars",
                 ],
                 "additionalProperties": False,
             },
