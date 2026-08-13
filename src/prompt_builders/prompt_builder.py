@@ -283,31 +283,6 @@ class PromptBuilder(PromptBuilderInterface):
             digest_tokens = estimate_tokens_from_text(digest_text or "")
             user_tokens = estimate_tokens_from_text(content_text or "")
 
-            total_without_history = (
-                system_tokens + context_tokens + obsidian_tokens + digest_tokens + user_tokens
-            )
-
-            self._last_prompt_token_breakdown = {
-                "system_session": system_tokens,
-                "context_text": context_tokens,
-                "obsidian_notes": obsidian_tokens,
-                "digest_embeddings": digest_tokens,
-                "current_user_message": user_tokens,
-                "total_without_history": total_without_history,
-            }
-
-            logging.info(
-                "PromptBuilder.token_breakdown: agent=%s account=%s session=%s system=%d context=%d obsidian=%d digest=%d user=%d total_without_history=%d",
-                agent_name,
-                account_name,
-                conversation_id,
-                system_tokens,
-                context_tokens,
-                obsidian_tokens,
-                digest_tokens,
-                user_tokens,
-                total_without_history,
-            )
 
             # Soft-max warning for front-loaded context
             try:
@@ -367,6 +342,7 @@ class PromptBuilder(PromptBuilderInterface):
 
             # --- Chat history selection by tokens, capped by max_prompt_conversations ---
             history_messages: List[Dict[str, str]] = []
+            overflow_digest_text: str = ""
             try:
                 if self.chat2_store is not None and conversation_id not in ("none", "new", ""):
                     if self.chat2_store.session_exists(conversation_id):
@@ -429,10 +405,8 @@ class PromptBuilder(PromptBuilderInterface):
                                     new_snippet=digest_snippet,
                                 )
 
-                                if saved_digest:
-                                    messages.append({"role": "system", "content": f"Earlier in this session:\n{saved_digest}"})
-                                else:
-                                    messages.append({"role": "system", "content": f"Earlier in this session:\n{digest_snippet}"})
+                                overflow_digest_text = saved_digest if saved_digest else digest_snippet
+                                messages.append({"role": "system", "content": f"Earlier in this session:\n{overflow_digest_text}"})
                             except Exception as ex:
                                 logging.warning(
                                     "PromptBuilder: failed to persist session digest for %s: %s",
@@ -456,6 +430,51 @@ class PromptBuilder(PromptBuilderInterface):
             # Now assemble final messages: system messages already present in messages
             # Insert history after system messages
             messages.extend(history_messages)
+
+            # --- Final token breakdown (after history selection) ---
+            history_tokens = sum(
+                estimate_tokens_from_text(
+                    m["content"] if isinstance(m.get("content"), str) else str(m.get("content"))
+                )
+                for m in history_messages
+            )
+            overflow_tokens = estimate_tokens_from_text(overflow_digest_text)
+
+            total_without_handlers = (
+                system_tokens
+                + context_tokens
+                + obsidian_tokens
+                + digest_tokens
+                + history_tokens
+                + overflow_tokens
+                + user_tokens
+            )
+
+            self._last_prompt_token_breakdown = {
+                "system_session": system_tokens,
+                "context_text": context_tokens,
+                "obsidian_notes": obsidian_tokens,
+                "digest_embeddings": digest_tokens,
+                "chat_history": history_tokens,
+                "overflow_digest": overflow_tokens,
+                "current_user_message": user_tokens,
+                "total_without_handlers": total_without_handlers,
+            }
+
+            logging.info(
+                "PromptBuilder.token_breakdown: agent=%s account=%s session=%s system=%d context=%d obsidian=%d digest=%d history=%d overflow=%d user=%d total=%d",
+                agent_name,
+                account_name,
+                conversation_id,
+                system_tokens,
+                context_tokens,
+                obsidian_tokens,
+                digest_tokens,
+                history_tokens,
+                overflow_tokens,
+                user_tokens,
+                total_without_handlers,
+            )
 
             # --- Append document contexts if any ---
             if doc_contexts:

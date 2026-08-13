@@ -6,7 +6,6 @@
 
 import json
 import os
-import shutil
 import uuid
 import logging
 from pathlib import Path
@@ -110,10 +109,12 @@ class JsonFileStorage(Storage):
     def _atomic_write(self, path: Path, data: Dict[str, Any]) -> None:
         """Write JSON atomically.
 
-        Uses shutil.move (handles cross-filesystem moves) with a
-        PermissionError fallback: copy + delete the tmp file.
+        Writes to a unique tmp file (uuid4().hex) colocated with the target,
+        then atomically replaces the target via os.replace. Unique tmp names
+        ensure concurrent writers never collide on a shared tmp path, and
+        os.replace is atomic on both Windows and POSIX.
         """
-        tmp_path = path.with_suffix(".tmp")
+        tmp_path = path.with_name(f"{path.name}.{uuid.uuid4().hex}.tmp")
         with open(tmp_path, "w", encoding="utf-8") as f:
             json.dump(data, f, indent=2, ensure_ascii=False)
         self._atomic_replace(tmp_path, path)
@@ -121,45 +122,30 @@ class JsonFileStorage(Storage):
     def _atomic_write_text(self, path: Path, text: str) -> None:
         """Write text (e.g. Markdown) atomically.
 
-        Uses shutil.move (handles cross-filesystem moves) with a
-        PermissionError fallback: copy + delete the tmp file.
+        Same unique-tmp + os.replace strategy as _atomic_write.
         """
-        tmp_path = path.with_suffix(".tmp")
+        tmp_path = path.with_name(f"{path.name}.{uuid.uuid4().hex}.tmp")
         with open(tmp_path, "w", encoding="utf-8") as f:
             f.write(text)
         self._atomic_replace(tmp_path, path)
 
     def _atomic_replace(self, tmp_path: Path, target_path: Path) -> None:
-        """Replace target_path with tmp_path atomically.
+        """Atomically replace target_path with tmp_path.
 
-        Uses shutil.move() which handles cross-filesystem moves (unlike
-        os.replace). If shutil.move fails with PermissionError (e.g. target
-        locked by antivirus), falls back to a non-atomic copy + delete.
-
-        All errors are logged so data loss is never silent.
+        Uses os.replace(), which atomically replaces an existing destination on
+        both Windows and POSIX. shutil.move() is NOT safe here: on Windows it
+        silently falls back to copy2+unlink when the destination exists, which
+        is not atomic and can leave a truncated/partial file. tmp is always
+        colocated with the target, so a cross-device fallback is unnecessary;
+        if one is ever added it must also use unique tmp names.
         """
         try:
-            shutil.move(str(tmp_path), str(target_path))
-        except PermissionError:
-            logging.warning(
-                "shutil.move failed (PermissionError) for %s → %s; falling back to copy+delete",
-                tmp_path, target_path,
-            )
-            try:
-                shutil.copy2(str(tmp_path), str(target_path))
-                tmp_path.unlink()
-            except Exception as e:
-                logging.error(
-                    "Fallback copy+delete also failed for %s → %s: %s",
-                    tmp_path, target_path, e,
-                )
-                raise
+            os.replace(tmp_path, target_path)
         except Exception as e:
             logging.error(
-                "Atomic write failed for %s → %s: %s",
+                "Atomic replace failed for %s → %s: %s",
                 tmp_path, target_path, e,
             )
-            # Clean up tmp file on failure
             try:
                 tmp_path.unlink()
             except Exception:
