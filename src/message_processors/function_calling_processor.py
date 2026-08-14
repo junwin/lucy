@@ -42,6 +42,11 @@ class ToolHandlerError(Exception):
     """Raised when a tool handler fails during execution."""
 
 
+# Default cap for the handler-schema token guardrail (overridable via the config
+# key 'max_handler_schema_tokens').
+DEFAULT_MAX_HANDLER_SCHEMA_TOKENS = 8000
+
+
 @dataclass(frozen=True)
 class _ProcessorContext:
     account_id: str
@@ -105,6 +110,213 @@ def _log_token_breakdown(ctx: _ProcessorContext, prompt_builder: Any, filtered_f
         user_tokens,
         total_tokens,
     )
+
+
+def _context_tool_list(context_state: Optional[Any]) -> Optional[List[str]]:
+    """Extract the optional tool list from a ContextState.
+
+    Returns None when no tool list is present (no active context, missing
+    data dict, or no 'allowed_tools' key). Returns [] when the context
+    explicitly lists an empty tool list (disables all tools).
+    """
+    if context_state is None:
+        return None
+    data = getattr(context_state, "data", None)
+    if not isinstance(data, dict):
+        return None
+    raw = data.get("allowed_tools")
+    if raw is None:
+        return None
+    if isinstance(raw, (str, bytes)):
+        return None
+    try:
+        return list(raw)
+    except Exception:
+        return None
+
+
+def load_context_state(prompt_builder: Any, account_name: str, context_name: str) -> Optional[Any]:
+    """Load the active ContextState (or None) for the given account/context.
+
+    Delegates to PromptBuilder._get_context_state when available so the FCP
+    sees exactly the same ContextState the prompt builder used (same
+    get_or_create_context/get_context fallback). Fails softly: any error
+    yields None (no context tool list applies).
+    """
+    if not context_name or context_name == "none":
+        return None
+    try:
+        loader = getattr(prompt_builder, "_get_context_state", None)
+        if callable(loader):
+            return loader(account_name, context_name)
+        storage = getattr(prompt_builder, "storage", None)
+        if storage is None:
+            return None
+        if hasattr(storage, "get_or_create_context"):
+            return storage.get_or_create_context(account_name, context_name)
+        return storage.get_context(account_name, context_name)
+    except Exception as ex:
+        logging.warning(
+            "FunctionCallingProcessor: failed to load context '%s' for account '%s': %s",
+            context_name,
+            account_name,
+            ex,
+        )
+        return None
+
+
+def resolve_tool_defs(registry, agent, context_state: Optional[Any] = None) -> List[Dict[str, Any]]:
+    """Resolve the tool definitions the agent is allowed to use.
+
+    Single source of truth for tool-list resolution. Used by
+    process_message()/process_message_streaming() and by the
+    /prompt_builder/metrics endpoint so metrics agree with the FCP.
+
+    Filtering rules (strict intersection):
+    - allowed_tools missing/None => allow no tools
+    - allowed_tools == [] => allow no tools
+    - otherwise => allow only tools whose name appears in allowed_tools,
+      preserving registry order. Unknown allowed_tools entries are logged
+      and ignored.
+
+    Context tool list (optional, deterministic - no LLM call):
+    - context_state is None or carries no 'allowed_tools' in its data dict =>
+      the agent's allowed_tools apply unchanged.
+    - otherwise => effective = agent.allowed_tools & context['allowed_tools'].
+      agent.allowed_tools is the hard ceiling: context entries outside the
+      agent's permission list are clamped (logged and ignored), and context
+      entries unknown to the registry are ignored.
+    """
+    function_defs = registry.tools()
+
+    allowed = getattr(agent, "allowed_tools", None)
+
+    if not allowed:
+        return []
+
+    # Ensure allowed is a list, preserve order from function_defs
+    try:
+        allowed_list = list(allowed)
+    except Exception:
+        allowed_list = []
+
+    available_names = [fd.get("name") for fd in function_defs]
+    unknown = [n for n in allowed_list if n not in available_names]
+    if unknown:
+        logging.warning(
+            "FunctionCallingProcessor: agent '%s' has unknown allowed_tools entries: %s; ignoring",
+            getattr(agent, "name", "<unknown>"),
+            unknown,
+        )
+
+    allowed_set = set([n for n in allowed_list if n in available_names])
+
+    # Optional context tool list - clamped by the agent's hard ceiling.
+    context_tools = _context_tool_list(context_state)
+    if context_tools is not None:
+        context_known = [n for n in context_tools if n in available_names]
+        context_unknown = [n for n in context_tools if n not in available_names]
+        if context_unknown:
+            logging.warning(
+                "FunctionCallingProcessor: context tool list contains unknown entries: %s; ignoring",
+                context_unknown,
+            )
+        clamped = [n for n in context_known if n not in allowed_set]
+        if clamped:
+            logging.warning(
+                "FunctionCallingProcessor: context tool list exceeds agent '%s' allowed_tools; clamped: %s",
+                getattr(agent, "name", "<unknown>"),
+                clamped,
+            )
+        allowed_set = allowed_set & set(context_known)
+
+    return [fd for fd in function_defs if fd.get("name") in allowed_set]
+
+
+def _handler_schema_tokens(function_defs: List[Dict[str, Any]]) -> int:
+    """Estimate schema tokens for a list of tool defs (same estimator as the prompt builder)."""
+    if not function_defs:
+        return 0
+    try:
+        text = json.dumps(function_defs, ensure_ascii=False)
+    except Exception:
+        return 0
+    return estimate_tokens_from_text(text)
+
+
+def resolve_handler_schema_cap(config: Any) -> Optional[int]:
+    """Resolve the effective max_handler_schema_tokens cap from config.
+
+    Returns None when the guardrail is disabled. Resolution order:
+      1. config['max_handler_schema_tokens'] > 0  -> that value
+      2. config['max_handler_schema_tokens'] <= 0 -> None (explicitly disabled)
+      3. key missing / invalid / no config         -> DEFAULT_MAX_HANDLER_SCHEMA_TOKENS
+    """
+    if config is not None:
+        try:
+            raw = config.get("max_handler_schema_tokens", None)
+            if raw is not None:
+                value = int(raw)
+                if value > 0:
+                    return value
+                if value <= 0:
+                    return None
+        except Exception:
+            logging.warning(
+                "FunctionCallingProcessor: invalid max_handler_schema_tokens=%r; using default %d",
+                raw,
+                DEFAULT_MAX_HANDLER_SCHEMA_TOKENS,
+            )
+    return DEFAULT_MAX_HANDLER_SCHEMA_TOKENS
+
+
+def apply_handler_schema_budget(
+    function_defs: List[Dict[str, Any]],
+    config: Any,
+    *,
+    agent_name: str = "<unknown>",
+) -> List[Dict[str, Any]]:
+    """Trim tool defs from the tail when schema tokens exceed the configured cap.
+
+    Pure guardrail - never a selection mechanism. Runs AFTER resolution
+    (resolve_tool_defs), so it can only remove tools, never add or reorder.
+
+    - Under/at the cap: returns the list unchanged, no log.
+    - Over the cap: removes tool defs from the tail until under the cap,
+      always keeping at least one def (a single oversized def is kept; trimming
+      to zero tools would disable tool use entirely, which is a policy decision
+      for allowed_tools, not a token guardrail). Logs a warning with the
+      before/after token counts and how many defs were trimmed.
+    """
+    if not function_defs:
+        return function_defs
+
+    cap = resolve_handler_schema_cap(config)
+    if cap is None:
+        return function_defs
+
+    trimmed = list(function_defs)
+    tokens = _handler_schema_tokens(trimmed)
+    if tokens <= cap:
+        return trimmed
+
+    original_count = len(trimmed)
+    original_tokens = tokens
+    while len(trimmed) > 1 and tokens > cap:
+        trimmed.pop()
+        tokens = _handler_schema_tokens(trimmed)
+
+    logging.warning(
+        "FunctionCallingProcessor: handler schema tokens=%d exceed cap=%d for agent '%s'; "
+        "trimmed %d tool def(s) from the tail (kept %d, tokens=%d)",
+        original_tokens,
+        cap,
+        agent_name,
+        original_count - len(trimmed),
+        len(trimmed),
+        tokens,
+    )
+    return trimmed
 
 
 class FunctionCallingProcessor(MessageProcessorInterface):
@@ -1167,36 +1379,21 @@ class FunctionCallingProcessor(MessageProcessorInterface):
                 supports_images=supports_images,
             )
 
-            # Get the global tool definitions from the registry. We'll filter this
-            # list according to the agent.allowed_tools.
-            function_defs = self.registry.tools()
+            # Resolve tool definitions from the registry, filtered by the
+            # agent.allowed_tools (hard ceiling) and any tool list carried by
+            # the active context (strict intersection). Single source of truth:
+            # resolve_tool_defs() — shared with the /prompt_builder/metrics endpoint.
+            context_state = load_context_state(self.prompt_builder, ctx.account_id, ctx.context_name)
+            filtered_function_defs = resolve_tool_defs(self.registry, primary_agent, context_state)
 
-            # Filtering rules (strict intersection):
-            # - allowed_tools missing/None => allow no tools
-            # - allowed_tools == [] => allow no tools
-            # - otherwise => allow only tools whose name appears in allowed_tools
-            allowed = getattr(primary_agent, "allowed_tools", None)
-
-            if not allowed:
-                filtered_function_defs = []
-            else:
-                # Ensure allowed is a list, preserve order from function_defs
-                try:
-                    allowed_list = list(allowed)
-                except Exception:
-                    allowed_list = []
-
-                available_names = [fd.get("name") for fd in function_defs]
-                unknown = [n for n in allowed_list if n not in available_names]
-                if unknown:
-                    logging.warning(
-                        "FunctionCallingProcessor: agent '%s' has unknown allowed_tools entries: %s; ignoring",
-                        getattr(primary_agent, "name", "<unknown>"),
-                        unknown,
-                    )
-
-                allowed_set = set([n for n in allowed_list if n in available_names])
-                filtered_function_defs = [fd for fd in function_defs if fd.get("name") in allowed_set]
+            # --- Handler schema budget guardrail: trim from the tail when the
+            # serialized tool schemas exceed the configured cap. Guardrail only -
+            # never a selection mechanism. ---
+            filtered_function_defs = apply_handler_schema_budget(
+                filtered_function_defs,
+                self.config,
+                agent_name=ctx.agent_name,
+            )
 
             # --- Measure handler definitions tokens and combine with prompt breakdown ---
             _log_token_breakdown(ctx, self.prompt_builder, filtered_function_defs)
@@ -1352,29 +1549,21 @@ class FunctionCallingProcessor(MessageProcessorInterface):
                 supports_images=supports_images,
             )
 
-            function_defs = self.registry.tools()
+            # Resolve tool definitions from the registry, filtered by the
+            # agent.allowed_tools (hard ceiling) and any tool list carried by
+            # the active context (strict intersection). Single source of truth:
+            # resolve_tool_defs() — shared with the /prompt_builder/metrics endpoint.
+            context_state = load_context_state(self.prompt_builder, ctx.account_id, ctx.context_name)
+            filtered_function_defs = resolve_tool_defs(self.registry, primary_agent, context_state)
 
-            allowed = getattr(primary_agent, "allowed_tools", None)
-
-            if not allowed:
-                filtered_function_defs = []
-            else:
-                try:
-                    allowed_list = list(allowed)
-                except Exception:
-                    allowed_list = []
-
-                available_names = [fd.get("name") for fd in function_defs]
-                unknown = [n for n in allowed_list if n not in available_names]
-                if unknown:
-                    logging.warning(
-                        "FunctionCallingProcessor(streaming): agent '%s' has unknown allowed_tools entries: %s; ignoring",
-                        getattr(primary_agent, "name", "<unknown>"),
-                        unknown,
-                    )
-
-                allowed_set = set([n for n in allowed_list if n in available_names])
-                filtered_function_defs = [fd for fd in function_defs if fd.get("name") in allowed_set]
+            # --- Handler schema budget guardrail: trim from the tail when the
+            # serialized tool schemas exceed the configured cap. Guardrail only -
+            # never a selection mechanism. ---
+            filtered_function_defs = apply_handler_schema_budget(
+                filtered_function_defs,
+                self.config,
+                agent_name=ctx.agent_name,
+            )
 
             # --- Measure handler definitions tokens and combine with prompt breakdown ---
             _log_token_breakdown(ctx, self.prompt_builder, filtered_function_defs)

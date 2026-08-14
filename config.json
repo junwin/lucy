@@ -22,6 +22,7 @@
   "debug": false,
   "elapsed_new_session_seconds": 600,
   "max_tool_result_chars": 96000,
+  "max_handler_schema_tokens": 8000,
   "environment_prompt_block": "ENVIRONMENT\n- Test mode",
   "curation_max_chars": 32000
 }
