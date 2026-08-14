@@ -1098,19 +1098,18 @@ class PromptBuilder(PromptBuilderInterface):
             return None
 
     def _get_context_text(self, account_name: str, context_name: str) -> str:
-        """Load context text from storage, including any imported skills.
+        """Render the context text block for the LLM prompt.
 
-        Context is expected to be a ContextState with a free-form data dict.
-
-        If the context frontmatter contains an 'imports' list, each entry names
-        a skill file at skills/<account>/<name>.md. Skill texts are prepended
-        before the main context body.
+        Only content fields are included. Operational metadata such as
+        'allowed_tools' and 'imports' (and the imported skill bodies) are
+        intentionally excluded so they never leak into the model prompt.
 
         Behavior:
         - If context_name is missing/"none": return empty string.
         - If context is missing in storage: create it immediately (empty defaults)
           and return empty string.
-        - If context exists: prepend skill texts, then return data["text"].
+        - If context exists: render an identity header (id, account_name, tag when
+          present), followed by the context body (data["text"]).
         """
         ctx = self._get_context_state(account_name, context_name)
         if ctx is None:
@@ -1122,29 +1121,19 @@ class PromptBuilder(PromptBuilderInterface):
 
         parts: List[str] = []
 
-        # --- Load imported skills ---
-        imports = data.get("imports")
-        if isinstance(imports, list):
-            for skill_name in imports:
-                if not isinstance(skill_name, str) or not skill_name.strip():
-                    continue
-                try:
-                    skill_text = self.storage.get_skill_text(account_name, skill_name.strip())
-                    if skill_text:
-                        parts.append(skill_text)
-                    else:
-                        logging.warning(
-                            "PromptBuilder: skill '%s' not found for account '%s'",
-                            skill_name,
-                            account_name,
-                        )
-                except Exception as ex:
-                    logging.warning(
-                        "PromptBuilder: failed to load skill '%s' for %s: %s",
-                        skill_name,
-                        account_name,
-                        ex,
-                    )
+        # --- Identity header (content metadata only) ---
+        header_parts: List[str] = []
+        ctx_id = getattr(ctx, "id", None)
+        if isinstance(ctx_id, str) and ctx_id.strip():
+            header_parts.append(f"id: {ctx_id.strip()}")
+        ctx_account = getattr(ctx, "account_name", None)
+        if isinstance(ctx_account, str) and ctx_account.strip():
+            header_parts.append(f"account_name: {ctx_account.strip()}")
+        tag = data.get("tag")
+        if isinstance(tag, str) and tag.strip():
+            header_parts.append(f"tag: {tag.strip()}")
+        if header_parts:
+            parts.append("\n".join(header_parts))
 
         # --- Main context body ---
         text = data.get("text")

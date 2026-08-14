@@ -132,28 +132,26 @@ class TestSkillLoading:
         result = skill_storage.get_skill_text("junwin", "plain")
         assert result == content
 
-    def test_context_with_imports_loads_skills(self, skill_storage, tmp_path):
-        """End-to-end: save context with imports, build prompt, verify skills appear."""
+    def test_context_with_imports_are_excluded(self, skill_storage, tmp_path):
+        """Imports are operational metadata: skill bodies must NOT leak into prompt."""
         from src.prompt_builders.prompt_builder import PromptBuilder
 
-        # Write skill files
         self._write_skill(skill_storage, "junwin", "dev-basics", "SKILL: testing in venv")
         self._write_skill(skill_storage, "junwin", "gh-cli", "SKILL: use gh CLI")
 
-        # Write a context with imports
         ctx = ContextState(
             id="testctx",
             account_name="junwin",
             data={
                 "tag": "test",
                 "imports": ["dev-basics", "gh-cli"],
+                "allowed_tools": ["web_search_handler"],
                 "text": "MAIN CONTEXT: project specific info",
             },
             updated_at=datetime.now(timezone.utc),
         )
         skill_storage.save_context(ctx)
 
-        # Build prompt with this context
         pb = PromptBuilder(
             agent_manager=_FakeAgentManager(),
             config=_FakeConfig(),
@@ -167,24 +165,23 @@ class TestSkillLoading:
             context_name="testctx",
         )
 
-        # Find the context message
         context_msgs = [m for m in messages if "Additional context" in m.get("content", "")]
         assert len(context_msgs) == 1
-        context_content = context_msgs[0]["content"]
+        content = context_msgs[0]["content"]
 
-        # Skills should appear before main context
-        assert "SKILL: testing in venv" in context_content
-        assert "SKILL: use gh CLI" in context_content
-        assert "MAIN CONTEXT" in context_content
-        # Skills must precede main context
-        skill1_pos = context_content.index("SKILL: testing in venv")
-        skill2_pos = context_content.index("SKILL: use gh CLI")
-        main_pos = context_content.index("MAIN CONTEXT")
-        assert skill1_pos < main_pos
-        assert skill2_pos < main_pos
+        # Identity header present
+        assert "id: testctx" in content
+        assert "account_name: junwin" in content
+        assert "tag: test" in content
+        # Main body present
+        assert "MAIN CONTEXT" in content
+        # Operational metadata must NOT leak
+        assert "SKILL:" not in content
+        assert "use gh CLI" not in content
+        assert "web_search_handler" not in content
 
     def test_context_without_imports_works_normally(self, skill_storage, tmp_path):
-        """Context without imports field: only main text appears."""
+        """Context without imports/tag: header (id + account_name) and body only."""
         from src.prompt_builders.prompt_builder import PromptBuilder
 
         ctx = ContextState(
@@ -212,10 +209,14 @@ class TestSkillLoading:
 
         context_msgs = [m for m in messages if "Additional context" in m.get("content", "")]
         assert len(context_msgs) == 1
-        assert "Only main context" in context_msgs[0]["content"]
+        content = context_msgs[0]["content"]
+        assert "id: noimports" in content
+        assert "account_name: junwin" in content
+        assert "tag:" not in content
+        assert "Only main context" in content
 
     def test_context_with_missing_skill_import_continues(self, skill_storage, tmp_path):
-        """Missing skill in imports: warning logged, remaining skills + context still load."""
+        """Imports are ignored entirely, even when a referenced skill is missing."""
         from src.prompt_builders.prompt_builder import PromptBuilder
 
         self._write_skill(skill_storage, "junwin", "exists", "SKILL: exists")
@@ -247,8 +248,11 @@ class TestSkillLoading:
         context_msgs = [m for m in messages if "Additional context" in m.get("content", "")]
         assert len(context_msgs) == 1
         content = context_msgs[0]["content"]
-        assert "SKILL: exists" in content
+        assert "SKILL:" not in content
+        assert "id: partial" in content
+        assert "account_name: junwin" in content
         assert "Main body" in content
+
 
 
 # ---------------------------------------------------------------------------
