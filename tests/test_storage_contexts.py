@@ -132,8 +132,8 @@ class TestSkillLoading:
         result = skill_storage.get_skill_text("junwin", "plain")
         assert result == content
 
-    def test_context_with_imports_are_excluded(self, skill_storage, tmp_path):
-        """Imports are operational metadata: skill bodies must NOT leak into prompt."""
+    def test_context_with_imports_processed_but_directives_excluded(self, skill_storage, tmp_path):
+        """Imports are processed (skill bodies included); directives must NOT leak."""
         from src.prompt_builders.prompt_builder import PromptBuilder
 
         self._write_skill(skill_storage, "junwin", "dev-basics", "SKILL: testing in venv")
@@ -146,6 +146,7 @@ class TestSkillLoading:
                 "tag": "test",
                 "imports": ["dev-basics", "gh-cli"],
                 "allowed_tools": ["web_search_handler"],
+                "search_namespaces": ["documents", "external"],
                 "text": "MAIN CONTEXT: project specific info",
             },
             updated_at=datetime.now(timezone.utc),
@@ -175,10 +176,15 @@ class TestSkillLoading:
         assert "tag: test" in content
         # Main body present
         assert "MAIN CONTEXT" in content
-        # Operational metadata must NOT leak
-        assert "SKILL:" not in content
-        assert "use gh CLI" not in content
+        # Imported skill bodies ARE processed and included
+        assert "SKILL: testing in venv" in content
+        assert "SKILL: use gh CLI" in content
+        # Operational directives must NOT leak
+        assert "dev-basics" not in content
+        assert "gh-cli" not in content
         assert "web_search_handler" not in content
+        assert "search_namespaces" not in content
+        assert "documents" not in content
 
     def test_context_without_imports_works_normally(self, skill_storage, tmp_path):
         """Context without imports/tag: header (id + account_name) and body only."""
@@ -216,7 +222,7 @@ class TestSkillLoading:
         assert "Only main context" in content
 
     def test_context_with_missing_skill_import_continues(self, skill_storage, tmp_path):
-        """Imports are ignored entirely, even when a referenced skill is missing."""
+        """Missing skill imports are skipped; present skills still load."""
         from src.prompt_builders.prompt_builder import PromptBuilder
 
         self._write_skill(skill_storage, "junwin", "exists", "SKILL: exists")
@@ -248,7 +254,8 @@ class TestSkillLoading:
         context_msgs = [m for m in messages if "Additional context" in m.get("content", "")]
         assert len(context_msgs) == 1
         content = context_msgs[0]["content"]
-        assert "SKILL:" not in content
+        assert "SKILL: exists" in content
+        assert "missing-skill" not in content
         assert "id: partial" in content
         assert "account_name: junwin" in content
         assert "Main body" in content

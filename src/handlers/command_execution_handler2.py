@@ -71,6 +71,8 @@ class CommandExecutionHandler2(HandlerV2):
                 f"{shell_note} "
                 "Commands MUST be non-interactive and MUST terminate. "
                 "Do NOT call `bash` or `python3` with no arguments (they will wait for stdin and time out). "
+                "Do NOT use this tool just to read a file's contents (cat, sed, tail, head, less); use file_load instead. "
+                "Use this tool for work file_load cannot do: list files, search/grep across files, run scripts or tests, inspect processes, and similar. "
                 "Paths are always relative. "
                 "location='sandbox' uses code_sandbox_path; location='external' uses external_root."
             ),
