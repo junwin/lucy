@@ -24,5 +24,18 @@
   "max_tool_result_chars": 96000,
   "max_handler_schema_tokens": 8000,
   "environment_prompt_block": "ENVIRONMENT\n- Test mode",
-  "curation_max_chars": 32000
+  "curation_max_chars": 32000,
+  "lazy_tool_loading": {
+    "enabled": true,
+    "min_eligible_to_select": 5,
+    "model": "gpt-4o-mini",
+    "prompt_style": "verb_first",
+    "three_sisters": true,
+    "tasklist_pair": true,
+    "rules": true,
+    "allow_empty_active_set": true,
+    "exclude_tools": [
+      "lazy_tool_selector"
+    ]
+  }
 }

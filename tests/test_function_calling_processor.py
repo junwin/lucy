@@ -1,5 +1,5 @@
 import pytest
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 
 def test_no_tool_calls_returns_text(make_proc, prompt_builder, llm_adapter):
@@ -548,3 +548,311 @@ class TestFCPSupportsImagesPassthrough:
         # Verify build_prompt received supports_images=False
         build_kwargs = prompt_builder.build_prompt.call_args.kwargs
         assert build_kwargs["supports_images"] is False
+
+
+# ---------------------------------------------------------------------------
+# Context mandatory_tools merge tests
+# ---------------------------------------------------------------------------
+
+
+def _make_context_state(data):
+    from src.storage.models import ContextState
+
+    return ContextState(
+        id="ctx",
+        account_name="acct1",
+        data=data,
+        updated_at=None,
+    )
+
+
+def _agent_allowing(allowed_tools):
+    from tests.conftest import FakeAgent
+
+    agent = FakeAgent(save_responses=False)
+    agent.allowed_tools = list(allowed_tools)
+    return agent
+
+
+def _tools_passed_to_model(llm_adapter):
+    """Return the tool defs sent to the main model on the most recent call."""
+    return llm_adapter.call_model.call_args.kwargs["tools"]
+
+
+def test_mandatory_tools_merged_after_lazy_selection(make_proc, prompt_builder, llm_adapter, config):
+    """Context mandatory_tools are restored after lazy selection dropped them."""
+    from tests.conftest import FakeRegistry
+
+    reg = FakeRegistry(
+        tool_defs=[
+            {"name": "file_load", "description": "load a file"},
+            {"name": "execute_command", "description": "run a command"},
+            {"name": "web_search_handler", "description": "search the web"},
+        ],
+        handler_by_name={},
+    )
+    config.values["lazy_tool_loading"] = {"enabled": True, "min_eligible_to_select": 2}
+
+    proc = make_proc(registry=reg)
+
+    agent = _agent_allowing(["file_load", "execute_command", "web_search_handler"])
+
+    prompt_builder._get_context_state.return_value = _make_context_state(
+        {"mandatory_tools": ["execute_command", "file_load"]}
+    )
+    prompt_builder.build_prompt.return_value = [{"role": "user", "content": "I ate a snack at 10:00 am"}]
+
+    llm_adapter.extract_tool_calls.return_value = []
+    llm_adapter.get_text.return_value = "logged"
+
+    # Lazy selection only keeps web_search_handler; mandatory tools must come back.
+    active = [{"name": "web_search_handler", "description": "search the web"}]
+    with patch(
+        "src.message_processors.function_calling_processor.select_active_tool_defs",
+        return_value=(active, {"active_count": 1}),
+    ) as select_mock:
+        out = proc.process_message(
+            primary_agent=agent,
+            account={"accountId": "acct1"},
+            message="I ate a snack at 10:00 am of grilled chicken 1 serving",
+            conversation_id="c1",
+            context_name="food_diary",
+        )
+
+    assert out == "logged"
+    select_mock.assert_called_once()
+    names = [t["name"] for t in _tools_passed_to_model(llm_adapter)]
+    # Mandatory tools first (front-insert), then the lazy-selected active set.
+    assert names == ["execute_command", "file_load", "web_search_handler"]
+
+
+def test_mandatory_tools_deduplicated(make_proc, prompt_builder, llm_adapter, config):
+    """Repeated names in mandatory_tools and names already present are not re-added."""
+    from tests.conftest import FakeRegistry
+
+    reg = FakeRegistry(
+        tool_defs=[
+            {"name": "file_load", "description": "load a file"},
+            {"name": "execute_command", "description": "run a command"},
+            {"name": "web_search_handler", "description": "search the web"},
+        ],
+        handler_by_name={},
+    )
+    config.values["lazy_tool_loading"] = {"enabled": True, "min_eligible_to_select": 2}
+
+    proc = make_proc(registry=reg)
+
+    agent = _agent_allowing(["file_load", "execute_command", "web_search_handler"])
+
+    prompt_builder._get_context_state.return_value = _make_context_state(
+        {"mandatory_tools": ["execute_command", "execute_command", "web_search_handler"]}
+    )
+    prompt_builder.build_prompt.return_value = [{"role": "user", "content": "x"}]
+
+    llm_adapter.extract_tool_calls.return_value = []
+    llm_adapter.get_text.return_value = "ok"
+
+    active = [{"name": "web_search_handler", "description": "search the web"}]
+    with patch(
+        "src.message_processors.function_calling_processor.select_active_tool_defs",
+        return_value=(active, {"active_count": 1}),
+    ):
+        proc.process_message(
+            primary_agent=agent,
+            account={"accountId": "acct1"},
+            message="x",
+            conversation_id="c1",
+            context_name="food_diary",
+        )
+
+    names = [t["name"] for t in _tools_passed_to_model(llm_adapter)]
+    # execute_command added once despite appearing twice; web_search_handler
+    # was already present so it is not duplicated.
+    assert names == ["execute_command", "web_search_handler"]
+
+
+def test_mandatory_tool_outside_agent_allowed_tools_is_skipped(make_proc, prompt_builder, llm_adapter):
+    """Mandatory tools outside agent.allowed_tools are logged and skipped (hard ceiling)."""
+    from tests.conftest import FakeRegistry
+
+    reg = FakeRegistry(
+        tool_defs=[
+            {"name": "execute_command", "description": "run a command"},
+            {"name": "file_load", "description": "load a file"},
+        ],
+        handler_by_name={},
+    )
+    proc = make_proc(registry=reg)
+
+    agent = _agent_allowing(["file_load"])  # execute_command NOT allowed for this agent
+
+    prompt_builder._get_context_state.return_value = _make_context_state(
+        {"mandatory_tools": ["execute_command"]}
+    )
+    prompt_builder.build_prompt.return_value = [{"role": "user", "content": "x"}]
+
+    llm_adapter.extract_tool_calls.return_value = []
+    llm_adapter.get_text.return_value = "ok"
+
+    proc.process_message(
+        primary_agent=agent,
+        account={"accountId": "acct1"},
+        message="x",
+        conversation_id="c1",
+        context_name="food_diary",
+    )
+
+    names = [t["name"] for t in _tools_passed_to_model(llm_adapter)]
+    assert names == ["file_load"]
+
+
+def test_mandatory_tool_unknown_to_registry_is_ignored(make_proc, prompt_builder, llm_adapter):
+    """Unknown mandatory tool names are logged and ignored without crashing."""
+    from tests.conftest import FakeRegistry
+
+    reg = FakeRegistry(
+        tool_defs=[
+            {"name": "file_load", "description": "load a file"},
+            {"name": "execute_command", "description": "run a command"},
+        ],
+        handler_by_name={},
+    )
+    proc = make_proc(registry=reg)
+
+    agent = _agent_allowing(["file_load", "execute_command", "ghost_tool"])
+
+    prompt_builder._get_context_state.return_value = _make_context_state(
+        {"mandatory_tools": ["ghost_tool", "execute_command"]}
+    )
+    prompt_builder.build_prompt.return_value = [{"role": "user", "content": "x"}]
+
+    llm_adapter.extract_tool_calls.return_value = []
+    llm_adapter.get_text.return_value = "ok"
+
+    proc.process_message(
+        primary_agent=agent,
+        account={"accountId": "acct1"},
+        message="x",
+        conversation_id="c1",
+        context_name="food_diary",
+    )
+
+    names = [t["name"] for t in _tools_passed_to_model(llm_adapter)]
+    # Nothing was added, so the original registry order is preserved.
+    assert names == ["file_load", "execute_command"]
+
+
+def test_mandatory_tools_non_list_is_ignored(make_proc, prompt_builder, llm_adapter):
+    """A non-list mandatory_tools value is ignored without crashing."""
+    from tests.conftest import FakeRegistry
+
+    reg = FakeRegistry(
+        tool_defs=[{"name": "file_load", "description": "load a file"}],
+        handler_by_name={},
+    )
+    proc = make_proc(registry=reg)
+
+    agent = _agent_allowing(["file_load"])
+
+    prompt_builder._get_context_state.return_value = _make_context_state(
+        {"mandatory_tools": "file_load"}  # string, not a list
+    )
+    prompt_builder.build_prompt.return_value = [{"role": "user", "content": "x"}]
+
+    llm_adapter.extract_tool_calls.return_value = []
+    llm_adapter.get_text.return_value = "ok"
+
+    proc.process_message(
+        primary_agent=agent,
+        account={"accountId": "acct1"},
+        message="x",
+        conversation_id="c1",
+        context_name="food_diary",
+    )
+
+    names = [t["name"] for t in _tools_passed_to_model(llm_adapter)]
+    assert names == ["file_load"]
+
+
+def test_mandatory_tools_merged_in_streaming_path(make_proc, prompt_builder, llm_adapter, config):
+    """The streaming path applies the same mandatory-tools merge."""
+    from tests.conftest import FakeRegistry
+
+    reg = FakeRegistry(
+        tool_defs=[
+            {"name": "file_load", "description": "load a file"},
+            {"name": "execute_command", "description": "run a command"},
+            {"name": "web_search_handler", "description": "search the web"},
+        ],
+        handler_by_name={},
+    )
+    config.values["lazy_tool_loading"] = {"enabled": True, "min_eligible_to_select": 2}
+
+    proc = make_proc(registry=reg)
+
+    agent = _agent_allowing(["file_load", "execute_command", "web_search_handler"])
+
+    prompt_builder._get_context_state.return_value = _make_context_state(
+        {"mandatory_tools": ["execute_command", "file_load"]}
+    )
+    prompt_builder.build_prompt.return_value = [{"role": "user", "content": "snack"}]
+
+    llm_adapter.extract_tool_calls.return_value = []
+    llm_adapter.get_text.return_value = "ok"
+
+    active = [{"name": "web_search_handler", "description": "search the web"}]
+    with patch(
+        "src.message_processors.function_calling_processor.select_active_tool_defs",
+        return_value=(active, {"active_count": 1}),
+    ):
+        events = list(proc.process_message_streaming(
+            primary_agent=agent,
+            account={"accountId": "acct1"},
+            message="I ate a snack",
+            conversation_id="c1",
+            context_name="food_diary",
+        ))
+
+    assert any("done" in e for e in events)
+    names = [t["name"] for t in _tools_passed_to_model(llm_adapter)]
+    assert names == ["execute_command", "file_load", "web_search_handler"]
+
+def test_unknown_tool_returns_recoverable_error_to_llm(make_proc, prompt_builder, llm_adapter, storage):
+    from tests.conftest import FakeRegistry, FakeAgent
+
+    reg = FakeRegistry(handler_by_name={}, tool_defs=[{"name": "known"}])
+    proc = make_proc(registry=reg, storage=storage)
+
+    prompt_builder.build_prompt.return_value = [{"role": "user", "content": "x"}]
+
+    resp1, resp2 = object(), object()
+    llm_adapter.call_model.side_effect = [resp1, resp2]
+    llm_adapter.get_response_id.side_effect = ["r1", "r2"]
+    llm_adapter.extract_tool_calls.side_effect = [
+        [{"name": "bash", "id": "call-1", "arguments": "{}"}],
+        [],
+    ]
+    llm_adapter.format_tool_output.side_effect = lambda call_id, output: {
+        "type": "function_call_output",
+        "call_id": call_id,
+        "output": output,
+    }
+    llm_adapter.get_text.return_value = "ok"
+
+    out = proc.process_message(
+        primary_agent=FakeAgent(save_responses=False, max_function_call_iterations=3),
+        account={"accountId": "acct1"},
+        message="run it",
+        conversation_id="c1",
+        context_name="ctx",
+    )
+
+    assert out == "ok"
+
+    # The unknown tool was converted into an error output for the LLM rather
+    # than crashing the request.
+    second_call_input = llm_adapter.call_model.call_args_list[1].kwargs["input"]
+    assert second_call_input[0]["call_id"] == "call-1"
+    assert "Unknown tool 'bash'" in second_call_input[0]["output"]
+    assert "known" in second_call_input[0]["output"]
+

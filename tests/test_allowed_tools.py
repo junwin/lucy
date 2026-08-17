@@ -254,7 +254,7 @@ def test_resolve_tool_defs_context_cannot_grant_when_agent_has_no_tools():
     assert result == []
 
 
-def test_resolve_tool_defs_context_empty_list_disables_tools():
+def test_resolve_tool_defs_context_empty_list_does_not_restrict():
     from src.message_processors.function_calling_processor import resolve_tool_defs
     from tests.conftest import FakeRegistry
 
@@ -262,7 +262,7 @@ def test_resolve_tool_defs_context_empty_list_disables_tools():
     agent = Agent(name="a", allowed_tools=["t1", "t2"], save_responses=False)
 
     result = resolve_tool_defs(registry, agent, context_state=_make_context_state({"allowed_tools": []}))
-    assert result == []
+    assert [fd["name"] for fd in result] == ["t1", "t2"]
 
 
 def test_process_message_applies_context_tool_list(make_proc, registry, llm_adapter, prompt_builder):

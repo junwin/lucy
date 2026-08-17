@@ -32,6 +32,8 @@ from src.handlers.embedding_handler import EmbeddingHandler
 from src.handlers.remote_execute_handler import RemoteExecuteHandler
 from src.handlers.tool_handler_meta_handler import ToolHandlerMetaHandler
 from src.handlers.agents_manage_handler import AgentsManageHandler
+from src.handlers.lazy_tool_selector_handler import LazyToolSelectorHandler
+from src.handlers.context_handler import ContextHandler
 
 try:
     from src.handlers.generate_image_handler import GenerateImageHandler
@@ -61,6 +63,7 @@ def build_registry() -> HandlerRegistry:
     reg.register(ScrapeWebPageHandler2)
     reg.register(SandboxExecuteHandler)
     reg.register(GenerateSvgHandler)
+    reg.register(ContextHandler)
 
     # Optional / third-party dependent handlers: import and register lazily.
     try:
@@ -119,6 +122,9 @@ def build_registry() -> HandlerRegistry:
 
     # Agent management (list/get/upsert/delete/reload)
     reg.register(AgentsManageHandler)
+
+    # Lazy tool-loading scaffolding (test rig)
+    reg.register(LazyToolSelectorHandler)
 
 
     logger.info("Handler registry built with %d handlers.", len(reg.tool_names()))
