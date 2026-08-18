@@ -83,7 +83,7 @@ class CurationEngine:
             preview: If True, return note_text without writing.
             publish: If True, write digest to disk.
             template_name: Named template to use.
-            context_state_template: Optional template override from ContextState.
+            context_state_template: Optional template override from Context.
             curation_rules: Rules dict for filter mode (remove_kinds, keep_roles, deduplicate).
             max_chars: Max characters for the events text block fed to the LLM.
 

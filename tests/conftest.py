@@ -185,6 +185,12 @@ class FakeRegistry:
     def tools(self) -> List[dict]:
         return self._tool_defs
 
+    def has_tool(self, name: str) -> bool:
+        return name in self._handler_by_name
+
+    def tool_names(self) -> List[str]:
+        return sorted(self._handler_by_name.keys())
+
     def create(self, name: str, config: Any = None) -> Any:
         return self._handler_by_name[name]
 

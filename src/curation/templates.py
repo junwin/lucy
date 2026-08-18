@@ -1,7 +1,7 @@
 """Template rendering and resolution for curation digests.
 
 Template resolution order:
-1. ContextState override (account-scoped storage-backed template)
+1. Context override (account-scoped storage-backed template)
 2. Config file defaults (shipped with the code)
 3. Fallback hardcoded minimal template
 """
@@ -65,18 +65,18 @@ def resolve_template(
 ) -> str:
     """Resolve a template by name using the resolution order.
 
-    1. ContextState override (if provided)
+    1. Context override (if provided)
     2. Built-in config templates
     3. Fallback hardcoded template
 
     Args:
         template_name: Name of the template to resolve.
-        context_state_override: Optional template content from ContextState.
+        context_state_override: Optional template content from Context.
 
     Returns:
         Template string.
     """
-    # 1) ContextState override
+    # 1) Context override
     if context_state_override:
         logger.info(
             "template_resolved source=context_state template_name=%s",

@@ -5,7 +5,6 @@ from unittest.mock import Mock
 from src.chat2.store_primitives import InMemoryStore
 from src.chat2.facade import Chat2Store
 from src.chat2.models import ChatEvent
-from src.storage.models import ContextState
 
 from src.prompt_builders.prompt_builder import PromptBuilder
 from src.prompt_builders import prompt_builder as pb_module

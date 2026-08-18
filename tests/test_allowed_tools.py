@@ -166,19 +166,20 @@ def test_streaming_allowed_tools_none_no_tools(make_proc, registry, llm_adapter)
 
 
 # ---------------------------------------------------------------------------
-# Context tool list - ContextState.data['allowed_tools'] clamped by
+# Context tool list - Context.extra['allowed_tools'] clamped by
 # agent.allowed_tools (hard ceiling). Deterministic, no LLM call.
 # ---------------------------------------------------------------------------
 
 
 def _make_context_state(data):
     from datetime import datetime, timezone
-    from src.storage.models import ContextState
+    from src.storage.models import Context
 
-    return ContextState(
+    return Context(
         id="ctx",
         account_name="acct",
-        data=data,
+        text=data.get("text", ""),
+        extra={k: v for k, v in data.items() if k != "text"},
         updated_at=datetime.now(timezone.utc),
     )
 
@@ -254,7 +255,7 @@ def test_resolve_tool_defs_context_cannot_grant_when_agent_has_no_tools():
     assert result == []
 
 
-def test_resolve_tool_defs_context_empty_list_disables_tools():
+def test_resolve_tool_defs_context_empty_list_does_not_restrict():
     from src.message_processors.function_calling_processor import resolve_tool_defs
     from tests.conftest import FakeRegistry
 
@@ -262,18 +263,18 @@ def test_resolve_tool_defs_context_empty_list_disables_tools():
     agent = Agent(name="a", allowed_tools=["t1", "t2"], save_responses=False)
 
     result = resolve_tool_defs(registry, agent, context_state=_make_context_state({"allowed_tools": []}))
-    assert result == []
+    assert [fd["name"] for fd in result] == ["t1", "t2"]
 
 
 def test_process_message_applies_context_tool_list(make_proc, registry, llm_adapter, prompt_builder):
     from datetime import datetime, timezone
-    from src.storage.models import ContextState
+    from src.storage.models import Context
 
     registry._tool_defs = [{"name": "t1"}, {"name": "t2"}, {"name": "t3"}]
-    prompt_builder._get_context_state.return_value = ContextState(
+    prompt_builder._get_context_state.return_value = Context(
         id="ctx",
         account_name="acct",
-        data={"allowed_tools": ["t2"]},
+        extra={"allowed_tools": ["t2"]},
         updated_at=datetime.now(timezone.utc),
     )
 
@@ -293,13 +294,13 @@ def test_process_message_applies_context_tool_list(make_proc, registry, llm_adap
 
 def test_process_message_context_without_tool_list_uses_agent_tools(make_proc, registry, llm_adapter, prompt_builder):
     from datetime import datetime, timezone
-    from src.storage.models import ContextState
+    from src.storage.models import Context
 
     registry._tool_defs = [{"name": "t1"}, {"name": "t2"}]
-    prompt_builder._get_context_state.return_value = ContextState(
+    prompt_builder._get_context_state.return_value = Context(
         id="ctx",
         account_name="acct",
-        data={"text": "hi"},
+        text="hi",
         updated_at=datetime.now(timezone.utc),
     )
 
@@ -319,13 +320,13 @@ def test_process_message_context_without_tool_list_uses_agent_tools(make_proc, r
 
 def test_process_message_context_tool_list_clamped_by_agent_permissions(make_proc, registry, llm_adapter, prompt_builder):
     from datetime import datetime, timezone
-    from src.storage.models import ContextState
+    from src.storage.models import Context
 
     registry._tool_defs = [{"name": "t1"}, {"name": "t2"}, {"name": "t3"}]
-    prompt_builder._get_context_state.return_value = ContextState(
+    prompt_builder._get_context_state.return_value = Context(
         id="ctx",
         account_name="acct",
-        data={"allowed_tools": ["t1", "t2", "t3"]},
+        extra={"allowed_tools": ["t1", "t2", "t3"]},
         updated_at=datetime.now(timezone.utc),
     )
 
@@ -345,13 +346,13 @@ def test_process_message_context_tool_list_clamped_by_agent_permissions(make_pro
 
 def test_streaming_applies_context_tool_list(make_proc, registry, llm_adapter, prompt_builder):
     from datetime import datetime, timezone
-    from src.storage.models import ContextState
+    from src.storage.models import Context
 
     registry._tool_defs = [{"name": "t1"}, {"name": "t2"}, {"name": "t3"}]
-    prompt_builder._get_context_state.return_value = ContextState(
+    prompt_builder._get_context_state.return_value = Context(
         id="ctx",
         account_name="acct",
-        data={"allowed_tools": ["t2"]},
+        extra={"allowed_tools": ["t2"]},
         updated_at=datetime.now(timezone.utc),
     )
 
