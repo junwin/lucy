@@ -156,6 +156,7 @@ class TasklistsManageHandler(HandlerV2):
         return {
             "type": "object",
             "properties": {
+                "ok": {"type": "boolean"},
                 "tool": {"type": "string"},
                 "action": {"type": "string"},
                 "tasklist_key": {"type": "string"},
