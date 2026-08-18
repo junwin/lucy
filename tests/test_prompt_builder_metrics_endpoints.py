@@ -106,17 +106,17 @@ def test_metrics_tool_set_ignores_unknown_allowed_tools():
 
 def test_metrics_tool_set_applies_context_tool_list():
     from datetime import datetime, timezone
-    from src.storage.models import ContextState
+    from src.storage.models import Context
 
     agent_manager, container = _make_deps(
         allowed_tools=["t1", "t2", "t3"],
         tool_defs=[{"name": "t1"}, {"name": "t2"}, {"name": "t3"}],
     )
     prompt_builder = container.get(PromptBuilder)
-    prompt_builder._get_context_state.return_value = ContextState(
+    prompt_builder._get_context_state.return_value = Context(
         id="ctx",
         account_name="junwin",
-        data={"allowed_tools": ["t2"]},
+        extra={"allowed_tools": ["t2"]},
         updated_at=datetime.now(timezone.utc),
     )
 

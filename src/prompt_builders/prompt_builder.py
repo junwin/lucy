@@ -186,9 +186,18 @@ class PromptBuilder(PromptBuilderInterface):
         if context_name and context_name != "none":
             ctx = self._get_context_state(account_name=account_name, context_name=context_name)
             if ctx is not None:
-                data = getattr(ctx, "data", None)
-                if isinstance(data, dict):
-                    context_data = data
+                tag_val = getattr(ctx, "tag", None)
+                if isinstance(tag_val, str):
+                    context_data["tag"] = tag_val
+                namespaces = getattr(ctx, "search_namespaces", None)
+                if isinstance(namespaces, list):
+                    context_data["search_namespaces"] = namespaces
+                extra = getattr(ctx, "extra", None)
+                if isinstance(extra, dict):
+                    # Legacy/unknown frontmatter keys stay visible downstream;
+                    # typed fields above win on conflict.
+                    for key, value in extra.items():
+                        context_data.setdefault(key, value)
 
         # --- External documents ---
         doc_contexts: List[Dict[str, Any]] = []
@@ -1073,7 +1082,7 @@ class PromptBuilder(PromptBuilderInterface):
         return []
 
     def _get_context_state(self, account_name: str, context_name: str) -> Optional[Any]:
-        """Return the ContextState object (or None) for the named context.
+        """Return the Context object (or None) for the named context.
 
         This follows the same fallback logic as _get_context_text: prefer a
         storage implementation that supports get_or_create_context, otherwise
@@ -1100,23 +1109,21 @@ class PromptBuilder(PromptBuilderInterface):
     def _get_context_text(self, account_name: str, context_name: str) -> str:
         """Render the context text block for the LLM prompt.
 
-        Imports are processed: each named skill is loaded and its body prepended
-        to the context. The operational directives themselves (the imports list,
-        allowed_tools, search_namespaces) are never included in the prompt text.
+        Import resolution lives in the storage layer: ``ctx.resolved_text``
+        already contains the intrinsic body plus each resolved skill under a
+        ``## skill: <name>`` heading. Operational directives (imports,
+        mandatory_tools, search_namespaces) are never included in the prompt
+        text.
 
         Behavior:
         - If context_name is missing/"none": return empty string.
         - If context is missing in storage: create it immediately (empty defaults)
           and return empty string.
-        - If context exists: render an identity header (id, account_name, tag when
-          present), then prepend imported skill texts, then the context body.
+        - If context exists: render an identity header (id, account_name, tag
+          when present), then the fully-resolved context text.
         """
         ctx = self._get_context_state(account_name, context_name)
         if ctx is None:
-            return ""
-
-        data = getattr(ctx, "data", None)
-        if not isinstance(data, dict):
             return ""
 
         parts: List[str] = []
@@ -1129,40 +1136,16 @@ class PromptBuilder(PromptBuilderInterface):
         ctx_account = getattr(ctx, "account_name", None)
         if isinstance(ctx_account, str) and ctx_account.strip():
             header_parts.append(f"account_name: {ctx_account.strip()}")
-        tag = data.get("tag")
+        tag = getattr(ctx, "tag", None)
         if isinstance(tag, str) and tag.strip():
             header_parts.append(f"tag: {tag.strip()}")
         if header_parts:
             parts.append("\n".join(header_parts))
 
-        # --- Process imported skills (content, not the imports directive) ---
-        imports = data.get("imports")
-        if isinstance(imports, list):
-            for skill_name in imports:
-                if not isinstance(skill_name, str) or not skill_name.strip():
-                    continue
-                try:
-                    skill_text = self.storage.get_skill_text(account_name, skill_name.strip())
-                    if skill_text:
-                        parts.append(skill_text)
-                    else:
-                        logging.warning(
-                            "PromptBuilder: skill '%s' not found for account '%s'",
-                            skill_name,
-                            account_name,
-                        )
-                except Exception as ex:
-                    logging.warning(
-                        "PromptBuilder: failed to load skill '%s' for %s: %s",
-                        skill_name,
-                        account_name,
-                        ex,
-                    )
-
-        # --- Main context body ---
-        text = data.get("text")
-        if isinstance(text, str) and text.strip():
-            parts.append(text)
+        # --- Fully-resolved text (intrinsic body + imported skill bodies) ---
+        resolved = getattr(ctx, "resolved_text", None)
+        if isinstance(resolved, str) and resolved.strip():
+            parts.append(resolved)
 
         return "\n\n".join(parts)
 

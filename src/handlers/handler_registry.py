@@ -11,11 +11,14 @@ logger = logging.getLogger(__name__)
 
 
 def _context_tool_list(context_state: Any) -> Optional[List[str]]:
-    """Extract the optional tool list from a ContextState-like object.
+    """Extract the optional tool list from a Context-like object.
 
-    Returns None when no tool list should be applied. That includes:
+    ``allowed_tools`` is not a typed Context field (design decision #6), so
+    legacy contexts still carrying it expose it through the catch-all
+    ``extra`` dict (or an old ``data`` dict). Returns None when no tool list
+    should be applied. That includes:
     - no active context
-    - missing data dict
+    - missing extra/data dict
     - no 'allowed_tools' key
     - 'allowed_tools' is not a list
     - 'allowed_tools' is an empty list (empty => no context restriction)
@@ -25,10 +28,13 @@ def _context_tool_list(context_state: Any) -> Optional[List[str]]:
     """
     if context_state is None:
         return None
+    extra = getattr(context_state, "extra", None)
     data = getattr(context_state, "data", None)
-    if not isinstance(data, dict):
-        return None
-    raw = data.get("allowed_tools")
+    raw = None
+    if isinstance(extra, dict):
+        raw = extra.get("allowed_tools")
+    if raw is None and isinstance(data, dict):
+        raw = data.get("allowed_tools")
     if raw is None:
         return None
     if isinstance(raw, (str, bytes)):
@@ -162,7 +168,7 @@ class HandlerRegistry:
         The permission ceiling is:
 
             registry ∩ agent.allowed_tools
-                ∩ context.data['allowed_tools']   (only when non-empty)
+                ∩ context.extra['allowed_tools']  (only when non-empty)
 
         An empty or missing context tool list does not restrict the agent's
         allowed tools. Equivalent to

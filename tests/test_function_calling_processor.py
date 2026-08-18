@@ -556,12 +556,14 @@ class TestFCPSupportsImagesPassthrough:
 
 
 def _make_context_state(data):
-    from src.storage.models import ContextState
+    from src.storage.models import Context
 
-    return ContextState(
+    return Context(
         id="ctx",
         account_name="acct1",
-        data=data,
+        mandatory_tools=list(data.get("mandatory_tools", [])),
+        text=data.get("text", ""),
+        extra={k: v for k, v in data.items() if k not in ("mandatory_tools", "text")},
         updated_at=None,
     )
 

@@ -147,7 +147,7 @@ def prompt_builder_metrics_impl(
         # Use the FCP's resolve_tool_defs (single source of truth) so the
         # metrics endpoint reports the exact same tool set the FCP would send.
         # The active context may carry an optional non-empty tool list
-        # (ContextState.data['allowed_tools']) clamped by the agent's
+        # (Context.extra['allowed_tools']) clamped by the agent's
         # allowed_tools (hard ceiling). Missing/empty => no restriction.
         context_state = load_context_state(prompt_builder, accountName, context_name)
         filtered_function_defs = resolve_tool_defs(registry, my_agent, context_state) if registry is not None else []

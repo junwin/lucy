@@ -30,7 +30,8 @@ from .models import (
     ChatSession,
     UserProfile,
     AgentProfile,
-    ContextState,
+    Context,
+    Skill,
     DocumentRef,
     EmbeddingRecord,
 )
@@ -43,7 +44,8 @@ __all__ = [
     "ChatSession",
     "UserProfile",
     "AgentProfile",
-    "ContextState",
+    "Context",
+    "Skill",
     "DocumentRef",
     "EmbeddingRecord",
 ]

@@ -23,7 +23,8 @@ from .models import (
     ChatSession,
     UserProfile,
     AgentProfile,
-    ContextState,
+    Context,
+    Skill,
     DocumentRef,
     EmbeddingRecord,
 )
@@ -67,6 +68,51 @@ def _parse_dt_utc(dt_str: str) -> datetime:
     return dt
 
 
+def _parse_context_frontmatter(
+    fm: Optional[Dict[str, Any]],
+) -> Tuple[Optional[str], List[str], List[str], List[str], Dict[str, Any]]:
+    """Split a context frontmatter dict into typed fields + catch-all extra.
+
+    Known typed keys (tag, imports, mandatory_tools, search_namespaces) are
+    extracted leniently; malformed values (e.g. a non-list for a list field)
+    are preserved in ``extra`` so nothing is lost on round-trip. ``text`` and
+    ``updated_at`` are handled by the caller and are never put into ``extra``.
+    """
+    tag: Optional[str] = None
+    imports: List[str] = []
+    mandatory_tools: List[str] = []
+    search_namespaces: List[str] = []
+    extra: Dict[str, Any] = {}
+
+    for key, value in (fm or {}).items():
+        if key == "tag":
+            if isinstance(value, str):
+                tag = value
+            else:
+                extra[key] = value
+        elif key == "imports":
+            if isinstance(value, list):
+                imports = [v for v in value if isinstance(v, str)]
+            else:
+                extra[key] = value
+        elif key == "mandatory_tools":
+            if isinstance(value, list):
+                mandatory_tools = [v for v in value if isinstance(v, str)]
+            else:
+                extra[key] = value
+        elif key == "search_namespaces":
+            if isinstance(value, list):
+                search_namespaces = [v for v in value if isinstance(v, str)]
+            else:
+                extra[key] = value
+        elif key in ("text", "updated_at"):
+            # Handled by the caller (body / datetime parsing).
+            pass
+        else:
+            extra[key] = value
+
+    return tag, imports, mandatory_tools, search_namespaces, extra
+
 
 class JsonFileStorage(Storage):
     """JSON-backed storage implementation for Lucy.
@@ -90,10 +136,11 @@ class JsonFileStorage(Storage):
       - Contexts were previously stored as JSON files under
         contexts/<account>/<context_id>.json. They are now stored as
         Markdown files (<context_id>.md) with YAML frontmatter. Frontmatter
-        keys map into ContextState.data (excluding 'text'); the Markdown body
-        is stored in data['text']. The ContextState.updated_at timestamp is
-        taken from the frontmatter 'updated_at' if present, otherwise from
-        the file's mtime.
+        keys map onto the persisted Context fields (tag, imports,
+        mandatory_tools, search_namespaces, updated_at); unknown keys land
+        in Context.extra. The Markdown body is stored in Context.text. The
+        Context.updated_at timestamp is taken from the frontmatter
+        'updated_at' if present, otherwise from the file's mtime.
     """
 
     def __init__(self, storage_paths: StoragePaths):
@@ -346,13 +393,15 @@ class JsonFileStorage(Storage):
     # CONTEXT / WHITEBOARD
     # ----------------------------------------------------------------------
 
-    def get_context(self, account_name: str, context_id: str) -> Optional[ContextState]:
+    def get_context(self, account_name: str, context_id: str) -> Optional[Context]:
         """Load a context from Markdown (.md) with YAML frontmatter.
 
-        Frontmatter keys map into ContextState.data (excluding 'text'), and the
-        Markdown body is stored as data['text']. The ContextState.updated_at is
-        sourced from frontmatter['updated_at'] if present; otherwise the file's
-        modification time is used.
+        Frontmatter keys map onto the persisted Context fields (tag, imports,
+        mandatory_tools, search_namespaces, updated_at); any other keys land
+        in ``extra`` (catch-all). The Markdown body becomes ``text``.
+        ``updated_at`` is sourced from frontmatter if present, otherwise from
+        the file's mtime. Import resolution (``resolved_skills`` /
+        ``missing_imports``) is performed by the storage layer (see #120).
         """
         path = self.storage_paths.contexts / account_name / f"{context_id}.md"
         if not path.exists():
@@ -383,12 +432,7 @@ class JsonFileStorage(Storage):
             # No frontmatter; treat whole file as body
             body = text
 
-        # Map frontmatter keys into context.data (excluding 'text'), and body into 'text'
-        data: Dict[str, Any] = {}
-        for k, v in (fm or {}).items():
-            data[k] = v
-
-        data["text"] = body
+        tag, imports, mandatory_tools, search_namespaces, extra = _parse_context_frontmatter(fm)
 
         # Determine updated_at: prefer frontmatter 'updated_at' if present; else mtime
         updated_at = None
@@ -405,12 +449,45 @@ class JsonFileStorage(Storage):
             except Exception:
                 updated_at = _now_utc()
 
-        return ContextState(
+        ctx = Context(
             id=context_id,
             account_name=account_name,
-            data=data,
+            tag=tag,
+            imports=imports,
+            mandatory_tools=mandatory_tools,
+            search_namespaces=search_namespaces,
             updated_at=updated_at,
+            text=body,
+            extra=extra,
         )
+        # Import resolution (single-level, v1): populate resolved_skills /
+        # missing_imports. Missing imports do not fail the load.
+        self._resolve_context_imports(ctx, account_name)
+        return ctx
+
+    def _resolve_context_imports(self, ctx: Context, account_name: str) -> None:
+        """Resolve ``ctx.imports`` (single-level only) into resolved_skills.
+
+        For each import name, in order: load the skill via ``get_skill()``.
+        Found skills are appended to ``ctx.resolved_skills`` (their
+        ``mandatory_tools`` feed the computed ``required_tools`` property);
+        imports that could not be found are recorded in
+        ``ctx.missing_imports``. Non-string / empty entries are skipped.
+        No recursion (v1); skill composition is a later release.
+        """
+        resolved: List[Skill] = []
+        missing: List[str] = []
+        for skill_name in ctx.imports:
+            if not isinstance(skill_name, str) or not skill_name.strip():
+                continue
+            skill_name = skill_name.strip()
+            skill = self.get_skill(account_name, skill_name)
+            if skill is not None:
+                resolved.append(skill)
+            else:
+                missing.append(skill_name)
+        ctx.resolved_skills = resolved
+        ctx.missing_imports = missing
 
     def get_or_create_context(
         self,
@@ -418,41 +495,60 @@ class JsonFileStorage(Storage):
         context_id: str,
         *,
         default_data: Optional[Dict[str, Any]] = None,
-    ) -> ContextState:
+    ) -> Context:
         """Load a context; if missing, create and save it immediately.
 
-        When creating a new context, default_data is merged onto default fields.
+        When creating a new context, default_data is merged onto default
+        fields: typed keys (tag, imports, mandatory_tools,
+        search_namespaces, text, updated_at) map to Context fields,
+        everything else lands in ``extra``.
         """
         existing = self.get_context(account_name=account_name, context_id=context_id)
         if existing is not None:
             return existing
 
-        data: Dict[str, Any] = {
-            "context_name": context_id,
-            "agreed": False,
-            "tasklist_status": "draft",
-            "text": "",
-        }
-        if default_data:
-            # Allow caller to override/extend defaults
-            data.update(default_data)
-
-        ctx = ContextState(
+        ctx = Context(
             id=context_id,
             account_name=account_name,
-            data=data,
+            text="",
             updated_at=_now_utc(),
+            extra={
+                "context_name": context_id,
+                "agreed": False,
+                "tasklist_status": "draft",
+            },
         )
+        if default_data:
+            tag, imports, mandatory_tools, search_namespaces, extra = _parse_context_frontmatter(default_data)
+            if tag is not None:
+                ctx.tag = tag
+            if imports:
+                ctx.imports = imports
+            if mandatory_tools:
+                ctx.mandatory_tools = mandatory_tools
+            if search_namespaces:
+                ctx.search_namespaces = search_namespaces
+            if extra:
+                ctx.extra.update(extra)
+            if "text" in default_data and isinstance(default_data.get("text"), str):
+                ctx.text = default_data["text"]
+            if "updated_at" in default_data:
+                try:
+                    ctx.updated_at = _parse_dt_utc(default_data.get("updated_at") or "")
+                except Exception:
+                    pass
         self.save_context(ctx)
         return ctx
 
-    def save_context(self, context: ContextState) -> None:
-        """Persist a ContextState as Markdown (.md) with YAML frontmatter.
+    def save_context(self, context: Context) -> None:
+        """Persist a Context as Markdown (.md) with YAML frontmatter.
 
-        Frontmatter contains all keys from context.data except 'text'. The
-        Markdown body contains context.data.get('text', ''). The file's
-        modification time is set to context.updated_at (UTC) to preserve the
-        timestamp.
+        Only persisted fields are written: the typed frontmatter keys (tag,
+        imports, mandatory_tools, search_namespaces, updated_at), the
+        catch-all ``extra``, and the Markdown body (``text``). Derived members
+        (resolved_skills, missing_imports, resolved_text, required_tools) are
+        never serialized. The file's modification time is set to
+        context.updated_at (UTC) to preserve the timestamp.
         """
         path = self.storage_paths.contexts / context.account_name
         self._ensure_dir(path)
@@ -463,13 +559,19 @@ class JsonFileStorage(Storage):
         else:
             updated = updated.astimezone(timezone.utc)
 
-        # Frontmatter: all keys from context.data except 'text'
+        # Frontmatter: typed persisted fields + catch-all extra. 'text' is the
+        # Markdown body; derived members are never serialized.
         fm: Dict[str, Any] = {}
-        for k, v in context.data.items():
-            if k == "text":
-                continue
-            # Ensure that tasklist remains a plain dict when present
-            fm[k] = v
+        if context.tag is not None:
+            fm["tag"] = context.tag
+        if context.imports:
+            fm["imports"] = list(context.imports)
+        if context.mandatory_tools:
+            fm["mandatory_tools"] = list(context.mandatory_tools)
+        if context.search_namespaces:
+            fm["search_namespaces"] = list(context.search_namespaces)
+        fm["updated_at"] = updated.isoformat()
+        fm.update(context.extra)
 
         try:
             fm_yaml = yaml.safe_dump(fm, sort_keys=False, allow_unicode=True)
@@ -477,7 +579,7 @@ class JsonFileStorage(Storage):
             # Fallback: ensure YAML serialization doesn't crash
             fm_yaml = yaml.safe_dump({}, sort_keys=False, allow_unicode=True)
 
-        body = context.data.get("text", "") or ""
+        body = context.text or ""
 
         # Compose Markdown with YAML frontmatter
         content = f"---\n{fm_yaml}---\n{body}"
@@ -549,10 +651,17 @@ class JsonFileStorage(Storage):
                         except Exception:
                             updated_at = None
 
-                    ctx = ContextState(
+                    tag, imports, mandatory_tools, search_namespaces, extra = _parse_context_frontmatter(ctx_data)
+
+                    ctx = Context(
                         id=ctx_id,
                         account_name=account_dir.name,
-                        data=ctx_data,
+                        tag=tag,
+                        imports=imports,
+                        mandatory_tools=mandatory_tools,
+                        search_namespaces=search_namespaces,
+                        text=ctx_data.get("text", ""),
+                        extra=extra,
                         updated_at=updated_at or _now_utc(),
                     )
 
@@ -565,12 +674,15 @@ class JsonFileStorage(Storage):
     # SKILLS
     # ----------------------------------------------------------------------
 
-    def get_skill_text(self, account_name: str, skill_name: str) -> Optional[str]:
-        """Return the body text of a skill Markdown file, or None if missing.
+    def get_skill(self, account_name: str, skill_name: str) -> Optional[Skill]:
+        """Return a skill (frontmatter + body), or None if missing.
 
-        Skill files are stored at skills/<account>/<skill_name>.md.
-        They are plain Markdown -- the entire file body is returned as the skill text.
-        Frontmatter (if any) is stripped.
+        Skill files are stored at skills/<account>/<skill_name>.md as
+        Markdown with optional YAML frontmatter. The body is returned in
+        ``Skill.text``; the frontmatter key ``mandatory_tools`` (see #114)
+        is parsed into ``Skill.mandatory_tools``; all other frontmatter keys
+        land in ``Skill.extra`` (catch-all). Malformed YAML frontmatter is
+        treated as body-only (a warning is logged).
         """
         path = self.storage_paths.skills / account_name / f"{skill_name}.md"
         if not path.exists():
@@ -582,11 +694,52 @@ class JsonFileStorage(Storage):
             logging.warning("Failed to read skill file %s: %s", path, e)
             return None
 
-        # Strip optional YAML frontmatter
+        fm: Dict[str, Any] = {}
+        body = text
         m = re.match(r"^---\s*\n(.*?)\n---\s*\n(.*)\Z", text, re.S)
         if m:
-            return m.group(2)
-        return text
+            fm_text = m.group(1)
+            body = m.group(2)
+            try:
+                loaded = yaml.safe_load(fm_text)
+                if isinstance(loaded, dict):
+                    fm = loaded
+                else:
+                    fm = {}
+            except Exception as e:
+                logging.warning("Failed to parse YAML frontmatter for %s: %s", path, e)
+                fm = {}
+        else:
+            # No frontmatter; treat whole file as body
+            body = text
+
+        mandatory_tools: List[str] = []
+        extra: Dict[str, Any] = {}
+        for key, value in fm.items():
+            if key == "mandatory_tools":
+                if isinstance(value, list):
+                    mandatory_tools = [v for v in value if isinstance(v, str)]
+                else:
+                    extra[key] = value
+            else:
+                extra[key] = value
+
+        return Skill(
+            name=skill_name,
+            text=body,
+            mandatory_tools=mandatory_tools,
+            extra=extra,
+        )
+
+    def get_skill_text(self, account_name: str, skill_name: str) -> Optional[str]:
+        """Return the body text of a skill Markdown file, or None if missing.
+
+        Backward-compat wrapper: delegates to get_skill() (see #114).
+        """
+        skill = self.get_skill(account_name, skill_name)
+        if skill is None:
+            return None
+        return skill.text
 
     # ----------------------------------------------------------------------
     # Tasklists (simple CRUD)

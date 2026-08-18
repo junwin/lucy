@@ -7,7 +7,7 @@ imports, tag, etc.) and the body is the context text.
 Actions
 -------
 - list                 : list context names for the account (default limit 200)
-- load                 : load a context and resolve its ``imports`` skills
+- load                 : load a context (imports resolved by storage)
 - set_mandatory_tools  : replace the context's mandatory_tools list and save
 - save                 : create/update a context (text and/or frontmatter data)
 
@@ -18,6 +18,7 @@ otherwise it builds a JsonFileStorage from config (same as other handlers).
 from __future__ import annotations
 
 import logging
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 from src.config_manager import ConfigManager
@@ -115,8 +116,10 @@ class ContextHandler(HandlerV2):
                 "context_names": {"type": "array", "items": {"type": "string"}},
                 "data": {"type": "object"},
                 "skills": {"type": "array"},
+                "missing_skills": {"type": "array", "items": {"type": "string"}},
                 "resolved_text": {"type": "string"},
                 "mandatory_tools": {"type": "array", "items": {"type": "string"}},
+                "required_tools": {"type": "array", "items": {"type": "string"}},
                 "error": {"type": "object"},
             },
             "required": ["ok", "tool"],
@@ -273,20 +276,18 @@ class ContextHandler(HandlerV2):
                 "error": {"code": "not_found", "message": f"context '{name}' not found"},
             }
 
-        data = dict(getattr(ctx, "data", {}) or {})
-        skills, missing = self._resolve_skills(storage, account, data)
-        resolved_text = self._build_resolved_text(data, skills)
-
         return {
             "ok": True,
             "tool": self.NAME,
             "action": "load",
             "context_name": name,
             "account_name": account,
-            "data": data,
-            "skills": skills,
-            "missing_skills": missing,
-            "resolved_text": resolved_text,
+            "data": ctx.to_data(),
+            "skills": [s.name for s in ctx.resolved_skills],
+            "missing_skills": list(ctx.missing_imports),
+            "resolved_text": ctx.resolved_text,
+            "mandatory_tools": list(ctx.mandatory_tools),
+            "required_tools": ctx.required_tools,
         }
 
     def _handle_set_mandatory_tools(self, account_name: str, args: Dict[str, Any], context: Dict[str, Any]) -> Dict[str, Any]:
@@ -317,7 +318,7 @@ class ContextHandler(HandlerV2):
                     "error": {"code": "no_storage", "message": "No storage available"}}
 
         ctx = storage.get_or_create_context(account, name)
-        ctx.data["mandatory_tools"] = tool_names
+        ctx.mandatory_tools = tool_names
         storage.save_context(ctx)
 
         return {
@@ -343,12 +344,33 @@ class ContextHandler(HandlerV2):
         ctx = storage.get_or_create_context(account, name)
 
         if "text" in args and args["text"] is not None:
-            ctx.data["text"] = str(args["text"])
+            ctx.text = str(args["text"])
 
         data = args.get("data")
         if isinstance(data, dict):
             for key, value in data.items():
-                ctx.data[key] = value
+                if key == "text":
+                    ctx.text = str(value) if value is not None else ""
+                elif key == "tag":
+                    if isinstance(value, str):
+                        ctx.tag = value
+                    else:
+                        ctx.extra[key] = value
+                elif key in ("imports", "mandatory_tools", "search_namespaces"):
+                    if isinstance(value, list):
+                        setattr(ctx, key, [v for v in value if isinstance(v, str)])
+                    else:
+                        ctx.extra[key] = value
+                elif key == "updated_at" and isinstance(value, str):
+                    try:
+                        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+                        if parsed.tzinfo is None:
+                            parsed = parsed.replace(tzinfo=timezone.utc)
+                        ctx.updated_at = parsed
+                    except Exception:
+                        ctx.extra[key] = value
+                else:
+                    ctx.extra[key] = value
 
         storage.save_context(ctx)
 
@@ -358,49 +380,6 @@ class ContextHandler(HandlerV2):
             "action": "save",
             "context_name": name,
             "account_name": account,
-            "data": dict(ctx.data),
+            "data": ctx.to_data(),
         }
 
-    @staticmethod
-    def _build_resolved_text(data: Dict[str, Any], skills: List[Dict[str, str]]) -> str:
-        """Concatenate the intrinsic context body and its resolved skill texts.
-
-        The intrinsic body (``data["text"]``) comes first, followed by each
-        resolved skill under a ``## skill: <name>`` heading. This is the single
-        "fully resolved" document the caller can pass straight into a prompt.
-        """
-        parts: List[str] = []
-
-        body = (data.get("text") or "").strip()
-        if body:
-            parts.append(body)
-
-        for skill in skills:
-            name = (skill.get("name") or "").strip()
-            text = (skill.get("text") or "").strip()
-            if text:
-                parts.append(f"## skill: {name}\n{text}")
-
-        return "\n\n".join(parts)
-
-    @staticmethod
-    def _resolve_skills(storage: Any, account: str, data: Dict[str, Any]):
-        """Resolve ``imports`` in a context into a list of skill bodies."""
-        imports = data.get("imports")
-        resolved: List[Dict[str, str]] = []
-        missing: List[str] = []
-        if isinstance(imports, list):
-            for skill_name in imports:
-                if not isinstance(skill_name, str) or not skill_name.strip():
-                    continue
-                skill_name = skill_name.strip()
-                try:
-                    text = storage.get_skill_text(account, skill_name)
-                except Exception as exc:  # pragma: no cover - defensive
-                    logger.warning("context_handler: skill load failed %s: %s", skill_name, exc)
-                    text = None
-                if text:
-                    resolved.append({"name": skill_name, "text": text})
-                else:
-                    missing.append(skill_name)
-        return resolved, missing

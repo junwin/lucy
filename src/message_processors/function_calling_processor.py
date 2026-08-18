@@ -114,10 +114,10 @@ def _log_token_breakdown(ctx: _ProcessorContext, prompt_builder: Any, filtered_f
 
 
 def load_context_state(prompt_builder: Any, account_name: str, context_name: str) -> Optional[Any]:
-    """Load the active ContextState (or None) for the given account/context.
+    """Load the active Context (or None) for the given account/context.
 
     Delegates to PromptBuilder._get_context_state when available so the FCP
-    sees exactly the same ContextState the prompt builder used (same
+    sees exactly the same Context the prompt builder used (same
     get_or_create_context/get_context fallback). Fails softly: any error
     yields None (no context tool list applies).
     """
@@ -253,37 +253,37 @@ def merge_mandatory_tools(
     registry: Any,
     agent: Any,
 ) -> List[Dict[str, Any]]:
-    """Merge context-declared mandatory tools into the active tool defs.
+    """Merge a context's required tools into the active tool defs.
 
-    A context may declare a `mandatory_tools:` list in its YAML frontmatter
-    to guarantee that specific tools are always present in the schema sent
-    to the LLM, even when the user's request does not obviously need them
-    (e.g. a food-diary context whose instructions require a fixed set of
-    REST/curl calls via execute_command).
+    The ONLY supported interface for external consumers is the Context's
+    aggregated `required_tools` (own `mandatory_tools` + each resolved skill's
+    `mandatory_tools`). This guarantees those tools are always present in the
+    schema sent to the LLM, even when the user's request does not obviously
+    need them. There is no fallback to the raw `mandatory_tools` list or
+    legacy data/extra dicts.
 
     Rules (mirrors filter_eligible_tool_defs conventions):
-    - Lenient parsing: missing / non-list / empty `mandatory_tools` => no-op.
+    - Missing / non-list / empty `required_tools` => no-op.
     - Names are resolved against the FULL registry, not the already-filtered
-      list, so a mandatory tool survives lazy tool selection that dropped it.
-    - agent.allowed_tools remains the hard ceiling: a mandatory tool outside
+      list, so a required tool survives lazy tool selection that dropped it.
+    - agent.allowed_tools remains the hard ceiling: a required tool outside
       it is logged and skipped.
     - Dedup: names already present in function_defs and repeated names inside
-      the mandatory list are skipped.
+      the required list are skipped.
     - Unknown names are logged and ignored.
-    - No config controls: the feature is active whenever a context declares
-      mandatory_tools.
+    - No config controls: the feature is active whenever a context provides
+      `required_tools`.
 
-    Mandatory defs are inserted at the FRONT of the list so the
+    Required defs are inserted at the FRONT of the list so the
     apply_handler_schema_budget() tail-trim can never strip them.
     """
     if context_state is None:
         return function_defs
 
-    data = getattr(context_state, "data", None)
-    if not isinstance(data, dict):
-        return function_defs
-
-    raw = data.get("mandatory_tools")
+    # required_tools is the ONLY supported interface for external consumers.
+    # It is the Context.required_tools property: the aggregate of the context's
+    # own mandatory_tools PLUS each resolved skill's mandatory_tools.
+    raw = getattr(context_state, "required_tools", None)
     if raw is None:
         return function_defs
     if isinstance(raw, (str, bytes)):

@@ -283,7 +283,7 @@ class LazyToolSelectorHandler(HandlerV2):
 
         Uses the single-source-of-truth intersection:
         registry ∩ agent.allowed_tools, then narrowed only when the context
-        carries a non-empty context.data['allowed_tools'] list.
+        carries a non-empty context.extra['allowed_tools'] list.
         """
         all_defs = registry.tools() if registry is not None else []
         by_name = {td.get("name"): td for td in all_defs}
