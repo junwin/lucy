@@ -35,8 +35,8 @@ DIGEST_SCORE_THRESHOLD = 0.25
 # Score threshold for embedding-based document retrieval.
 DOC_EMBEDDING_SCORE_THRESHOLD = 0.25
 
-# Soft max tokens for front-loaded context (can be overridden by env/config)
-CONTEXT_TEXT_SOFT_MAX_TOKENS = int(os.getenv("PROMPT_BUILDER_CONTEXT_SOFT_MAX_TOKENS", "2000"))
+# Soft max tokens for front-loaded context (override via context_text_soft_max_tokens in config)
+CONTEXT_TEXT_SOFT_MAX_TOKENS = 2000
 
 # Default embedding namespaces to search when no context specifies them.
 DEFAULT_SEARCH_NAMESPACES = ["external"]
@@ -156,7 +156,8 @@ class PromptBuilder(PromptBuilderInterface):
         # exceeds the configured soft maximum. This reduces prompt size early and
         # prevents huge contexts from pushing history out of the budget.
         try:
-            soft_max = self._get_context_soft_max_tokens()
+            soft_max = self.config.get("context_text_soft_max_tokens", None)
+            soft_max = int(soft_max) if soft_max is not None else CONTEXT_TEXT_SOFT_MAX_TOKENS
             ctx_tokens = estimate_tokens_from_text(context_text or "")
             if ctx_tokens > soft_max:
                 # Approximate character budget (estimate_tokens uses len//4)
@@ -295,7 +296,8 @@ class PromptBuilder(PromptBuilderInterface):
 
             # Soft-max warning for front-loaded context
             try:
-                soft_max = self._get_context_soft_max_tokens()
+                soft_max = self.config.get("context_text_soft_max_tokens", None)
+                soft_max = int(soft_max) if soft_max is not None else CONTEXT_TEXT_SOFT_MAX_TOKENS
                 if context_tokens > soft_max:
                     logging.warning(
                         "PromptBuilder: context text (%d tokens) exceeds soft max (%d tokens) \\u2014 "
@@ -1164,50 +1166,6 @@ class PromptBuilder(PromptBuilderInterface):
             elif isinstance(last_content, str) and last_content == current_query:
                 return messages
         return messages + [{"role": "user", "content": current_query}]
-
-    def _get_context_soft_max_tokens(self) -> int:
-        """Resolve the soft max tokens for front-loaded context.
-
-        Order of precedence:
-          1. Environment variable PROMPT_BUILDER_CONTEXT_SOFT_MAX_TOKENS
-          2. config.get('context_text_soft_max_tokens') if available
-          3. module default (CONTEXT_TEXT_SOFT_MAX_TOKENS)
-
-        Returns an int >= 0.
-        """
-        # 1) Check environment
-        env_val = os.getenv("PROMPT_BUILDER_CONTEXT_SOFT_MAX_TOKENS")
-        if env_val:
-            try:
-                v = int(env_val)
-                if v >= 0:
-                    return v
-            except Exception:
-                logging.warning(
-                    "PromptBuilder: invalid PROMPT_BUILDER_CONTEXT_SOFT_MAX_TOKENS=%s; using fallback",
-                    env_val,
-                )
-
-        # 2) Check config (ConfigManager-like object with .get)
-        try:
-            cfg_val = None
-            if hasattr(self.config, "get"):
-                cfg_val = self.config.get("context_text_soft_max_tokens", None)
-            if cfg_val is not None:
-                try:
-                    v = int(cfg_val)
-                    if v >= 0:
-                        return v
-                except Exception:
-                    logging.warning(
-                        "PromptBuilder: invalid context_text_soft_max_tokens in config: %s; using fallback",
-                        cfg_val,
-                    )
-        except Exception:
-            logging.debug("PromptBuilder: failed to read config for soft max tokens; using default")
-
-        # 3) Fallback to module-level default
-        return CONTEXT_TEXT_SOFT_MAX_TOKENS
 
     def _summarize_overflow(self, texts: List[str], max_chars: int = 800) -> str:
         """Create a short human-readable digest from a list of earlier message texts.

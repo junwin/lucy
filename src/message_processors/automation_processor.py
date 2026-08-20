@@ -59,6 +59,34 @@ def _safe_preview(text: str, limit: int = 500) -> str:
     return text[:limit] + "..."
 
 
+# ---------------------------------------------------------------------------
+# Mandatory-stop detection
+# ---------------------------------------------------------------------------
+# These responses indicate the model did NOT complete the requested work. If
+# the FunctionCallingProcessor returns any of them, AutomationProcessor must
+# abort the tasklist, mark the task failed/error, and never mark it completed.
+_MANDATORY_STOP_MARKERS = (
+    "I ran into an internal limit while trying to call tools multiple times",
+    "I received an empty response from the model",
+    "I noticed I was repeating the same tool call without making progress",
+)
+
+
+class MandatoryStopError(Exception):
+    """Raised when a task's model response indicates incomplete work.
+
+    AutomationProcessor treats this as a hard stop: the current task is marked
+    failed/error and the tasklist run is terminated.
+    """
+
+
+def _is_mandatory_stop_response(text: str) -> bool:
+    """Return True if a FunctionCallingProcessor response is a mandatory stop."""
+    if not isinstance(text, str):
+        return False
+    return any(marker in text for marker in _MANDATORY_STOP_MARKERS)
+
+
 def _is_run_command(message: str) -> bool:
     """Very small command parser.
 
@@ -637,12 +665,26 @@ class AutomationProcessor(MessageProcessorInterface):
                         )
 
                         task_result = {"timestamp": _now_utc().isoformat(), "output": response}
+
+                        if _is_mandatory_stop_response(response):
+                            logger.error(
+                                "AutomationProcessor: mandatory-stop response detected for task=%s tasklist_id=%s; aborting",
+                                last_task_name,
+                                tasklist_id,
+                            )
+                            raise MandatoryStopError(
+                                "Model reported it could not complete the task "
+                                f"(internal limit / incomplete response). Aborting tasklist run for task '{last_task_name}'."
+                            )
                 else:
                     task_result = {
                         "timestamp": _now_utc().isoformat(),
                         "note": "Placeholder result. External tool execution disabled for Part 1+2.",
                         "intended_action": {"task": last_task_name, "mode": mode},
                     }
+            except MandatoryStopError as e:
+                logger.error("Task execution aborted (mandatory stop) for task=%s: %s", last_task_name, e)
+                task_error = str(e)
             except Exception as e:
                 logger.exception("Task execution failed for task=%s", last_task_name)
                 task_error = str(e)
