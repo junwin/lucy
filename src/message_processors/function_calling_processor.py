@@ -1747,6 +1747,7 @@ class FunctionCallingProcessor(MessageProcessorInterface):
 
         # Collect all SSE events for chat2 persistence
         streamed_events: List[SSEEvent] = []
+        events_persisted = False
 
         try:
             extra_system_messages = self._get_environment_system_messages()
@@ -1836,6 +1837,7 @@ class FunctionCallingProcessor(MessageProcessorInterface):
             # Write all collected events to chat2 storage
             if ctx.store_this_call:
                 self._write_streaming_chat2_events(ctx, message, streamed_events)
+                events_persisted = True
 
         except ToolHandlerError:
             yield SSEEvent(type="error", message="A tool execution error occurred.").to_sse()
@@ -1854,6 +1856,7 @@ class FunctionCallingProcessor(MessageProcessorInterface):
 
             try:
                 self._write_chat2_events(ctx, message, error_message + f" (Details: {type(e).__name__})")
+                events_persisted = True
             except Exception:
                 logging.exception(
                     "FunctionCallingProcessor(streaming): failed to store error conversation for session_id=%s",
@@ -1864,6 +1867,11 @@ class FunctionCallingProcessor(MessageProcessorInterface):
             yield SSEEvent(type="done", conversation_id=ctx.conversation_id).to_sse()
 
         finally:
+            # Best-effort: if the client disconnected mid-stream (GeneratorExit),
+            # persist whatever was streamed so far so history is not lost.
+            if not events_persisted and ctx.store_this_call:
+                self._write_streaming_chat2_events(ctx, message, streamed_events)
+
             latency_ms = int((time.perf_counter() - start_ts) * 1000)
             logging.info(
                 "FunctionCallingProcessor(streaming) summary: agent=%s session_id=%s account=%s iterations=%d openai_calls=%d tool_calls=%d failures=%d latency_ms=%d",

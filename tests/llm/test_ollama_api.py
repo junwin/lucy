@@ -87,6 +87,30 @@ def test_custom_base_url() -> None:
     assert api._client.base_url.port == 11434
 
 
+def test_config_override_base_url() -> None:
+    """ollama_base_url from config.json overrides the default."""
+    with patch("src.llm.ollama_api.ConfigManager") as MockConfig:
+        mock_cm = MockConfig.return_value
+        mock_cm.get.return_value = "http://192.168.1.50:11434/v1"
+
+        api = OllamaApi()
+
+    assert api._client.base_url.host == "192.168.1.50"
+    assert api._client.base_url.port == 11434
+
+
+def test_missing_config_key_falls_back_to_default() -> None:
+    """Missing ollama_base_url config key falls back to localhost:11434."""
+    with patch("src.llm.ollama_api.ConfigManager") as MockConfig:
+        mock_cm = MockConfig.return_value
+        mock_cm.get.return_value = None
+
+        api = OllamaApi()
+
+    assert api._client.base_url.host == "localhost"
+    assert api._client.base_url.port == 11434
+
+
 # ---------------------------------------------------------------------------
 # create_response — basic text response
 # ---------------------------------------------------------------------------

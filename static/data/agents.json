@@ -289,7 +289,7 @@
     "max_prompt_documents": 2,
     "temperature": 0,
     "save_responses": true,
-    "model": "bjoernb/gemma4-31b-think",
+    "model": "qwen2.5:1.5b",
     "message_processor": "function_calling_processor",
     "max_function_call_iterations": 10,
     "partner_agent": null,

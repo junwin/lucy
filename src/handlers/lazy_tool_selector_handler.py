@@ -236,7 +236,7 @@ class LazyToolSelectorHandler(HandlerV2):
                 rules=rules_enabled,
                 # Test rig: always run selection (never skip on size) and allow
                 # empty results so under-selection is visible in the probe.
-                min_eligible_to_select=0,
+                min_eligible_to_select=4,
                 allow_empty_active_set=True,
             )
         except Exception as exc:  # pragma: no cover - depends on live API

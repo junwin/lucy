@@ -858,3 +858,35 @@ def test_unknown_tool_returns_recoverable_error_to_llm(make_proc, prompt_builder
     assert "Unknown tool 'bash'" in second_call_input[0]["output"]
     assert "known" in second_call_input[0]["output"]
 
+
+def test_streaming_persists_on_generator_close(make_proc, prompt_builder, llm_adapter):
+    """When the client disconnects mid-stream (generator close), streamed events are still persisted to chat2."""
+    from tests.conftest import FakeAgent
+
+    mock_store = Mock()
+    mock_store.session_exists.return_value = False
+    mock_store.create_session.return_value = Mock()
+    mock_store.add_events.return_value = []
+
+    proc = make_proc()
+    proc.chat2_store = mock_store
+
+    prompt_builder.build_prompt.return_value = [{"role": "user", "content": "hi"}]
+
+    llm_adapter.extract_tool_calls.return_value = []
+    llm_adapter.get_text.return_value = "hello"
+
+    gen = proc.process_message_streaming(
+        primary_agent=FakeAgent(save_responses=True),
+        account={"accountId": "acct1"},
+        message="hi",
+        conversation_id="c1",
+        context_name="ctx",
+    )
+
+    # Consume the first SSE event, then simulate the client disconnecting.
+    next(gen)
+    gen.close()
+
+    # The finally block must persist the streamed events to chat2.
+    mock_store.add_events.assert_called()

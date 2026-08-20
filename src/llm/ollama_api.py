@@ -5,6 +5,7 @@ from typing import Any, Dict, List, Optional
 
 from openai import OpenAI
 
+from src.config_manager import ConfigManager
 from .dto import LLMResponse, LLMUsage, ToolCall
 from .interface import LLMApi
 from .openai_responses import _sleep_backoff
@@ -41,11 +42,36 @@ class OllamaApi(LLMApi):
 
     @staticmethod
     def _build_default_client(base_url: Optional[str] = None) -> OpenAI:
-        url = base_url or OllamaApi.OLLAMA_BASE_URL
+        url = base_url
+        if url is None:
+            url = OllamaApi._resolve_base_url()
         return OpenAI(
             api_key="ollama",  # placeholder — Ollama doesn't require a real key
             base_url=url,
         )
+
+    @staticmethod
+    def _resolve_base_url() -> str:
+        """Resolve the Ollama base URL from config.json, falling back to the class constant.
+
+        The URL is an endpoint, not a secret — it lives in config.json as
+        "ollama_base_url". A config/local failure must never crash client
+        construction (and therefore the stream), so any exception during
+        config access falls back to OLLAMA_BASE_URL.
+        """
+        try:
+            config = ConfigManager("config.json")
+            url = config.get("ollama_base_url")
+            if url:
+                return url
+        except Exception as e:
+            logging.warning(
+                "OllamaApi: failed to read ollama_base_url from config; "
+                "falling back to %s (%s)",
+                OllamaApi.OLLAMA_BASE_URL,
+                e,
+            )
+        return OllamaApi.OLLAMA_BASE_URL
 
     # ------------------------------------------------------------------
     # supports_image_processing
