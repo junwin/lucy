@@ -43,24 +43,16 @@ def test_allowed_tools_subset_only_passed(make_proc, registry, llm_adapter):
     assert called_tools == [{"name": "t2"}]
 
 
-def test_allowed_tools_unknown_names_logged_and_ignored(make_proc, registry, llm_adapter, caplog):
-    caplog.set_level(logging.WARNING)
+def test_allowed_tools_unknown_names_ignored_silently(make_proc, registry, llm_adapter):
     registry._tool_defs = [{"name": "t1"}, {"name": "t2"}]
 
     proc = make_proc(registry=registry, llm_adapter=llm_adapter)
 
     agent = Agent(name="a", allowed_tools=["t2", "nope"], save_responses=False)
 
-    resp = proc.process_message(primary_agent=agent, account={"accountId": "acct"}, message="hi")
+    proc.process_message(primary_agent=agent, account={"accountId": "acct"}, message="hi")
 
-    # unknown 'nope' should produce a warning
-    found = False
-    for rec in caplog.records:
-        if "unknown allowed_tools entries" in rec.getMessage():
-            found = True
-            break
-    assert found, "Expected warning about unknown allowed_tools entries"
-
+    # Unknown allowed_tools entries are silently ignored (no warning, no error).
     called_tools = llm_adapter.call_model.call_args.kwargs.get("tools")
     assert called_tools == [{"name": "t2"}]
 
@@ -166,8 +158,13 @@ def test_streaming_allowed_tools_none_no_tools(make_proc, registry, llm_adapter)
 
 
 # ---------------------------------------------------------------------------
-# Context tool list - Context.extra['allowed_tools'] clamped by
-# agent.allowed_tools (hard ceiling). Deterministic, no LLM call.
+# Context tool handling.
+#
+# resolve_tool_defs() (the legacy helper, still used by the metrics endpoint)
+# treats Context.extra['allowed_tools'] as a narrowing list clamped by
+# agent.allowed_tools. The FCP's active pipeline (issue #126) does NOT read
+# context allowed_tools at all -- only agent.allowed_tools is used; the
+# context contributes required_tools instead.
 # ---------------------------------------------------------------------------
 
 
@@ -266,7 +263,7 @@ def test_resolve_tool_defs_context_empty_list_does_not_restrict():
     assert [fd["name"] for fd in result] == ["t1", "t2"]
 
 
-def test_process_message_applies_context_tool_list(make_proc, registry, llm_adapter, prompt_builder):
+def test_process_message_ignores_context_allowed_tools(make_proc, registry, llm_adapter, prompt_builder):
     from datetime import datetime, timezone
     from src.storage.models import Context
 
@@ -288,8 +285,9 @@ def test_process_message_applies_context_tool_list(make_proc, registry, llm_adap
         context_name="ctx",
     )
 
+    # Context allowed_tools is ignored; only agent.allowed_tools is read.
     called_tools = llm_adapter.call_model.call_args.kwargs.get("tools")
-    assert called_tools == [{"name": "t2"}]
+    assert called_tools == [{"name": "t1"}, {"name": "t2"}, {"name": "t3"}]
 
 
 def test_process_message_context_without_tool_list_uses_agent_tools(make_proc, registry, llm_adapter, prompt_builder):
@@ -344,7 +342,7 @@ def test_process_message_context_tool_list_clamped_by_agent_permissions(make_pro
     assert called_tools == [{"name": "t1"}]
 
 
-def test_streaming_applies_context_tool_list(make_proc, registry, llm_adapter, prompt_builder):
+def test_streaming_ignores_context_allowed_tools(make_proc, registry, llm_adapter, prompt_builder):
     from datetime import datetime, timezone
     from src.storage.models import Context
 
@@ -366,17 +364,19 @@ def test_streaming_applies_context_tool_list(make_proc, registry, llm_adapter, p
         context_name="ctx",
     ))
 
+    # Context allowed_tools is ignored; only agent.allowed_tools is read.
     called_tools = llm_adapter.call_model.call_args.kwargs.get("tools")
-    assert called_tools == [{"name": "t2"}]
+    assert called_tools == [{"name": "t1"}, {"name": "t2"}, {"name": "t3"}]
 
 
 # ---------------------------------------------------------------------------
 # Handler schema budget guardrail - max_handler_schema_tokens
 #
-# The FCP resolves the tool set via resolve_tool_defs(), then a pure guardrail
-# (apply_handler_schema_budget) trims tool defs from the tail when the
-# serialized schemas exceed the configured cap. The cap is a budget guardrail,
-# never a selection mechanism: it only removes tools, never adds or reorders.
+# The FCP resolves the tool set via the tool-selection pipeline (issue #126),
+# which RAISES ToolSelectionError('budget_exceeded') when the serialized
+# schemas exceed the configured cap -- no silent trim. The legacy
+# apply_handler_schema_budget() helper (still used by the metrics endpoint)
+# retains the old trim-from-tail behaviour and is tested directly below.
 # ---------------------------------------------------------------------------
 
 
@@ -400,29 +400,22 @@ def _schema_tokens(function_defs) -> int:
     return estimate_tokens_from_text(_json.dumps(function_defs, ensure_ascii=False))
 
 
-def test_handler_schema_cap_trims_from_tail_and_warns(make_proc, registry, llm_adapter, config, caplog):
-    """The cap trims tool defs from the tail and logs a warning."""
-    caplog.set_level(logging.WARNING)
+def test_handler_schema_cap_over_budget_returns_error(make_proc, registry, llm_adapter, config):
+    """Over the cap the pipeline raises and the FCP surfaces the error message."""
     defs = [_big_tool_def("t1"), _big_tool_def("t2"), _big_tool_def("t3")]
     registry._tool_defs = defs
-    # Cap fits exactly two defs; the third must be trimmed from the tail.
+    # Cap fits exactly two defs; the third exceeds the budget.
     config.values["max_handler_schema_tokens"] = _schema_tokens(defs[:2])
 
     proc = make_proc(registry=registry, llm_adapter=llm_adapter)
     agent = Agent(name="a", allowed_tools=["t1", "t2", "t3"], save_responses=False)
 
-    proc.process_message(primary_agent=agent, account={"accountId": "acct"}, message="hi")
+    resp = proc.process_message(primary_agent=agent, account={"accountId": "acct"}, message="hi")
 
-    called_tools = llm_adapter.call_model.call_args.kwargs.get("tools")
-    assert [fd["name"] for fd in called_tools] == ["t1", "t2"], called_tools
-
-    found = False
-    for rec in caplog.records:
-        msg = rec.getMessage()
-        if "handler schema tokens" in msg and "trimmed" in msg:
-            found = True
-            break
-    assert found, "Expected warning that the schema token cap trimmed tools"
+    # The pipeline raises budget_exceeded; the FCP returns the human-readable
+    # message and the main LLM is never called.
+    assert "max_handler_schema_tokens" in resp
+    llm_adapter.call_model.assert_not_called()
 
 
 def test_handler_schema_cap_under_budget_no_trim_no_warning(make_proc, registry, llm_adapter, config, caplog):
@@ -473,8 +466,8 @@ def test_handler_schema_budget_keeps_single_oversized_def():
     assert [fd["name"] for fd in result] == ["t1"]
 
 
-def test_streaming_applies_handler_schema_cap(make_proc, registry, llm_adapter, config):
-    """The streaming path applies the same budget guardrail as process_message."""
+def test_streaming_handler_schema_cap_over_budget_emits_error(make_proc, registry, llm_adapter, config):
+    """The streaming path emits an SSE 'error' event when the budget is exceeded."""
     defs = [_big_tool_def("t1"), _big_tool_def("t2"), _big_tool_def("t3")]
     registry._tool_defs = defs
     config.values["max_handler_schema_tokens"] = _schema_tokens(defs[:2])
@@ -482,7 +475,12 @@ def test_streaming_applies_handler_schema_cap(make_proc, registry, llm_adapter, 
     proc = make_proc(registry=registry, llm_adapter=llm_adapter)
     agent = Agent(name="a", allowed_tools=["t1", "t2", "t3"], save_responses=False)
 
-    list(proc.process_message_streaming(primary_agent=agent, account={"accountId": "acct"}, message="hi"))
+    events = list(proc.process_message_streaming(
+        primary_agent=agent,
+        account={"accountId": "acct"},
+        message="hi",
+    ))
 
-    called_tools = llm_adapter.call_model.call_args.kwargs.get("tools")
-    assert [fd["name"] for fd in called_tools] == ["t1", "t2"], called_tools
+    # budget_exceeded is surfaced as an SSE error event, not a silent trim.
+    assert any('"type":"error"' in e and "max_handler_schema_tokens" in e for e in events)
+    llm_adapter.call_model.assert_not_called()

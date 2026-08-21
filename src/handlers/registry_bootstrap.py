@@ -33,6 +33,7 @@ from src.handlers.remote_execute_handler import RemoteExecuteHandler
 from src.handlers.tool_handler_meta_handler import ToolHandlerMetaHandler
 from src.handlers.agents_manage_handler import AgentsManageHandler
 from src.handlers.lazy_tool_selector_handler import LazyToolSelectorHandler
+from src.handlers.tool_selection_probe_handler import ToolSelectionProbeHandler
 from src.handlers.context_handler import ContextHandler
 
 try:
@@ -126,6 +127,8 @@ def build_registry() -> HandlerRegistry:
     # Lazy tool-loading scaffolding (test rig)
     reg.register(LazyToolSelectorHandler)
 
+    # Tool selection pipeline diagnostic probe (issue #126)
+    reg.register(ToolSelectionProbeHandler)
 
     logger.info("Handler registry built with %d handlers.", len(reg.tool_names()))
     return reg

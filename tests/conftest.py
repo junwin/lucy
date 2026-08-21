@@ -259,9 +259,10 @@ def storage() -> FakeStorage:
 
 
 @pytest.fixture
-def prompt_builder() -> Mock:
+def prompt_builder(storage) -> Mock:
     pb = Mock()
     pb.build_prompt.return_value = [{"role": "user", "content": "hi"}]
+    pb.storage = storage
     return pb
 
 

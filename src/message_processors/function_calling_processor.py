@@ -27,12 +27,13 @@ from src.chat2.facade import Chat2Store
 from src.chat2.models import ChatEvent
 
 from src.message_processors.automation_processor import AutomationProcessor
-from src.message_processors.lazy_tool_selection import select_active_tool_defs
 from src.tasklists.task import Task
 from src.tasklists.task_list import TaskList
 
 # Import token estimator from prompt_builder
 from src.prompt_builders.prompt_builder import estimate_tokens_from_text
+
+from src.tool_selection import ToolSelectionError, ToolSelectionPipeline
 
 
 class ToolResultTooLargeError(Exception):
@@ -247,121 +248,6 @@ def apply_handler_schema_budget(
     return trimmed
 
 
-def merge_mandatory_tools(
-    function_defs: List[Dict[str, Any]],
-    context_state: Optional[Any],
-    registry: Any,
-    agent: Any,
-) -> List[Dict[str, Any]]:
-    """Merge a context's required tools into the active tool defs.
-
-    The ONLY supported interface for external consumers is the Context's
-    aggregated `required_tools` (own `mandatory_tools` + each resolved skill's
-    `mandatory_tools`). This guarantees those tools are always present in the
-    schema sent to the LLM, even when the user's request does not obviously
-    need them. There is no fallback to the raw `mandatory_tools` list or
-    legacy data/extra dicts.
-
-    Rules (mirrors filter_eligible_tool_defs conventions):
-    - Missing / non-list / empty `required_tools` => no-op.
-    - Names are resolved against the FULL registry, not the already-filtered
-      list, so a required tool survives lazy tool selection that dropped it.
-    - agent.allowed_tools remains the hard ceiling: a required tool outside
-      it is logged and skipped.
-    - Dedup: names already present in function_defs and repeated names inside
-      the required list are skipped.
-    - Unknown names are logged and ignored.
-    - No config controls: the feature is active whenever a context provides
-      `required_tools`.
-
-    Required defs are inserted at the FRONT of the list so the
-    apply_handler_schema_budget() tail-trim can never strip them.
-    """
-    if context_state is None:
-        return function_defs
-
-    # required_tools is the ONLY supported interface for external consumers.
-    # It is the Context.required_tools property: the aggregate of the context's
-    # own mandatory_tools PLUS each resolved skill's mandatory_tools.
-    raw = getattr(context_state, "required_tools", None)
-    if raw is None:
-        return function_defs
-    if isinstance(raw, (str, bytes)):
-        logging.warning(
-            "FunctionCallingProcessor: context 'mandatory_tools' must be a list; ignoring",
-        )
-        return function_defs
-    try:
-        names = list(raw)
-    except Exception:
-        logging.warning(
-            "FunctionCallingProcessor: context 'mandatory_tools' is not iterable; ignoring",
-        )
-        return function_defs
-    if not names:
-        return function_defs
-
-    # agent.allowed_tools is the hard ceiling (same convention as
-    # filter_eligible_tool_defs).
-    allowed = getattr(agent, "allowed_tools", None)
-    if not allowed:
-        logging.warning(
-            "FunctionCallingProcessor: context declares mandatory_tools=%s but agent '%s' "
-            "has no allowed_tools; skipping all",
-            names,
-            getattr(agent, "name", "<unknown>"),
-        )
-        return function_defs
-    try:
-        allowed_set = set(list(allowed))
-    except Exception:
-        allowed_set = set()
-
-    # Resolve against the full registry so mandatory tools survive lazy
-    # selection (which may have dropped them from function_defs).
-    all_defs = registry.tools() if registry is not None else []
-    def_by_name = {fd.get("name"): fd for fd in all_defs if fd.get("name")}
-
-    existing_names = {fd.get("name") for fd in function_defs if fd.get("name")}
-    mandatory_defs: List[Dict[str, Any]] = []
-    seen = set(existing_names)
-    for name in names:
-        if not isinstance(name, str) or not name.strip():
-            continue
-        name = name.strip()
-        if name in seen:
-            continue
-        seen.add(name)
-        if name not in allowed_set:
-            logging.warning(
-                "FunctionCallingProcessor: mandatory tool '%s' not in agent '%s' "
-                "allowed_tools; skipping",
-                name,
-                getattr(agent, "name", "<unknown>"),
-            )
-            continue
-        fd = def_by_name.get(name)
-        if fd is None:
-            logging.warning(
-                "FunctionCallingProcessor: mandatory tool '%s' unknown to registry; ignoring",
-                name,
-            )
-            continue
-        mandatory_defs.append(fd)
-
-    if not mandatory_defs:
-        return function_defs
-
-    logging.info(
-        "FunctionCallingProcessor: merged %d mandatory tool def(s) from context: %s",
-        len(mandatory_defs),
-        [d.get("name") for d in mandatory_defs],
-    )
-
-    # Front-insert so the handler-schema budget tail-trim cannot strip them.
-    return mandatory_defs + list(function_defs)
-
-
 class FunctionCallingProcessor(MessageProcessorInterface):
     @inject
     def __init__(
@@ -502,94 +388,39 @@ class FunctionCallingProcessor(MessageProcessorInterface):
         # Keep as a single structured block to preserve formatting.
         return [env_block.strip()]
 
-    def _resolve_active_function_defs(
+    def _resolve_tool_defs_pipeline(
         self,
         *,
-        message: str,
-        filtered_function_defs: List[Dict[str, Any]],
+        primary_agent: Agent,
         ctx: _ProcessorContext,
-        metrics: Dict[str, Any],
+        message: str,
     ) -> List[Dict[str, Any]]:
-        """Optionally reduce the eligible tool defs to the minimal active subset.
+        """Resolve active tool defs via the tool-selection pipeline (issue #126).
 
-        Lazy tool loading: instead of sending every eligible schema to the main
-        model, ask a cheap LLM to pick the tools the request is likely to need,
-        then apply deterministic expansion rules. This is a pure optimization --
-        on any failure (or when disabled) the full eligible set is returned so
-        the request still works.
+        The pipeline owns tool-list resolution end to end: agent.allowed_tools
+        (permission) → registry ∩ allowed (eligible) → context required tools →
+        LLM prompt-based subset → schema budget. It replaces the FCP's previous
+        four-step sequence (resolve_tool_defs → lazy selection →
+        mandatory-tool merge → apply_handler_schema_budget).
+
+        Unlike the old path, the pipeline raises ToolSelectionError on
+        required-tool validation failures and on budget overflow (no silent
+        skip / trim). Those propagate to the caller, which surfaces the
+        human-readable message to the user.
         """
-        cfg = self.config.get("lazy_tool_loading") or {}
-        if not isinstance(cfg, dict) or not bool(cfg.get("enabled", False)):
-            return filtered_function_defs
-
-        exclude = {n for n in (cfg.get("exclude_tools") or []) if n}
-        eligible = [
-            d for d in filtered_function_defs
-            if (d.get("name") or "") not in exclude
-        ]
-        if not eligible:
-            return filtered_function_defs
-
-        model = (cfg.get("model") or "gpt-4o-mini").strip() or "gpt-4o-mini"
-        provider = (cfg.get("provider") or "").strip() or None
-        prompt_style = (cfg.get("prompt_style") or "verb_first").strip() or "verb_first"
-
-        def _llm_call(messages: List[Dict[str, str]]) -> str:
-            response = self.llm_adapter.call_model(
-                model=model,
-                input=messages,
-                temperature=0.0,
-                provider=provider,
-            )
-            return self.llm_adapter.get_text(response) or ""
-
-        try:
-            active, meta = select_active_tool_defs(
-                prompt_text=message,
-                eligible_defs=eligible,
-                llm_call=_llm_call,
-                prompt_style=prompt_style,
-                three_sisters=bool(cfg.get("three_sisters", True)),
-                tasklist_pair=bool(cfg.get("tasklist_pair", True)),
-                rules=bool(cfg.get("rules", True)),
-                min_eligible_to_select=int(cfg.get("min_eligible_to_select", 5)),
-                allow_empty_active_set=bool(cfg.get("allow_empty_active_set", False)),
-            )
-        except Exception:
-            logging.exception(
-                "FunctionCallingProcessor: lazy tool selection failed agent=%s session_id=%s; "
-                "falling back to full eligible set",
-                ctx.agent_name,
-                ctx.conversation_id,
-            )
-            metrics["lazy_tool_selection_error"] = True
-            return eligible
-
-        metrics["lazy_tool_selection"] = meta
-
-        tokens = meta.get("tokens") or {}
-        if meta.get("skipped"):
-            logging.info(
-                "FunctionCallingProcessor: lazy tool selection skipped agent=%s reason=%s eligible=%d",
-                ctx.agent_name,
-                meta.get("reason"),
-                meta.get("eligible_count", 0),
-            )
-        else:
-            logging.info(
-                "FunctionCallingProcessor: lazy tool selection agent=%s session_id=%s eligible=%d active=%d "
-                "savings_tokens=%s net_savings_tokens=%s rules_hits=%s",
-                ctx.agent_name,
-                ctx.conversation_id,
-                meta.get("eligible_count", 0),
-                meta.get("active_count", 0),
-                tokens.get("savings_tokens", 0),
-                tokens.get("net_savings_tokens", 0),
-                meta.get("rules_hits"),
-            )
-
-        return active
-
+        pipeline = ToolSelectionPipeline(
+            registry=self.registry,
+            storage=getattr(self.prompt_builder, "storage", None),
+            llm_adapter=self.llm_adapter,
+            config=self.config,
+        )
+        selection = pipeline.resolve(
+            agent=primary_agent,
+            account_name=ctx.account_id,
+            context_name=ctx.context_name,
+            prompt_text=message,
+        )
+        return selection.meta["active_defs"]
 
 
     def _execute_tool_calls(
@@ -1578,46 +1409,15 @@ class FunctionCallingProcessor(MessageProcessorInterface):
                 supports_images=supports_images,
             )
 
-            # Resolve tool definitions from the registry, filtered by the
-            # agent.allowed_tools (hard ceiling), then narrowed only when the
-            # active context carries an explicit non-empty allowed_tools list.
-            # Missing/empty context list => no context restriction. Single
-            # source of truth: resolve_tool_defs() — shared with the
-            # /prompt_builder/metrics endpoint.
-            context_state = load_context_state(self.prompt_builder, ctx.account_id, ctx.context_name)
-            filtered_function_defs = resolve_tool_defs(self.registry, primary_agent, context_state)
-
-            # --- Lazy tool selection: reduce the eligible set to the minimal
-            # active subset the request is likely to need. Optimization only;
-            # falls back to the full eligible set on any error or when not
-            # worth selecting. ---
-            filtered_function_defs = self._resolve_active_function_defs(
-                message=message,
-                filtered_function_defs=filtered_function_defs,
+            # Resolve the active tool defs via the tool-selection pipeline
+            # (issue #126). The pipeline owns allowed-tools filtering, context
+            # required-tools merging, LLM prompt-based selection, and the schema
+            # budget — and raises ToolSelectionError on validation/budget
+            # failures rather than silently skipping or trimming.
+            filtered_function_defs = self._resolve_tool_defs_pipeline(
+                primary_agent=primary_agent,
                 ctx=ctx,
-                metrics=metrics,
-            )
-
-            # --- Context mandatory tools: guarantee that tools declared via
-            # context frontmatter `mandatory_tools:` are present even when
-            # lazy selection dropped them or the user's request did not
-            # mention them. Names are resolved to defs, deduped, and clamped
-            # to agent.allowed_tools (hard ceiling). ---
-            filtered_function_defs = merge_mandatory_tools(
-                function_defs=filtered_function_defs,
-                context_state=context_state,
-                registry=self.registry,
-                agent=primary_agent,
-            )
-
-
-            # --- Handler schema budget guardrail: trim from the tail when the
-            # serialized tool schemas exceed the configured cap. Guardrail only -
-            # never a selection mechanism. ---
-            filtered_function_defs = apply_handler_schema_budget(
-                filtered_function_defs,
-                self.config,
-                agent_name=ctx.agent_name,
+                message=message,
             )
 
             # --- Measure handler definitions tokens and combine with prompt breakdown ---
@@ -1642,6 +1442,24 @@ class FunctionCallingProcessor(MessageProcessorInterface):
 
         except ToolHandlerError:
             raise
+
+        except ToolSelectionError as e:
+            metrics["failures"] += 1
+            logging.error(
+                "FunctionCallingProcessor: tool selection error agent=%s session_id=%s code=%s: %s",
+                ctx.agent_name,
+                ctx.conversation_id,
+                e.code,
+                e.message,
+            )
+            try:
+                self._write_chat2_events(ctx, message, e.message)
+            except Exception:
+                logging.exception(
+                    "FunctionCallingProcessor: failed to store tool-selection error for session_id=%s",
+                    ctx.conversation_id,
+                )
+            return e.message
 
         except Exception as e:
             metrics["failures"] += 1
@@ -1775,46 +1593,15 @@ class FunctionCallingProcessor(MessageProcessorInterface):
                 supports_images=supports_images,
             )
 
-            # Resolve tool definitions from the registry, filtered by the
-            # agent.allowed_tools (hard ceiling), then narrowed only when the
-            # active context carries an explicit non-empty allowed_tools list.
-            # Missing/empty context list => no context restriction. Single
-            # source of truth: resolve_tool_defs() — shared with the
-            # /prompt_builder/metrics endpoint.
-            context_state = load_context_state(self.prompt_builder, ctx.account_id, ctx.context_name)
-            filtered_function_defs = resolve_tool_defs(self.registry, primary_agent, context_state)
-
-            # --- Lazy tool selection: reduce the eligible set to the minimal
-            # active subset the request is likely to need. Optimization only;
-            # falls back to the full eligible set on any error or when not
-            # worth selecting. ---
-            filtered_function_defs = self._resolve_active_function_defs(
-                message=message,
-                filtered_function_defs=filtered_function_defs,
+            # Resolve the active tool defs via the tool-selection pipeline
+            # (issue #126). The pipeline owns allowed-tools filtering, context
+            # required-tools merging, LLM prompt-based selection, and the schema
+            # budget — and raises ToolSelectionError on validation/budget
+            # failures rather than silently skipping or trimming.
+            filtered_function_defs = self._resolve_tool_defs_pipeline(
+                primary_agent=primary_agent,
                 ctx=ctx,
-                metrics=metrics,
-            )
-
-            # --- Context mandatory tools: guarantee that tools declared via
-            # context frontmatter `mandatory_tools:` are present even when
-            # lazy selection dropped them or the user's request did not
-            # mention them. Names are resolved to defs, deduped, and clamped
-            # to agent.allowed_tools (hard ceiling). ---
-            filtered_function_defs = merge_mandatory_tools(
-                function_defs=filtered_function_defs,
-                context_state=context_state,
-                registry=self.registry,
-                agent=primary_agent,
-            )
-
-
-            # --- Handler schema budget guardrail: trim from the tail when the
-            # serialized tool schemas exceed the configured cap. Guardrail only -
-            # never a selection mechanism. ---
-            filtered_function_defs = apply_handler_schema_budget(
-                filtered_function_defs,
-                self.config,
-                agent_name=ctx.agent_name,
+                message=message,
             )
 
             # --- Measure handler definitions tokens and combine with prompt breakdown ---
@@ -1843,6 +1630,26 @@ class FunctionCallingProcessor(MessageProcessorInterface):
             yield SSEEvent(type="error", message="A tool execution error occurred.").to_sse()
             yield SSEEvent(type="done", conversation_id=ctx.conversation_id).to_sse()
             raise
+
+        except ToolSelectionError as e:
+            metrics["failures"] += 1
+            logging.error(
+                "FunctionCallingProcessor(streaming): tool selection error agent=%s session_id=%s code=%s: %s",
+                ctx.agent_name,
+                ctx.conversation_id,
+                e.code,
+                e.message,
+            )
+            try:
+                self._write_chat2_events(ctx, message, e.message)
+                events_persisted = True
+            except Exception:
+                logging.exception(
+                    "FunctionCallingProcessor(streaming): failed to store tool-selection error for session_id=%s",
+                    ctx.conversation_id,
+                )
+            yield SSEEvent(type="error", message=e.message).to_sse()
+            yield SSEEvent(type="done", conversation_id=ctx.conversation_id).to_sse()
 
         except Exception as e:
             metrics["failures"] += 1
