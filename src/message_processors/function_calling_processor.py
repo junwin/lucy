@@ -414,13 +414,12 @@ class FunctionCallingProcessor(MessageProcessorInterface):
             llm_adapter=self.llm_adapter,
             config=self.config,
         )
-        selection = pipeline.resolve(
+        return pipeline.get_tool_handler_defs(
             agent=primary_agent,
             account_name=ctx.account_id,
             context_name=ctx.context_name,
             prompt_text=message,
         )
-        return selection.meta["active_defs"]
 
 
     def _execute_tool_calls(
