@@ -32,6 +32,7 @@ from galet.adapter_interface import LLMAdapter
 from galet.openai_responses_adapter import OpenAIResponsesAdapter
 from galet.interface import LLMApi
 from galet.router_api import RouterApi
+from galet.settings import Settings
 
 from src.chat2.facade import Chat2Store
 from src.chat2.adapters.jfs_adapter import JfsChat2Primitives
@@ -141,9 +142,11 @@ class LLMModule(Module):
     @provider
     @singleton
     def provide_llm_api(self) -> LLMApi:
-        # RouterApi dispatches to the correct backend based on model name.
-        # Model names starting with "deepseek" → DeepSeekApi, else → OpenAIResponsesApi.
-        return RouterApi()
+        settings = Settings(
+            credential_path=config.get("credential_path"),
+            ollama_base_url=config.get("ollama_base_url"),
+        )
+        return RouterApi(settings=settings)
 
     @provider
     @singleton
