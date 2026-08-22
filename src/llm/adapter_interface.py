@@ -35,7 +35,14 @@ class LLMAdapter(Protocol):
 
     def extract_tool_calls(self, response: Any) -> List[Dict[str, Any]]: ...
 
-    def format_tool_output(self, *, call_id: str, output: str) -> Dict[str, Any]: ...
+    def format_tool_output(
+        self,
+        *,
+        call_id: str,
+        output: str,
+        name: Optional[str] = None,
+        provider: Optional[str] = None,
+    ) -> Dict[str, Any]: ...
 
     def get_text(self, response: Any) -> str: ...
 

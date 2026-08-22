@@ -256,7 +256,7 @@ def test_duplicate_tool_calls_breaks_loop(make_proc, prompt_builder, llm_adapter
         [{"name": "my_tool", "id": "call-1", "arguments": '{"query": "foo"}'}],
         [{"name": "my_tool", "id": "call-2", "arguments": '{"query": "foo"}'}],
     ]
-    llm_adapter.format_tool_output.side_effect = lambda call_id, output: {
+    llm_adapter.format_tool_output.side_effect = lambda call_id, output, **kwargs: {
         "type": "function_call_output",
         "call_id": call_id,
         "output": output,
@@ -296,7 +296,7 @@ def test_different_tool_calls_do_not_trigger_duplicate_detection(make_proc, prom
         [{"name": "my_tool", "id": "call-2", "arguments": '{"query": "bar"}'}],
         [],
     ]
-    llm_adapter.format_tool_output.side_effect = lambda call_id, output: {
+    llm_adapter.format_tool_output.side_effect = lambda call_id, output, **kwargs: {
         "type": "function_call_output",
         "call_id": call_id,
         "output": output,
@@ -803,7 +803,7 @@ def test_unknown_tool_returns_recoverable_error_to_llm(make_proc, prompt_builder
         [{"name": "bash", "id": "call-1", "arguments": "{}"}],
         [],
     ]
-    llm_adapter.format_tool_output.side_effect = lambda call_id, output: {
+    llm_adapter.format_tool_output.side_effect = lambda call_id, output, **kwargs: {
         "type": "function_call_output",
         "call_id": call_id,
         "output": output,

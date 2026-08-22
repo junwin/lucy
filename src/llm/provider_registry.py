@@ -22,6 +22,7 @@ from .dto import LLMResponse
 PROVIDERS: Dict[str, str] = {
     "openai": "src.llm.openai_responses.OpenAIResponsesApi",
     "deepseek": "src.llm.deepseek_responses.DeepSeekApi",
+    "gemini": "src.llm.gemini_api.GeminiApi",
     "mistral": "src.llm.mistral_api.MistralApi",
     "ollama": "src.llm.ollama_api.OllamaApi",
 }
@@ -30,6 +31,7 @@ PROVIDERS: Dict[str, str] = {
 PREFIX_MAP: Dict[str, str] = {
     # explicit provider-style prefixes
     "deepseek": "deepseek",
+    "gemini": "gemini",
     "mistral": "mistral",
     "ollama": "ollama",
     # common openai-style prefixes

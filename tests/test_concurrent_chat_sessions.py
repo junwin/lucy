@@ -1,4 +1,4 @@
-"""Concurrency reproduction tests for the v1 chat session storage.
+"""Concurrency regression tests for the v1 chat session storage.
 
 These tests document the races behind the "2 client sessions" concern:
 
@@ -16,9 +16,9 @@ These tests document the races behind the "2 client sessions" concern:
    (``<target>.tmp``), so two threads writing the same target concurrently
    collide on the tmp file and one write crashes/clobbers.
 
-Tests 1 and 2 are made deterministic with ``threading.Barrier``. They assert the
-*correct* behavior, so they are EXPECTED TO FAIL until the storage layer is
-made concurrency-safe (issue step 3).
+The storage layer now serializes chat writes with a per-instance ``RLock`` and
+exposes an atomic ``get_or_create_chat_session``. These tests assert the
+correct behavior and pass once the storage layer is concurrency-safe.
 """
 
 from __future__ import annotations
@@ -45,23 +45,6 @@ def _run_threads(n: int, target) -> None:
         t.join()
 
 
-def _serialize_writes(storage: JsonFileStorage, monkeypatch) -> None:
-    """Wrap ``_atomic_write`` so concurrent writes do not collide on the
-    shared ``<target>.tmp`` path.
-
-    This isolates the read-modify-write bug (test 1) and the check-then-act
-    bug (test 2) from the separate tmp-path collision bug (test 3).
-    """
-    lock = threading.Lock()
-    original = storage._atomic_write
-
-    def locked_write(path, data):
-        with lock:
-            return original(path, data)
-
-    monkeypatch.setattr(storage, "_atomic_write", locked_write)
-
-
 def _read_index(storage: JsonFileStorage, account_name: str) -> dict:
     """Read index.json directly, bypassing any monkeypatched ``_load_json``."""
     index_path = storage.storage_paths.chats / account_name / "index.json"
@@ -71,36 +54,20 @@ def _read_index(storage: JsonFileStorage, account_name: str) -> dict:
 
 
 def test_concurrent_create_chat_session_preserves_all_index_entries(
-    tmp_path, monkeypatch
+    tmp_path,
 ):
-    """Two concurrent creates must both remain discoverable.
+    """Two concurrent creates must both remain discoverable."""
 
-    Today this FAILS: the index.json read-modify-write is unsynchronized, so
-    the second writer overwrites the first writer's entry even though both
-    session files exist on disk.
-    """
     storage = _make_storage(tmp_path)
-    _serialize_writes(storage, monkeypatch)
 
     n = 2
-    read_barrier = threading.Barrier(n)
-    original_load = storage._load_json
-
-    def coordinated_load(path):
-        data = original_load(path)
-        # Both threads have now read the (empty) index snapshot; release them
-        # together so each proceeds to write its stale copy.
-        if path.name == "index.json":
-            read_barrier.wait(timeout=5)
-        return data
-
-    monkeypatch.setattr(storage, "_load_json", coordinated_load)
-
     created_ids: list[str] = []
+    ids_lock = threading.Lock()
 
     def create():
         session = storage.create_chat_session("acct", "lucy", friendly_name="dup")
-        created_ids.append(session.id)
+        with ids_lock:
+            created_ids.append(session.id)
 
     _run_threads(n, create)
 
@@ -110,44 +77,30 @@ def test_concurrent_create_chat_session_preserves_all_index_entries(
     )
     index = _read_index(storage, "acct")
 
-    # Both session files exist on disk...
     assert len(session_files) == n
-    # ...but the index must also contain both entries. Fails today: one is lost.
     assert set(index.keys()) == set(created_ids)
 
 
-def test_concurrent_find_then_create_reuses_single_session(tmp_path, monkeypatch):
-    """Two concurrent /ask-style resolutions must share one session.
+def test_concurrent_get_or_create_reuses_single_session(tmp_path):
+    """Two concurrent /ask-style resolutions must share one session."""
 
-    Mirrors the check-then-act the handler performs: find by friendly name, and
-    only create when no match is found. Today this FAILS: both threads see "no
-    match" and each creates a separate session with the same friendly name.
-    """
     storage = _make_storage(tmp_path)
-    _serialize_writes(storage, monkeypatch)
 
     n = 2
-    barrier = threading.Barrier(n)
     resolved_ids: list[str] = []
+    created_flags: list[bool] = []
+    results_lock = threading.Lock()
 
     def resolve():
-        matches = storage.find_chat_sessions_by_friendly_name(
-            "acct", "lucy", "dup", limit=1
-        )
-        if matches:
-            resolved_ids.append(matches[0].id)
-            return
-        # Widen the check-then-act window so both threads observe "no match"
-        # before either one creates.
-        barrier.wait(timeout=5)
-        session = storage.create_chat_session("acct", "lucy", friendly_name="dup")
-        resolved_ids.append(session.id)
+        session, created = storage.get_or_create_chat_session("acct", "lucy", "dup")
+        with results_lock:
+            resolved_ids.append(session.id)
+            created_flags.append(created)
 
     _run_threads(n, resolve)
 
-    # Correct behavior: both requests resolve to one shared session.
-    # Fails today: two distinct session ids.
     assert len(set(resolved_ids)) == 1
+    assert sorted(created_flags) == [False, True]
 
 
 def test_concurrent_atomic_write_tmp_path_collision(tmp_path, monkeypatch):
@@ -182,7 +135,4 @@ def test_concurrent_atomic_write_tmp_path_collision(tmp_path, monkeypatch):
 
     _run_threads(n, write)
 
-    # Correct behavior: both writers succeed (no shared tmp path). Today this
-    # FAILS because one writer raises FileNotFoundError after the tmp file is
-    # moved by the other.
     assert errors == []

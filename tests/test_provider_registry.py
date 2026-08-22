@@ -34,6 +34,20 @@ def test_ollama_explicit_provider():
     assert inst is not None
 
 
+def test_gemini_prefix_resolution():
+    name, _ = ProviderRegistry.resolve("gemini-2.0-flash")
+    assert name == "gemini"
+
+    name2, _ = ProviderRegistry.resolve("gemini-pro")
+    assert name2 == "gemini"
+
+
+def test_gemini_explicit_provider():
+    name, inst = ProviderRegistry.resolve("some-model", provider="gemini")
+    assert name == "gemini"
+    assert inst is not None
+
+
 def test_unknown_model_falls_through_to_openai():
     name, _ = ProviderRegistry.resolve("some-unknown-model")
     assert name == "openai"

@@ -236,7 +236,7 @@ def setup_tool_then_text(
         [{"name": tool_name, "id": call_id, "arguments": tool_args}],
         [],
     ]
-    llm_adapter.format_tool_output.side_effect = lambda call_id, output: {
+    llm_adapter.format_tool_output.side_effect = lambda call_id, output, **kwargs: {
         "type": "function_call_output",
         "call_id": call_id,
         "output": output,

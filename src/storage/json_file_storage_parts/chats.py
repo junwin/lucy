@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from src.storage.models import ChatMessage, ChatSession
 
@@ -164,60 +164,89 @@ def create_chat_session(
     tags: Optional[List[str]] = None,
 ) -> ChatSession:
 
-    chat_id = str(uuid.uuid4())
-    now = _now_utc()
+    with self._chat_lock:
+        chat_id = str(uuid.uuid4())
+        now = _now_utc()
 
-    session = ChatSession(
-        id=chat_id,
-        account_name=account_name,
-        agent_name=agent_name,
-        friendly_name=friendly_name or f"Chat {chat_id[:8]}",
-        created_at=now,
-        updated_at=now,
-        messages=[],
-        tags=tags or [],
-        summary=None,
-        importance_score=0.5,
-        include_in_context=True,
-        metadata={},
-    )
+        session = ChatSession(
+            id=chat_id,
+            account_name=account_name,
+            agent_name=agent_name,
+            friendly_name=friendly_name or f"Chat {chat_id[:8]}",
+            created_at=now,
+            updated_at=now,
+            messages=[],
+            tags=tags or [],
+            summary=None,
+            importance_score=0.5,
+            include_in_context=True,
+            metadata={},
+        )
 
-    chat_dir = self.storage_paths.chats / account_name
-    self._ensure_dir(chat_dir)
+        chat_dir = self.storage_paths.chats / account_name
+        self._ensure_dir(chat_dir)
 
-    # Write JSON — Option A (sparse fields)
-    chat_data: Dict[str, Any] = {
-        "id": session.id,
-        "account_name": session.account_name,
-        "agent_name": session.agent_name,
-        "friendly_name": session.friendly_name,
-        "created_at": session.created_at.isoformat(),
-        "updated_at": session.updated_at.isoformat(),
-        "messages": [],
-        "tags": session.tags,
-        "importance_score": session.importance_score,
-        "include_in_context": session.include_in_context,
-    }
-    if session.summary is not None:
-        chat_data["summary"] = session.summary
-    if session.metadata:
-        chat_data["metadata"] = session.metadata
+        # Write JSON — Option A (sparse fields)
+        chat_data: Dict[str, Any] = {
+            "id": session.id,
+            "account_name": session.account_name,
+            "agent_name": session.agent_name,
+            "friendly_name": session.friendly_name,
+            "created_at": session.created_at.isoformat(),
+            "updated_at": session.updated_at.isoformat(),
+            "messages": [],
+            "tags": session.tags,
+            "importance_score": session.importance_score,
+            "include_in_context": session.include_in_context,
+        }
+        if session.summary is not None:
+            chat_data["summary"] = session.summary
+        if session.metadata:
+            chat_data["metadata"] = session.metadata
 
-    self._atomic_write(chat_dir / f"{chat_id}.json", chat_data)
+        self._atomic_write(chat_dir / f"{chat_id}.json", chat_data)
 
-    # Update index
-    index_path = chat_dir / "index.json"
-    index = self._load_json(index_path) or {}
-    index[chat_id] = {
-        "friendly_name": session.friendly_name,
-        "agent_name": session.agent_name,
-        "account_name": session.account_name,
-        "updated_at": session.updated_at.isoformat(),
-        "include_in_context": session.include_in_context,
-    }
-    self._atomic_write(index_path, index)
+        # Update index
+        index_path = chat_dir / "index.json"
+        index = self._load_json(index_path) or {}
+        index[chat_id] = {
+            "friendly_name": session.friendly_name,
+            "agent_name": session.agent_name,
+            "account_name": session.account_name,
+            "updated_at": session.updated_at.isoformat(),
+            "include_in_context": session.include_in_context,
+        }
+        self._atomic_write(index_path, index)
 
-    return session
+        return session
+
+
+def get_or_create_chat_session(
+    self,
+    account_name: str,
+    agent_name: str,
+    friendly_name: str,
+) -> Tuple[ChatSession, bool]:
+    """Return an existing session by friendly name, or create one atomically."""
+
+    with self._chat_lock:
+        matches = find_chat_sessions_by_friendly_name(
+            self,
+            account_name=account_name,
+            agent_name=agent_name,
+            friendly_name=friendly_name,
+            limit=1,
+        )
+        if matches:
+            return matches[0], False
+        session = create_chat_session(
+            self,
+            account_name=account_name,
+            agent_name=agent_name,
+            friendly_name=friendly_name,
+        )
+        return session, True
+
 
 def rename_chat_session(self, session_id: str, friendly_name: str) -> None:
     """Backward-compatible API — delegates to update_chat_session()"""
@@ -239,73 +268,74 @@ def update_chat_session(
     metadata: Optional[Dict[str, Any]] = None,
 ) -> None:
 
-    session = self.get_chat_session(session_id)
-    if not session:
-        raise ValueError(f"Session {session_id} not found")
+    with self._chat_lock:
+        session = self.get_chat_session(session_id)
+        if not session:
+            raise ValueError(f"Session {session_id} not found")
 
-    chat_path = (
-        self.storage_paths.chats / session.account_name / f"{session_id}.json"
-    )
-    data = self._load_json(chat_path)
-    if not data:
-        raise ValueError(f"No stored data for session {session_id}")
-
-    changed = False
-
-    if friendly_name is not None:
-        data["friendly_name"] = friendly_name
-        changed = True
-
-    if tags is not None:
-        data["tags"] = tags
-        changed = True
-
-    if summary is not None:
-        data["summary"] = summary
-        changed = True
-
-    if importance_score is not None:
-        data["importance_score"] = importance_score
-        changed = True
-
-    if include_in_context is not None:
-        data["include_in_context"] = include_in_context
-        changed = True
-
-    if metadata is not None:
-        if metadata:
-            data["metadata"] = metadata
-        else:
-            data.pop("metadata", None)  # Option A: remove empty
-        changed = True
-
-    if not changed:
-        return
-
-    data["updated_at"] = _now_utc().isoformat()
-    self._atomic_write(chat_path, data)
-
-    # Update index if friendly name changed
-    if friendly_name is not None:
-        index_path = (
-            self.storage_paths.chats / session.account_name / "index.json"
+        chat_path = (
+            self.storage_paths.chats / session.account_name / f"{session_id}.json"
         )
-        index = self._load_json(index_path) or {}
-        # Preserve existing structure if present, otherwise create new
-        existing = index.get(session_id)
-        if isinstance(existing, dict):
-            existing["friendly_name"] = friendly_name
-            existing["updated_at"] = data["updated_at"]
-            index[session_id] = existing
-        else:
-            index[session_id] = {
-                "friendly_name": friendly_name,
-                "agent_name": session.agent_name,
-                "account_name": session.account_name,
-                "updated_at": data["updated_at"],
-                "include_in_context": data.get("include_in_context", True),
-            }
-        self._atomic_write(index_path, index)
+        data = self._load_json(chat_path)
+        if not data:
+            raise ValueError(f"No stored data for session {session_id}")
+
+        changed = False
+
+        if friendly_name is not None:
+            data["friendly_name"] = friendly_name
+            changed = True
+
+        if tags is not None:
+            data["tags"] = tags
+            changed = True
+
+        if summary is not None:
+            data["summary"] = summary
+            changed = True
+
+        if importance_score is not None:
+            data["importance_score"] = importance_score
+            changed = True
+
+        if include_in_context is not None:
+            data["include_in_context"] = include_in_context
+            changed = True
+
+        if metadata is not None:
+            if metadata:
+                data["metadata"] = metadata
+            else:
+                data.pop("metadata", None)  # Option A: remove empty
+            changed = True
+
+        if not changed:
+            return
+
+        data["updated_at"] = _now_utc().isoformat()
+        self._atomic_write(chat_path, data)
+
+        # Update index if friendly name changed
+        if friendly_name is not None:
+            index_path = (
+                self.storage_paths.chats / session.account_name / "index.json"
+            )
+            index = self._load_json(index_path) or {}
+            # Preserve existing structure if present, otherwise create new
+            existing = index.get(session_id)
+            if isinstance(existing, dict):
+                existing["friendly_name"] = friendly_name
+                existing["updated_at"] = data["updated_at"]
+                index[session_id] = existing
+            else:
+                index[session_id] = {
+                    "friendly_name": friendly_name,
+                    "agent_name": session.agent_name,
+                    "account_name": session.account_name,
+                    "updated_at": data["updated_at"],
+                    "include_in_context": data.get("include_in_context", True),
+                }
+            self._atomic_write(index_path, index)
 
 # ----------------------------------------------------------------------
 # Functions moved from JsonFileStorage for write operations
@@ -313,35 +343,36 @@ def update_chat_session(
 
 def append_chat_message(self, session_id: str, message: ChatMessage) -> None:
     """Append a ChatMessage to a stored chat JSON file."""
-    session = get_chat_session(self, session_id)
-    if not session:
-        raise FileNotFoundError(f"Session {session_id} not found")
+    with self._chat_lock:
+        session = get_chat_session(self, session_id)
+        if not session:
+            raise FileNotFoundError(f"Session {session_id} not found")
 
-    chat_path = (
-        self.storage_paths.chats / session.account_name / f"{session_id}.json"
-    )
-    data = self._load_json(chat_path)
-    if not data:
-        raise FileNotFoundError(f"Chat JSON missing for {session_id}")
+        chat_path = (
+            self.storage_paths.chats / session.account_name / f"{session_id}.json"
+        )
+        data = self._load_json(chat_path)
+        if not data:
+            raise FileNotFoundError(f"Chat JSON missing for {session_id}")
 
-    msg_ts = message.utc_timestamp or _now_utc()
-    # Normalize to UTC-aware in case something passed a naive datetime
-    if msg_ts.tzinfo is None:
-        msg_ts = msg_ts.replace(tzinfo=timezone.utc)
-    else:
-        msg_ts = msg_ts.astimezone(timezone.utc)
+        msg_ts = message.utc_timestamp or _now_utc()
+        # Normalize to UTC-aware in case something passed a naive datetime
+        if msg_ts.tzinfo is None:
+            msg_ts = msg_ts.replace(tzinfo=timezone.utc)
+        else:
+            msg_ts = msg_ts.astimezone(timezone.utc)
 
-    msg_data = {
-        "role": message.role,
-        "content": message.content,
-        "utc_timestamp": msg_ts.isoformat(),
-        "metadata": message.metadata,
-    }
+        msg_data = {
+            "role": message.role,
+            "content": message.content,
+            "utc_timestamp": msg_ts.isoformat(),
+            "metadata": message.metadata,
+        }
 
-    data.setdefault("messages", []).append(msg_data)
-    data["updated_at"] = _now_utc().isoformat()
+        data.setdefault("messages", []).append(msg_data)
+        data["updated_at"] = _now_utc().isoformat()
 
-    self._atomic_write(chat_path, data)
+        self._atomic_write(chat_path, data)
 
 
 def delete_chat_session(self, session_id: str) -> None:
@@ -350,37 +381,38 @@ def delete_chat_session(self, session_id: str) -> None:
     This is best-effort and idempotent: if the session or files are
     already gone, it will just return.
     """
-    # First, locate the session to get account_name
-    session = get_chat_session(self, session_id)
-    if not session:
-        # Nothing to do
-        return
+    with self._chat_lock:
+        # First, locate the session to get account_name
+        session = get_chat_session(self, session_id)
+        if not session:
+            # Nothing to do
+            return
 
-    account_name = session.account_name
-    # Ensure we use the chats path provided by StoragePaths (was a bug previously)
-    chat_dir = self.storage_paths.chats / account_name
-    chat_path = chat_dir / f"{session_id}.json"
+        account_name = session.account_name
+        # Ensure we use the chats path provided by StoragePaths (was a bug previously)
+        chat_dir = self.storage_paths.chats / account_name
+        chat_path = chat_dir / f"{session_id}.json"
 
-    # Remove the chat file if it exists
-    try:
-        if chat_path.exists():
-            chat_path.unlink()
-    except Exception as e:
-        import logging
-
-        logging.error("Failed to delete chat file %s: %s", chat_path, e)
-
-    # Update index.json
-    index_path = chat_dir / "index.json"
-    index = self._load_json(index_path) or {}
-
-    if session_id in index:
-        index.pop(session_id, None)
+        # Remove the chat file if it exists
         try:
-            # If index becomes empty, you can either keep an empty file
-            # or delete it. We'll keep an empty file for now.
-            self._atomic_write(index_path, index)
+            if chat_path.exists():
+                chat_path.unlink()
         except Exception as e:
             import logging
 
-            logging.error("Failed to update chat index %s: %s", index_path, e)
+            logging.error("Failed to delete chat file %s: %s", chat_path, e)
+
+        # Update index.json
+        index_path = chat_dir / "index.json"
+        index = self._load_json(index_path) or {}
+
+        if session_id in index:
+            index.pop(session_id, None)
+            try:
+                # If index becomes empty, you can either keep an empty file
+                # or delete it. We'll keep an empty file for now.
+                self._atomic_write(index_path, index)
+            except Exception as e:
+                import logging
+
+                logging.error("Failed to update chat index %s: %s", index_path, e)

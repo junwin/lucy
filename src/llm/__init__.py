@@ -23,6 +23,11 @@ try:
 except Exception:
     OllamaApi = None
 
+try:
+    from .gemini_api import GeminiApi
+except Exception:
+    GeminiApi = None
+
 __all__ = [
     "LLMApi",
     "LLMAdapter",
@@ -34,4 +39,5 @@ __all__ = [
     "MistralApi",
     "MistralResponsesAdapter",
     "OllamaApi",
+    "GeminiApi",
 ]

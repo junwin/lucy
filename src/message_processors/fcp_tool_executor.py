@@ -195,7 +195,7 @@ class ToolExecutor:
                 raw_results.append((tc, tool_result_text))
                 tool_output_items.append(
                     self.llm_adapter.format_tool_output(
-                        call_id=str(tc.call_id), output=tool_result_text
+                        call_id=str(tc.call_id), output=tool_result_text, name=tc.name, provider=ctx.provider
                     )
                 )
                 continue
@@ -335,6 +335,6 @@ class ToolExecutor:
                 logging.exception("Tool execution failed: %s call_id=%s", tc.name, tc.call_id)
                 raise ToolHandlerError(f"{type(e).__name__}: {e}")
 
-            tool_output_items.append(self.llm_adapter.format_tool_output(call_id=str(tc.call_id), output=tool_result_text))
+            tool_output_items.append(self.llm_adapter.format_tool_output(call_id=str(tc.call_id), output=tool_result_text, name=tc.name, provider=ctx.provider))
 
         return tool_output_items, raw_results

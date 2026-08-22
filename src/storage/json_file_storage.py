@@ -6,6 +6,7 @@
 
 import json
 import os
+import threading
 import uuid
 import logging
 from pathlib import Path
@@ -105,7 +106,7 @@ def _parse_context_frontmatter(
                 search_namespaces = [v for v in value if isinstance(v, str)]
             else:
                 extra[key] = value
-        elif key in ("text", "updated_at"):
+        elif key in ("text", "updated_at", "id", "account_name"):
             # Handled by the caller (body / datetime parsing).
             pass
         else:
@@ -147,6 +148,7 @@ class JsonFileStorage(Storage):
 
         self.storage_paths = storage_paths
         self._tasklist_service = TaskListService()
+        self._chat_lock = threading.RLock()
 
 
     # ----------------------------------------------------------------------
@@ -227,6 +229,14 @@ class JsonFileStorage(Storage):
         tags: Optional[List[str]] = None,
     ) -> ChatSession:
         return chats.create_chat_session(self, account_name=account_name, agent_name=agent_name, friendly_name=friendly_name, tags=tags)
+
+    def get_or_create_chat_session(
+        self,
+        account_name: str,
+        agent_name: str,
+        friendly_name: str,
+    ) -> Tuple[ChatSession, bool]:
+        return chats.get_or_create_chat_session(self, account_name=account_name, agent_name=agent_name, friendly_name=friendly_name)
 
 
     def find_chat_sessions_by_friendly_name(self, account_name: str, agent_name: str, friendly_name: str, limit: int = 20) -> List[ChatSession]:

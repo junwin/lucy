@@ -69,11 +69,15 @@ class ProcessorContext:
         else:
             provider = None
 
+        resolved_context_name = context_name
+        if not context_name.strip() and primary_agent.default_context:
+            resolved_context_name = str(primary_agent.default_context).strip()
+
         return cls(
             account_id=account_id,
             agent_name=agent_name,
             conversation_id=conversation_id,
-            context_name=context_name,
+            context_name=resolved_context_name,
             model=primary_agent.model,
             temperature=primary_agent.temperature,
             context_type=primary_agent.context_type or "hybrid",

@@ -6,6 +6,7 @@ from .dto import LLMResponse
 from .interface import LLMApi
 from .openai_responses import OpenAIResponsesApi
 from .deepseek_responses import DeepSeekApi
+from .gemini_api import GeminiApi
 from .mistral_api import MistralApi
 from .ollama_api import OllamaApi
 from .provider_registry import ProviderRegistry
@@ -25,6 +26,7 @@ class RouterApi(LLMApi):
         deepseek_api: Optional[DeepSeekApi] = None,
         mistral_api: Optional[MistralApi] = None,
         ollama_api: Optional[OllamaApi] = None,
+        gemini_api: Optional[GeminiApi] = None,
         registry: ProviderRegistry = ProviderRegistry(),
     ) -> None:
         self._registry = registry
@@ -40,6 +42,8 @@ class RouterApi(LLMApi):
             self._instances["mistral"] = mistral_api
         if ollama_api is not None:
             self._instances["ollama"] = ollama_api
+        if gemini_api is not None:
+            self._instances["gemini"] = gemini_api
 
     def _get_provider_and_api(self, model: Optional[str], provider: Optional[str]) -> Tuple[str, LLMApi]:
         # Resolve provider name (may raise ValueError for unknown explicit provider)

@@ -5,6 +5,7 @@ from typing import Any, Dict, List, Optional
 
 from .adapter_interface import LLMAdapter
 from .interface import LLMApi
+from .tool_output import format_tool_output
 
 
 class OpenAIResponsesAdapter(LLMAdapter):
@@ -75,8 +76,15 @@ class OpenAIResponsesAdapter(LLMAdapter):
 
         return calls
 
-    def format_tool_output(self, *, call_id: str, output: str) -> Dict[str, Any]:
-        return {"type": "function_call_output", "call_id": str(call_id), "output": str(output)}
+    def format_tool_output(
+        self,
+        *,
+        call_id: str,
+        output: str,
+        name: Optional[str] = None,
+        provider: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        return format_tool_output(call_id=call_id, output=output, name=name, provider=provider)
 
     def get_text(self, response: Any) -> str:
         return (getattr(response, "output_text", "") or "").strip()

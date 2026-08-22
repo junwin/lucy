@@ -36,6 +36,20 @@ class Storage(ABC):
         pass
 
     @abstractmethod
+    def get_or_create_chat_session(
+        self,
+        account_name: str,
+        agent_name: str,
+        friendly_name: str,
+    ) -> Tuple[ChatSession, bool]:
+        """Return an existing session by friendly name, or create one.
+
+        Returns a (session, created) tuple; created is True only when a new
+        session was written. Must be atomic under the implementation's lock.
+        """
+        pass
+
+    @abstractmethod
     def get_chat_session(self, session_id: str) -> Optional[ChatSession]:
         """Return a full chat session (including messages), or None."""
         pass
