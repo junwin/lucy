@@ -204,7 +204,9 @@
       "generate_svg",
       "serve_image",
       "agents_manage",
-      "remote_execute"
+      "remote_execute",
+      "tool_selection_probe",
+      "tool_handler_meta"
     ],
     "provider": null,
     "use_embeddings": true,
