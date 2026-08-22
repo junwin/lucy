@@ -17,7 +17,7 @@ from src.config_manager import ConfigManager
 from src.embeddings import DistanceMetric, EmbeddingFacade
 from src.embeddings.registry import known_models
 from src.handlers.handler_v2 import HandlerV2
-from src.llm.embedding_dto import EmbeddingResponse
+from galet.embedding_dto import EmbeddingResponse
 
 logger = logging.getLogger(__name__)
 

@@ -5,8 +5,8 @@ from typing import Any, Dict, Generator, List, Optional, Tuple
 
 from src.agent import Agent
 from src.config_manager import ConfigManager
-from src.llm.adapter_interface import LLMAdapter
-from src.llm.provider_registry import ProviderRegistry
+from galet.adapter_interface import LLMAdapter
+from galet.provider_registry import ProviderRegistry
 from src.message_processors.fcp_models import (
     ProcessorContext,
     ToolHandlerError,

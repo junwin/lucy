@@ -300,7 +300,7 @@ class LazyToolSelectorHandler(HandlerV2):
     ) -> str:
         # Lazy import: RouterApi pulls in provider SDKs (e.g. 'openai'), which
         # are optional and may be absent in minimal/test environments.
-        from src.llm.router_api import RouterApi
+        from galet.router_api import RouterApi
 
         api = RouterApi()
         response = api.create_response(

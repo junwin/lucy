@@ -14,8 +14,8 @@ from typing import Any, Dict, List, Optional
 
 from src.config_manager import ConfigManager
 from src.handlers.handler_v2 import HandlerV2
-from src.llm.interface import LLMApi
-from src.llm.router_api import RouterApi
+from galet.interface import LLMApi
+from galet.router_api import RouterApi
 
 logger = logging.getLogger(__name__)
 

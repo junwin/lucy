@@ -43,7 +43,7 @@ from src.tasklists.task_states import (
     TASK_LIST_STATE_RUNNING,
 )
 
-from src.llm.adapter_interface import LLMAdapter
+from galet.adapter_interface import LLMAdapter
 
 logger = logging.getLogger(__name__)
 

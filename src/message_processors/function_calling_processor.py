@@ -18,8 +18,8 @@ from src.handlers.handler_registry import HandlerRegistry, filter_eligible_tool_
 from src.agent import Agent
 from src.agent.agent_manager import AgentManager
 
-from src.llm.adapter_interface import LLMAdapter
-from src.llm.provider_registry import ProviderRegistry
+from galet.adapter_interface import LLMAdapter
+from galet.provider_registry import ProviderRegistry
 
 from src.chat2.facade import Chat2Store
 

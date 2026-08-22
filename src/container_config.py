@@ -28,10 +28,10 @@ from src.prompt_builders.prompt_builder import PromptBuilder
 
 from src.message_endpoints.ask_request_handler import AskRequestHandler
 
-from src.llm.adapter_interface import LLMAdapter
-from src.llm.openai_responses_adapter import OpenAIResponsesAdapter
-from src.llm.interface import LLMApi
-from src.llm.router_api import RouterApi
+from galet.adapter_interface import LLMAdapter
+from galet.openai_responses_adapter import OpenAIResponsesAdapter
+from galet.interface import LLMApi
+from galet.router_api import RouterApi
 
 from src.chat2.facade import Chat2Store
 from src.chat2.adapters.jfs_adapter import JfsChat2Primitives

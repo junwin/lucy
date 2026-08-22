@@ -18,8 +18,8 @@ from src.handlers.handler_v2 import HandlerV2
 from src.curation.core import CurationEngine
 from src.curation.resolver import resolve_session
 from src.embeddings.facade import EmbeddingFacade
-from src.llm.interface import LLMApi
-from src.llm.router_api import RouterApi
+from galet.interface import LLMApi
+from galet.router_api import RouterApi
 
 logger = logging.getLogger(__name__)
 

@@ -19,7 +19,7 @@ from src.curation.templates import render_template, resolve_template
 from src.curation.summarizer import summarize_session
 from src.curation.archiver import archive_session
 from src.embeddings.facade import EmbeddingFacade
-from src.llm.interface import LLMApi
+from galet.interface import LLMApi
 from src.storage.models import EmbeddingRecord
 
 logger = logging.getLogger(__name__)

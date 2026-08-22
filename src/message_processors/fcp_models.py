@@ -3,7 +3,7 @@ import logging
 from typing import Optional, Dict, Any
 
 from src.agent import Agent
-from src.llm.provider_registry import ProviderRegistry
+from galet.provider_registry import ProviderRegistry
 
 
 class ToolResultTooLargeError(Exception):

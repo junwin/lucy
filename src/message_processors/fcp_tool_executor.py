@@ -8,7 +8,7 @@ from src.agent.agent_manager import AgentManager
 from src.chat2.facade import Chat2Store
 from src.config_manager import ConfigManager
 from src.handlers.handler_registry import HandlerRegistry
-from src.llm.adapter_interface import LLMAdapter
+from galet.adapter_interface import LLMAdapter
 from src.message_processors.automation_processor import AutomationProcessor
 from src.message_processors.fcp_models import (
     ProcessorContext,
