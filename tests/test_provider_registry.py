@@ -1,6 +1,6 @@
 import pytest
 
-from src.llm.provider_registry import ProviderRegistry
+from galet.provider_registry import ProviderRegistry
 
 
 def test_explicit_provider_overrides_prefix():

@@ -15,7 +15,7 @@ from unittest.mock import Mock
 
 import pytest
 
-from src.llm.openai_responses import OpenAIResponsesApi
+from galet.openai_responses import OpenAIResponsesApi
 
 
 # ---------------------------------------------------------------------------
