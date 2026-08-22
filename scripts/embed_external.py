@@ -33,7 +33,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from src.config_manager import ConfigManager
 from src.embeddings.facade import EmbeddingFacade
-from src.llm.router_api import RouterApi
+from galet.router_api import RouterApi
 from src.storage.json_file_storage import JsonFileStorage
 from src.storage.models import EmbeddingRecord
 from src.storage_paths.storage_paths import StoragePaths
