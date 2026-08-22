@@ -585,7 +585,6 @@ def test_fcp_uses_tool_selection_pipeline(make_proc, prompt_builder, llm_adapter
     """The FCP delegates tool-list resolution to ToolSelectionPipeline and
     passes its resolved active defs to the main model."""
     from tests.conftest import FakeAgent
-    from src.tool_selection import ToolSelection
 
     proc = make_proc()
     prompt_builder.build_prompt.return_value = [{"role": "user", "content": "hi"}]
@@ -593,20 +592,10 @@ def test_fcp_uses_tool_selection_pipeline(make_proc, prompt_builder, llm_adapter
     llm_adapter.get_text.return_value = "ok"
 
     active_defs = [{"name": "file_load", "description": "load a file"}]
-    sel = ToolSelection(
-        allowed=["file_load"],
-        all_tools=["file_load"],
-        eligible=["file_load"],
-        required=[],
-        prompt_based=["file_load"],
-        active=["file_load"],
-        meta={"active_defs": active_defs},
-    )
-
     with patch(
         "src.message_processors.function_calling_processor.ToolSelectionPipeline"
     ) as pipeline_cls:
-        pipeline_cls.return_value.resolve.return_value = sel
+        pipeline_cls.return_value.get_tool_handler_defs.return_value = active_defs
         proc.process_message(
             primary_agent=FakeAgent(save_responses=False),
             account={"accountId": "acct1"},
@@ -870,3 +859,54 @@ def test_streaming_persists_on_generator_close(make_proc, prompt_builder, llm_ad
 
     # The finally block must persist the streamed events to chat2.
     mock_store.add_events.assert_called()
+
+# ---------------------------------------------------------------------------
+# Step 0 golden test (fcp-split): non-streaming vs streaming final-text equivalence
+# ---------------------------------------------------------------------------
+
+
+def test_streaming_and_nonstreaming_paths_produce_same_final_text(make_proc, prompt_builder, llm_adapter, storage):
+    """Golden equivalence test (fcp-split design doc Step 0).
+
+    Runs the SAME LLM/tool sequence through both public paths:
+      - process_message()            -> returns the final text string
+      - process_message_streaming()  -> yields SSE-formatted strings
+    The payload of the last 'text' SSE event must equal the non-streaming
+    final text. This locks the Step 4 loop-collapse equivalence.
+    """
+    import json
+
+    from tests.conftest import FakeAgent, FakeHandler, FakeRegistry, setup_tool_then_text
+
+    handler = FakeHandler({"ok": True, "value": 42})
+    reg = FakeRegistry(handler_by_name={"my_tool": handler}, tool_defs=[{"name": "my_tool"}])
+    proc = make_proc(registry=reg, storage=storage)
+
+    prompt_builder.build_prompt.return_value = [{"role": "user", "content": "do thing"}]
+
+    request_kwargs = dict(
+        primary_agent=FakeAgent(save_responses=False, max_function_call_iterations=3),
+        account={"accountId": "acct1"},
+        message="do thing",
+        conversation_id="c1",
+        context_name="ctx",
+    )
+
+    # ── Non-streaming path ──
+    setup_tool_then_text(llm_adapter, tool_name="my_tool", tool_args='{"x": 1}', final_text="done")
+    final_text = proc.process_message(**request_kwargs)
+    assert final_text == "done"
+
+    # ── Streaming path: same LLM/tool sequence, fresh mock state ──
+    llm_adapter.reset_mock()
+    setup_tool_then_text(llm_adapter, tool_name="my_tool", tool_args='{"x": 1}', final_text="done")
+
+    text_payloads = []
+    for sse in proc.process_message_streaming(**request_kwargs):
+        # The public streaming path yields SSE wire strings ("data: {json}\n\n").
+        payload = json.loads(sse[len("data: "):].strip())
+        if payload.get("type") == "text":
+            text_payloads.append(payload["content"])
+
+    assert text_payloads, "streaming path should emit at least one text event"
+    assert text_payloads[-1] == final_text
