@@ -1,9 +1,15 @@
 import json
 import uuid
 
+from src.tasklists.service import TaskListService
 from src.tasklists.task import Task
 from src.tasklists.task_list import TaskList
-from src.tasklists.task_states import TASK_STATE_PENDING
+from src.tasklists.task_states import (
+    TASK_LIST_STATE_COMPLETED,
+    TASK_LIST_STATE_CREATED,
+    TASK_STATE_COMPLETED,
+    TASK_STATE_PENDING,
+)
 
 
 def test_task_unknown_key_rejection():
@@ -163,6 +169,60 @@ def test_tasklist_get_children_basic_filter():
     assert len(children) == 2
     ids = {c.id for c in children}
     assert ids == {"1", "2"}
+
+
+def test_tasklist_service_save_all_pending_normalizes_to_created(tmp_path):
+    svc = TaskListService()
+    tl = TaskList(
+        id="svc-tl",
+        name="n",
+        description="d",
+        tasks=[Task(id="t1", name="T", instructions="i")],
+    )
+    path = tmp_path / "tl.json"
+    svc.save(str(path), tl)
+
+    loaded = svc.load(str(path))
+    assert loaded.state == TASK_LIST_STATE_CREATED
+    assert loaded.tasks[0].state == TASK_STATE_PENDING
+
+
+def test_tasklist_service_reset_clears_execution_state():
+    svc = TaskListService()
+    tl = TaskList(
+        id="reset-tl",
+        name="n",
+        description="d",
+        state=TASK_LIST_STATE_COMPLETED,
+        current_task_id="t1",
+        meta={"owner": "alice"},
+        tasks=[
+            Task(
+                id="t1",
+                name="T1",
+                instructions="i",
+                state=TASK_STATE_COMPLETED,
+                result={"ok": True},
+                error="boom",
+                meta={"priority": "high"},
+                position=0,
+                files=["a.txt"],
+                parent_id="p",
+            ),
+        ],
+    )
+    svc.reset(tl)
+    assert tl.state == TASK_LIST_STATE_CREATED
+    assert tl.current_task_id is None
+    task = tl.tasks[0]
+    assert task.state == TASK_STATE_PENDING
+    assert task.result is None
+    assert task.error is None
+    assert task.meta == {"priority": "high"}
+    assert task.position == 0
+    assert task.files == ["a.txt"]
+    assert task.parent_id == "p"
+    assert tl.meta == {"owner": "alice"}
 
 
 def test_tasklist_get_children_no_matches_returns_empty():

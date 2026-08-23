@@ -41,28 +41,11 @@ class FakeStorage:
     # legacy field used by some tests to seed messages
     messages: List[Any] = field(default_factory=list)
 
-    # user data
-    users: Dict[str, Any] = field(default_factory=dict)
-
     # chat sessions keyed by id
     chat_sessions: Dict[str, Any] = field(default_factory=dict)
 
     # contexts keyed by (account_name, context_id)
     contexts: Dict[tuple[str, str], Any] = field(default_factory=dict)
-
-    # profiles
-    user_profiles: Dict[str, Any] = field(default_factory=dict)
-    agent_profiles: Dict[str, Any] = field(default_factory=dict)
-
-    # -------------------------
-    # Users (simple dict API)
-    # -------------------------
-
-    def save_user(self, account_name: str, profile: dict) -> None:
-        self.users[account_name] = profile
-
-    def load_user(self, account_name: str) -> Optional[dict]:
-        return self.users.get(account_name)
 
     # -------------------------
     # Chats
@@ -146,22 +129,6 @@ class FakeStorage:
             if acct == account_name
         ]
         return sorted(set(names))
-
-    # -------------------------
-    # Profiles
-    # -------------------------
-
-    def upsert_user_profile(self, profile: Any) -> None:
-        self.user_profiles[profile.account_name] = profile
-
-    def get_user_profile(self, account_name: str) -> Optional[Any]:
-        return self.user_profiles.get(account_name)
-
-    def upsert_agent_profile(self, profile: Any) -> None:
-        self.agent_profiles[profile.name] = profile
-
-    def get_agent_profile(self, name: str) -> Optional[Any]:
-        return self.agent_profiles.get(name)
 
 
 class FakeHandler:

@@ -4,7 +4,6 @@ Lucy's storage layer.
 
 Provides a unified interface for storing and retrieving:
 - Chat sessions and messages
-- User and agent profiles
 - Contexts (shared state)
 - Documents and embeddings
 
@@ -28,8 +27,6 @@ from .json_file_storage import JsonFileStorage
 from .models import (
     ChatMessage,
     ChatSession,
-    UserProfile,
-    AgentProfile,
     Context,
     Skill,
     DocumentRef,
@@ -42,8 +39,6 @@ __all__ = [
     "JsonFileStorage",
     "ChatMessage",
     "ChatSession",
-    "UserProfile",
-    "AgentProfile",
     "Context",
     "Skill",
     "DocumentRef",

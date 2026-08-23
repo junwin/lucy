@@ -5,8 +5,6 @@ This module contains the following data classes:
 
 - ChatMessage: Represents a single message in a chat.
 - ChatSession: Represents a complete chat session with all its messages.
-- UserProfile: Represents a user account profile and preferences.
-- AgentProfile: Represents agent configuration and behavior settings.
 - Context: Represents shared state for a conversation.
 - Skill: Represents a reusable Markdown skill file importable by a Context.
 - DocumentRef: Represents a reference to a document.
@@ -53,27 +51,6 @@ class ChatSession:
     include_in_context: bool = True       # whether this chat is eligible for prompts
     metadata: Dict[str, Any] = field(default_factory=dict)
     # e.g. {"origin": "legacy_migration", "conversation_id": "20230606"}
-
-
-# ---- User / Agent state ----
-
-@dataclass
-class UserProfile:
-    """User account profile and preferences."""
-    account_name: str
-    full_name: Optional[str] = None
-    preferences: Dict[str, Any] = field(default_factory=dict)
-    active: bool = True
-
-
-@dataclass
-class AgentProfile:
-    """Agent configuration and behavior settings."""
-    name: str
-    model: str
-    temperature: float
-    message_processor: str
-    config: Dict[str, Any] = field(default_factory=dict)
 
 
 # ---- Contexts ("whiteboards") ----

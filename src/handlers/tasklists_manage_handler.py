@@ -8,9 +8,10 @@ from src.config_manager import ConfigManager
 from src.handlers.handler_v2 import HandlerV2
 from src.storage.json_file_storage import JsonFileStorage
 from src.storage_paths.storage_paths import StoragePaths
+from src.tasklists.service import TaskListService
 from src.tasklists.task import Task
 from src.tasklists.task_list import TaskList
-from src.tasklists.task_states import TASK_LIST_STATE_CREATED, TASK_STATE_PENDING
+from src.tasklists.task_states import TASK_LIST_STATE_CREATED
 
 logger = logging.getLogger(__name__)
 
@@ -24,6 +25,7 @@ class TasklistsManageHandler(HandlerV2):
         storage_ns = self.config.get("storage_namespace")
         sp = StoragePaths(storage_root, storage_ns)
         self.storage = JsonFileStorage(sp)
+        self.tasklist_service = TaskListService()
 
     @classmethod
     def name(cls) -> str:
@@ -303,24 +305,18 @@ class TasklistsManageHandler(HandlerV2):
         if err:
             return err
 
-        # Work on a copy to avoid mutating the original when validate_only=True
-        reset_dict = tl.to_dict()
-        reset_dict["state"] = TASK_LIST_STATE_CREATED
-        reset_dict["current_task_id"] = None
-        for task in reset_dict["tasks"]:
-            task["state"] = TASK_STATE_PENDING
-            task["result"] = None
-            task["error"] = None
+        self.tasklist_service.reset(tl)
+        payload = tl.to_dict()
 
         if not validate_only:
-            self.storage.save_tasklist(account_name, tasklist_key, reset_dict)
+            self.storage.save_tasklist(account_name, tasklist_key, payload)
 
         return {
             "ok": True,
             "tool": self.NAME,
             "action": "reset",
             "tasklist_key": tasklist_key,
-            "tasklist": reset_dict,
+            "tasklist": payload,
         }
 
     # ------------------------------------------------------------------
