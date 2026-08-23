@@ -216,7 +216,7 @@
     "name": "star",
     "language_code": "en-US",
     "context_type": "hybrid",
-    "max_prompt_conversations": 0,
+    "max_prompt_conversations": 1,
     "max_prompt_documents": 0,
     "temperature": 1,
     "save_responses": true,
