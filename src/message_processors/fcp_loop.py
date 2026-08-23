@@ -100,6 +100,7 @@ class LLMLoopRunner:
         processor_factory: Optional[Any],
         account: Dict[str, Any],
         metrics: Dict[str, Any],
+        correlation_id: Optional[str] = None,
     ) -> Generator[SSEEvent, None, None]:
         """Single streaming-native agentic loop yielding SSEEvent objects.
 
@@ -109,6 +110,7 @@ class LLMLoopRunner:
           C - text        (final assistant text)
           D - done        (stream complete)
         """
+        correlation_id = correlation_id or "-"
         response_text = ""
         previous_response_id: Optional[str] = None
         previous_tool_calls: Optional[List[_ToolCall]] = None
@@ -127,8 +129,8 @@ class LLMLoopRunner:
                 if retry_attempt > 0:
                     metrics["openai_calls"] += 1
                     logging.warning(
-                        "FCP: empty LLM response at iteration=%d, retry %d/%d agent=%s session_id=%s",
-                        iteration, retry_attempt, MAX_EMPTY_RETRIES, ctx.agent_name, ctx.conversation_id,
+                        "FCP: empty LLM response correlation_id=%s at iteration=%d, retry %d/%d agent=%s session_id=%s",
+                        correlation_id, iteration, retry_attempt, MAX_EMPTY_RETRIES, ctx.agent_name, ctx.conversation_id,
                     )
 
                 llm_response = self.llm_adapter.call_model(
@@ -144,7 +146,8 @@ class LLMLoopRunner:
                 )
 
                 logging.debug(
-                    "FunctionCallingProcessor(streaming): raw LLM response agent=%s session_id=%s iteration=%d type=%s llm_response=%r",
+                    "FunctionCallingProcessor(streaming): raw LLM response correlation_id=%s agent=%s session_id=%s iteration=%d type=%s llm_response=%r",
+                    correlation_id,
                     ctx.agent_name,
                     ctx.conversation_id,
                     iteration,
@@ -160,7 +163,8 @@ class LLMLoopRunner:
                 tool_calls = self.tool_executor.wrap_tool_calls(tool_calls_raw)
 
                 logging.info(
-                    "FunctionCallingProcessor(streaming): raw tool calls agent=%s session_id=%s iteration=%d raw=%r wrapped=%r",
+                    "FunctionCallingProcessor(streaming): raw tool calls correlation_id=%s agent=%s session_id=%s iteration=%d raw=%r wrapped=%r",
+                    correlation_id,
                     ctx.agent_name,
                     ctx.conversation_id,
                     iteration,
@@ -173,15 +177,16 @@ class LLMLoopRunner:
             else:
                 response_text = "I received an empty response from the model — please try again."
                 logging.error(
-                    "FCP: empty LLM response after %d retries at iteration=%d agent=%s session_id=%s — using fallback",
-                    MAX_EMPTY_RETRIES, iteration, ctx.agent_name, ctx.conversation_id,
+                    "FCP: empty LLM response correlation_id=%s after %d retries at iteration=%d agent=%s session_id=%s — using fallback",
+                    correlation_id, MAX_EMPTY_RETRIES, iteration, ctx.agent_name, ctx.conversation_id,
                 )
                 break
 
             logging.info(
-                "FunctionCallingProcessor(streaming): iteration=%d/%d agent=%s session_id=%s response_id=%s",
+                "FunctionCallingProcessor(streaming): iteration=%d/%d correlation_id=%s agent=%s session_id=%s response_id=%s",
                 iteration,
                 ctx.max_iterations,
+                correlation_id,
                 ctx.agent_name,
                 ctx.conversation_id,
                 previous_response_id,
@@ -198,8 +203,9 @@ class LLMLoopRunner:
             if tool_calls:
                 if self._tool_calls_are_duplicate(tool_calls, previous_tool_calls):
                     logging.warning(
-                        "FunctionCallingProcessor(streaming): duplicate tool calls detected at iteration=%d/%d "
+                        "FunctionCallingProcessor(streaming): duplicate tool calls detected correlation_id=%s at iteration=%d/%d "
                         "agent=%s session_id=%s tool_count=%d. Breaking loop.",
+                        correlation_id,
                         iteration,
                         ctx.max_iterations,
                         ctx.agent_name,
@@ -222,9 +228,10 @@ class LLMLoopRunner:
                     return
 
                 logging.info(
-                    "FunctionCallingProcessor(streaming): tool_call iteration=%d/%d agent=%s session_id=%s tool_count=%d prev_response_id=%s",
+                    "FunctionCallingProcessor(streaming): tool_call iteration=%d/%d correlation_id=%s agent=%s session_id=%s tool_count=%d prev_response_id=%s",
                     iteration,
                     ctx.max_iterations,
+                    correlation_id,
                     ctx.agent_name,
                     ctx.conversation_id,
                     len(tool_calls),
@@ -243,6 +250,7 @@ class LLMLoopRunner:
                         account=account,
                         ctx=ctx,
                         metrics=metrics,
+                        correlation_id=correlation_id,
                     )
                 except (ToolHandlerError, ToolResultTooLargeError) as e:
                     for tc in tool_calls:
@@ -273,8 +281,9 @@ class LLMLoopRunner:
                     yield event
 
                 logging.info(
-                    "FunctionCallingProcessor(streaming): sending %d function_call_output items chained to response_id=%s call_ids=%s",
+                    "FunctionCallingProcessor(streaming): sending %d function_call_output items correlation_id=%s chained to response_id=%s call_ids=%s",
                     len(tool_output_items),
+                    correlation_id,
                     previous_response_id,
                     [x.get("call_id") for x in tool_output_items],
                 )
@@ -284,8 +293,9 @@ class LLMLoopRunner:
                 if iteration >= ctx.max_iterations:
                     metrics["failures"] += 1
                     logging.error(
-                        "FunctionCallingProcessor(streaming): exceeded max_function_call_iterations=%d for agent '%s' in conversation_id=%s",
+                        "FunctionCallingProcessor(streaming): exceeded max_function_call_iterations=%d correlation_id=%s for agent '%s' in conversation_id=%s",
                         ctx.max_iterations,
+                        correlation_id,
                         ctx.agent_name,
                         ctx.conversation_id,
                     )
@@ -320,7 +330,8 @@ class LLMLoopRunner:
         yield SSEEvent(type="done", conversation_id=ctx.conversation_id)
 
         logging.info(
-            "FunctionCallingProcessor(streaming): completed agent=%s session_id=%s iterations=%d response_preview=%r",
+            "FunctionCallingProcessor(streaming): completed correlation_id=%s agent=%s session_id=%s iterations=%d response_preview=%r",
+            correlation_id,
             ctx.agent_name,
             ctx.conversation_id,
             iteration,

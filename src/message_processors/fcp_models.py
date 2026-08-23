@@ -69,8 +69,8 @@ class ProcessorContext:
         else:
             provider = None
 
-        resolved_context_name = context_name
-        if not context_name.strip() and primary_agent.default_context:
+        resolved_context_name = context_name or ""
+        if not resolved_context_name.strip() and primary_agent.default_context:
             resolved_context_name = str(primary_agent.default_context).strip()
 
         return cls(

@@ -9,6 +9,7 @@ import logging
 from typing import Optional, Dict, Any, List, Generator, NamedTuple
 import json
 import time
+import uuid
 
 from src.config_manager import ConfigManager
 from src.message_processors.message_processor_interface import MessageProcessorInterface
@@ -357,6 +358,7 @@ class FunctionCallingProcessor(MessageProcessorInterface):
         processor_factory: Optional[Any] = None,
         image_ids: Optional[List[str]] = None,
         file_ids: Optional[List[str]] = None,
+        correlation_id: Optional[str] = None,
     ) -> str:
         start_ts = time.perf_counter()
         metrics: Dict[str, Any] = {
@@ -365,6 +367,9 @@ class FunctionCallingProcessor(MessageProcessorInterface):
             "tool_calls": 0,
             "failures": 0,
         }
+
+        if correlation_id is None:
+            correlation_id = str(uuid.uuid4())
 
         logging.info("FunctionCallingProcessor inbound message: %s", message)
 
@@ -414,6 +419,7 @@ class FunctionCallingProcessor(MessageProcessorInterface):
                 processor_factory=processor_factory,
                 account=account,
                 metrics=metrics,
+                correlation_id=correlation_id,
             ):
                 if event.type == "text" and event.content:
                     response_text = event.content
@@ -513,11 +519,12 @@ class FunctionCallingProcessor(MessageProcessorInterface):
         processor_factory: Optional[Any] = None,
         image_ids: Optional[List[str]] = None,
         file_ids: Optional[List[str]] = None,
+        correlation_id: Optional[str] = None,
     ) -> Generator[str, None, None]:
         """Streaming variant of process_message.
 
         Same setup as process_message() but runs the LLMLoopRunner
-        and yields SSE-formatted strings ("data: {json}\n\n").
+        and yields SSE-formatted strings ("data: {json}\\n\\n").
 
         Collects all SSE events during streaming so they can be persisted
         to chat2 storage (including image and tool cards).
@@ -530,7 +537,14 @@ class FunctionCallingProcessor(MessageProcessorInterface):
             "failures": 0,
         }
 
-        logging.info("FunctionCallingProcessor(streaming) inbound message: %s", message)
+        if correlation_id is None:
+            correlation_id = str(uuid.uuid4())
+
+        logging.info(
+            "FunctionCallingProcessor(streaming) inbound message: correlation_id=%s message=%s",
+            correlation_id,
+            message,
+        )
 
         if not primary_agent:
             metrics["failures"] += 1
@@ -555,7 +569,8 @@ class FunctionCallingProcessor(MessageProcessorInterface):
         supports_images = self.llm_adapter.supports_image_processing(ctx.model, ctx.provider)
 
         logging.info(
-            "FunctionCallingProcessor(streaming): start account=%s agent=%s session_id=%s context_type=%s max_iterations=%d supports_images=%s",
+            "FunctionCallingProcessor(streaming): start correlation_id=%s account=%s agent=%s session_id=%s context_type=%s max_iterations=%d supports_images=%s",
+            correlation_id,
             ctx.account_id,
             ctx.agent_name,
             ctx.conversation_id,
@@ -588,6 +603,7 @@ class FunctionCallingProcessor(MessageProcessorInterface):
                 processor_factory=processor_factory,
                 account=account,
                 metrics=metrics,
+                correlation_id=correlation_id,
             ):
                 streamed_events.append(event)
                 yield event.to_sse()
@@ -605,7 +621,8 @@ class FunctionCallingProcessor(MessageProcessorInterface):
         except ToolSelectionError as e:
             metrics["failures"] += 1
             logging.error(
-                "FunctionCallingProcessor(streaming): tool selection error agent=%s session_id=%s code=%s: %s",
+                "FunctionCallingProcessor(streaming): tool selection error correlation_id=%s agent=%s session_id=%s code=%s: %s",
+                correlation_id,
                 ctx.agent_name,
                 ctx.conversation_id,
                 e.code,
@@ -629,7 +646,8 @@ class FunctionCallingProcessor(MessageProcessorInterface):
         except Exception as e:
             metrics["failures"] += 1
             logging.exception(
-                "FunctionCallingProcessor(streaming): unhandled error agent=%s session_id=%s",
+                "FunctionCallingProcessor(streaming): unhandled error correlation_id=%s agent=%s session_id=%s",
+                correlation_id,
                 ctx.agent_name,
                 ctx.conversation_id,
             )
@@ -660,7 +678,8 @@ class FunctionCallingProcessor(MessageProcessorInterface):
 
             latency_ms = int((time.perf_counter() - start_ts) * 1000)
             logging.info(
-                "FunctionCallingProcessor(streaming) summary: agent=%s session_id=%s account=%s iterations=%d openai_calls=%d tool_calls=%d failures=%d latency_ms=%d",
+                "FunctionCallingProcessor(streaming) summary: correlation_id=%s agent=%s session_id=%s account=%s iterations=%d openai_calls=%d tool_calls=%d failures=%d latency_ms=%d",
+                correlation_id,
                 ctx.agent_name if "ctx" in locals() else "unknown",
                 ctx.conversation_id if "ctx" in locals() else "unknown",
                 ctx.account_id if "ctx" in locals() else "unknown",

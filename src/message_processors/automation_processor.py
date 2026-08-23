@@ -397,6 +397,7 @@ class AutomationProcessor(MessageProcessorInterface):
         secondary_agent: Optional[Agent] = None,
         processor_factory: Optional[Any] = None,
         worker_agent: Optional[str] = None,
+        correlation_id: Optional[str] = None,
     ) -> str:
         """Execute a persisted tasklist by ID.
 
@@ -411,14 +412,16 @@ class AutomationProcessor(MessageProcessorInterface):
         Returns a human-readable result string.
         Raises ValueError if the tasklist is not found in storage.
         """
+        context_name = context_name or ""
         logger.info(
-            "execute_tasklist start agent=%s account=%s conversation_id=%s tasklist_id=%s mode=%s worker_agent=%s",
+            "execute_tasklist start agent=%s account=%s conversation_id=%s tasklist_id=%s mode=%s worker_agent=%s correlation_id=%s",
             agent_name,
             account_name,
             conversation_id,
             tasklist_id,
             mode,
             worker_agent,
+            correlation_id,
         )
 
         # Resolve worker agent override (top-level, applies to ALL tasks).
@@ -497,6 +500,9 @@ class AutomationProcessor(MessageProcessorInterface):
             )
 
         tasklist: TaskList = raw_tasklist
+
+        if correlation_id:
+            tasklist.meta["correlation_id"] = correlation_id
 
         # Derive a friendly_name for the chat2 session so automated runs
         # don't create sketchy null-name sessions.
@@ -662,6 +668,7 @@ class AutomationProcessor(MessageProcessorInterface):
                             processor_factory=processor_factory,
                             image_ids=image_ids,
                             file_ids=file_ids,
+                            correlation_id=correlation_id,
                         )
 
                         task_result = {"timestamp": _now_utc().isoformat(), "output": response}
@@ -723,7 +730,11 @@ class AutomationProcessor(MessageProcessorInterface):
                     "outcome": task_outcome,
                     "error": task_error,
                 }),
-                metadata={"tasklist_id": tasklist_id, "mode": mode},
+                metadata={
+                    "tasklist_id": tasklist_id,
+                    "mode": mode,
+                    **({"correlation_id": correlation_id} if correlation_id else {}),
+                },
                 friendly_name=auto_friendly_name,
             )
 
@@ -796,7 +807,11 @@ class AutomationProcessor(MessageProcessorInterface):
                 "last_task": last_task_name,
                 "warnings": warning_messages,
             }),
-            metadata={"tasklist_id": tasklist_id, "mode": mode},
+            metadata={
+                "tasklist_id": tasklist_id,
+                "mode": mode,
+                **({"correlation_id": correlation_id} if correlation_id else {}),
+            },
             friendly_name=auto_friendly_name,
         )
 
@@ -835,6 +850,7 @@ class AutomationProcessor(MessageProcessorInterface):
         context_name: str = "",
         secondary_agent: Optional[Agent] = None,
         processor_factory: Optional[Any] = None,
+        correlation_id: Optional[str] = None,
     ) -> str:
         agent_name = (getattr(primary_agent, "name", "") or "").lower().strip()
 
@@ -881,12 +897,13 @@ class AutomationProcessor(MessageProcessorInterface):
             return "[AutomationProcessor] Invalid mode. Use 'single-step' or 'multi-step'."
 
         logger.info(
-            "AutomationProcessor start agent=%s account=%s conversation_id=%s tasklist_id=%s mode=%s",
+            "AutomationProcessor start agent=%s account=%s conversation_id=%s tasklist_id=%s mode=%s correlation_id=%s",
             agent_name,
             account_name,
             conversation_id,
             tasklist_id,
             mode,
+            correlation_id,
         )
         logger.debug("Incoming message preview: %s", _safe_preview(message, 800))
 
@@ -901,7 +918,11 @@ class AutomationProcessor(MessageProcessorInterface):
             role="user",
             kind="automation_command",
             payload=message,
-            metadata={"tasklist_id": tasklist_id, "mode": mode},
+            metadata={
+                "tasklist_id": tasklist_id,
+                "mode": mode,
+                **({"correlation_id": correlation_id} if correlation_id else {}),
+            },
             friendly_name=auto_friendly_name,
         )
 
@@ -919,4 +940,5 @@ class AutomationProcessor(MessageProcessorInterface):
             account=account,
             secondary_agent=secondary_agent,
             processor_factory=processor_factory,
+            correlation_id=correlation_id,
         )

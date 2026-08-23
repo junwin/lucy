@@ -1,5 +1,6 @@
 import json
 import logging
+import uuid
 from typing import Any, Dict, Tuple, Optional, Generator
 
 from src.agent import AgentManager, Agent
@@ -116,8 +117,11 @@ class AskRequestHandler:
         if context_name is not None:
             context_name = str(context_name).strip() or None
 
+        correlation_id = str(uuid.uuid4())
+
         self.logger.info(
-            "/ask: user_id=%s agentName=%s context_type=%s context_name=%s conversationId=%s partnerAgentName=%s",
+            "/ask: correlation_id=%s user_id=%s agentName=%s context_type=%s context_name=%s conversationId=%s partnerAgentName=%s",
+            correlation_id,
             accountName,
             agentName,
             context_type,
@@ -355,6 +359,7 @@ class AskRequestHandler:
                 image_ids=image_ids,
                 file_ids=file_ids,
                 processor_factory=self.processor_factory,
+                correlation_id=correlation_id,
             )
 
             # Return the conversation id so callers can persist it for future requests
@@ -363,7 +368,8 @@ class AskRequestHandler:
         except ToolHandlerError as e:
             error_message = f"Tool execution failed: {str(e)}"
             self.logger.exception(
-                "/ask: tool execution failed user_id=%s agentName=%s conversationId=%s",
+                "/ask: tool execution failed correlation_id=%s user_id=%s agentName=%s conversationId=%s",
+                correlation_id,
                 accountName,
                 agentName,
                 conversationId,
@@ -389,7 +395,8 @@ class AskRequestHandler:
         except Exception:
             # Catch-all to ensure unusual exits are logged.
             self.logger.exception(
-                "/ask: unhandled exception user_id=%s agentName=%s conversationId=%s",
+                "/ask: unhandled exception correlation_id=%s user_id=%s agentName=%s conversationId=%s",
+                correlation_id,
                 accountName,
                 agentName,
                 conversationId,
@@ -421,8 +428,11 @@ class AskRequestHandler:
         if context_name is not None:
             context_name = str(context_name).strip() or None
 
+        correlation_id = str(uuid.uuid4())
+
         self.logger.info(
-            "/ask(streaming): user_id=%s agentName=%s context_type=%s context_name=%s conversationId=%s partnerAgentName=%s",
+            "/ask(streaming): correlation_id=%s user_id=%s agentName=%s context_type=%s context_name=%s conversationId=%s partnerAgentName=%s",
+            correlation_id,
             accountName,
             agentName,
             context_type,
@@ -584,6 +594,7 @@ class AskRequestHandler:
                 image_ids=image_ids,
                 file_ids=file_ids,
                 processor_factory=self.processor_factory,
+                correlation_id=correlation_id,
             ):
                 yield sse_line
 
@@ -593,7 +604,8 @@ class AskRequestHandler:
 
         except Exception:
             self.logger.exception(
-                "/ask(streaming): unhandled exception user_id=%s agentName=%s conversationId=%s",
+                "/ask(streaming): unhandled exception correlation_id=%s user_id=%s agentName=%s conversationId=%s",
+                correlation_id,
                 accountName,
                 agentName,
                 conversationId,

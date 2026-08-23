@@ -70,7 +70,7 @@ class ToolExecutor:
         self.agent_manager = agent_manager
         self.chat2_store = chat2_store
 
-    def safe_json_loads(self, s: str) -> Dict[str, Any]:
+    def safe_json_loads(self, s: str, correlation_id: Optional[str] = None) -> Dict[str, Any]:
         if not s:
             return {}
         try:
@@ -78,13 +78,14 @@ class ToolExecutor:
             return loaded if isinstance(loaded, dict) else {}
         except Exception:
             logging.warning(
-                "Tool arguments were not valid JSON; using empty dict. args=%r",
+                "Tool arguments were not valid JSON; using empty dict. correlation_id=%s args=%r",
+                correlation_id or "-",
                 (s or "")[:500],
             )
             return {}
 
 
-    def tool_result_to_text(self, tool_result_text: Any) -> str:
+    def tool_result_to_text(self, tool_result_text: Any, correlation_id: Optional[str] = None) -> str:
         """Ensure the tool result is a string and enforce max size.
 
         We do not parse/serialize tool I/O here anymore. Handlers are expected
@@ -104,7 +105,8 @@ class ToolExecutor:
         max_chars = int(self.config.get("max_tool_result_chars", 20000))
         if len(s) > max_chars:
             logging.error(
-                "Tool result too large: %d chars (limit %d). Sample: %r",
+                "Tool result too large: correlation_id=%s chars=%d (limit %d). Sample: %r",
+                correlation_id or "-",
                 len(s),
                 max_chars,
                 s[:1000],
@@ -134,7 +136,9 @@ class ToolExecutor:
         account: Dict[str, Any],
         ctx: ProcessorContext,
         metrics: Dict[str, Any],
+        correlation_id: Optional[str] = None,
     ) -> Tuple[List[Dict[str, Any]], List[Tuple[_ToolCall, str]]]:
+        correlation_id = correlation_id or "-"
         tool_output_items: List[Dict[str, Any]] = []
         raw_results: List[Tuple[_ToolCall, str]] = []
 
@@ -148,6 +152,7 @@ class ToolExecutor:
             "processor_factory": processor_factory,
             "account": account,
             "conversation_id": ctx.conversation_id,
+            "correlation_id": correlation_id,
             "context_name": ctx.context_name,
             "context_state": load_context_state(self.prompt_builder, ctx.account_id, ctx.context_name),
             "agent_name": ctx.agent_name,
@@ -178,7 +183,8 @@ class ToolExecutor:
                 metrics["failures"] += 1
                 valid = getattr(self.registry, "tool_names", lambda: [])()
                 logging.error(
-                    "Unknown tool requested by model: tool=%r call_id=%s args=%r valid_tools=%s",
+                    "Unknown tool requested by model: correlation_id=%s tool=%r call_id=%s args=%r valid_tools=%s",
+                    correlation_id,
                     tc.name,
                     tc.call_id,
                     tc.arguments_raw,
@@ -204,7 +210,8 @@ class ToolExecutor:
                 handler = self.registry.create(tc.name, config=self.config)
 
                 logging.info(
-                    "tool_execute_start tool=%s call_id=%s account=%s",
+                    "tool_execute_start correlation_id=%s tool=%s call_id=%s account=%s",
+                    correlation_id,
                     tc.name,
                     tc.call_id,
                     ctx.account_id,
@@ -213,12 +220,13 @@ class ToolExecutor:
                 if hasattr(handler, "execute_raw"):
                     tool_result_text = handler.execute_raw(tc.arguments_raw, account_name=ctx.account_id, call_id=tc.call_id, **handler_context)  # type: ignore[attr-defined]
                 else:
-                    tool_args = self.safe_json_loads(tc.arguments_raw)
+                    tool_args = self.safe_json_loads(tc.arguments_raw, correlation_id=correlation_id)
                     tool_result = handler.execute(tool_args, account_name=ctx.account_id, **handler_context)
                     tool_result_text = json.dumps(tool_result, ensure_ascii=False)
 
                 logging.info(
-                    "tool_execute_done tool=%s call_id=%s result_preview=%r",
+                    "tool_execute_done correlation_id=%s tool=%s call_id=%s result_preview=%r",
+                    correlation_id,
                     tc.name,
                     tc.call_id,
                     (tool_result_text or "")[:200],
@@ -232,7 +240,8 @@ class ToolExecutor:
 
                     if isinstance(maybe, dict) and maybe.get("ok") and maybe.get("kind") == "tasklist":
                         logging.info(
-                            "FunctionCallingProcessor: delegating tasklist to AutomationProcessor supervisor=%s worker=%s session_id=%s call_id=%s",
+                            "FunctionCallingProcessor: delegating tasklist to AutomationProcessor correlation_id=%s supervisor=%s worker=%s session_id=%s call_id=%s",
+                            correlation_id,
                             ctx.agent_name,
                             secondary_agent.name,
                             ctx.conversation_id,
@@ -295,7 +304,8 @@ class ToolExecutor:
 
                         except Exception as e:
                             logging.exception(
-                                "FunctionCallingProcessor: AutomationProcessor delegation failed supervisor=%s session_id=%s",
+                                "FunctionCallingProcessor: AutomationProcessor delegation failed correlation_id=%s supervisor=%s session_id=%s",
+                                correlation_id,
                                 ctx.agent_name,
                                 ctx.conversation_id,
                             )
@@ -307,7 +317,7 @@ class ToolExecutor:
                 # Collect raw result before enforcing max size (for SSE action/image inspection)
                 raw_results.append((tc, tool_result_text))
 
-                tool_result_text = self.tool_result_to_text(tool_result_text)
+                tool_result_text = self.tool_result_to_text(tool_result_text, correlation_id=correlation_id)
 
             except ToolResultTooLargeError as e:
                 metrics["failures"] += 1
@@ -332,7 +342,7 @@ class ToolExecutor:
                 # Fall through to tool_output_items.append below.
             except Exception as e:
                 metrics["failures"] += 1
-                logging.exception("Tool execution failed: %s call_id=%s", tc.name, tc.call_id)
+                logging.exception("Tool execution failed: correlation_id=%s tool=%s call_id=%s", correlation_id, tc.name, tc.call_id)
                 raise ToolHandlerError(f"{type(e).__name__}: {e}")
 
             tool_output_items.append(self.llm_adapter.format_tool_output(call_id=str(tc.call_id), output=tool_result_text, name=tc.name, provider=ctx.provider))
