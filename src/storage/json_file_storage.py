@@ -6,7 +6,6 @@
 
 import json
 import os
-import threading
 import uuid
 import logging
 from pathlib import Path
@@ -22,6 +21,8 @@ from .base import Storage
 from .models import (
     ChatMessage,
     ChatSession,
+    UserProfile,
+    AgentProfile,
     Context,
     Skill,
     DocumentRef,
@@ -104,7 +105,7 @@ def _parse_context_frontmatter(
                 search_namespaces = [v for v in value if isinstance(v, str)]
             else:
                 extra[key] = value
-        elif key in ("text", "updated_at", "id", "account_name"):
+        elif key in ("text", "updated_at"):
             # Handled by the caller (body / datetime parsing).
             pass
         else:
@@ -146,7 +147,6 @@ class JsonFileStorage(Storage):
 
         self.storage_paths = storage_paths
         self._tasklist_service = TaskListService()
-        self._chat_lock = threading.RLock()
 
 
     # ----------------------------------------------------------------------
@@ -228,14 +228,6 @@ class JsonFileStorage(Storage):
     ) -> ChatSession:
         return chats.create_chat_session(self, account_name=account_name, agent_name=agent_name, friendly_name=friendly_name, tags=tags)
 
-    def get_or_create_chat_session(
-        self,
-        account_name: str,
-        agent_name: str,
-        friendly_name: str,
-    ) -> Tuple[ChatSession, bool]:
-        return chats.get_or_create_chat_session(self, account_name=account_name, agent_name=agent_name, friendly_name=friendly_name)
-
 
     def find_chat_sessions_by_friendly_name(self, account_name: str, agent_name: str, friendly_name: str, limit: int = 20) -> List[ChatSession]:
         return chats.find_chat_sessions_by_friendly_name(self, account_name, agent_name, friendly_name, limit)
@@ -307,6 +299,95 @@ class JsonFileStorage(Storage):
         """Convert stored JSON dict → ChatSession dataclass."""
 
         return chats._chat_dict_to_session(self, data)
+
+    # ----------------------------------------------------------------------
+    # USER PROFILES
+    # ----------------------------------------------------------------------
+
+    def get_user_profile(self, account_name: str) -> Optional[UserProfile]:
+        path = self.storage_paths.users / f"{account_name}.json"
+        data = self._load_json(path)
+        if not data:
+            return None
+
+        return UserProfile(
+            account_name=data["account_name"],
+            full_name=data.get("full_name"),
+            preferences=data.get("preferences", {}),
+            active=data.get("active", True),
+        )
+
+    def upsert_user_profile(self, profile: UserProfile) -> None:
+        path = self.storage_paths.users
+        self._ensure_dir(path)
+
+        data = {
+            "account_name": profile.account_name,
+            "full_name": profile.full_name,
+            "preferences": profile.preferences,
+        }
+
+        self._atomic_write(path / f"{profile.account_name}.json", data)
+
+    # ----------------------------------------------------------------------
+    # Backwards-compatible aliases (older tests / API)
+    # ----------------------------------------------------------------------
+
+    def save_user(self, account_name: str, profile: Dict[str, Any]) -> None:
+        """Compatibility wrapper for older tests.
+
+        Expected input shape in tests:
+          {"name": "...", "preferences": {...}}
+        """
+        user_profile = UserProfile(
+            account_name=account_name,
+            full_name=profile.get("name"),
+            preferences=profile.get("preferences", {}),
+            active=True,
+        )
+        self.upsert_user_profile(user_profile)
+
+    def load_user(self, account_name: str) -> Optional[Dict[str, Any]]:
+        """Compatibility wrapper for older tests."""
+        profile = self.get_user_profile(account_name)
+        if not profile:
+            return None
+        return {
+            "name": profile.full_name,
+            "preferences": profile.preferences,
+        }
+
+    # ----------------------------------------------------------------------
+    # AGENT PROFILES
+    # ----------------------------------------------------------------------
+
+    def get_agent_profile(self, name: str) -> Optional[AgentProfile]:
+        path = self.storage_paths.agents / f"{name}.json"
+        data = self._load_json(path)
+        if not data:
+            return None
+
+        return AgentProfile(
+            name=data["name"],
+            model=data["model"],
+            temperature=data["temperature"],
+            message_processor=data["message_processor"],
+            config=data.get("config", {}),
+        )
+
+    def upsert_agent_profile(self, agent: AgentProfile) -> None:
+        path = self.storage_paths.agents
+        self._ensure_dir(path)
+
+        data = {
+            "name": agent.name,
+            "model": agent.model,
+            "temperature": agent.temperature,
+            "message_processor": agent.message_processor,
+            "config": agent.config,
+        }
+
+        self._atomic_write(path / f"{agent.name}.json", data)
 
     # ----------------------------------------------------------------------
     # CONTEXT / WHITEBOARD
