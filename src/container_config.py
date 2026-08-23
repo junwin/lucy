@@ -29,8 +29,11 @@ from src.prompt_builders.prompt_builder import PromptBuilder
 from src.message_endpoints.ask_request_handler import AskRequestHandler
 
 from galet.adapter_interface import LLMAdapter
-from galet.openai_responses_adapter import OpenAIResponsesAdapter
+from galet.embedding_router import EmbeddingRouter
 from galet.interface import LLMApi
+from galet.mistral_embedding import MistralEmbeddingApi
+from galet.openai_embedding import OpenAIEmbeddingApi
+from galet.openai_responses_adapter import OpenAIResponsesAdapter
 from galet.router_api import RouterApi
 from galet.settings import Settings
 
@@ -108,7 +111,16 @@ class EmbeddingModule(Module):
     @singleton
     def provide_embedding_facade(self) -> EmbeddingFacade:
         """Provide the embedding facade for digest search and other uses."""
-        return EmbeddingFacade()
+        settings = Settings(
+            credential_path=config.get("credential_path"),
+            ollama_base_url=config.get("ollama_base_url"),
+        )
+        return EmbeddingFacade(
+            embedding_api=EmbeddingRouter(
+                openai_api=OpenAIEmbeddingApi(settings=settings),
+                mistral_api=MistralEmbeddingApi(settings=settings),
+            )
+        )
 
 
 class HandlerRegistryModule(Module):

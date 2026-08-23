@@ -205,6 +205,7 @@ class FakeAgent:
     save_responses: bool = False
     delegation_depth: int = 0
     max_delegation_depth: int = 1
+    default_context: Optional[str] = None
 
 
 # -----------------------------------------------------------------------------

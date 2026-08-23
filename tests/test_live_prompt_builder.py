@@ -7,7 +7,7 @@ This test:
   - Creates a temporary config with port 5001
   - Starts the app in a subprocess
   - Seeds chat2 data directly into the storage directory
-  - Calls /prompt_builder via curl with -k (insecure)
+  - Calls /prompt_builder via curl
   - Kills the app
   - Asserts the response contains expected history
 
@@ -259,8 +259,8 @@ def test_live_prompt_builder_returns_chat2_history(app_process, seeded_chat2_dat
 
     # Use curl with -k (insecure) since we have a self-signed cert
     cmd = [
-        "curl", "-sk", "-X", "POST",
-        "https://127.0.0.1:5001/prompt_builder",
+        "curl", "-s", "-X", "POST",
+        "http://127.0.0.1:5001/prompt_builder",
         "-H", "Content-Type: application/json",
         "-d", json.dumps(payload),
     ]
@@ -310,8 +310,8 @@ def test_live_prompt_builder_fallback_to_v1(app_process, tmp_path):
     }
 
     cmd = [
-        "curl", "-sk", "-X", "POST",
-        "https://127.0.0.1:5001/prompt_builder",
+        "curl", "-s", "-X", "POST",
+        "http://127.0.0.1:5001/prompt_builder",
         "-H", "Content-Type: application/json",
         "-d", json.dumps(payload),
     ]

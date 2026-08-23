@@ -30,6 +30,23 @@ python -m venv .venv
 pip install -r requirements.txt
 ```
 
+### galet dependency
+
+galet is a separate, provider-agnostic LLM/embedding/image-generation stack extracted from Lucy. It lives in its own public repo and is installed automatically by `requirements.txt` as an editable install:
+
+```bash
+-e git+https://github.com/junwin/galet.git#egg=galet
+```
+
+- Repo: https://github.com/junwin/galet.git
+
+**Optional manual dev workflow:** clone galet as a sibling repo and install it editable so local edits are picked up without reinstalling:
+
+```bash
+git clone https://github.com/junwin/galet.git ../galet
+pip install -e ../galet
+```
+
 ### 2. Run Lucy
 
 Once the venv is active:
