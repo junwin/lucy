@@ -18,11 +18,6 @@ class AskRequestHandler:
 
     This version is intended to mirror the original /ask route logic from app.py
     as closely as possible, just moved into a class.
-
-    Design note:
-    - delegate_tasks auto-run is preserved.
-    - Task execution is intentionally owned by this request handler (via TaskRunner)
-      rather than living inside FunctionCallingProcessor.
     """
 
     def __init__(
@@ -39,53 +34,6 @@ class AskRequestHandler:
         self.processor_factory = processor_factory
         self.chat2_store = chat2_store
         self.logger = logging.getLogger(__name__)
-
-    def _maybe_autorun_tasklist(
-        self,
-        *,
-        primary_agent: Agent,
-        secondary_agent: Optional[Agent],
-        account: Dict[str, Any],
-        conversation_id: str,
-        context_name: Optional[str],
-        response_text: str,
-    ) -> str:
-        """If the model returned a delegate_tasks tasklist, execute it via TaskRunner.
-
-        We keep the response format compatible with the previous behaviour:
-        the final assistant response can be the task execution summary.
-        """
-
-        if not secondary_agent:
-            return response_text
-
-        # FunctionCallingProcessor returns a string; when the LLM triggers delegate_tasks,
-        # the tool output is a JSON string produced by delegate_tasks handler.
-        try:
-            maybe = json.loads(response_text or "")
-        except Exception:
-            return response_text
-
-        if not (isinstance(maybe, dict) and maybe.get("ok") and maybe.get("kind") == "tasklist"):
-            return response_text
-
-        self.logger.info(
-            "AskRequestHandler: executing tasklist from delegate_tasks using supervisor=%s worker=%s session_id=%s",
-            primary_agent.name,
-            secondary_agent.name,
-            conversation_id,
-        )
-
-        result = self.task_runner.run(
-            tasklist=maybe,
-            supervisor_agent=primary_agent,
-            worker_agent=secondary_agent,
-            account=account,
-            conversation_id=conversation_id,
-            context_name=context_name,
-        )
-
-        return json.dumps(result, ensure_ascii=False)
 
     def handle(self, payload: Dict[str, Any]) -> Tuple[int, Dict[str, Any]]:
         """Process the /ask request.

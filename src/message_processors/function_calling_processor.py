@@ -24,7 +24,6 @@ from galet.provider_registry import ProviderRegistry
 
 from src.chat2.facade import Chat2Store
 
-from src.message_processors.automation_processor import AutomationProcessor
 from src.message_processors.fcp_models import ProcessorContext, ToolHandlerError, DEFAULT_MAX_HANDLER_SCHEMA_TOKENS
 from src.message_processors.fcp_chat2 import Chat2Recorder
 
@@ -197,7 +196,6 @@ class FunctionCallingProcessor(MessageProcessorInterface):
         prompt_builder: PromptBuilderInterface,
         llm_adapter: LLMAdapter,
         chat2_store: Optional[Chat2Store] = None,
-        automation_processor: Optional[AutomationProcessor] = None,
         agent_manager: Optional[AgentManager] = None,
     ):
         self.config = config
@@ -206,14 +204,12 @@ class FunctionCallingProcessor(MessageProcessorInterface):
         self.llm_adapter = llm_adapter
         self.chat2_store = chat2_store
         self.chat2 = Chat2Recorder(chat2_store)
-        self.automation_processor = automation_processor
         self.agent_manager = agent_manager
         self.tool_executor = ToolExecutor(
             registry=self.registry,
             config=self.config,
             prompt_builder=self.prompt_builder,
             llm_adapter=self.llm_adapter,
-            automation_processor=self.automation_processor,
             agent_manager=self.agent_manager,
             chat2_store=self.chat2_store,
         )

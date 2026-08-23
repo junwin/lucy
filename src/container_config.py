@@ -180,8 +180,8 @@ class AutomationProcessorModule(Module):
         llm_adapter: LLMAdapter,
         agent_manager: AgentManager,
     ) -> AutomationProcessor:
-        """Provide AutomationProcessor as a singleton so it can be injected
-        into FunctionCallingProcessor (step 3 of issue #37 tasklist decomposition).
+        """Provide AutomationProcessor as a singleton so ProcessorFactory can
+        construct it for agents whose message_processor is "automation_processor".
 
         Uses the same Optional dependency pattern as chat2_store to avoid
         circular dependencies: AutomationProcessor does not import FCP at

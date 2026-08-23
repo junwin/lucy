@@ -185,58 +185,6 @@ def test_handler_exception_is_wrapped_in_tool_handler_error(make_proc, prompt_bu
         )
 
 
-def test_delegate_tasks_tasklist_executes_worker_tasks_and_returns_summary(make_proc, prompt_builder, llm_adapter):
-    from tests.conftest import FakeHandler, FakeRegistry, FakeAgent, setup_tool_then_text
-
-    delegate_tasks_result = {
-        "ok": True,
-        "tool": "delegate_tasks",
-        "kind": "tasklist",
-        "description": "Do two things",
-        "tasks": [
-            {"id": "task-1", "type": "task", "title": "First", "agent": "colin", "instruction": "Do first"},
-            {"id": "task-2", "type": "task", "title": "Second", "agent": "colin", "instruction": "Do second"},
-        ],
-    }
-
-    delegate_handler = FakeHandler(delegate_tasks_result)
-    reg = FakeRegistry(handler_by_name={"delegate_tasks": delegate_handler}, tool_defs=[{"name": "delegate_tasks"}])
-
-    proc = make_proc(registry=reg)
-
-    prompt_builder.build_prompt.return_value = [{"role": "user", "content": "plan"}]
-
-    setup_tool_then_text(llm_adapter, tool_name="delegate_tasks", tool_args='{"goal":"x"}', final_text="all done")
-
-    # Patch worker execution deterministically
-    real_process = proc.process_message
-
-    def side_effect(*, primary_agent, message, **kwargs):
-        if primary_agent.name == "colin":
-            return f"worker_result: {message[:20]}"
-        return real_process(primary_agent=primary_agent, message=message, **kwargs)
-
-    # Only needed for delegation tests: short-circuit worker execution without recursing
-    proc.process_message = Mock(side_effect=side_effect)
-
-    out = proc.process_message(
-        primary_agent=FakeAgent(name="lucy", max_delegation_depth=2),
-        secondary_agent=FakeAgent(name="colin"),
-        processor_factory=object(),
-        account={"accountId": "acct1"},
-        message="plan",
-        conversation_id="c1",
-        context_name="ctx",
-    )
-
-    assert out == "all done"
-
-    # We short-circuit worker execution, so we don't assert internal worker call counts here.
-    second_call_kwargs = llm_adapter.call_model.call_args_list[1].kwargs
-    assert second_call_kwargs["previous_response_id"] == "r1"
-    assert "tasks" in second_call_kwargs["input"][0]["output"]
-
-
 def test_duplicate_tool_calls_breaks_loop(make_proc, prompt_builder, llm_adapter):
     """When the model repeats the exact same tool call twice, the loop breaks."""
     from tests.conftest import FakeHandler, FakeRegistry, FakeAgent

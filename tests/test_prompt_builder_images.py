@@ -450,7 +450,7 @@ class TestSupportsImages:
 
     def test_supports_images_false_emits_instruction_regardless_of_tools(self, temp_images_root):
         """When supports_images=False, instruction is always emitted even if
-        agent_allowed_tools is empty or missing (not gated on delegate_tasks)."""
+        agent_allowed_tools is empty or missing."""
         img_id = "imgdel2"
         img_path = _create_image_file(temp_images_root, "junwin", img_id, "screenshot.png", b"marker test")
         filename = os.path.basename(img_path)

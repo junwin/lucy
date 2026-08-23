@@ -9,7 +9,6 @@ from src.chat2.facade import Chat2Store
 from src.config_manager import ConfigManager
 from src.handlers.handler_registry import HandlerRegistry
 from galet.adapter_interface import LLMAdapter
-from src.message_processors.automation_processor import AutomationProcessor
 from src.message_processors.fcp_models import (
     ProcessorContext,
     ToolHandlerError,
@@ -17,8 +16,6 @@ from src.message_processors.fcp_models import (
     _ToolCall,
 )
 from src.prompt_builders.prompt_builder_interface import PromptBuilderInterface
-from src.tasklists.task import Task
-from src.tasklists.task_list import TaskList
 
 def load_context_state(prompt_builder: Any, account_name: str, context_name: str) -> Optional[Any]:
     """Load the active Context (or None) for the given account/context.
@@ -58,7 +55,6 @@ class ToolExecutor:
         config: ConfigManager,
         prompt_builder: PromptBuilderInterface,
         llm_adapter: LLMAdapter,
-        automation_processor: Optional[AutomationProcessor],
         agent_manager: Optional[AgentManager],
         chat2_store: Optional[Chat2Store] = None,
     ):
@@ -66,7 +62,6 @@ class ToolExecutor:
         self.config = config
         self.prompt_builder = prompt_builder
         self.llm_adapter = llm_adapter
-        self.automation_processor = automation_processor
         self.agent_manager = agent_manager
         self.chat2_store = chat2_store
 
@@ -231,88 +226,6 @@ class ToolExecutor:
                     tc.call_id,
                     (tool_result_text or "")[:200],
                 )
-
-                if tc.name == "delegate_tasks" and secondary_agent is not None and processor_factory is not None and self.automation_processor is not None:
-                    try:
-                        maybe = json.loads(tool_result_text or "{}")
-                    except Exception:
-                        maybe = {}
-
-                    if isinstance(maybe, dict) and maybe.get("ok") and maybe.get("kind") == "tasklist":
-                        logging.info(
-                            "FunctionCallingProcessor: delegating tasklist to AutomationProcessor correlation_id=%s supervisor=%s worker=%s session_id=%s call_id=%s",
-                            correlation_id,
-                            ctx.agent_name,
-                            secondary_agent.name,
-                            ctx.conversation_id,
-                            tc.call_id,
-                        )
-                        try:
-                            # Build TaskList from delegate_tasks result
-                            tasklist_id = f"auto-{ctx.conversation_id}"
-                            description = maybe.get("description") or ""
-                            tasks = maybe.get("tasks") or []
-
-                            task_objects = []
-                            for t in tasks:
-                                t_id = t.get("id") or f"task-{len(task_objects)+1}"
-                                t_name = t.get("title") or ""
-                                t_instruction = t.get("instruction") or ""
-                                t_meta = {}
-                                if t.get("file"):
-                                    t_meta["file"] = t["file"]
-                                if t.get("params"):
-                                    t_meta.update(t["params"])
-                                task_objects.append(Task(
-                                    id=t_id,
-                                    name=t_name,
-                                    instructions=t_instruction,
-                                    meta=t_meta,
-                                ))
-
-                            tasklist = TaskList(
-                                id=tasklist_id,
-                                name=description[:80] or "auto-tasklist",
-                                description=description,
-                                tasks=task_objects,
-                            )
-
-                            # Persist to storage via AutomationProcessor storage
-                            self.automation_processor.storage.save_tasklist(
-                                ctx.account_id, tasklist_id, tasklist.to_dict()
-                            )
-
-                            # Execute via AutomationProcessor
-                            result_text = self.automation_processor.execute_tasklist(
-                                tasklist_id=tasklist_id,
-                                mode="multi-step",
-                                account_name=ctx.account_id,
-                                agent_name=ctx.agent_name,
-                                conversation_id=ctx.conversation_id,
-                                context_name=ctx.context_name,
-                                primary_agent=primary_agent,
-                                account=account,
-                                secondary_agent=secondary_agent,
-                                processor_factory=processor_factory,
-                            )
-
-                            tool_result_text = json.dumps({
-                                "ok": True,
-                                "tasklist_id": tasklist_id,
-                                "result": result_text,
-                            }, ensure_ascii=False)
-
-                        except Exception as e:
-                            logging.exception(
-                                "FunctionCallingProcessor: AutomationProcessor delegation failed correlation_id=%s supervisor=%s session_id=%s",
-                                correlation_id,
-                                ctx.agent_name,
-                                ctx.conversation_id,
-                            )
-                            tool_result_text = json.dumps({
-                                "ok": False,
-                                "error": f"Tasklist delegation failed: {type(e).__name__}: {e}",
-                            }, ensure_ascii=False)
 
                 # Collect raw result before enforcing max size (for SSE action/image inspection)
                 raw_results.append((tc, tool_result_text))

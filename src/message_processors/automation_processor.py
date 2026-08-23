@@ -490,7 +490,7 @@ class AutomationProcessor(MessageProcessorInterface):
         if raw_tasklist is None:
             raise ValueError(
                 f"Tasklist '{tasklist_id}' not found in storage. "
-                "Use tasklists_manage to list available tasklists, or delegate_tasks to create one."
+                "Use tasklists_manage to list or create tasklists."
             )
 
         if not isinstance(raw_tasklist, TaskList):
