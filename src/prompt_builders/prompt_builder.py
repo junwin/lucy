@@ -12,6 +12,7 @@ from injector import inject
 from src.config_manager import ConfigManager
 from src.agent import AgentManager, Agent
 from src.storage.base import Storage
+from src.storage.interfaces import ContextStore
 from src.prompt_builders.prompt_builder_interface import PromptBuilderInterface
 from src.utils.document_context import get_document_context
 from src.utils.text_snippet_loader import load_text_snippet
@@ -1086,18 +1087,16 @@ class PromptBuilder(PromptBuilderInterface):
     def _get_context_state(self, account_name: str, context_name: str) -> Optional[Any]:
         """Return the Context object (or None) for the named context.
 
-        This follows the same fallback logic as _get_context_text: prefer a
-        storage implementation that supports get_or_create_context, otherwise
-        use get_context. Fail softly and return None on errors.
+        Loaded through the ContextStore view via get_or_create_context
+        (a missing context is created with empty defaults). Fail softly
+        and return None on errors.
         """
         if not context_name or context_name == "none":
             return None
 
         try:
-            if hasattr(self.storage, "get_or_create_context"):
-                ctx = self.storage.get_or_create_context(account_name, context_name)
-            else:
-                ctx = self.storage.get_context(account_name, context_name)
+            store: ContextStore = self.storage
+            ctx = store.get_or_create_context(account_name, context_name)
             return ctx
         except Exception as ex:
             logging.warning(

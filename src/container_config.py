@@ -17,6 +17,7 @@ from src.config_manager import ConfigManager
 from src.agent import AgentManager
 from src.storage_paths.storage_paths import StoragePaths  
 from src.storage.base import Storage
+from src.storage.interfaces import ContextStore
 from src.storage.json_file_storage import JsonFileStorage
 
 from src.handlers.handler_registry import HandlerRegistry
@@ -92,6 +93,12 @@ class StorageModule(Module):
         )
 
         return JsonFileStorage(storage_paths)
+
+    @provider
+    @singleton
+    def provide_context_store(self, storage: Storage) -> ContextStore:
+        """Provide the same JsonFileStorage instance bound to ContextStore."""
+        return storage
 
     @provider
     @singleton

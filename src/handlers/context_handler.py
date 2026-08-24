@@ -23,6 +23,7 @@ from typing import Any, Dict, List, Optional
 
 from src.config_manager import ConfigManager
 from src.handlers.handler_v2 import HandlerV2
+from src.storage.interfaces import ContextStore
 from src.storage.json_file_storage import JsonFileStorage
 from src.storage_paths.storage_paths import StoragePaths
 
@@ -36,7 +37,7 @@ class ContextHandler(HandlerV2):
 
     def __init__(self, config: Optional[ConfigManager]):
         self.config = config
-        self.storage = self._build_storage(config)
+        self.storage: Optional[ContextStore] = self._build_storage(config)
 
     # ------------------------------------------------------------------
     # HandlerV2 contract
@@ -166,7 +167,7 @@ class ContextHandler(HandlerV2):
     # Helpers
     # ------------------------------------------------------------------
 
-    def _get_storage(self, context: Dict[str, Any]):
+    def _get_storage(self, context: Dict[str, Any]) -> Optional[ContextStore]:
         storage = context.get("storage")
         if storage is not None:
             return storage
