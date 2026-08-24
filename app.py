@@ -11,13 +11,15 @@ import uuid
 from src.request_context import request_id_var
 
 from src.storage.base import Storage
-from src.storage.models import ChatMessage
 
 from src.agent import AgentManager
 from src.container_config import container
 from src.config_manager import ConfigManager
 from src.prompt_builders.prompt_builder import PromptBuilder
-from src.message_endpoints.ask_request_handler import AskRequestHandler
+from src.message_endpoints.ask_request_handler import (
+    AskRequestHandler,
+    resolve_or_create_session,
+)
 from src.message_processors.sse_events import SSEEvent
 from src.tasklists.task import Task
 from src.tasklists.task_list import TaskList
@@ -290,75 +292,23 @@ def ask():
                 logging.info("/ask: friendlyName provided but agentName missing; skipping session lookup")
             else:
                 try:
-                    # Try to find existing session by friendly name
-                    matches = []
-                    if hasattr(storage, "find_chat_sessions_by_friendly_name"):
-                        matches = storage.find_chat_sessions_by_friendly_name(
-                            account_name, agent_name, friendly_name, limit=1
-                        )
-                    if matches:
-                        session = matches[0]
-                        conv_id = session.id
-                        payload["conversationId"] = conv_id
-                        logging.info(
-                            "/ask: resumed session id=%s for friendlyName=%s account=%s agent=%s",
-                            conv_id,
-                            friendly_name,
-                            account_name,
-                            agent_name,
-                        )
-                    else:
-                        # No existing session — create one so the conversationId is stable
-                        try:
-                            session = storage.create_chat_session(
-                                account_name=account_name,
-                                agent_name=agent_name,
-                                friendly_name=friendly_name,
-                            )
-                            conv_id = session.id
-                            payload["conversationId"] = conv_id
-                            logging.info(
-                                "/ask: created new session id=%s for friendlyName=%s account=%s agent=%s",
-                                conv_id,
-                                friendly_name,
-                                account_name,
-                                agent_name,
-                            )
-
-                            # Also create chat2 session with the same session_id
-                            if chat2_store is not None:
-                                try:
-                                    chat2_store.create_session(
-                                        user_id=account_name,
-                                        account_name=account_name,
-                                        agent_name=agent_name,
-                                        session_id=conv_id,
-                                        friendly_name=friendly_name,
-                                    )
-                                    logging.info(
-                                        "/ask: created chat2 session id=%s for friendlyName=%s account=%s agent=%s",
-                                        conv_id,
-                                        friendly_name,
-                                        account_name,
-                                        agent_name,
-                                    )
-                                except Exception:
-                                    logging.exception(
-                                        "/ask: failed to create chat2 session for friendlyName=%s account=%s agent=%s",
-                                        friendly_name,
-                                        account_name,
-                                        agent_name,
-                                    )
-                        except Exception:
-                            logging.exception(
-                                "/ask: failed to create chat session for friendlyName=%s account=%s agent=%s",
-                                friendly_name,
-                                account_name,
-                                agent_name,
-                            )
+                    conv_id = resolve_or_create_session(
+                        chat2_store=chat2_store,
+                        account_name=account_name,
+                        agent_name=agent_name,
+                        friendly_name=str(friendly_name).strip() or None,
+                    )
+                    payload["conversationId"] = conv_id
+                    logging.info(
+                        "/ask: resolved session id=%s for friendlyName=%s account=%s agent=%s",
+                        conv_id,
+                        friendly_name,
+                        account_name,
+                        agent_name,
+                    )
                 except Exception:
                     logging.exception(
-                        "/ask: failed to lookup chat session for friendlyName=%s account=%s agent=%s",
+                        "/ask: failed to resolve or create chat session for friendlyName=%s account=%s agent=%s",
                         friendly_name,
                         account_name,
                         agent_name,

@@ -19,10 +19,7 @@ from src.tasklists.service import TaskListService
 
 from .base import Storage
 from .models import (
-    ChatMessage,
-    ChatSession,
     UserProfile,
-    AgentProfile,
     Context,
     Skill,
     DocumentRef,
@@ -32,7 +29,6 @@ from .models import (
 import yaml
 import re
 
-from src.storage.json_file_storage_parts import chats 
 
 
 def _now_utc() -> datetime:
@@ -118,21 +114,6 @@ class JsonFileStorage(Storage):
     """JSON-backed storage implementation for Lucy.
 
     Notes:
-      - Per-account chat metadata includes an index file at <chats>/<account>/index.json
-        which maps session_id -> metadata. The index schema produced by
-        create_chat_session() is:
-
-        {
-          "<session_id>": {
-              "friendly_name": "...",
-              "agent_name": "...",
-              "account_name": "...",
-              "updated_at": "2023-...",
-              "include_in_context": true
-          },
-          ...
-        }
-
       - Contexts were previously stored as JSON files under
         contexts/<account>/<context_id>.json. They are now stored as
         Markdown files (<context_id>.md) with YAML frontmatter. Frontmatter
@@ -215,90 +196,6 @@ class JsonFileStorage(Storage):
     def _ensure_dir(self, path: Path) -> None:
         path.mkdir(parents=True, exist_ok=True)
 
-    # ----------------------------------------------------------------------
-    # Chat Sessions
-    # ----------------------------------------------------------------------
-
-    def create_chat_session(
-        self,
-        account_name: str,
-        agent_name: str,
-        friendly_name: Optional[str] = None,
-        tags: Optional[List[str]] = None,
-    ) -> ChatSession:
-        return chats.create_chat_session(self, account_name=account_name, agent_name=agent_name, friendly_name=friendly_name, tags=tags)
-
-
-    def find_chat_sessions_by_friendly_name(self, account_name: str, agent_name: str, friendly_name: str, limit: int = 20) -> List[ChatSession]:
-        return chats.find_chat_sessions_by_friendly_name(self, account_name, agent_name, friendly_name, limit)
-
-    # ----------------------------------------------------------------------
-
-    def get_chat_session(self, session_id: str) -> Optional[ChatSession]:
-        return chats.get_chat_session(self, session_id)
-
-    # ----------------------------------------------------------------------    # ----------------------------------------------------------------------
-
-    def list_chat_sessions(
-        self,
-        account_name: str,
-        agent_name: Optional[str] = None,
-        limit: int = 50,
-        before: Optional[datetime] = None,
-    ) -> List[ChatSession]:
-        return chats.list_chat_sessions(
-            self,
-            account_name=account_name,
-            agent_name=agent_name,
-            limit=limit,
-            before=before,
-        )
-
-    # ----------------------------------------------------------------------
-
-    def rename_chat_session(self, session_id: str, friendly_name: str) -> None:
-        """Backward-compatible API — delegates to update_chat_session()"""
-        return chats.rename_chat_session(self, session_id, friendly_name)
-
-    # ----------------------------------------------------------------------
-
-    def update_chat_session(
-        self,
-        session_id: str,
-        *,
-        friendly_name: Optional[str] = None,
-        tags: Optional[List[str]] = None,
-        summary: Optional[str] = None,
-        importance_score: Optional[float] = None,
-        include_in_context: Optional[bool] = None,
-        metadata: Optional[Dict[str, Any]] = None,
-    ) -> None:
-
-        return chats.update_chat_session(
-            self,
-            session_id,
-            friendly_name=friendly_name,
-            tags=tags,
-            summary=summary,
-            importance_score=importance_score,
-            include_in_context=include_in_context,
-            metadata=metadata,
-        )
-
-    # ----------------------------------------------------------------------
-
-    def append_chat_message(self, session_id: str, message: ChatMessage) -> None:
-        return chats.append_chat_message(self, session_id, message)
-
-    # ----------------------------------------------------------------------
-
-    def delete_chat_session(self, session_id: str) -> None:
-        return chats.delete_chat_session(self, session_id)
-
-    def _chat_dict_to_session(self, data: Dict[str, Any]) -> ChatSession:
-        """Convert stored JSON dict → ChatSession dataclass."""
-
-        return chats._chat_dict_to_session(self, data)
 
     # ----------------------------------------------------------------------
     # USER PROFILES
@@ -317,77 +214,6 @@ class JsonFileStorage(Storage):
             active=data.get("active", True),
         )
 
-    def upsert_user_profile(self, profile: UserProfile) -> None:
-        path = self.storage_paths.users
-        self._ensure_dir(path)
-
-        data = {
-            "account_name": profile.account_name,
-            "full_name": profile.full_name,
-            "preferences": profile.preferences,
-        }
-
-        self._atomic_write(path / f"{profile.account_name}.json", data)
-
-    # ----------------------------------------------------------------------
-    # Backwards-compatible aliases (older tests / API)
-    # ----------------------------------------------------------------------
-
-    def save_user(self, account_name: str, profile: Dict[str, Any]) -> None:
-        """Compatibility wrapper for older tests.
-
-        Expected input shape in tests:
-          {"name": "...", "preferences": {...}}
-        """
-        user_profile = UserProfile(
-            account_name=account_name,
-            full_name=profile.get("name"),
-            preferences=profile.get("preferences", {}),
-            active=True,
-        )
-        self.upsert_user_profile(user_profile)
-
-    def load_user(self, account_name: str) -> Optional[Dict[str, Any]]:
-        """Compatibility wrapper for older tests."""
-        profile = self.get_user_profile(account_name)
-        if not profile:
-            return None
-        return {
-            "name": profile.full_name,
-            "preferences": profile.preferences,
-        }
-
-    # ----------------------------------------------------------------------
-    # AGENT PROFILES
-    # ----------------------------------------------------------------------
-
-    def get_agent_profile(self, name: str) -> Optional[AgentProfile]:
-        path = self.storage_paths.agents / f"{name}.json"
-        data = self._load_json(path)
-        if not data:
-            return None
-
-        return AgentProfile(
-            name=data["name"],
-            model=data["model"],
-            temperature=data["temperature"],
-            message_processor=data["message_processor"],
-            config=data.get("config", {}),
-        )
-
-    def upsert_agent_profile(self, agent: AgentProfile) -> None:
-        path = self.storage_paths.agents
-        self._ensure_dir(path)
-
-        data = {
-            "name": agent.name,
-            "model": agent.model,
-            "temperature": agent.temperature,
-            "message_processor": agent.message_processor,
-            "config": agent.config,
-        }
-
-        self._atomic_write(path / f"{agent.name}.json", data)
 
     # ----------------------------------------------------------------------
     # CONTEXT / WHITEBOARD

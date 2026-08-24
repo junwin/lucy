@@ -8,9 +8,55 @@ from src.config_manager import ConfigManager
 from src.storage.base import Storage
 from src.message_processors.processor_factory import ProcessorFactory
 from src.message_processors.function_calling_processor import ToolHandlerError
-from src.storage.models import ChatMessage
 from src.chat2.facade import Chat2Store
+from src.chat2.models import ChatEvent
 
+
+def resolve_or_create_session(
+    chat2_store: Optional[Chat2Store],
+    account_name: str,
+    agent_name: str,
+    friendly_name: Optional[str],
+    limit: int = 500,
+) -> str:
+    """Resolve an existing chat2 session by friendly name or create a new one.
+
+    Mirrors v1 semantics: case-insensitive substring match on friendly_name,
+    scoped to account+agent, with an explicit limit so sessions beyond the
+    default 50 are not missed. Creation uses a stable session_id so IDs stay
+    consistent across storage layers.
+    """
+    if chat2_store is None:
+        logging.warning(
+            "/ask: chat2_store is None; session will not be persisted (account=%s agent=%s)",
+            account_name,
+            agent_name,
+        )
+        return str(uuid.uuid4())
+
+    if friendly_name:
+        q = friendly_name.strip().lower()
+        matches = [
+            meta
+            for meta in chat2_store.list_sessions(
+                account_name=account_name,
+                agent_name=agent_name,
+                limit=limit,
+            )
+            if (meta.friendly_name or "").strip().lower().find(q) != -1
+        ]
+        if matches:
+            return matches[0].session_id
+
+    session_id = str(uuid.uuid4())
+    chat2_store.create_session(
+        user_id=account_name,
+        account_name=account_name,
+        agent_name=agent_name,
+        session_id=session_id,
+        friendly_name=friendly_name or f"Chat {session_id[:8]}",
+    )
+    return session_id
 
 
 class AskRequestHandler:
@@ -186,107 +232,19 @@ class AskRequestHandler:
                     )
                     return 400, {"error": "Missing accountName or agentName for session creation"}
 
-                if friendly_name and hasattr(self.storage, "get_or_create_chat_session"):
-                    try:
-                        session, created = self.storage.get_or_create_chat_session(
-                            account_name=accountName,
-                            agent_name=agentName,
-                            friendly_name=friendly_name,
-                        )
-                        conversationId = session.id
-                        if created:
-                            self.logger.info(
-                                "/ask: created new chat session account=%s agent=%s friendlyName=%s session_id=%s",
-                                accountName,
-                                agentName,
-                                friendly_name,
-                                conversationId,
-                            )
-                        else:
-                            self.logger.info(
-                                "/ask: resolved conversation by friendlyName account=%s agent=%s friendlyName=%s -> session_id=%s",
-                                accountName,
-                                agentName,
-                                friendly_name,
-                                conversationId,
-                            )
-                        if created and self.chat2_store is not None:
-                            try:
-                                self.chat2_store.create_session(
-                                    user_id=accountName,
-                                    account_name=accountName,
-                                    agent_name=agentName,
-                                    session_id=conversationId,
-                                    friendly_name=friendly_name,
-                                )
-                                self.logger.info(
-                                    "/ask: created chat2 session for account=%s agent=%s friendlyName=%s session_id=%s",
-                                    accountName,
-                                    agentName,
-                                    friendly_name,
-                                    conversationId,
-                                )
-                            except Exception:
-                                self.logger.exception(
-                                    "/ask: failed to create chat2 session account=%s agent=%s friendlyName=%s",
-                                    accountName,
-                                    agentName,
-                                    friendly_name,
-                                )
-                    except Exception:
-                        self.logger.exception(
-                            "/ask: failed to create chat session account=%s agent=%s friendlyName=%s",
-                            accountName,
-                            agentName,
-                            friendly_name,
-                        )
-                        return 500, {"error": "Failed to create chat session"}
-                else:
-                    try:
-                        session = self.storage.create_chat_session(
-                            account_name=accountName,
-                            agent_name=agentName,
-                            friendly_name=friendly_name,
-                        )
-                        conversationId = session.id
-                        self.logger.info(
-                            "/ask: created new chat session account=%s agent=%s friendlyName=%s session_id=%s",
-                            accountName,
-                            agentName,
-                            friendly_name,
-                            conversationId,
-                        )
-                        if self.chat2_store is not None:
-                            try:
-                                self.chat2_store.create_session(
-                                    user_id=accountName,
-                                    account_name=accountName,
-                                    agent_name=agentName,
-                                    session_id=conversationId,
-                                    friendly_name=friendly_name,
-                                )
-                                self.logger.info(
-                                    "/ask: created chat2 session for account=%s agent=%s friendlyName=%s session_id=%s",
-                                    accountName,
-                                    agentName,
-                                    friendly_name,
-                                    conversationId,
-                                )
-                            except Exception:
-                                self.logger.exception(
-                                    "/ask: failed to create chat2 session account=%s agent=%s friendlyName=%s",
-                                    accountName,
-                                    agentName,
-                                    friendly_name,
-                                )
-                    except Exception:
-                        self.logger.exception(
-                            "/ask: failed to create chat session account=%s agent=%s friendlyName=%s",
-                            accountName,
-                            agentName,
-                            friendly_name,
-                        )
-                        return 500, {"error": "Failed to create chat session"}
+                conversationId = resolve_or_create_session(
+                    chat2_store=self.chat2_store,
+                    account_name=accountName,
+                    agent_name=agentName,
+                    friendly_name=friendly_name,
+                )
+                self.logger.info(
+                    "/ask: resolved session account=%s agent=%s friendlyName=%s session_id=%s",
+                    accountName,
+                    agentName,
+                    friendly_name,
+                    conversationId,
+                )
 
         except Exception:
             self.logger.exception(
@@ -323,13 +281,15 @@ class AskRequestHandler:
                 conversationId,
             )
             # Try to append the error to the session if we have one
-            if conversationId:
+            if conversationId and self.chat2_store is not None:
                 try:
-                    self.storage.append_chat_message(
+                    self.chat2_store.add_event(
                         conversationId,
-                        ChatMessage(
+                        ChatEvent(
                             role="assistant",
-                            content=error_message,
+                            actor=agentName,
+                            kind="system_note",
+                            payload=error_message,
                             metadata={"error": True},
                         ),
                     )
@@ -444,86 +404,27 @@ class AskRequestHandler:
             if friendly_name is not None:
                 friendly_name = str(friendly_name).strip() or None
 
-            if friendly_name and hasattr(self.storage, "get_or_create_chat_session"):
-                try:
-                    session, created = self.storage.get_or_create_chat_session(
-                        account_name=accountName,
-                        agent_name=agentName,
-                        friendly_name=friendly_name,
-                    )
-                    conversationId = session.id
-                    if created:
-                        self.logger.info(
-                            "/ask(streaming): created new chat session account=%s agent=%s friendlyName=%s session_id=%s",
-                            accountName,
-                            agentName,
-                            friendly_name,
-                            conversationId,
-                        )
-                    else:
-                        self.logger.info(
-                            "/ask(streaming): resolved conversation by friendlyName account=%s agent=%s friendlyName=%s -> session_id=%s",
-                            accountName,
-                            agentName,
-                            friendly_name,
-                            conversationId,
-                        )
-                    if created and self.chat2_store is not None:
-                        try:
-                            self.chat2_store.create_session(
-                                user_id=accountName,
-                                account_name=accountName,
-                                agent_name=agentName,
-                                session_id=conversationId,
-                                friendly_name=friendly_name,
-                            )
-                        except Exception:
-                            self.logger.exception(
-                                "/ask(streaming): failed to create chat2 session"
-                            )
-                except Exception:
-                    self.logger.exception(
-                        "/ask(streaming): failed to create chat session"
-                    )
-                    yield SSEEvent(type="error", message="Failed to create chat session").to_sse()
-                    yield SSEEvent(type="done").to_sse()
-                    return
-            else:
-                try:
-                    session = self.storage.create_chat_session(
-                        account_name=accountName,
-                        agent_name=agentName,
-                        friendly_name=friendly_name,
-                    )
-                    conversationId = session.id
-                    self.logger.info(
-                        "/ask(streaming): created new chat session account=%s agent=%s friendlyName=%s session_id=%s",
-                        accountName,
-                        agentName,
-                        friendly_name,
-                        conversationId,
-                    )
-
-                    if self.chat2_store is not None:
-                        try:
-                            self.chat2_store.create_session(
-                                user_id=accountName,
-                                account_name=accountName,
-                                agent_name=agentName,
-                                session_id=conversationId,
-                                friendly_name=friendly_name,
-                            )
-                        except Exception:
-                            self.logger.exception(
-                                "/ask(streaming): failed to create chat2 session"
-                            )
-                except Exception:
-                    self.logger.exception(
-                        "/ask(streaming): failed to create chat session"
-                    )
-                    yield SSEEvent(type="error", message="Failed to create chat session").to_sse()
-                    yield SSEEvent(type="done").to_sse()
-                    return
+            try:
+                conversationId = resolve_or_create_session(
+                    chat2_store=self.chat2_store,
+                    account_name=accountName,
+                    agent_name=agentName,
+                    friendly_name=friendly_name,
+                )
+                self.logger.info(
+                    "/ask(streaming): resolved session account=%s agent=%s friendlyName=%s session_id=%s",
+                    accountName,
+                    agentName,
+                    friendly_name,
+                    conversationId,
+                )
+            except Exception:
+                self.logger.exception(
+                    "/ask(streaming): failed to resolve or create chat session"
+                )
+                yield SSEEvent(type="error", message="Failed to create chat session").to_sse()
+                yield SSEEvent(type="done").to_sse()
+                return
 
         # Check if processor supports streaming
         if not hasattr(processor, "process_message_streaming"):

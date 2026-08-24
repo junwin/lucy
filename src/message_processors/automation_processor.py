@@ -20,7 +20,6 @@ from src.handlers.handler_registry import HandlerRegistry
 from src.message_processors.message_processor_interface import MessageProcessorInterface
 from src.prompt_builders.prompt_builder_interface import PromptBuilderInterface
 from src.storage.base import Storage
-from src.storage.models import ChatMessage
 
 # Avoid importing Storage at module import time because storage.__init__ may import
 # storage backends that depend on optional packages (pydantic). Use TYPE_CHECKING for typing only.

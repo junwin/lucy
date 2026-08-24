@@ -1,7 +1,6 @@
 # src/storage/base.py
 from __future__ import annotations
 from abc import ABC, abstractmethod
-from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
 
 # Use the tasklists compatibility layer which exposes the appropriate
@@ -10,10 +9,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from src.tasklists import Task, TaskList
 
 from .models import (
-    ChatMessage,
-    ChatSession,
     UserProfile,
-    AgentProfile,
     Context,
     Skill,
     DocumentRef,
@@ -25,89 +21,8 @@ class Storage(ABC):
     """Abstract storage interface for Lucy."""
 
     @abstractmethod
-    def create_chat_session(
-        self,
-        account_name: str,
-        agent_name: str,
-        friendly_name: Optional[str] = None,
-        tags: Optional[List[str]] = None,
-    ) -> ChatSession:
-        """Create a new chat session and return it."""
-        pass
-
-    @abstractmethod
-    def get_chat_session(self, session_id: str) -> Optional[ChatSession]:
-        """Return a full chat session (including messages), or None."""
-        pass
-
-    @abstractmethod
-    def list_chat_sessions(
-        self,
-        account_name: str,
-        agent_name: Optional[str] = None,
-        limit: int = 50,
-        before: Optional[datetime] = None,
-    ) -> List[ChatSession]:
-        """List recent chat sessions for a user."""
-        pass
-
-    @abstractmethod
-    def rename_chat_session(self, session_id: str, friendly_name: str) -> None:
-        """Update the human-friendly name for a session."""
-        pass
-
-    @abstractmethod
-    def update_chat_session(
-        self,
-        session_id: str,
-        *,
-        friendly_name: Optional[str] = None,
-        tags: Optional[List[str]] = None,
-        summary: Optional[str] = None,
-        importance_score: Optional[float] = None,
-        include_in_context: Optional[bool] = None,
-        metadata: Optional[Dict[str, Any]] = None,
-    ) -> None:
-        """Update chat session metadata."""
-        pass
-
-    @abstractmethod
-    def append_chat_message(
-        self,
-        session_id: str,
-        message: ChatMessage,
-    ) -> None:
-        """Append a message to a session."""
-        pass
-
-    @abstractmethod
-    def delete_chat_session(self, session_id: str) -> None:
-        """Delete a chat session and all its messages.
-
-        Should be idempotent: deleting a non-existent session is allowed
-        and should not raise, unless the implementation wants to signal
-        that explicitly.
-        """
-        pass
-
-    @abstractmethod
     def get_user_profile(self, account_name: str) -> Optional[UserProfile]:
         """Return stored user profile if it exists."""
-        pass
-
-    @abstractmethod
-    def upsert_user_profile(self, profile: UserProfile) -> None:
-        """Create or update user profile."""
-        pass
-
-    @abstractmethod
-    def get_agent_profile(self, name: str) -> Optional[AgentProfile]:
-        """Return agent profile."""
-        pass
-
-    @abstractmethod
-    def upsert_agent_profile(self, agent: AgentProfile) -> None:
-        """Create or update agent profile."""
         pass
 
     @abstractmethod
