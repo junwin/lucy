@@ -12,7 +12,7 @@ from injector import inject
 from src.config_manager import ConfigManager
 from src.agent import AgentManager, Agent
 from src.storage.base import Storage
-from src.storage.interfaces import ContextStore
+from src.storage.interfaces import ContextStore, DocumentStore, EmbeddingStore
 from src.prompt_builders.prompt_builder_interface import PromptBuilderInterface
 from src.utils.document_context import get_document_context
 from src.utils.text_snippet_loader import load_text_snippet
@@ -226,8 +226,9 @@ class PromptBuilder(PromptBuilderInterface):
                         max_chars=9000,
                     )
                 else:
+                    doc_store: DocumentStore = self.storage
                     doc_contexts = get_document_context(
-                        storage=self.storage,
+                        storage=doc_store,
                         account_name=account_name,
                         query=content_text,
                         kind="obsidian_note",
@@ -623,7 +624,8 @@ class PromptBuilder(PromptBuilderInterface):
                 namespaces,
             )
 
-            results = self.storage.query_embeddings(
+            embedding_store: EmbeddingStore = self.storage
+            results = embedding_store.query_embeddings(
                 namespaces=namespaces,
                 account_name=account_name,
                 query_vector=query_vector,
@@ -724,14 +726,15 @@ class PromptBuilder(PromptBuilderInterface):
             query_vector = resp.embeddings[0]
 
             # Auto-discover namespaces if not explicitly provided
+            embedding_store: EmbeddingStore = self.storage
             if namespaces is None:
-                namespaces = self.storage.list_embedding_namespaces(account_name)
+                namespaces = embedding_store.list_embedding_namespaces(account_name)
                 logging.info(
                     "PromptBuilder._get_digest_context: auto-discovered namespaces=%s",
                     namespaces,
                 )
 
-            results = self.storage.query_embeddings(
+            results = embedding_store.query_embeddings(
                 namespaces=namespaces,
                 account_name=account_name,
                 query_vector=query_vector,

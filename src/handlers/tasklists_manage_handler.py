@@ -6,6 +6,7 @@ from typing import Any, Dict, List
 
 from src.config_manager import ConfigManager
 from src.handlers.handler_v2 import HandlerV2
+from src.storage.interfaces import TasklistStore
 from src.storage.json_file_storage import JsonFileStorage
 from src.storage_paths.storage_paths import StoragePaths
 from src.tasklists.service import TaskListService
@@ -24,7 +25,7 @@ class TasklistsManageHandler(HandlerV2):
         storage_root = self.config.get("storage_root_path")
         storage_ns = self.config.get("storage_namespace")
         sp = StoragePaths(storage_root, storage_ns)
-        self.storage = JsonFileStorage(sp)
+        self.storage: TasklistStore = JsonFileStorage(sp)
         self.tasklist_service = TaskListService()
 
     @classmethod

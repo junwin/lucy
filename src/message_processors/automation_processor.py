@@ -19,12 +19,12 @@ from src.config_manager import ConfigManager
 from src.handlers.handler_registry import HandlerRegistry
 from src.message_processors.message_processor_interface import MessageProcessorInterface
 from src.prompt_builders.prompt_builder_interface import PromptBuilderInterface
-from src.storage.base import Storage
+from src.storage.interfaces import TasklistStore
 
 # Avoid importing Storage at module import time because storage.__init__ may import
 # storage backends that depend on optional packages (pydantic). Use TYPE_CHECKING for typing only.
 if TYPE_CHECKING:
-    from src.storage.base import Storage
+    from src.storage.interfaces import TasklistStore
 
 from src.chat2.facade import Chat2Store
 from src.chat2.models import ChatEvent
@@ -218,7 +218,7 @@ class AutomationProcessor(MessageProcessorInterface):
         self,
         config: ConfigManager,
         registry: HandlerRegistry,
-        storage: Storage,
+        storage: TasklistStore,
         prompt_builder: PromptBuilderInterface,
         chat2_store: Optional[Chat2Store] = None,
         llm_adapter: Optional[LLMAdapter] = None,
