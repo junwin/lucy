@@ -13,6 +13,8 @@ from src.message_processors.automation_processor import (
     AutomationProcessor,
     _is_mandatory_stop_response,
 )
+from src.message_processors.function_calling_processor import FCPResult
+from src.message_processors.run_metrics import RunMetrics
 from src.tasklists.task import Task
 from src.tasklists.task_list import TaskList
 from src.tasklists.task_states import (
@@ -40,7 +42,7 @@ class FakeFunctionProcessor:
 
     def process_message(self, **kwargs):
         self.calls += 1
-        return self.response
+        return FCPResult(text=self.response, metrics=RunMetrics())
 
 
 class FakeProcessorFactory:

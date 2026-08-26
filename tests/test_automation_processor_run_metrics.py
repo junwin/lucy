@@ -1,10 +1,4 @@
-"""Regression tests for GH issue #132.
-
-AutomationProcessor.execute_tasklist must tolerate nullable inputs
-(context_name=None, worker_agent=None, task.agent=None, empty
-task.instructions) instead of crashing with
-'NoneType' object has no attribute 'strip'.
-"""
+"""Test that AutomationProcessor attaches per-task run metrics and persists them."""
 
 import uuid
 from types import SimpleNamespace
@@ -15,16 +9,28 @@ from src.message_processors.run_metrics import RunMetrics
 from src.tasklists.task import Task
 from src.tasklists.task_list import TaskList
 from src.tasklists.task_states import TASK_STATE_COMPLETED
+from src.tasklists.task_states import TASK_STATE_FAILED
 
 
-class RecordingFunctionProcessor:
-    def __init__(self, response="Task finished successfully."):
-        self.response = response
+class MetricsFunctionProcessor:
+    def __init__(self, text="Task finished successfully.", metrics=None):
+        self.text = text
+        self.metrics = metrics or RunMetrics(
+            correlation_id="corr-123",
+            iterations=3,
+            max_iterations=10,
+            openai_calls=4,
+            tool_calls=2,
+            prompt_tokens=100,
+            completion_tokens=50,
+            failures=0,
+            duration_ms=1500,
+        )
         self.calls = []
 
     def process_message(self, **kwargs):
         self.calls.append(kwargs)
-        return FCPResult(text=self.response, metrics=RunMetrics())
+        return FCPResult(text=self.text, metrics=self.metrics)
 
 
 class RecordingProcessorFactory:
@@ -37,9 +43,10 @@ class RecordingProcessorFactory:
         return None
 
 
-class FakeStorage:
+class RecordingStorage:
     def __init__(self, tasklist):
         self.tasklist = tasklist
+        self.saved = []
 
     def get_tasklist(self, account_name, tasklist_id):
         return self.tasklist
@@ -48,21 +55,11 @@ class FakeStorage:
         return [self.tasklist.id]
 
     def save_tasklist(self, account_name, tasklist_id, data):
-        pass
-
-
-def make_tasklist(*, instructions="Do the thing", agent=None):
-    task = Task(
-        id=str(uuid.uuid4()),
-        name="T1",
-        instructions=instructions,
-        agent=agent,
-    )
-    return TaskList(id="tl-1", name="demo", description="demo", tasks=[task])
+        self.saved.append(data)
 
 
 def run_tasklist(function_processor, tasklist, **overrides):
-    storage = FakeStorage(tasklist)
+    storage = RecordingStorage(tasklist)
     ap = AutomationProcessor(
         config=None,
         registry=None,
@@ -85,35 +82,40 @@ def run_tasklist(function_processor, tasklist, **overrides):
     }
     kwargs.update(overrides)
     result = ap.execute_tasklist(**kwargs)
-    return result, tasklist, tasklist.tasks[0]
+    return result, storage, tasklist.tasks[0]
 
 
-def test_none_context_name_does_not_crash():
-    fcp = RecordingFunctionProcessor()
+def make_tasklist(*, instructions="Do the thing"):
+    task = Task(id=str(uuid.uuid4()), name="T1", instructions=instructions)
+    return TaskList(id="tl-1", name="demo", description="demo", tasks=[task])
+
+
+def test_automation_attaches_run_metrics():
+    fcp = MetricsFunctionProcessor()
     tasklist = make_tasklist()
-    result, tasklist, task = run_tasklist(fcp, tasklist, context_name=None)
+    result, storage, task = run_tasklist(fcp, tasklist)
+
+    expected = fcp.metrics.to_dict()
 
     assert "state=Failed" not in result
     assert task.state == TASK_STATE_COMPLETED
-    assert fcp.calls
-    assert fcp.calls[0]["context_name"] == ""
+    assert task.run_metrics == expected
+    assert task.result["output"] == fcp.text
+
+    assert storage.saved
+    saved_task = storage.saved[-1]["tasks"][0]
+    assert saved_task["run_metrics"] == expected
 
 
-def test_none_worker_agent_does_not_crash():
-    fcp = RecordingFunctionProcessor()
+def test_automation_mandatory_stop_uses_text_only():
+    fcp = MetricsFunctionProcessor(
+        text="I received an empty response from the model",
+        metrics=RunMetrics(correlation_id="corr-456", failures=1),
+    )
     tasklist = make_tasklist()
-    result, tasklist, task = run_tasklist(fcp, tasklist, worker_agent=None)
+    result, storage, task = run_tasklist(fcp, tasklist)
 
-    assert "state=Failed" not in result
-    assert task.state == TASK_STATE_COMPLETED
-    assert fcp.calls
-
-
-def test_nullable_task_fields_do_not_crash():
-    fcp = RecordingFunctionProcessor()
-    tasklist = make_tasklist(instructions="", agent=None)
-    result, tasklist, task = run_tasklist(fcp, tasklist, context_name=None)
-
-    assert "state=Failed" not in result
-    assert task.state == TASK_STATE_COMPLETED
-    assert not fcp.calls
+    assert "state=Failed" in result
+    assert task.state == TASK_STATE_FAILED
+    assert task.error is not None
+    assert task.run_metrics == fcp.metrics.to_dict()

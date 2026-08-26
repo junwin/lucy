@@ -1,5 +1,6 @@
 import json
 import uuid
+from dataclasses import fields
 
 from src.tasklists.service import TaskListService
 from src.tasklists.task import Task
@@ -230,3 +231,65 @@ def test_tasklist_get_children_no_matches_returns_empty():
     tl = TaskList(id="tl2", name="n", description="d", tasks=[t1])
     children = tl.get_children("nomatch")
     assert children == []
+
+
+def test_task_run_metrics_persist():
+    metrics = {
+        "correlation_id": "c-1",
+        "iterations": 3,
+        "max_iterations": 10,
+        "hit_iteration_cap": False,
+        "openai_calls": 3,
+        "tool_calls": 2,
+        "prompt_tokens": 100,
+        "completion_tokens": 20,
+        "total_tokens": 120,
+        "failures": 0,
+        "duration_ms": 42,
+    }
+    assert "run_metrics" in {f.name for f in fields(Task)}
+
+    t = Task(id=str(uuid.uuid4()), name="T10", instructions="Do", run_metrics=metrics)
+    assert t.run_metrics == metrics
+    d = t.to_dict()
+    assert d["run_metrics"] == metrics
+    loaded = Task.from_dict(d)
+    assert loaded.run_metrics == metrics
+
+    plain = Task(id=str(uuid.uuid4()), name="T11", instructions="Do")
+    assert plain.run_metrics is None
+    assert "run_metrics" not in plain.to_dict()
+    loaded_plain = Task.from_dict(plain.to_dict())
+    assert loaded_plain.run_metrics is None
+
+    legacy = {"id": str(uuid.uuid4()), "name": "T12", "instructions": "Do"}
+    legacy_loaded = Task.from_dict(legacy)
+    assert legacy_loaded.run_metrics is None
+
+
+def test_task_reset_clears_run_metrics():
+    svc = TaskListService()
+    tl = TaskList(
+        id="reset-metrics-tl",
+        name="n",
+        description="d",
+        state=TASK_LIST_STATE_COMPLETED,
+        current_task_id="t1",
+        tasks=[
+            Task(
+                id="t1",
+                name="T1",
+                instructions="i",
+                state=TASK_STATE_COMPLETED,
+                result={"ok": True},
+                error="boom",
+                run_metrics={"iterations": 5, "failures": 1},
+            ),
+        ],
+    )
+    svc.reset(tl)
+    task = tl.tasks[0]
+    assert task.state == TASK_STATE_PENDING
+    assert task.result is None
+    assert task.error is None
+    assert task.run_metrics is None

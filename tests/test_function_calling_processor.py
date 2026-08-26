@@ -18,7 +18,7 @@ def test_no_tool_calls_returns_text(make_proc, prompt_builder, llm_adapter):
         message="hi",
         conversation_id="c1",
         context_name="ctx",
-    )
+    ).text
 
     assert out == "hello!"
     assert llm_adapter.call_model.call_count == 1
@@ -47,7 +47,7 @@ def test_tool_call_executes_handler_and_chains(make_proc, prompt_builder, llm_ad
         message="do thing",
         conversation_id="c1",
         context_name="ctx",
-    )
+    ).text
 
     assert out == "done"
     # handler.calls is [(args, account_name, context_dict)]
@@ -120,7 +120,7 @@ def test_max_iterations_exceeded_returns_limit_message(make_proc, prompt_builder
         message="loop",
         conversation_id="c1",
         context_name="ctx",
-    )
+    ).text
 
     assert "internal limit" in out.lower()
     assert llm_adapter.call_model.call_count == 1
@@ -148,7 +148,7 @@ def test_bad_json_tool_args_falls_back_to_empty_dict(make_proc, prompt_builder, 
         message="bad json",
         conversation_id="c1",
         context_name="ctx",
-    )
+    ).text
 
     assert out == "ok"
     # handler.calls is [(args, account_name, context_dict)]
@@ -216,7 +216,7 @@ def test_duplicate_tool_calls_breaks_loop(make_proc, prompt_builder, llm_adapter
         message="search for stuff",
         conversation_id="c1",
         context_name="ctx",
-    )
+    ).text
 
     # Should break early with the duplicate-detection message, not hit max_iterations
     assert "repeating" in out.lower() or "loop" in out.lower()
@@ -257,7 +257,7 @@ def test_different_tool_calls_do_not_trigger_duplicate_detection(make_proc, prom
         message="do two things",
         conversation_id="c1",
         context_name="ctx",
-    )
+    ).text
 
     assert out == "done"
     assert llm_adapter.call_model.call_count == 3
@@ -379,7 +379,7 @@ class TestEnsureChat2SessionContextName:
             message="hi",
             conversation_id="c1",
             context_name="unused",
-        )
+        ).text
 
         assert out == "all good"
 
@@ -406,7 +406,7 @@ class TestEnsureChat2SessionContextName:
             message="hi",
             conversation_id="c1",
             context_name="should_not_be_used",
-        )
+        ).text
 
         assert out == "transient"
         mock_store.session_exists.assert_not_called()
@@ -634,7 +634,7 @@ def test_required_tool_not_permissioned_returns_error(make_proc, prompt_builder,
         message="x",
         conversation_id="c1",
         context_name="food_diary",
-    )
+    ).text
 
     assert "not permissioned" in out
     assert "execute_command" in out
@@ -665,7 +665,7 @@ def test_required_tool_not_registered_returns_error(make_proc, prompt_builder, l
         message="x",
         conversation_id="c1",
         context_name="food_diary",
-    )
+    ).text
 
     assert "not registered" in out
     assert "ghost_tool" in out
@@ -697,7 +697,7 @@ def test_budget_exceeded_returns_error(make_proc, prompt_builder, llm_adapter, c
         message="x",
         conversation_id="c1",
         context_name="ctx",
-    )
+    ).text
 
     assert "budget" in out
 
@@ -764,7 +764,7 @@ def test_unknown_tool_returns_recoverable_error_to_llm(make_proc, prompt_builder
         message="run it",
         conversation_id="c1",
         context_name="ctx",
-    )
+    ).text
 
     assert out == "ok"
 
@@ -842,7 +842,7 @@ def test_streaming_and_nonstreaming_paths_produce_same_final_text(make_proc, pro
 
     # ── Non-streaming path ──
     setup_tool_then_text(llm_adapter, tool_name="my_tool", tool_args='{"x": 1}', final_text="done")
-    final_text = proc.process_message(**request_kwargs)
+    final_text = proc.process_message(**request_kwargs).text
     assert final_text == "done"
 
     # ── Streaming path: same LLM/tool sequence, fresh mock state ──

@@ -11,6 +11,8 @@ import uuid
 
 from src.agent.agent import Agent
 from src.message_processors.automation_processor import AutomationProcessor
+from src.message_processors.function_calling_processor import FCPResult
+from src.message_processors.run_metrics import RunMetrics
 from src.tasklists.task import Task
 from src.tasklists.task_list import TaskList
 from src.tasklists.task_states import TASK_STATE_COMPLETED
@@ -31,7 +33,7 @@ class CaptureFunctionProcessor:
     def process_message(self, **kwargs):
         primary = kwargs.get("primary_agent")
         self.captured.append(getattr(primary, "name", None))
-        return "done"
+        return FCPResult(text="done", metrics=RunMetrics())
 
 
 class FakeProcessorFactory:

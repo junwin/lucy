@@ -255,7 +255,7 @@ class AskRequestHandler:
             return 500, {"error": "Failed to resolve or create session"}
 
         try:
-            response_text = processor.process_message(
+            result = processor.process_message(
                 primary_agent=primary_agent,
                 secondary_agent=partner_agent_obj,
                 account=account,
@@ -267,6 +267,7 @@ class AskRequestHandler:
                 processor_factory=self.processor_factory,
                 correlation_id=correlation_id,
             )
+            response_text = result.text
 
             # Return the conversation id so callers can persist it for future requests
             return 200, {"response": response_text, "conversation_id": conversationId}

@@ -657,7 +657,7 @@ class AutomationProcessor(MessageProcessorInterface):
                             "warning": "Task has no instructions. Provide task.instructions to execute.",
                         }
                     else:
-                        response = function_processor.process_message(
+                        fcp_result = function_processor.process_message(
                             primary_agent=task_agent,
                             account=account,
                             message=task_message,
@@ -670,6 +670,8 @@ class AutomationProcessor(MessageProcessorInterface):
                             correlation_id=correlation_id,
                         )
 
+                        response = fcp_result.text
+                        task.run_metrics = fcp_result.metrics.to_dict()
                         task_result = {"timestamp": _now_utc().isoformat(), "output": response}
 
                         if _is_mandatory_stop_response(response):

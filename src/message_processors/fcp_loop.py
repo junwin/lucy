@@ -6,6 +6,7 @@ from typing import Any, Dict, Generator, List, Optional, Tuple
 from src.agent import Agent
 from src.config_manager import ConfigManager
 from galet.adapter_interface import LLMAdapter
+from galet.dto import LLMUsage
 from galet.provider_registry import ProviderRegistry
 from src.message_processors.fcp_models import (
     ProcessorContext,
@@ -155,6 +156,14 @@ class LLMLoopRunner:
                     llm_response,
                 )
 
+                usage_getter = getattr(self.llm_adapter, "get_usage", None)
+                if usage_getter is not None:
+                    usage = usage_getter(llm_response)
+                    if isinstance(usage, LLMUsage):
+                        metrics["prompt_tokens"] += usage.input_tokens or 0
+                        metrics["completion_tokens"] += usage.output_tokens or 0
+                        metrics["total_tokens"] += usage.total_tokens or 0
+
                 result_response_id = self.llm_adapter.get_response_id(llm_response)
                 if result_response_id:
                     previous_response_id = result_response_id
@@ -224,6 +233,7 @@ class LLMLoopRunner:
                 if not previous_response_id:
                     metrics["failures"] += 1
                     yield SSEEvent(type="error", message="LLM returned tool_calls but no response_id.")
+                    yield SSEEvent(type="metrics", metrics=dict(metrics))
                     yield SSEEvent(type="done", conversation_id=ctx.conversation_id)
                     return
 
@@ -256,6 +266,7 @@ class LLMLoopRunner:
                     for tc in tool_calls:
                         yield SSEEvent(type="tool_result", call_id=tc.call_id, ok=False)
                     yield SSEEvent(type="error", message=str(e))
+                    yield SSEEvent(type="metrics", metrics=dict(metrics))
                     yield SSEEvent(type="done", conversation_id=ctx.conversation_id)
                     return
 
@@ -303,6 +314,7 @@ class LLMLoopRunner:
                         "I ran into an internal limit while trying to call tools multiple times. "
                         "I may not have completed all requested actions. Please try rephrasing or splitting your request."
                     )
+                    metrics["hit_iteration_cap"] = True
                     break
 
                 provider_name = ProviderRegistry.resolve_name(ctx.model, ctx.provider)
@@ -327,6 +339,7 @@ class LLMLoopRunner:
                 message_id=f"msg-{ctx.conversation_id}-final",
             )
 
+        yield SSEEvent(type="metrics", metrics=dict(metrics))
         yield SSEEvent(type="done", conversation_id=ctx.conversation_id)
 
         logging.info(

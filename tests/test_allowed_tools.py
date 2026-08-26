@@ -410,7 +410,7 @@ def test_handler_schema_cap_over_budget_returns_error(make_proc, registry, llm_a
     proc = make_proc(registry=registry, llm_adapter=llm_adapter)
     agent = Agent(name="a", allowed_tools=["t1", "t2", "t3"], save_responses=False)
 
-    resp = proc.process_message(primary_agent=agent, account={"accountId": "acct"}, message="hi")
+    resp = proc.process_message(primary_agent=agent, account={"accountId": "acct"}, message="hi").text
 
     # The pipeline raises budget_exceeded; the FCP returns the human-readable
     # message and the main LLM is never called.

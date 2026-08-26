@@ -33,6 +33,7 @@ from src.prompt_builders.prompt_builder import estimate_tokens_from_text
 from src.tool_selection import ToolSelectionError, ToolSelectionPipeline
 from src.message_processors.fcp_tool_executor import ToolExecutor, load_context_state
 from src.message_processors.fcp_loop import LLMLoopRunner
+from src.message_processors.run_metrics import RunMetrics
 
 
 def _log_token_breakdown(ctx: ProcessorContext, prompt_builder: Any, filtered_function_defs: List[Dict[str, Any]]) -> None:
@@ -185,6 +186,32 @@ class _PromptSetupResult(NamedTuple):
     prompt_messages: List[Dict[str, Any]]
     filtered_function_defs: List[Dict[str, Any]]
     supports_images: bool
+
+
+class FCPResult(NamedTuple):
+    text: str
+    metrics: RunMetrics
+
+
+def _build_run_metrics(
+    metrics: Dict[str, Any],
+    ctx: ProcessorContext,
+    correlation_id: str,
+    latency_ms: int,
+) -> RunMetrics:
+    return RunMetrics(
+        correlation_id=correlation_id,
+        iterations=metrics.get("iterations", 0),
+        max_iterations=ctx.max_iterations,
+        hit_iteration_cap=metrics.get("hit_iteration_cap", False),
+        openai_calls=metrics.get("openai_calls", 0),
+        tool_calls=metrics.get("tool_calls", 0),
+        prompt_tokens=metrics.get("prompt_tokens", 0),
+        completion_tokens=metrics.get("completion_tokens", 0),
+        total_tokens=metrics.get("total_tokens", 0),
+        failures=metrics.get("failures", 0),
+        duration_ms=latency_ms,
+    )
 
 
 class FunctionCallingProcessor(MessageProcessorInterface):
@@ -355,13 +382,17 @@ class FunctionCallingProcessor(MessageProcessorInterface):
         image_ids: Optional[List[str]] = None,
         file_ids: Optional[List[str]] = None,
         correlation_id: Optional[str] = None,
-    ) -> str:
+    ) -> FCPResult:
         start_ts = time.perf_counter()
         metrics: Dict[str, Any] = {
             "iterations": 0,
             "openai_calls": 0,
             "tool_calls": 0,
             "failures": 0,
+            "hit_iteration_cap": False,
+            "prompt_tokens": 0,
+            "completion_tokens": 0,
+            "total_tokens": 0,
         }
 
         if correlation_id is None:
@@ -371,7 +402,10 @@ class FunctionCallingProcessor(MessageProcessorInterface):
 
         if not primary_agent:
             metrics["failures"] += 1
-            return "[FunctionCallingProcessor] Missing primary_agent configuration."
+            return FCPResult(
+                text="[FunctionCallingProcessor] Missing primary_agent configuration.",
+                metrics=RunMetrics(correlation_id=correlation_id, failures=1),
+            )
 
         ctx = ProcessorContext.from_agent(
             primary_agent=primary_agent,
@@ -382,7 +416,10 @@ class FunctionCallingProcessor(MessageProcessorInterface):
 
         if not ctx.account_id:
             metrics["failures"] += 1
-            return "[FunctionCallingProcessor] Missing account.accountId."
+            return FCPResult(
+                text="[FunctionCallingProcessor] Missing account.accountId.",
+                metrics=RunMetrics(correlation_id=correlation_id, failures=1),
+            )
 
         try:
             setup = self._prepare_prompt_and_tools(
@@ -433,7 +470,11 @@ class FunctionCallingProcessor(MessageProcessorInterface):
                     [SSEEvent(type="text", content=response_text)],
                 )
 
-            return response_text
+            latency_ms = int((time.perf_counter() - start_ts) * 1000)
+            return FCPResult(
+                text=response_text,
+                metrics=_build_run_metrics(metrics, ctx, correlation_id, latency_ms),
+            )
 
         except ToolHandlerError:
             raise
@@ -458,7 +499,11 @@ class FunctionCallingProcessor(MessageProcessorInterface):
                     "FunctionCallingProcessor: failed to store tool-selection error for session_id=%s",
                     ctx.conversation_id,
                 )
-            return e.message
+            latency_ms = int((time.perf_counter() - start_ts) * 1000)
+            return FCPResult(
+                text=e.message,
+                metrics=_build_run_metrics(metrics, ctx, correlation_id, latency_ms),
+            )
 
         except Exception as e:
             metrics["failures"] += 1
@@ -531,6 +576,10 @@ class FunctionCallingProcessor(MessageProcessorInterface):
             "openai_calls": 0,
             "tool_calls": 0,
             "failures": 0,
+            "hit_iteration_cap": False,
+            "prompt_tokens": 0,
+            "completion_tokens": 0,
+            "total_tokens": 0,
         }
 
         if correlation_id is None:
@@ -545,6 +594,7 @@ class FunctionCallingProcessor(MessageProcessorInterface):
         if not primary_agent:
             metrics["failures"] += 1
             yield SSEEvent(type="error", message="Missing primary_agent configuration.").to_sse()
+            yield SSEEvent(type="metrics", metrics=dict(metrics)).to_sse()
             yield SSEEvent(type="done").to_sse()
             return
 
@@ -558,6 +608,7 @@ class FunctionCallingProcessor(MessageProcessorInterface):
         if not ctx.account_id:
             metrics["failures"] += 1
             yield SSEEvent(type="error", message="Missing account.accountId.").to_sse()
+            yield SSEEvent(type="metrics", metrics=dict(metrics)).to_sse()
             yield SSEEvent(type="done").to_sse()
             return
 
@@ -611,6 +662,7 @@ class FunctionCallingProcessor(MessageProcessorInterface):
 
         except ToolHandlerError:
             yield SSEEvent(type="error", message="A tool execution error occurred.").to_sse()
+            yield SSEEvent(type="metrics", metrics=dict(metrics)).to_sse()
             yield SSEEvent(type="done", conversation_id=ctx.conversation_id).to_sse()
             raise
 
@@ -637,6 +689,7 @@ class FunctionCallingProcessor(MessageProcessorInterface):
                     ctx.conversation_id,
                 )
             yield SSEEvent(type="error", message=e.message).to_sse()
+            yield SSEEvent(type="metrics", metrics=dict(metrics)).to_sse()
             yield SSEEvent(type="done", conversation_id=ctx.conversation_id).to_sse()
 
         except Exception as e:
@@ -664,6 +717,7 @@ class FunctionCallingProcessor(MessageProcessorInterface):
                 )
 
             yield SSEEvent(type="error", message=error_message).to_sse()
+            yield SSEEvent(type="metrics", metrics=dict(metrics)).to_sse()
             yield SSEEvent(type="done", conversation_id=ctx.conversation_id).to_sse()
 
         finally:

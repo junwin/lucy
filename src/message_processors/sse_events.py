@@ -12,7 +12,7 @@ from typing import Literal, Optional
 class SSEEvent(BaseModel):
     """A single Server-Sent Event for the /ask streaming path."""
 
-    type: Literal["text", "tool_call", "tool_result", "image", "action", "done", "error"]
+    type: Literal["text", "tool_call", "tool_result", "image", "action", "done", "error", "metrics"]
 
     # --- text ---
     content: Optional[str] = None  # full message in Phase 1, deltas in Phase 4
@@ -44,6 +44,8 @@ class SSEEvent(BaseModel):
 
     # --- error ---
     message: Optional[str] = None
+
+    metrics: Optional[dict] = None
 
     def to_sse(self) -> str:
         """Serialize to SSE wire format: data: <json>\n\n"""

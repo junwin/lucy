@@ -67,6 +67,7 @@ class TaskListService:
             t.state = TASK_STATE_PENDING
             t.result = None
             t.error = None
+            t.run_metrics = None
         return tasklist
 
     def _normalize(self, tasklist: TaskList) -> None:
