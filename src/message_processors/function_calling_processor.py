@@ -36,18 +36,13 @@ from src.message_processors.fcp_loop import LLMLoopRunner
 from src.message_processors.run_metrics import RunMetrics
 
 
-def _log_token_breakdown(ctx: ProcessorContext, prompt_builder: Any, filtered_function_defs: List[Dict[str, Any]]) -> None:
-    """Measure and log token counts for all prompt sections including handler definitions.
+def _compute_prompt_token_breakdown(prompt_builder: Any, filtered_function_defs: List[Dict[str, Any]]) -> Dict[str, int]:
+    """Compute token counts for all prompt sections including handler definitions.
 
     Guarded against Mock objects in tests: if prompt_builder doesn't have a real
-    breakdown dict, logs zeros across the board.
+    breakdown dict, returns zeros across the board. Handlers use the shared
+    _handler_schema_tokens() estimator so all callers agree on the same count.
     """
-    try:
-        handlers_text = json.dumps(filtered_function_defs, ensure_ascii=False)
-        handler_tokens = estimate_tokens_from_text(handlers_text)
-    except Exception:
-        handler_tokens = 0
-
     pb_breakdown = getattr(prompt_builder, "_last_prompt_token_breakdown", {})
     if isinstance(pb_breakdown, dict):
         system_tokens = pb_breakdown.get("system_session", 0)
@@ -61,22 +56,46 @@ def _log_token_breakdown(ctx: ProcessorContext, prompt_builder: Any, filtered_fu
         # Mock or other non-dict — safe zeroes
         system_tokens = context_tokens = obsidian_tokens = digest_tokens = history_tokens = user_tokens = total_without_handlers = 0
 
-    total_tokens = total_without_handlers + handler_tokens
+    try:
+        handler_tokens = _handler_schema_tokens(filtered_function_defs)
+    except Exception:
+        handler_tokens = 0
+
+    return {
+        "system": system_tokens,
+        "handlers": handler_tokens,
+        "context": context_tokens,
+        "obsidian": obsidian_tokens,
+        "digest": digest_tokens,
+        "history": history_tokens,
+        "user": user_tokens,
+        "total": total_without_handlers + handler_tokens,
+    }
+
+
+def _log_token_breakdown(ctx: ProcessorContext, prompt_builder: Any, filtered_function_defs: List[Dict[str, Any]]) -> Dict[str, int]:
+    """Measure and log token counts for all prompt sections including handler definitions.
+
+    Calls _compute_prompt_token_breakdown() once and returns the breakdown dict
+    so callers can reuse it without recomputing.
+    """
+    breakdown = _compute_prompt_token_breakdown(prompt_builder, filtered_function_defs)
 
     logging.info(
         "Prompt.token_breakdown: agent=%s account=%s session=%s system=%d handlers=%d context=%d obsidian=%d digest=%d history=%d user=%d total=%d",
         ctx.agent_name,
         ctx.account_id,
         ctx.conversation_id,
-        system_tokens,
-        handler_tokens,
-        context_tokens,
-        obsidian_tokens,
-        digest_tokens,
-        history_tokens,
-        user_tokens,
-        total_tokens,
+        breakdown["system"],
+        breakdown["handlers"],
+        breakdown["context"],
+        breakdown["obsidian"],
+        breakdown["digest"],
+        breakdown["history"],
+        breakdown["user"],
+        breakdown["total"],
     )
+    return breakdown
 
 
 def resolve_tool_defs(registry, agent, context_state: Optional[Any] = None) -> List[Dict[str, Any]]:
@@ -308,6 +327,7 @@ class FunctionCallingProcessor(MessageProcessorInterface):
         image_ids: Optional[List[str]],
         file_ids: Optional[List[str]],
         supports_images: Optional[bool] = None,
+        correlation_id: Optional[str] = None,
     ) -> _PromptSetupResult:
         if supports_images is None:
             supports_images = self.llm_adapter.supports_image_processing(ctx.model, ctx.provider)
@@ -342,7 +362,9 @@ class FunctionCallingProcessor(MessageProcessorInterface):
             message=message,
         )
 
-        _log_token_breakdown(ctx, self.prompt_builder, filtered_function_defs)
+        breakdown = _log_token_breakdown(ctx, self.prompt_builder, filtered_function_defs)
+        if ctx.store_this_call:
+            self.chat2.write_prompt_report(ctx, breakdown, correlation_id=correlation_id)
 
         return _PromptSetupResult(
             prompt_messages=prompt_messages,
@@ -431,6 +453,7 @@ class FunctionCallingProcessor(MessageProcessorInterface):
                 message=message,
                 image_ids=image_ids,
                 file_ids=file_ids,
+                correlation_id=correlation_id,
             )
 
             logging.info(
@@ -643,6 +666,7 @@ class FunctionCallingProcessor(MessageProcessorInterface):
                 message=message,
                 image_ids=image_ids,
                 file_ids=file_ids,
+                correlation_id=correlation_id,
                 supports_images=supports_images,
             )
 

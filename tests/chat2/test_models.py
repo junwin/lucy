@@ -134,6 +134,44 @@ def test_chat_event_json_serialization():
     assert event2.metadata == event.metadata
 
 
+def test_chat_event_prompt_report_kind():
+    """Test ChatEvent with prompt_report kind validates and round-trips."""
+    breakdown = {
+        "system": 1,
+        "handlers": 2,
+        "context": 3,
+        "obsidian": 4,
+        "digest": 5,
+        "history": 6,
+        "user": 7,
+        "total": 28,
+    }
+    event = ChatEvent(
+        role="system",
+        actor="lucy",
+        kind="prompt_report",
+        payload=breakdown,
+    )
+
+    assert event.role == "system"
+    assert event.actor == "lucy"
+    assert event.kind == "prompt_report"
+    assert event.payload == breakdown
+
+    json_str = event.model_dump_json()
+    data = json.loads(json_str)
+    assert data["role"] == "system"
+    assert data["actor"] == "lucy"
+    assert data["kind"] == "prompt_report"
+    assert data["payload"] == breakdown
+
+    event2 = ChatEvent.model_validate_json(json_str)
+    assert event2.role == event.role
+    assert event2.actor == event.actor
+    assert event2.kind == event.kind
+    assert event2.payload == event.payload
+
+
 def test_chat_session_meta_basic():
     """Test basic ChatSessionMeta creation."""
     now = datetime.utcnow()

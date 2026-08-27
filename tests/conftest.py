@@ -188,6 +188,7 @@ def make_proc(config, registry, storage, prompt_builder, llm_adapter) -> Callabl
             registry=overrides.get("registry", registry),
             prompt_builder=overrides.get("prompt_builder", prompt_builder),
             llm_adapter=overrides.get("llm_adapter", llm_adapter),
+            chat2_store=overrides.get("chat2_store"),
         )
 
     return _make

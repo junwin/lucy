@@ -1,5 +1,5 @@
 import logging
-from typing import List, Optional
+from typing import Dict, List, Optional
 
 from src.chat2.facade import Chat2Store
 from src.chat2.models import ChatEvent
@@ -150,5 +150,46 @@ class Chat2Recorder:
         except Exception:
             logging.exception(
                 "chat2: failed to write streaming events for session=%s",
+                ctx.conversation_id,
+            )
+
+
+    def write_prompt_report(
+        self,
+        ctx: ProcessorContext,
+        breakdown: Dict[str, int],
+        correlation_id: Optional[str] = None,
+    ) -> None:
+        """Write a prompt token breakdown as a chat2 'prompt_report' system event.
+
+        The event is attributed to the agent that built the prompt and, when
+        *correlation_id* is provided, linked to it in the correlation sidecar
+        index. Falsy correlation ids write no links.
+
+        Best-effort: failures are logged but not propagated.
+        """
+        if self.chat2_store is None:
+            return
+        try:
+            self.ensure_session(ctx)
+            event = ChatEvent(
+                role="system",
+                actor=ctx.agent_name,
+                kind="prompt_report",
+                payload=breakdown,
+            )
+            self.chat2_store.add_events(ctx.conversation_id, [event])
+            if correlation_id:
+                self.chat2_store.link_event(
+                    correlation_id, ctx.conversation_id, event.event_id
+                )
+            logging.info(
+                "chat2: wrote prompt_report for session=%s (correlation=%s)",
+                ctx.conversation_id,
+                correlation_id,
+            )
+        except Exception:
+            logging.exception(
+                "chat2: failed to write prompt_report for session=%s",
                 ctx.conversation_id,
             )
