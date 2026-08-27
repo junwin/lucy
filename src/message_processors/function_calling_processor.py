@@ -1,13 +1,21 @@
 try:
-    from injector import inject
+    from injector import inject, noninjectable
 except Exception:
     # Minimal shim for environments without the "injector" package (tests run in minimal environments).
     # The shim simply returns the function unchanged so the decorator has no effect.
     def inject(func):
         return func
+
+    def noninjectable(*args, **kwargs):
+        def decorator(func):
+            return func
+        return decorator
+import contextvars
 import logging
+from datetime import datetime, timezone
 from typing import Optional, Dict, Any, List, Generator, NamedTuple
 import json
+import os
 import time
 import uuid
 
@@ -34,6 +42,63 @@ from src.tool_selection import ToolSelectionError, ToolSelectionPipeline
 from src.message_processors.fcp_tool_executor import ToolExecutor, load_context_state
 from src.message_processors.fcp_loop import LLMLoopRunner
 from src.message_processors.run_metrics import RunMetrics
+from src.metrics import CorrelationLogHandler, RunMetricsLogger
+
+
+_correlation_id_var: contextvars.ContextVar[str] = contextvars.ContextVar(
+    "fcp_correlation_id", default="-"
+)
+
+
+class _CorrelationIdFilter(logging.Filter):
+    """Inject the active FCP correlation id into log records.
+
+    Same pattern as RequestIdFilter in app.py: a filter attached to the
+    correlation handler stamps a contextvar-backed id onto every record so
+    the handler can attribute ERROR/WARNING counts to the active run.
+    """
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        record.correlation_id = _correlation_id_var.get("-")
+        return True
+
+
+_CORRELATION_HANDLER = CorrelationLogHandler()
+_CORRELATION_HANDLER.addFilter(_CorrelationIdFilter())
+
+
+def _utc_now_iso() -> str:
+    """Return the current UTC time as ISO-8601 with milliseconds and a Z suffix."""
+
+    return (
+        datetime.now(timezone.utc)
+        .isoformat(timespec="milliseconds")
+        .replace("+00:00", "Z")
+    )
+
+
+def _resolve_metrics_logger(config: Any) -> Optional[RunMetricsLogger]:
+    """Resolve the runs log logger from config, or None when unconfigured.
+
+    Priority: explicit ``metrics_runs_log_path``, then the design default
+    ``<storage_root_path>/<storage_namespace>/metrics/runs.jsonl``.
+    """
+
+    if config is None:
+        return None
+    path = config.get("metrics_runs_log_path")
+    if not path:
+        storage_root = config.get("storage_root_path")
+        if storage_root:
+            path = os.path.join(
+                str(storage_root),
+                str(config.get("storage_namespace") or ""),
+                "metrics",
+                "runs.jsonl",
+            )
+    if not path:
+        return None
+    return RunMetricsLogger(path)
 
 
 def _compute_prompt_token_breakdown(prompt_builder: Any, filtered_function_defs: List[Dict[str, Any]]) -> Dict[str, int]:
@@ -214,27 +279,40 @@ class FCPResult(NamedTuple):
 
 def _build_run_metrics(
     metrics: Dict[str, Any],
-    ctx: ProcessorContext,
+    ctx: Optional[ProcessorContext],
     correlation_id: str,
     latency_ms: int,
+    started: str = "",
+    errors: int = 0,
+    warnings: int = 0,
 ) -> RunMetrics:
+    failures = metrics.get("failures", 0)
+    hit_iteration_cap = metrics.get("hit_iteration_cap", False)
     return RunMetrics(
         correlation_id=correlation_id,
         iterations=metrics.get("iterations", 0),
-        max_iterations=ctx.max_iterations,
-        hit_iteration_cap=metrics.get("hit_iteration_cap", False),
+        max_iterations=ctx.max_iterations if ctx is not None else 0,
+        hit_iteration_cap=hit_iteration_cap,
         openai_calls=metrics.get("openai_calls", 0),
         tool_calls=metrics.get("tool_calls", 0),
         prompt_tokens=metrics.get("prompt_tokens", 0),
         completion_tokens=metrics.get("completion_tokens", 0),
         total_tokens=metrics.get("total_tokens", 0),
-        failures=metrics.get("failures", 0),
+        failures=failures,
         duration_ms=latency_ms,
+        agent=ctx.agent_name if ctx is not None else "",
+        account=ctx.account_id if ctx is not None else "",
+        session_id=ctx.conversation_id if ctx is not None else "",
+        started=started,
+        errors=errors,
+        warnings=warnings,
+        success=not (hit_iteration_cap or failures > 0),
     )
 
 
 class FunctionCallingProcessor(MessageProcessorInterface):
     @inject
+    @noninjectable("metrics_logger", "correlation_log_handler")
     def __init__(
         self,
         config: ConfigManager,
@@ -243,6 +321,8 @@ class FunctionCallingProcessor(MessageProcessorInterface):
         llm_adapter: LLMAdapter,
         chat2_store: Optional[Chat2Store] = None,
         agent_manager: Optional[AgentManager] = None,
+        metrics_logger: Optional[RunMetricsLogger] = None,
+        correlation_log_handler: Optional[CorrelationLogHandler] = None,
     ):
         self.config = config
         self.registry = registry
@@ -264,6 +344,15 @@ class FunctionCallingProcessor(MessageProcessorInterface):
             config=self.config,
             tool_executor=self.tool_executor,
         )
+        self._metrics_logger = metrics_logger or _resolve_metrics_logger(config)
+        self._correlation_handler = correlation_log_handler or _CORRELATION_HANDLER
+        if not any(
+            isinstance(f, _CorrelationIdFilter) for f in self._correlation_handler.filters
+        ):
+            self._correlation_handler.addFilter(_CorrelationIdFilter())
+        root_logger = logging.getLogger()
+        if self._correlation_handler not in root_logger.handlers:
+            root_logger.addHandler(self._correlation_handler)
 
     # ------------------------------------------------------------------
     # Internal helpers
@@ -390,6 +479,47 @@ class FunctionCallingProcessor(MessageProcessorInterface):
             ctx, user_message, streamed_events, correlation_id=correlation_id
         )
 
+    def _finalize_run(
+        self,
+        metrics: Dict[str, Any],
+        ctx: Optional[ProcessorContext],
+        correlation_id: str,
+        started: str,
+        latency_ms: int,
+        correlation_token: Optional[contextvars.Token] = None,
+    ) -> RunMetrics:
+        """End correlation-scoped counting and persist the run metrics record.
+
+        Deregisters the run's ERROR/WARNING accumulator, reads the final
+        counts, builds the RunMetrics record with the envelope fields, and
+        appends it to the runs log when a logger is configured. Appending is
+        best-effort: a log write failure never fails the request.
+        """
+
+        context = self._correlation_handler.end_run(correlation_id)
+        if correlation_token is not None:
+            _correlation_id_var.reset(correlation_token)
+        errors = context.errors if context is not None else 0
+        warnings = context.warnings if context is not None else 0
+        record = _build_run_metrics(
+            metrics,
+            ctx,
+            correlation_id,
+            latency_ms,
+            started=started,
+            errors=errors,
+            warnings=warnings,
+        )
+        if self._metrics_logger is not None:
+            try:
+                self._metrics_logger.append(record)
+            except Exception:
+                logging.exception(
+                    "FunctionCallingProcessor: failed to append run metrics record correlation_id=%s",
+                    correlation_id,
+                )
+        return record
+
     # ------------------------------------------------------------------
     # Public API
     # ------------------------------------------------------------------
@@ -423,13 +553,20 @@ class FunctionCallingProcessor(MessageProcessorInterface):
         if correlation_id is None:
             correlation_id = str(uuid.uuid4())
 
+        started = _utc_now_iso()
+        self._correlation_handler.start_run(correlation_id)
+        correlation_token = _correlation_id_var.set(correlation_id)
+
         logging.info("FunctionCallingProcessor inbound message: %s", message)
 
         if not primary_agent:
             metrics["failures"] += 1
+            record = self._finalize_run(
+                metrics, None, correlation_id, started, 0, correlation_token
+            )
             return FCPResult(
                 text="[FunctionCallingProcessor] Missing primary_agent configuration.",
-                metrics=RunMetrics(correlation_id=correlation_id, failures=1),
+                metrics=record,
             )
 
         ctx = ProcessorContext.from_agent(
@@ -441,9 +578,12 @@ class FunctionCallingProcessor(MessageProcessorInterface):
 
         if not ctx.account_id:
             metrics["failures"] += 1
+            record = self._finalize_run(
+                metrics, None, correlation_id, started, 0, correlation_token
+            )
             return FCPResult(
                 text="[FunctionCallingProcessor] Missing account.accountId.",
-                metrics=RunMetrics(correlation_id=correlation_id, failures=1),
+                metrics=record,
             )
 
         try:
@@ -498,12 +638,19 @@ class FunctionCallingProcessor(MessageProcessorInterface):
                 )
 
             latency_ms = int((time.perf_counter() - start_ts) * 1000)
+            record = self._finalize_run(
+                metrics, ctx, correlation_id, started, latency_ms, correlation_token
+            )
             return FCPResult(
                 text=response_text,
-                metrics=_build_run_metrics(metrics, ctx, correlation_id, latency_ms),
+                metrics=record,
             )
 
         except ToolHandlerError:
+            latency_ms = int((time.perf_counter() - start_ts) * 1000)
+            self._finalize_run(
+                metrics, ctx, correlation_id, started, latency_ms, correlation_token
+            )
             raise
 
         except ToolSelectionError as e:
@@ -528,9 +675,12 @@ class FunctionCallingProcessor(MessageProcessorInterface):
                     ctx.conversation_id,
                 )
             latency_ms = int((time.perf_counter() - start_ts) * 1000)
+            record = self._finalize_run(
+                metrics, ctx, correlation_id, started, latency_ms, correlation_token
+            )
             return FCPResult(
                 text=e.message,
-                metrics=_build_run_metrics(metrics, ctx, correlation_id, latency_ms),
+                metrics=record,
             )
 
         except Exception as e:
@@ -557,6 +707,10 @@ class FunctionCallingProcessor(MessageProcessorInterface):
                     ctx.conversation_id,
                 )
 
+            latency_ms = int((time.perf_counter() - start_ts) * 1000)
+            self._finalize_run(
+                metrics, ctx, correlation_id, started, latency_ms, correlation_token
+            )
             raise
 
         finally:
@@ -614,6 +768,10 @@ class FunctionCallingProcessor(MessageProcessorInterface):
         if correlation_id is None:
             correlation_id = str(uuid.uuid4())
 
+        started = _utc_now_iso()
+        self._correlation_handler.start_run(correlation_id)
+        correlation_token = _correlation_id_var.set(correlation_id)
+
         logging.info(
             "FunctionCallingProcessor(streaming) inbound message: correlation_id=%s message=%s",
             correlation_id,
@@ -625,6 +783,9 @@ class FunctionCallingProcessor(MessageProcessorInterface):
             yield SSEEvent(type="error", message="Missing primary_agent configuration.").to_sse()
             yield SSEEvent(type="metrics", metrics=dict(metrics)).to_sse()
             yield SSEEvent(type="done").to_sse()
+            self._finalize_run(
+                metrics, None, correlation_id, started, 0, correlation_token
+            )
             return
 
         ctx = ProcessorContext.from_agent(
@@ -639,6 +800,9 @@ class FunctionCallingProcessor(MessageProcessorInterface):
             yield SSEEvent(type="error", message="Missing account.accountId.").to_sse()
             yield SSEEvent(type="metrics", metrics=dict(metrics)).to_sse()
             yield SSEEvent(type="done").to_sse()
+            self._finalize_run(
+                metrics, None, correlation_id, started, 0, correlation_token
+            )
             return
 
         # ── Determine if the model supports native image processing ──
@@ -759,6 +923,9 @@ class FunctionCallingProcessor(MessageProcessorInterface):
                 self._write_streaming_chat2_events(ctx, message, streamed_events, correlation_id=correlation_id)
 
             latency_ms = int((time.perf_counter() - start_ts) * 1000)
+            self._finalize_run(
+                metrics, ctx, correlation_id, started, latency_ms, correlation_token
+            )
             logging.info(
                 "FunctionCallingProcessor(streaming) summary: correlation_id=%s agent=%s session_id=%s account=%s iterations=%d openai_calls=%d tool_calls=%d failures=%d latency_ms=%d",
                 correlation_id,

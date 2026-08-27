@@ -88,6 +88,19 @@ class ProcessorContext:
         )
 
 
+@dataclass
+class RequestContext:
+    """Per-run accumulator for correlation-scoped ERROR/WARNING counts.
+
+    Registered with CorrelationLogHandler while a run is active; the handler
+    increments the counters as matching log records are emitted.
+    """
+
+    correlation_id: str
+    errors: int = 0
+    warnings: int = 0
+
+
 @dataclass(frozen=True)
 class _ToolCall:
     name: str

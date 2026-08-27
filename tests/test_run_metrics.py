@@ -18,9 +18,23 @@ def test_run_metrics_round_trip():
         completion_tokens=50,
         failures=1,
         duration_ms=1234,
+        agent="lucy",
+        account="junwin",
+        session_id="sess-1",
+        started="2026-08-27T14:00:00.000Z",
+        errors=2,
+        warnings=1,
+        success=False,
     )
     d = m.to_dict()
     assert d["total_tokens"] == 150
+    assert d["agent"] == "lucy"
+    assert d["account"] == "junwin"
+    assert d["session_id"] == "sess-1"
+    assert d["started"] == "2026-08-27T14:00:00.000Z"
+    assert d["errors"] == 2
+    assert d["warnings"] == 1
+    assert d["success"] is False
     m2 = RunMetrics.from_dict(d)
     assert m2.to_dict() == d
 
@@ -29,6 +43,17 @@ def test_run_metrics_total_tokens_derived_when_absent():
     m = RunMetrics.from_dict({"prompt_tokens": 10, "completion_tokens": 7})
     assert m.total_tokens == 17
     assert m.to_dict()["total_tokens"] == 17
+
+
+def test_run_metrics_from_dict_defaults_envelope_fields():
+    m = RunMetrics.from_dict({"correlation_id": "corr-x", "failures": 0})
+    assert m.agent == ""
+    assert m.account == ""
+    assert m.session_id == ""
+    assert m.started == ""
+    assert m.errors == 0
+    assert m.warnings == 0
+    assert m.success is True
 
 
 def test_run_metrics_defaults():
@@ -45,6 +70,13 @@ def test_run_metrics_defaults():
         "total_tokens": 0,
         "failures": 0,
         "duration_ms": 0,
+        "agent": "",
+        "account": "",
+        "session_id": "",
+        "started": "",
+        "errors": 0,
+        "warnings": 0,
+        "success": True,
     }
 
 
