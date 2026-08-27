@@ -18,6 +18,13 @@ class _RunMetricsModel(BaseModel):
     total_tokens: int = 0
     failures: int = 0
     duration_ms: int = 0
+    agent: str = ""
+    account: str = ""
+    session_id: str = ""
+    started: str = ""
+    errors: int = 0
+    warnings: int = 0
+    success: bool = True
 
     model_config = {"extra": "forbid"}
 
@@ -35,6 +42,13 @@ class RunMetrics:
     total_tokens: int = 0
     failures: int = 0
     duration_ms: int = 0
+    agent: str = ""
+    account: str = ""
+    session_id: str = ""
+    started: str = ""
+    errors: int = 0
+    warnings: int = 0
+    success: bool = True
 
     def __init__(
         self,
@@ -49,6 +63,13 @@ class RunMetrics:
         total_tokens: Optional[int] = None,
         failures: int = 0,
         duration_ms: int = 0,
+        agent: str = "",
+        account: str = "",
+        session_id: str = "",
+        started: str = "",
+        errors: int = 0,
+        warnings: int = 0,
+        success: bool = True,
     ) -> None:
         self.correlation_id = correlation_id
         self.iterations = iterations
@@ -65,6 +86,13 @@ class RunMetrics:
         )
         self.failures = failures
         self.duration_ms = duration_ms
+        self.agent = agent
+        self.account = account
+        self.session_id = session_id
+        self.started = started
+        self.errors = errors
+        self.warnings = warnings
+        self.success = success
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -79,6 +107,13 @@ class RunMetrics:
             "total_tokens": self.prompt_tokens + self.completion_tokens,
             "failures": self.failures,
             "duration_ms": self.duration_ms,
+            "agent": self.agent,
+            "account": self.account,
+            "session_id": self.session_id,
+            "started": self.started,
+            "errors": self.errors,
+            "warnings": self.warnings,
+            "success": self.success,
         }
 
     @classmethod
@@ -103,4 +138,11 @@ class RunMetrics:
             total_tokens=validated.prompt_tokens + validated.completion_tokens,
             failures=validated.failures,
             duration_ms=validated.duration_ms,
+            agent=validated.agent,
+            account=validated.account,
+            session_id=validated.session_id,
+            started=validated.started,
+            errors=validated.errors,
+            warnings=validated.warnings,
+            success=validated.success,
         )

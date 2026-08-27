@@ -43,6 +43,8 @@ from src.chat2.adapters.jfs_adapter import JfsChat2Primitives
 
 from src.message_processors.automation_processor import AutomationProcessor
 
+from src.metrics import MetricsRepository
+
 from src.embeddings.facade import EmbeddingFacade
 
 
@@ -128,6 +130,31 @@ class StorageModule(Module):
         """
         adapter = JfsChat2Primitives(storage)
         return Chat2Store(adapter)
+
+
+class MetricsModule(Module):
+    @provider
+    @singleton
+    def provide_metrics_repository(self) -> MetricsRepository:
+        """Provide the MetricsRepository bound to the runs log path.
+
+        Priority: explicit ``metrics_runs_log_path``, then the design default
+        ``<storage_root_path>/<storage_namespace>/metrics/runs.jsonl``, which
+        matches ``StoragePaths(...).base / metrics / runs.jsonl``.
+        """
+        import os
+
+        path = config.get("metrics_runs_log_path")
+        if not path:
+            storage_root = config.get("storage_root_path") or "/home/junwin/lucydata"
+            storage_namespace = config.get("storage_namespace") or "data"
+            path = os.path.join(
+                str(storage_root),
+                str(storage_namespace),
+                "metrics",
+                "runs.jsonl",
+            )
+        return MetricsRepository(path)
 
 
 class EmbeddingModule(Module):
@@ -257,6 +284,7 @@ def configure_container():
             AgentManagerModule(),
             ConfigManagerModule(),
             StorageModule(),
+            MetricsModule(),
             EmbeddingModule(),
             HandlerRegistryModule(),
             ProcessorFactoryModule(),

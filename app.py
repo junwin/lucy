@@ -38,6 +38,7 @@ from src.http_endpoints.tasklist_endpoints import (
 from src.http_endpoints.prompt_builder_endpoints import build_prompt_impl
 from src.http_endpoints.prompt_builder_debug_endpoints import prompt_builder_debug_impl
 from src.http_endpoints.prompt_builder_metrics_endpoints import prompt_builder_metrics_impl
+from src.http_endpoints.metrics_endpoints import get_metrics_runs_impl
 from src.http_endpoints.documents_endpoints import search_documents_impl
 from src.http_endpoints.chats_endpoints import (
     post_chat_impl,
@@ -404,6 +405,17 @@ def prompt_builder_debug():
 def prompt_builder_metrics():
     payload = request.get_json(force=True, silent=True) or {}
     body, status = prompt_builder_metrics_impl(agent_manager, storage, container, config, payload)
+    return jsonify(body), status
+
+
+@app.route("/metrics/runs", methods=["GET"])
+def metrics_runs():
+    """Return FCP run metrics records, newest first.
+
+    Query params: correlation_id, agent, account, started, ended,
+    hit_iteration_cap, success, limit (default 50, max 500).
+    """
+    body, status = get_metrics_runs_impl(container, config, request.args)
     return jsonify(body), status
 
 
