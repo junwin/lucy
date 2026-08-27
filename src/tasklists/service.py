@@ -67,16 +67,18 @@ class TaskListService:
             t.state = TASK_STATE_PENDING
             t.result = None
             t.error = None
+            t.run_metrics = None
         return tasklist
 
     def _normalize(self, tasklist: TaskList) -> None:
         """Recompute tasklist.state from task states.
 
-        John decisions:
-        - if any task Running OR mix of states -> Running
-        - if any task Failed -> Failed
-        - if all tasks Completed -> Completed
-        - if zero tasks -> Created
+        Rules:
+        - zero tasks -> Created
+        - all tasks Pending -> Created (not started)
+        - any task Failed -> Failed
+        - any task Running OR mix of states -> Running
+        - all tasks Completed -> Completed
         """
 
         tasks = list(tasklist.tasks or [])
@@ -85,6 +87,10 @@ class TaskListService:
             return
 
         states = [t.state for t in tasks]
+
+        if all(s == TASK_STATE_PENDING for s in states):
+            tasklist.state = TASK_LIST_STATE_CREATED
+            return
 
         if any(s in (TASK_STATE_FAILED, TASK_STATE_COMPLETED_WITH_ERRORS) for s in states):
             tasklist.state = TASK_LIST_STATE_FAILED

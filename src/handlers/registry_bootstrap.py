@@ -18,7 +18,6 @@ from src.handlers.file_save_handler import FileSaveHandler2
 from src.handlers.command_execution_handler2 import CommandExecutionHandler2
 from src.handlers.scrape_web_page_handler2 import ScrapeWebPageHandler2
 from src.handlers.web_search_handler2 import WebSearchHandler2
-from src.handlers.delegate_tasks_handler import DelegateTasksHandler
 from src.handlers.tasklists_manage_handler import TasklistsManageHandler
 from src.handlers.tasklists_run_handler import TasklistsRunHandler
 from src.handlers.chat2_handler import Chat2Handler
@@ -32,6 +31,9 @@ from src.handlers.embedding_handler import EmbeddingHandler
 from src.handlers.remote_execute_handler import RemoteExecuteHandler
 from src.handlers.tool_handler_meta_handler import ToolHandlerMetaHandler
 from src.handlers.agents_manage_handler import AgentsManageHandler
+from src.handlers.lazy_tool_selector_handler import LazyToolSelectorHandler
+from src.handlers.tool_selection_probe_handler import ToolSelectionProbeHandler
+from src.handlers.context_handler import ContextHandler
 
 try:
     from src.handlers.generate_image_handler import GenerateImageHandler
@@ -61,6 +63,7 @@ def build_registry() -> HandlerRegistry:
     reg.register(ScrapeWebPageHandler2)
     reg.register(SandboxExecuteHandler)
     reg.register(GenerateSvgHandler)
+    reg.register(ContextHandler)
 
     # Optional / third-party dependent handlers: import and register lazily.
     try:
@@ -81,8 +84,6 @@ def build_registry() -> HandlerRegistry:
             exc_info=True,
         )
 
-    # Task delegation handler (should be lightweight)
-    reg.register(DelegateTasksHandler)
     # Tasklist management (CRUD)
     reg.register(TasklistsManageHandler)
     # Tasklist execution (run)
@@ -120,6 +121,11 @@ def build_registry() -> HandlerRegistry:
     # Agent management (list/get/upsert/delete/reload)
     reg.register(AgentsManageHandler)
 
+    # Lazy tool-loading scaffolding (test rig)
+    reg.register(LazyToolSelectorHandler)
+
+    # Tool selection pipeline diagnostic probe (issue #126)
+    reg.register(ToolSelectionProbeHandler)
 
     logger.info("Handler registry built with %d handlers.", len(reg.tool_names()))
     return reg

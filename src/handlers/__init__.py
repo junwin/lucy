@@ -12,7 +12,6 @@ from .file_save_handler import FileSaveHandler2
 from .command_execution_handler2 import CommandExecutionHandler2
 from .scrape_web_page_handler2 import ScrapeWebPageHandler2
 from .web_search_handler2 import WebSearchHandler2
-from .delegate_tasks_handler import DelegateTasksHandler
 from .chat2_handler import Chat2Handler
 from .reset_session_handler import ResetSessionHandler
 from .remote_execute_handler import RemoteExecuteHandler
@@ -33,7 +32,6 @@ __all__ = [
     "CommandExecutionHandler2",
     "ScrapeWebPageHandler2",
     "WebSearchHandler2",
-    "DelegateTasksHandler",
     "Chat2Handler",
     "ResetSessionHandler",
     "RemoteExecuteHandler",

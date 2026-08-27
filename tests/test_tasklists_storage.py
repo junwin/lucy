@@ -1,6 +1,8 @@
 from src.storage_paths.storage_paths import StoragePaths
 from src.storage.json_file_storage import JsonFileStorage
+from src.tasklists.task import Task
 from src.tasklists.task_list import TaskList
+from src.tasklists.task_states import TASK_LIST_STATE_CREATED, TASK_STATE_PENDING
 
 
 def make_storage(tmp_path, ns="ns"):
@@ -69,6 +71,25 @@ def test_id_auto_set_to_match_key(tmp_path):
     assert tl.id == "tl1"
 
 
+def test_save_all_pending_persists_created_state(tmp_path):
+    storage = make_storage(tmp_path)
+    payload = {
+        "schema_version": 1,
+        "id": "tlpending",
+        "name": "n",
+        "description": "d",
+        "state": "Created",
+        "tasks": [
+            {"id": "t1", "name": "T1", "instructions": "do", "state": "Pending"},
+        ],
+    }
+    storage.save_tasklist("alice", "tlpending", payload)
+
+    tl = storage.get_tasklist("alice", "tlpending")
+    assert tl.state == TASK_LIST_STATE_CREATED
+    assert tl.tasks[0].state == TASK_STATE_PENDING
+
+
 def test_save_and_get_tasklist_with_meta(tmp_path):
     storage = make_storage(tmp_path)
     payload = {
@@ -90,3 +111,16 @@ def test_save_and_get_tasklist_with_meta(tmp_path):
     assert tl.id == "tlmeta"
     assert tl.meta["supervisor_agent"] == "super"
     assert tl.meta["notes"] == "from test"
+
+
+def test_save_and_get_tasklist_preserves_task_run_metrics(tmp_path):
+    storage = make_storage(tmp_path)
+    metrics = {"iterations": 40, "openai_calls": 40, "total_tokens": 12345}
+    task = Task(id="t1", name="T1", instructions="do", run_metrics=metrics)
+    tasklist = TaskList(id="tlrunmetrics", name="n", description="d", tasks=[task])
+
+    storage.save_tasklist("alice", "tlrunmetrics", tasklist.to_dict())
+
+    tl = storage.get_tasklist("alice", "tlrunmetrics")
+    assert tl is not None
+    assert tl.tasks[0].run_metrics == metrics

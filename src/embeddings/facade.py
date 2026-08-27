@@ -1,6 +1,6 @@
 """EmbeddingFacade — one-stop shop for embedding generation and comparison.
 
-Delegates generation to ``src.llm.EmbeddingApi`` and owns vector comparison
+Delegates generation to ``galet.EmbeddingApi`` and owns vector comparison
 locally. Consumers (prompt builders, handlers, search tools) should use this
 rather than calling the LLM or storage layer directly.
 """
@@ -10,9 +10,9 @@ from __future__ import annotations
 import logging
 from typing import List, Optional, Tuple
 
-from src.llm.embedding_dto import EmbeddingResponse
-from src.llm.embedding_interface import EmbeddingApi
-from src.llm.embedding_router import EmbeddingRouter
+from galet.embedding_dto import EmbeddingResponse
+from galet.embedding_interface import EmbeddingApi
+from galet.embedding_router import EmbeddingRouter
 
 from .comparison import (
     DistanceMetric,

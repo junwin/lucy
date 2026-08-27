@@ -12,6 +12,7 @@ from injector import inject
 from src.config_manager import ConfigManager
 from src.agent import AgentManager, Agent
 from src.storage.base import Storage
+from src.storage.interfaces import ContextStore, DocumentStore, EmbeddingStore
 from src.prompt_builders.prompt_builder_interface import PromptBuilderInterface
 from src.utils.document_context import get_document_context
 from src.utils.text_snippet_loader import load_text_snippet
@@ -35,8 +36,8 @@ DIGEST_SCORE_THRESHOLD = 0.25
 # Score threshold for embedding-based document retrieval.
 DOC_EMBEDDING_SCORE_THRESHOLD = 0.25
 
-# Soft max tokens for front-loaded context (can be overridden by env/config)
-CONTEXT_TEXT_SOFT_MAX_TOKENS = int(os.getenv("PROMPT_BUILDER_CONTEXT_SOFT_MAX_TOKENS", "2000"))
+# Soft max tokens for front-loaded context (override via context_text_soft_max_tokens in config)
+CONTEXT_TEXT_SOFT_MAX_TOKENS = 2000
 
 # Default embedding namespaces to search when no context specifies them.
 DEFAULT_SEARCH_NAMESPACES = ["external"]
@@ -156,7 +157,8 @@ class PromptBuilder(PromptBuilderInterface):
         # exceeds the configured soft maximum. This reduces prompt size early and
         # prevents huge contexts from pushing history out of the budget.
         try:
-            soft_max = self._get_context_soft_max_tokens()
+            soft_max = self.config.get("context_text_soft_max_tokens", None)
+            soft_max = int(soft_max) if soft_max is not None else CONTEXT_TEXT_SOFT_MAX_TOKENS
             ctx_tokens = estimate_tokens_from_text(context_text or "")
             if ctx_tokens > soft_max:
                 # Approximate character budget (estimate_tokens uses len//4)
@@ -186,9 +188,18 @@ class PromptBuilder(PromptBuilderInterface):
         if context_name and context_name != "none":
             ctx = self._get_context_state(account_name=account_name, context_name=context_name)
             if ctx is not None:
-                data = getattr(ctx, "data", None)
-                if isinstance(data, dict):
-                    context_data = data
+                tag_val = getattr(ctx, "tag", None)
+                if isinstance(tag_val, str):
+                    context_data["tag"] = tag_val
+                namespaces = getattr(ctx, "search_namespaces", None)
+                if isinstance(namespaces, list):
+                    context_data["search_namespaces"] = namespaces
+                extra = getattr(ctx, "extra", None)
+                if isinstance(extra, dict):
+                    # Legacy/unknown frontmatter keys stay visible downstream;
+                    # typed fields above win on conflict.
+                    for key, value in extra.items():
+                        context_data.setdefault(key, value)
 
         # --- External documents ---
         doc_contexts: List[Dict[str, Any]] = []
@@ -215,8 +226,9 @@ class PromptBuilder(PromptBuilderInterface):
                         max_chars=9000,
                     )
                 else:
+                    doc_store: DocumentStore = self.storage
                     doc_contexts = get_document_context(
-                        storage=self.storage,
+                        storage=doc_store,
                         account_name=account_name,
                         query=content_text,
                         kind="obsidian_note",
@@ -286,7 +298,8 @@ class PromptBuilder(PromptBuilderInterface):
 
             # Soft-max warning for front-loaded context
             try:
-                soft_max = self._get_context_soft_max_tokens()
+                soft_max = self.config.get("context_text_soft_max_tokens", None)
+                soft_max = int(soft_max) if soft_max is not None else CONTEXT_TEXT_SOFT_MAX_TOKENS
                 if context_tokens > soft_max:
                     logging.warning(
                         "PromptBuilder: context text (%d tokens) exceeds soft max (%d tokens) \\u2014 "
@@ -611,7 +624,8 @@ class PromptBuilder(PromptBuilderInterface):
                 namespaces,
             )
 
-            results = self.storage.query_embeddings(
+            embedding_store: EmbeddingStore = self.storage
+            results = embedding_store.query_embeddings(
                 namespaces=namespaces,
                 account_name=account_name,
                 query_vector=query_vector,
@@ -712,14 +726,15 @@ class PromptBuilder(PromptBuilderInterface):
             query_vector = resp.embeddings[0]
 
             # Auto-discover namespaces if not explicitly provided
+            embedding_store: EmbeddingStore = self.storage
             if namespaces is None:
-                namespaces = self.storage.list_embedding_namespaces(account_name)
+                namespaces = embedding_store.list_embedding_namespaces(account_name)
                 logging.info(
                     "PromptBuilder._get_digest_context: auto-discovered namespaces=%s",
                     namespaces,
                 )
 
-            results = self.storage.query_embeddings(
+            results = embedding_store.query_embeddings(
                 namespaces=namespaces,
                 account_name=account_name,
                 query_vector=query_vector,
@@ -1073,20 +1088,18 @@ class PromptBuilder(PromptBuilderInterface):
         return []
 
     def _get_context_state(self, account_name: str, context_name: str) -> Optional[Any]:
-        """Return the ContextState object (or None) for the named context.
+        """Return the Context object (or None) for the named context.
 
-        This follows the same fallback logic as _get_context_text: prefer a
-        storage implementation that supports get_or_create_context, otherwise
-        use get_context. Fail softly and return None on errors.
+        Loaded through the ContextStore view via get_or_create_context
+        (a missing context is created with empty defaults). Fail softly
+        and return None on errors.
         """
         if not context_name or context_name == "none":
             return None
 
         try:
-            if hasattr(self.storage, "get_or_create_context"):
-                ctx = self.storage.get_or_create_context(account_name, context_name)
-            else:
-                ctx = self.storage.get_context(account_name, context_name)
+            store: ContextStore = self.storage
+            ctx = store.get_or_create_context(account_name, context_name)
             return ctx
         except Exception as ex:
             logging.warning(
@@ -1098,58 +1111,45 @@ class PromptBuilder(PromptBuilderInterface):
             return None
 
     def _get_context_text(self, account_name: str, context_name: str) -> str:
-        """Load context text from storage, including any imported skills.
+        """Render the context text block for the LLM prompt.
 
-        Context is expected to be a ContextState with a free-form data dict.
-
-        If the context frontmatter contains an 'imports' list, each entry names
-        a skill file at skills/<account>/<name>.md. Skill texts are prepended
-        before the main context body.
+        Import resolution lives in the storage layer: ``ctx.resolved_text``
+        already contains the intrinsic body plus each resolved skill under a
+        ``## skill: <name>`` heading. Operational directives (imports,
+        mandatory_tools, search_namespaces) are never included in the prompt
+        text.
 
         Behavior:
         - If context_name is missing/"none": return empty string.
         - If context is missing in storage: create it immediately (empty defaults)
           and return empty string.
-        - If context exists: prepend skill texts, then return data["text"].
+        - If context exists: render an identity header (id, account_name, tag
+          when present), then the fully-resolved context text.
         """
         ctx = self._get_context_state(account_name, context_name)
         if ctx is None:
             return ""
 
-        data = getattr(ctx, "data", None)
-        if not isinstance(data, dict):
-            return ""
-
         parts: List[str] = []
 
-        # --- Load imported skills ---
-        imports = data.get("imports")
-        if isinstance(imports, list):
-            for skill_name in imports:
-                if not isinstance(skill_name, str) or not skill_name.strip():
-                    continue
-                try:
-                    skill_text = self.storage.get_skill_text(account_name, skill_name.strip())
-                    if skill_text:
-                        parts.append(skill_text)
-                    else:
-                        logging.warning(
-                            "PromptBuilder: skill '%s' not found for account '%s'",
-                            skill_name,
-                            account_name,
-                        )
-                except Exception as ex:
-                    logging.warning(
-                        "PromptBuilder: failed to load skill '%s' for %s: %s",
-                        skill_name,
-                        account_name,
-                        ex,
-                    )
+        # --- Identity header (content metadata only) ---
+        header_parts: List[str] = []
+        ctx_id = getattr(ctx, "id", None)
+        if isinstance(ctx_id, str) and ctx_id.strip():
+            header_parts.append(f"id: {ctx_id.strip()}")
+        ctx_account = getattr(ctx, "account_name", None)
+        if isinstance(ctx_account, str) and ctx_account.strip():
+            header_parts.append(f"account_name: {ctx_account.strip()}")
+        tag = getattr(ctx, "tag", None)
+        if isinstance(tag, str) and tag.strip():
+            header_parts.append(f"tag: {tag.strip()}")
+        if header_parts:
+            parts.append("\n".join(header_parts))
 
-        # --- Main context body ---
-        text = data.get("text")
-        if isinstance(text, str) and text.strip():
-            parts.append(text)
+        # --- Fully-resolved text (intrinsic body + imported skill bodies) ---
+        resolved = getattr(ctx, "resolved_text", None)
+        if isinstance(resolved, str) and resolved.strip():
+            parts.append(resolved)
 
         return "\n\n".join(parts)
 
@@ -1168,50 +1168,6 @@ class PromptBuilder(PromptBuilderInterface):
             elif isinstance(last_content, str) and last_content == current_query:
                 return messages
         return messages + [{"role": "user", "content": current_query}]
-
-    def _get_context_soft_max_tokens(self) -> int:
-        """Resolve the soft max tokens for front-loaded context.
-
-        Order of precedence:
-          1. Environment variable PROMPT_BUILDER_CONTEXT_SOFT_MAX_TOKENS
-          2. config.get('context_text_soft_max_tokens') if available
-          3. module default (CONTEXT_TEXT_SOFT_MAX_TOKENS)
-
-        Returns an int >= 0.
-        """
-        # 1) Check environment
-        env_val = os.getenv("PROMPT_BUILDER_CONTEXT_SOFT_MAX_TOKENS")
-        if env_val:
-            try:
-                v = int(env_val)
-                if v >= 0:
-                    return v
-            except Exception:
-                logging.warning(
-                    "PromptBuilder: invalid PROMPT_BUILDER_CONTEXT_SOFT_MAX_TOKENS=%s; using fallback",
-                    env_val,
-                )
-
-        # 2) Check config (ConfigManager-like object with .get)
-        try:
-            cfg_val = None
-            if hasattr(self.config, "get"):
-                cfg_val = self.config.get("context_text_soft_max_tokens", None)
-            if cfg_val is not None:
-                try:
-                    v = int(cfg_val)
-                    if v >= 0:
-                        return v
-                except Exception:
-                    logging.warning(
-                        "PromptBuilder: invalid context_text_soft_max_tokens in config: %s; using fallback",
-                        cfg_val,
-                    )
-        except Exception:
-            logging.debug("PromptBuilder: failed to read config for soft max tokens; using default")
-
-        # 3) Fallback to module-level default
-        return CONTEXT_TEXT_SOFT_MAX_TOKENS
 
     def _summarize_overflow(self, texts: List[str], max_chars: int = 800) -> str:
         """Create a short human-readable digest from a list of earlier message texts.

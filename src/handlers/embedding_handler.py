@@ -17,7 +17,8 @@ from src.config_manager import ConfigManager
 from src.embeddings import DistanceMetric, EmbeddingFacade
 from src.embeddings.registry import known_models
 from src.handlers.handler_v2 import HandlerV2
-from src.llm.embedding_dto import EmbeddingResponse
+from src.storage.interfaces import EmbeddingStore
+from galet.embedding_dto import EmbeddingResponse
 
 logger = logging.getLogger(__name__)
 
@@ -393,7 +394,7 @@ class EmbeddingHandler(HandlerV2):
             filter_dict = {"source_type": source_type}
 
         try:
-            storage = self._get_storage()
+            storage: EmbeddingStore = self._get_storage()
             results = storage.query_embeddings(
                 namespaces=[namespace],
                 account_name=account,
@@ -460,7 +461,7 @@ class EmbeddingHandler(HandlerV2):
         }
         return mapping.get(name)
 
-    def _get_storage(self):
+    def _get_storage(self) -> EmbeddingStore:
         """Lazily construct storage from config."""
         from src.storage.json_file_storage import JsonFileStorage
         from src.storage_paths.storage_paths import StoragePaths

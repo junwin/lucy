@@ -6,11 +6,13 @@ from typing import Any, Dict, List
 
 from src.config_manager import ConfigManager
 from src.handlers.handler_v2 import HandlerV2
+from src.storage.interfaces import TasklistStore
 from src.storage.json_file_storage import JsonFileStorage
 from src.storage_paths.storage_paths import StoragePaths
+from src.tasklists.service import TaskListService
 from src.tasklists.task import Task
 from src.tasklists.task_list import TaskList
-from src.tasklists.task_states import TASK_LIST_STATE_CREATED, TASK_STATE_PENDING
+from src.tasklists.task_states import TASK_LIST_STATE_CREATED
 
 logger = logging.getLogger(__name__)
 
@@ -23,7 +25,8 @@ class TasklistsManageHandler(HandlerV2):
         storage_root = self.config.get("storage_root_path")
         storage_ns = self.config.get("storage_namespace")
         sp = StoragePaths(storage_root, storage_ns)
-        self.storage = JsonFileStorage(sp)
+        self.storage: TasklistStore = JsonFileStorage(sp)
+        self.tasklist_service = TaskListService()
 
     @classmethod
     def name(cls) -> str:
@@ -34,7 +37,7 @@ class TasklistsManageHandler(HandlerV2):
         return {
             "type": "function",
             "name": cls.NAME,
-            "description": "Manage persisted tasklists: list/get/put/delete/reset, plus per-action task and metadata operations.",
+            "description": "Manage tasklists and tasks: list/get/put/delete/reset plus per-task and meta updates.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -47,111 +50,102 @@ class TasklistsManageHandler(HandlerV2):
                             "set_general_instructions", "update_meta",
                         ],
                     },
-                    # --- common params ---
                     "tasklist_key": {
                         "type": "string",
-                        "description": "Tasklist filename key. Required for all actions except 'list'.",
+                        "description": "Tasklist filename key. Required except for 'list'.",
                     },
                     "validate_only": {
                         "type": "boolean",
-                        "description": "If true, validate but do not persist.",
+                        "description": "If true, validate without persisting.",
                         "default": False,
                     },
-                    # --- put: convenience path (use when 'goal' is present) ---
                     "goal": {
                         "type": "string",
-                        "description": "Short goal. Becomes name, description, and general_instructions. Use for convenience creation.",
+                        "description": "Short goal; becomes name+description+instructions.",
                     },
                     "files": {
                         "type": "array",
                         "items": {"type": "string"},
-                        "description": "File paths. One task per file. Only used with 'goal' (convenience path).",
+                        "description": "One task per file. Used with 'goal'.",
                     },
                     "worker_agent": {
                         "type": "string",
-                        "description": "Worker agent name. Sets task.agent on every auto-generated task. Only used with 'goal'.",
+                        "description": "Worker agent for auto-tasks. Used with 'goal'.",
                     },
-                    # --- put: explicit path (use when 'goal' is absent) ---
                     "name": {
                         "type": "string",
-                        "description": "Human-readable tasklist name. Required for explicit put, or the new name for set_name.",
+                        "description": "Tasklist name (put) or new name (set_name).",
                     },
                     "description": {
                         "type": "string",
-                        "description": "What this tasklist is for. Required for explicit put, or the new description for set_description.",
+                        "description": "Tasklist description (put) or new value (set_description).",
                     },
                     "general_instructions": {
                         "type": "string",
-                        "description": "Cross-cutting context for all tasks. Used by put explicit path.",
+                        "description": "Cross-cutting instructions (put).",
                     },
-                    # --- add_task ---
                     "task_id": {
                         "type": "string",
-                        "description": "Unique task identifier. Required for add_task, update_task, remove_task.",
+                        "description": "Task id (add/update/remove_task).",
                     },
                     "task_name": {
                         "type": "string",
-                        "description": "Short goal name for the task. Used by add_task, update_task.",
+                        "description": "Task name (add/update_task).",
                     },
                     "task_instructions": {
                         "type": "string",
-                        "description": "Detailed instructions for the task. Used by add_task, update_task.",
+                        "description": "Task instructions (add/update_task).",
                     },
                     "after_index": {
                         "type": "integer",
-                        "description": "Insert after this position (0-based). Omit to append. Used by add_task.",
+                        "description": "Insert after 0-based index; omit to append (add_task).",
                     },
                     "task_state": {
                         "type": "string",
-                        "description": "Task state. Default 'Pending'. Used by add_task, update_task.",
+                        "description": "Task state (default Pending).",
                     },
                     "task_agent": {
                         "type": "string",
-                        "description": "Worker agent name for this task. Used by add_task, update_task.",
+                        "description": "Task worker agent.",
                     },
                     "task_meta": {
                         "type": "object",
-                        "description": "Key-value context for the task. Merged into existing meta on update_task.",
+                        "description": "Task meta; merged on update.",
                         "additionalProperties": False,
                     },
-                    # --- new task fields: optional ---
                     "task_position": {
                         "type": ["integer", "null"],
-                        "description": "Task ordering position (null = append).",
+                        "description": "Task position (null=append).",
                     },
                     "task_parent_id": {
                         "type": ["string", "null"],
-                        "description": "Parent task ID for subtask nesting.",
+                        "description": "Parent task id.",
                     },
                     "task_files": {
                         "type": "array",
                         "items": {"type": "string"},
-                        "description": "File paths associated with this task.",
+                        "description": "Task file paths.",
                     },
-                    # --- update_task specific ---
                     "task_result": {
                         "type": "object",
-                        "description": "New result for the task. Used by update_task.",
+                        "description": "New task result.",
                         "additionalProperties": False,
                     },
                     "task_error": {
                         "type": "string",
-                        "description": "New error for the task. Used by update_task.",
+                        "description": "New task error.",
                     },
-                    # --- set_state ---
                     "state": {
                         "type": "string",
-                        "description": "New tasklist state. Required for set_state.",
+                        "description": "New tasklist state (set_state).",
                     },
-                    # --- set_general_instructions ---
                     "instructions": {
                         "type": "string",
-                        "description": "New general_instructions text. Required for set_general_instructions.",
+                        "description": "New general_instructions (set_general_instructions).",
                     },
-                    # --- update_meta ---
                     "meta": {
                         "type": "object",
-                        "description": "Key-value pairs to merge into the tasklist's meta. Required for update_meta.",
+                        "description": "Meta to merge (update_meta).",
                         "additionalProperties": False,
                     },
                 },
@@ -165,6 +159,7 @@ class TasklistsManageHandler(HandlerV2):
         return {
             "type": "object",
             "properties": {
+                "ok": {"type": "boolean"},
                 "tool": {"type": "string"},
                 "action": {"type": "string"},
                 "tasklist_key": {"type": "string"},
@@ -311,24 +306,18 @@ class TasklistsManageHandler(HandlerV2):
         if err:
             return err
 
-        # Work on a copy to avoid mutating the original when validate_only=True
-        reset_dict = tl.to_dict()
-        reset_dict["state"] = TASK_LIST_STATE_CREATED
-        reset_dict["current_task_id"] = None
-        for task in reset_dict["tasks"]:
-            task["state"] = TASK_STATE_PENDING
-            task["result"] = None
-            task["error"] = None
+        self.tasklist_service.reset(tl)
+        payload = tl.to_dict()
 
         if not validate_only:
-            self.storage.save_tasklist(account_name, tasklist_key, reset_dict)
+            self.storage.save_tasklist(account_name, tasklist_key, payload)
 
         return {
             "ok": True,
             "tool": self.NAME,
             "action": "reset",
             "tasklist_key": tasklist_key,
-            "tasklist": reset_dict,
+            "tasklist": payload,
         }
 
     # ------------------------------------------------------------------

@@ -1,9 +1,16 @@
 import json
 import uuid
+from dataclasses import fields
 
+from src.tasklists.service import TaskListService
 from src.tasklists.task import Task
 from src.tasklists.task_list import TaskList
-from src.tasklists.task_states import TASK_STATE_PENDING
+from src.tasklists.task_states import (
+    TASK_LIST_STATE_COMPLETED,
+    TASK_LIST_STATE_CREATED,
+    TASK_STATE_COMPLETED,
+    TASK_STATE_PENDING,
+)
 
 
 def test_task_unknown_key_rejection():
@@ -165,8 +172,133 @@ def test_tasklist_get_children_basic_filter():
     assert ids == {"1", "2"}
 
 
+def test_tasklist_service_save_all_pending_normalizes_to_created(tmp_path):
+    svc = TaskListService()
+    tl = TaskList(
+        id="svc-tl",
+        name="n",
+        description="d",
+        tasks=[Task(id="t1", name="T", instructions="i")],
+    )
+    path = tmp_path / "tl.json"
+    svc.save(str(path), tl)
+
+    loaded = svc.load(str(path))
+    assert loaded.state == TASK_LIST_STATE_CREATED
+    assert loaded.tasks[0].state == TASK_STATE_PENDING
+
+
+def test_tasklist_service_reset_clears_execution_state():
+    svc = TaskListService()
+    tl = TaskList(
+        id="reset-tl",
+        name="n",
+        description="d",
+        state=TASK_LIST_STATE_COMPLETED,
+        current_task_id="t1",
+        meta={"owner": "alice"},
+        tasks=[
+            Task(
+                id="t1",
+                name="T1",
+                instructions="i",
+                state=TASK_STATE_COMPLETED,
+                result={"ok": True},
+                error="boom",
+                meta={"priority": "high"},
+                position=0,
+                files=["a.txt"],
+                parent_id="p",
+            ),
+        ],
+    )
+    svc.reset(tl)
+    assert tl.state == TASK_LIST_STATE_CREATED
+    assert tl.current_task_id is None
+    task = tl.tasks[0]
+    assert task.state == TASK_STATE_PENDING
+    assert task.result is None
+    assert task.error is None
+    assert task.meta == {"priority": "high"}
+    assert task.position == 0
+    assert task.files == ["a.txt"]
+    assert task.parent_id == "p"
+    assert tl.meta == {"owner": "alice"}
+
+
 def test_tasklist_get_children_no_matches_returns_empty():
     t1 = Task(id="1", name="A", instructions="x", parent_id="p")
     tl = TaskList(id="tl2", name="n", description="d", tasks=[t1])
     children = tl.get_children("nomatch")
     assert children == []
+
+
+def test_task_run_metrics_persist():
+    metrics = {
+        "correlation_id": "c-1",
+        "iterations": 3,
+        "max_iterations": 10,
+        "hit_iteration_cap": False,
+        "openai_calls": 3,
+        "tool_calls": 2,
+        "prompt_tokens": 100,
+        "completion_tokens": 20,
+        "total_tokens": 120,
+        "failures": 0,
+        "duration_ms": 42,
+    }
+    assert "run_metrics" in {f.name for f in fields(Task)}
+
+    t = Task(id=str(uuid.uuid4()), name="T10", instructions="Do", run_metrics=metrics)
+    assert t.run_metrics == metrics
+    d = t.to_dict()
+    assert d["run_metrics"] == metrics
+    loaded = Task.from_dict(d)
+    assert loaded.run_metrics == metrics
+
+    plain = Task(id=str(uuid.uuid4()), name="T11", instructions="Do")
+    assert plain.run_metrics is None
+    assert "run_metrics" not in plain.to_dict()
+    loaded_plain = Task.from_dict(plain.to_dict())
+    assert loaded_plain.run_metrics is None
+
+    legacy = {"id": str(uuid.uuid4()), "name": "T12", "instructions": "Do"}
+    legacy_loaded = Task.from_dict(legacy)
+    assert legacy_loaded.run_metrics is None
+
+
+def test_task_reset_clears_run_metrics():
+    svc = TaskListService()
+    tl = TaskList(
+        id="reset-metrics-tl",
+        name="n",
+        description="d",
+        state=TASK_LIST_STATE_COMPLETED,
+        current_task_id="t1",
+        tasks=[
+            Task(
+                id="t1",
+                name="T1",
+                instructions="i",
+                state=TASK_STATE_COMPLETED,
+                result={"ok": True},
+                error="boom",
+                run_metrics={"iterations": 5, "failures": 1},
+            ),
+        ],
+    )
+    svc.reset(tl)
+    task = tl.tasks[0]
+    assert task.state == TASK_STATE_PENDING
+    assert task.result is None
+    assert task.error is None
+    assert task.run_metrics is None
+
+def test_tasklist_round_trip_preserves_task_run_metrics():
+    metrics = {"iterations": 40, "openai_calls": 40}
+    task = Task(id=str(uuid.uuid4()), name="T", instructions="Do", run_metrics=metrics)
+    tasklist = TaskList(id="tl-run-metrics", name="n", description="d", tasks=[task])
+
+    loaded = TaskList.from_dict(tasklist.to_dict())
+
+    assert loaded.tasks[0].run_metrics == metrics

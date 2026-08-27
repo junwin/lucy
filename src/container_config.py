@@ -17,6 +17,7 @@ from src.config_manager import ConfigManager
 from src.agent import AgentManager
 from src.storage_paths.storage_paths import StoragePaths  
 from src.storage.base import Storage
+from src.storage.interfaces import ContextStore, DocumentStore, EmbeddingStore, TasklistStore
 from src.storage.json_file_storage import JsonFileStorage
 
 from src.handlers.handler_registry import HandlerRegistry
@@ -28,10 +29,14 @@ from src.prompt_builders.prompt_builder import PromptBuilder
 
 from src.message_endpoints.ask_request_handler import AskRequestHandler
 
-from src.llm.adapter_interface import LLMAdapter
-from src.llm.openai_responses_adapter import OpenAIResponsesAdapter
-from src.llm.interface import LLMApi
-from src.llm.router_api import RouterApi
+from galet.adapter_interface import LLMAdapter
+from galet.embedding_router import EmbeddingRouter
+from galet.interface import LLMApi
+from galet.mistral_embedding import MistralEmbeddingApi
+from galet.openai_embedding import OpenAIEmbeddingApi
+from galet.openai_responses_adapter import OpenAIResponsesAdapter
+from galet.router_api import RouterApi
+from galet.settings import Settings
 
 from src.chat2.facade import Chat2Store
 from src.chat2.adapters.jfs_adapter import JfsChat2Primitives
@@ -91,6 +96,29 @@ class StorageModule(Module):
 
     @provider
     @singleton
+    def provide_context_store(self, storage: Storage) -> ContextStore:
+        """Provide the same JsonFileStorage instance bound to ContextStore."""
+        return storage
+
+    @provider
+    @singleton
+    def provide_tasklist_store(self, storage: Storage) -> TasklistStore:
+        return storage
+
+    @provider
+    @singleton
+    def provide_document_store(self, storage: Storage) -> DocumentStore:
+        """Provide the same JsonFileStorage instance bound to DocumentStore."""
+        return storage
+
+    @provider
+    @singleton
+    def provide_embedding_store(self, storage: Storage) -> EmbeddingStore:
+        """Provide the same JsonFileStorage instance bound to EmbeddingStore."""
+        return storage
+
+    @provider
+    @singleton
     def provide_chat2_store(self, storage: Storage) -> Chat2Store:
         """Provide a Chat2Store backed by the same JsonFileStorage.
 
@@ -107,7 +135,16 @@ class EmbeddingModule(Module):
     @singleton
     def provide_embedding_facade(self) -> EmbeddingFacade:
         """Provide the embedding facade for digest search and other uses."""
-        return EmbeddingFacade()
+        settings = Settings(
+            credential_path=config.get("credential_path"),
+            ollama_base_url=config.get("ollama_base_url"),
+        )
+        return EmbeddingFacade(
+            embedding_api=EmbeddingRouter(
+                openai_api=OpenAIEmbeddingApi(settings=settings),
+                mistral_api=MistralEmbeddingApi(settings=settings),
+            )
+        )
 
 
 class HandlerRegistryModule(Module):
@@ -141,9 +178,11 @@ class LLMModule(Module):
     @provider
     @singleton
     def provide_llm_api(self) -> LLMApi:
-        # RouterApi dispatches to the correct backend based on model name.
-        # Model names starting with "deepseek" → DeepSeekApi, else → OpenAIResponsesApi.
-        return RouterApi()
+        settings = Settings(
+            credential_path=config.get("credential_path"),
+            ollama_base_url=config.get("ollama_base_url"),
+        )
+        return RouterApi(settings=settings)
 
     @provider
     @singleton
@@ -165,8 +204,8 @@ class AutomationProcessorModule(Module):
         llm_adapter: LLMAdapter,
         agent_manager: AgentManager,
     ) -> AutomationProcessor:
-        """Provide AutomationProcessor as a singleton so it can be injected
-        into FunctionCallingProcessor (step 3 of issue #37 tasklist decomposition).
+        """Provide AutomationProcessor as a singleton so ProcessorFactory can
+        construct it for agents whose message_processor is "automation_processor".
 
         Uses the same Optional dependency pattern as chat2_store to avoid
         circular dependencies: AutomationProcessor does not import FCP at

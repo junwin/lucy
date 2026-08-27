@@ -351,3 +351,18 @@ class TestTasklistsRunHandler:
         """worker_agent is present in the result schema."""
         rs = TasklistsRunHandler.result_schema()
         assert "worker_agent" in rs["properties"]
+
+    def test_missing_secondary_agent_default_context_passes_empty_context_name(self):
+        """Absent secondary_agent_default_context must not pass None as context_name (GH #132)."""
+        fake_ap = FakeAutomationProcessor()
+        handler = TasklistsRunHandler(SimpleConfig())
+        ctx = make_context(automation_processor=fake_ap)
+        assert "secondary_agent_default_context" not in ctx
+
+        result = handler.execute(
+            {"tasklist_id": "tl1", "mode": "single-step"},
+            account_name="alice",
+            **ctx,
+        )
+        assert result["ok"] is True
+        assert fake_ap.calls[0]["context_name"] == ""

@@ -11,8 +11,8 @@ import logging
 from typing import Any, Dict, List, Optional
 
 from src.chat2.models import ChatEvent
-from src.llm.dto import LLMResponse
-from src.llm.interface import LLMApi
+from galet.dto import LLMResponse
+from galet.interface import LLMApi
 
 logger = logging.getLogger(__name__)
 

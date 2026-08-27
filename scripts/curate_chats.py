@@ -45,7 +45,7 @@ from src.chat2.adapters.jfs_adapter import JfsChat2Primitives
 from src.chat2.facade import Chat2Store
 from src.config_manager import ConfigManager
 from src.curation.core import CurationEngine
-from src.llm.router_api import RouterApi
+from galet.router_api import RouterApi
 from src.storage.json_file_storage import JsonFileStorage
 from src.storage_paths.storage_paths import StoragePaths
 

@@ -16,7 +16,7 @@ from unittest.mock import Mock
 
 import pytest
 
-from src.llm.mistral_api import MistralApi
+from galet.mistral_api import MistralApi
 
 
 # ---------------------------------------------------------------------------

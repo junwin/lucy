@@ -19,7 +19,8 @@ from src.curation.templates import render_template, resolve_template
 from src.curation.summarizer import summarize_session
 from src.curation.archiver import archive_session
 from src.embeddings.facade import EmbeddingFacade
-from src.llm.interface import LLMApi
+from galet.interface import LLMApi
+from src.storage.interfaces import EmbeddingStore
 from src.storage.models import EmbeddingRecord
 
 logger = logging.getLogger(__name__)
@@ -36,7 +37,7 @@ class CurationEngine:
         archives_root: Base path for archive output (e.g. Path("data/archives")).
         chats_index_path: Optional path to index.json for friendly-name resolution.
         embedding_facade: Optional EmbeddingFacade to embed digests at creation time.
-        storage: Optional Storage to persist embedding records.
+        storage: Optional EmbeddingStore to persist embedding records.
     """
 
     def __init__(
@@ -48,7 +49,7 @@ class CurationEngine:
         archives_root: Optional[Path] = None,
         chats_index_path: Optional[Path] = None,
         embedding_facade: Optional[EmbeddingFacade] = None,
-        storage: Optional[Any] = None,
+        storage: Optional[EmbeddingStore] = None,
     ) -> None:
         self.chat2_store = chat2_store
         self.llm_api = llm_api
@@ -83,7 +84,7 @@ class CurationEngine:
             preview: If True, return note_text without writing.
             publish: If True, write digest to disk.
             template_name: Named template to use.
-            context_state_template: Optional template override from ContextState.
+            context_state_template: Optional template override from Context.
             curation_rules: Rules dict for filter mode (remove_kinds, keep_roles, deduplicate).
             max_chars: Max characters for the events text block fed to the LLM.
 

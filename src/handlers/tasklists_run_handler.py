@@ -105,12 +105,15 @@ class TasklistsRunHandler(HandlerV2):
                 "error": {"code": "invalid_mode", "message": "mode must be 'single-step' or 'multi-step'."},
             }
 
+        correlation_id = context.get("correlation_id")
+
         logger.info(
-            "tasklists_run input account=%s tasklist_id=%s mode=%s worker_agent=%s",
+            "tasklists_run input account=%s tasklist_id=%s mode=%s worker_agent=%s correlation_id=%s",
             account_name,
             tasklist_id,
             mode,
             worker_agent,
+            correlation_id,
         )
 
         # Resolve AutomationProcessor from context or via processor_factory.
@@ -186,7 +189,8 @@ class TasklistsRunHandler(HandlerV2):
                 account_name=account_name,
                 agent_name=agent_name,
                 conversation_id=conversation_id,
-                context_name=secondary_agent_default_context,
+                correlation_id=correlation_id,
+                context_name=secondary_agent_default_context or "",
                 primary_agent=primary_agent,
                 account=account,
                 secondary_agent=secondary_agent,
@@ -198,6 +202,7 @@ class TasklistsRunHandler(HandlerV2):
                 "tool": self.NAME,
                 "tasklist_id": tasklist_id,
                 "mode": mode,
+                "correlation_id": correlation_id,
                 "worker_agent": worker_agent,
                 "result": result,
             }
@@ -208,6 +213,7 @@ class TasklistsRunHandler(HandlerV2):
                 "tool": self.NAME,
                 "tasklist_id": tasklist_id,
                 "mode": mode,
+                "correlation_id": correlation_id,
                 "worker_agent": worker_agent,
                 "error": {"code": "execution_failed", "message": str(e)},
             }

@@ -48,31 +48,13 @@ class CommandExecutionHandler2(HandlerV2):
 
     @classmethod
     def tool_def(cls) -> Dict[str, Any]:
-        if IS_WINDOWS:
-            shell_example = "powershell.exe -NoProfile -NonInteractive -Command \"...\" (or 'pwsh -NoProfile -NonInteractive -Command \"...\"' if pwsh is installed)"
-            shell_note = "(PowerShell is available in the environment.)"
-            example_usage = "powershell.exe -NoProfile -NonInteractive -Command \"grep -R 'pattern' . | Select-String -Pattern 'pattern'\""
-            command_wrap_example = "powershell.exe -NoProfile -NonInteractive -Command \"your full command here\""
-        else:
-            shell_example = "bash -lc '\"...\"'"
-            shell_note = "(bash is available in the environment.)"
-            example_usage = "bash -lc '\"grep -R \\'pattern\\' . | sed -n '1,10p\\\"'"
-            command_wrap_example = "bash -lc '\"your full command here\"'"
-
         return {
             "type": "function",
             "name": cls.NAME,
             "description": (
-                "Run a command inside a sandboxed working directory under a named location. "
-                "IMPORTANT: the command is executed with shell=False (subprocess.run(..., shell=False)). "
-                "Do NOT use shell operators (for example: &&, ||, |, ;, >, <, >>, 2>, $(), backticks, etc.). "
-                f"If you need shell features (pipes, redirection, compound/conditional commands), wrap the entire command in a shell invocation appropriate for your OS, e.g. `{shell_example}`. "
-                f"Example: `{example_usage}` will run a shell so pipes and redirects work. "
-                f"{shell_note} "
-                "Commands MUST be non-interactive and MUST terminate. "
-                "Do NOT call `bash` or `python3` with no arguments (they will wait for stdin and time out). "
-                "Paths are always relative. "
-                "location='sandbox' uses code_sandbox_path; location='external' uses external_root."
+                "Run a command under a named location (sandbox or external). Non-interactive only, "
+                "executed with shell=False. For pipes/redirects/conditionals wrap in bash -lc (Linux) "
+                "or powershell (Windows). Don't use this to read files (use file_load)."
             ),
             "parameters": {
                 "type": "object",
@@ -84,51 +66,34 @@ class CommandExecutionHandler2(HandlerV2):
                     },
                     "external_root": {
                         "type": "string",
-                        "description": "Named external root key when location='external'. Use '' otherwise.",
+                        "description": "Named root when location='external'; '' otherwise.",
                     },
                     "command": {
                         "type": "string",
-                        "description": (
-                            "Command to execute (executed with shell=False). "
-                            "Do NOT include shell operators like &&, ||, |, >, <, 2>, etc. "
-                            f"If you need them, wrap the command in a shell invocation appropriate for your platform, for example: `{command_wrap_example}`."
-                        ),
+                        "description": "Command to run (shell=False). Wrap in bash -lc/powershell for shell operators.",
                     },
                     "working_directory": {
                         "type": "string",
-                        "description": (
-                            "Working directory relative to the chosen location (no leading /, no ..). "
-                            "Use '.' to run in the root of the chosen base directory."
-                        ),
+                        "description": "Relative dir under chosen location; '.' for root.",
                     },
                     "timeout_seconds": {
                         "type": "integer",
-                        "description": "Timeout in seconds (limits runtime)",
+                        "description": "Timeout in seconds.",
                         "default": 30,
                     },
                     "success_exit_codes": {
                         "type": "array",
                         "items": {"type": "integer"},
-                        "description": (
-                            "Return codes that should be treated as success. "
-                            "Default [0]. Useful for commands like grep where 1 means 'no matches'."
-                        ),
+                        "description": "Exit codes treated as success (default [0]).",
                         "default": [0],
                     },
                     "wrapper": {
                         "type": "string",
                         "enum": ["none", "bash", "powershell"],
-                        "description": (
-                            "Shell wrapper to use for this command. "
-                            "Default 'none' runs the command directly with shell=False. "
-                            "Set to 'bash' to wrap in `bash -lc \"...\"` (Linux/macOS). "
-                            "Set to 'powershell' to wrap in PowerShell (pwsh or powershell.exe) using -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command '...'. "
-                            "When a wrapper is set, shell operators in the command are allowed."
-                        ),
+                        "description": "Shell wrapper: 'none', 'bash', or 'powershell'. Set bash/powershell to allow shell operators.",
                         "default": "none",
                     },
                 },
-                # STRICT RULE: required must include EVERY property key
                 "required": ["location", "external_root", "command", "working_directory", "timeout_seconds", "success_exit_codes", "wrapper"],
                 "additionalProperties": False,
             },

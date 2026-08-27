@@ -3,12 +3,12 @@ from __future__ import annotations
 import logging
 from typing import Any, Dict, List, Optional, Tuple
 
-from src.storage.base import Storage
+from src.storage.interfaces import DocumentStore
 from src.utils.text_snippet_loader import load_text_snippet
 
 
 def get_document_context(
-    storage: Storage,
+    storage: DocumentStore,
     account_name: str,
     query: str,
     *,
@@ -90,7 +90,7 @@ def get_document_context(
 
 
 def get_document_context_traced(
-    storage: Storage,
+    storage: DocumentStore,
     account_name: str,
     query: str,
     *,

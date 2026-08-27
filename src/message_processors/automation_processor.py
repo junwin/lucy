@@ -19,13 +19,12 @@ from src.config_manager import ConfigManager
 from src.handlers.handler_registry import HandlerRegistry
 from src.message_processors.message_processor_interface import MessageProcessorInterface
 from src.prompt_builders.prompt_builder_interface import PromptBuilderInterface
-from src.storage.base import Storage
-from src.storage.models import ChatMessage
+from src.storage.interfaces import TasklistStore
 
 # Avoid importing Storage at module import time because storage.__init__ may import
 # storage backends that depend on optional packages (pydantic). Use TYPE_CHECKING for typing only.
 if TYPE_CHECKING:
-    from src.storage.base import Storage
+    from src.storage.interfaces import TasklistStore
 
 from src.chat2.facade import Chat2Store
 from src.chat2.models import ChatEvent
@@ -43,7 +42,7 @@ from src.tasklists.task_states import (
     TASK_LIST_STATE_RUNNING,
 )
 
-from src.llm.adapter_interface import LLMAdapter
+from galet.adapter_interface import LLMAdapter
 
 logger = logging.getLogger(__name__)
 
@@ -57,6 +56,34 @@ def _safe_preview(text: str, limit: int = 500) -> str:
     if len(text) <= limit:
         return text
     return text[:limit] + "..."
+
+
+# ---------------------------------------------------------------------------
+# Mandatory-stop detection
+# ---------------------------------------------------------------------------
+# These responses indicate the model did NOT complete the requested work. If
+# the FunctionCallingProcessor returns any of them, AutomationProcessor must
+# abort the tasklist, mark the task failed/error, and never mark it completed.
+_MANDATORY_STOP_MARKERS = (
+    "I ran into an internal limit while trying to call tools multiple times",
+    "I received an empty response from the model",
+    "I noticed I was repeating the same tool call without making progress",
+)
+
+
+class MandatoryStopError(Exception):
+    """Raised when a task's model response indicates incomplete work.
+
+    AutomationProcessor treats this as a hard stop: the current task is marked
+    failed/error and the tasklist run is terminated.
+    """
+
+
+def _is_mandatory_stop_response(text: str) -> bool:
+    """Return True if a FunctionCallingProcessor response is a mandatory stop."""
+    if not isinstance(text, str):
+        return False
+    return any(marker in text for marker in _MANDATORY_STOP_MARKERS)
 
 
 def _is_run_command(message: str) -> bool:
@@ -191,7 +218,7 @@ class AutomationProcessor(MessageProcessorInterface):
         self,
         config: ConfigManager,
         registry: HandlerRegistry,
-        storage: Storage,
+        storage: TasklistStore,
         prompt_builder: PromptBuilderInterface,
         chat2_store: Optional[Chat2Store] = None,
         llm_adapter: Optional[LLMAdapter] = None,
@@ -256,8 +283,12 @@ class AutomationProcessor(MessageProcessorInterface):
         payload: str,
         metadata: Optional[Dict[str, Any]] = None,
         friendly_name: Optional[str] = None,
+        correlation_id: Optional[str] = None,
     ) -> None:
         """Write a single event to chat2 storage.
+
+        When *correlation_id* is provided, the written event is linked to it
+        in the correlation sidecar index. Falsy correlation ids write no link.
 
         Best-effort: failures are logged but not propagated.
         """
@@ -283,6 +314,7 @@ class AutomationProcessor(MessageProcessorInterface):
                 metadata=meta,
             )
             self.chat2_store.add_event(conversation_id, event)
+            self.chat2_store.link_event(correlation_id, conversation_id, event.event_id)
             logger.info(
                 "chat2: wrote %s event for session=%s kind=%s (mapped from %s)",
                 role,
@@ -369,6 +401,7 @@ class AutomationProcessor(MessageProcessorInterface):
         secondary_agent: Optional[Agent] = None,
         processor_factory: Optional[Any] = None,
         worker_agent: Optional[str] = None,
+        correlation_id: Optional[str] = None,
     ) -> str:
         """Execute a persisted tasklist by ID.
 
@@ -383,14 +416,16 @@ class AutomationProcessor(MessageProcessorInterface):
         Returns a human-readable result string.
         Raises ValueError if the tasklist is not found in storage.
         """
+        context_name = context_name or ""
         logger.info(
-            "execute_tasklist start agent=%s account=%s conversation_id=%s tasklist_id=%s mode=%s worker_agent=%s",
+            "execute_tasklist start agent=%s account=%s conversation_id=%s tasklist_id=%s mode=%s worker_agent=%s correlation_id=%s",
             agent_name,
             account_name,
             conversation_id,
             tasklist_id,
             mode,
             worker_agent,
+            correlation_id,
         )
 
         # Resolve worker agent override (top-level, applies to ALL tasks).
@@ -459,7 +494,7 @@ class AutomationProcessor(MessageProcessorInterface):
         if raw_tasklist is None:
             raise ValueError(
                 f"Tasklist '{tasklist_id}' not found in storage. "
-                "Use tasklists_manage to list available tasklists, or delegate_tasks to create one."
+                "Use tasklists_manage to list or create tasklists."
             )
 
         if not isinstance(raw_tasklist, TaskList):
@@ -469,6 +504,9 @@ class AutomationProcessor(MessageProcessorInterface):
             )
 
         tasklist: TaskList = raw_tasklist
+
+        if correlation_id:
+            tasklist.meta["correlation_id"] = correlation_id
 
         # Derive a friendly_name for the chat2 session so automated runs
         # don't create sketchy null-name sessions.
@@ -624,7 +662,7 @@ class AutomationProcessor(MessageProcessorInterface):
                             "warning": "Task has no instructions. Provide task.instructions to execute.",
                         }
                     else:
-                        response = function_processor.process_message(
+                        fcp_result = function_processor.process_message(
                             primary_agent=task_agent,
                             account=account,
                             message=task_message,
@@ -634,15 +672,32 @@ class AutomationProcessor(MessageProcessorInterface):
                             processor_factory=processor_factory,
                             image_ids=image_ids,
                             file_ids=file_ids,
+                            correlation_id=correlation_id,
                         )
 
+                        response = fcp_result.text
+                        task.run_metrics = fcp_result.metrics.to_dict()
                         task_result = {"timestamp": _now_utc().isoformat(), "output": response}
+
+                        if _is_mandatory_stop_response(response):
+                            logger.error(
+                                "AutomationProcessor: mandatory-stop response detected for task=%s tasklist_id=%s; aborting",
+                                last_task_name,
+                                tasklist_id,
+                            )
+                            raise MandatoryStopError(
+                                "Model reported it could not complete the task "
+                                f"(internal limit / incomplete response). Aborting tasklist run for task '{last_task_name}'."
+                            )
                 else:
                     task_result = {
                         "timestamp": _now_utc().isoformat(),
                         "note": "Placeholder result. External tool execution disabled for Part 1+2.",
                         "intended_action": {"task": last_task_name, "mode": mode},
                     }
+            except MandatoryStopError as e:
+                logger.error("Task execution aborted (mandatory stop) for task=%s: %s", last_task_name, e)
+                task_error = str(e)
             except Exception as e:
                 logger.exception("Task execution failed for task=%s", last_task_name)
                 task_error = str(e)
@@ -681,8 +736,13 @@ class AutomationProcessor(MessageProcessorInterface):
                     "outcome": task_outcome,
                     "error": task_error,
                 }),
-                metadata={"tasklist_id": tasklist_id, "mode": mode},
+                metadata={
+                    "tasklist_id": tasklist_id,
+                    "mode": mode,
+                    **({"correlation_id": correlation_id} if correlation_id else {}),
+                },
                 friendly_name=auto_friendly_name,
+                correlation_id=correlation_id,
             )
 
             # Persist after each task (COMPLETED or FAILED checkpoint).
@@ -754,8 +814,13 @@ class AutomationProcessor(MessageProcessorInterface):
                 "last_task": last_task_name,
                 "warnings": warning_messages,
             }),
-            metadata={"tasklist_id": tasklist_id, "mode": mode},
+            metadata={
+                "tasklist_id": tasklist_id,
+                "mode": mode,
+                **({"correlation_id": correlation_id} if correlation_id else {}),
+            },
             friendly_name=auto_friendly_name,
+            correlation_id=correlation_id,
         )
 
         # Structured final log for observability
@@ -793,6 +858,7 @@ class AutomationProcessor(MessageProcessorInterface):
         context_name: str = "",
         secondary_agent: Optional[Agent] = None,
         processor_factory: Optional[Any] = None,
+        correlation_id: Optional[str] = None,
     ) -> str:
         agent_name = (getattr(primary_agent, "name", "") or "").lower().strip()
 
@@ -839,12 +905,13 @@ class AutomationProcessor(MessageProcessorInterface):
             return "[AutomationProcessor] Invalid mode. Use 'single-step' or 'multi-step'."
 
         logger.info(
-            "AutomationProcessor start agent=%s account=%s conversation_id=%s tasklist_id=%s mode=%s",
+            "AutomationProcessor start agent=%s account=%s conversation_id=%s tasklist_id=%s mode=%s correlation_id=%s",
             agent_name,
             account_name,
             conversation_id,
             tasklist_id,
             mode,
+            correlation_id,
         )
         logger.debug("Incoming message preview: %s", _safe_preview(message, 800))
 
@@ -859,8 +926,13 @@ class AutomationProcessor(MessageProcessorInterface):
             role="user",
             kind="automation_command",
             payload=message,
-            metadata={"tasklist_id": tasklist_id, "mode": mode},
+            metadata={
+                "tasklist_id": tasklist_id,
+                "mode": mode,
+                **({"correlation_id": correlation_id} if correlation_id else {}),
+            },
             friendly_name=auto_friendly_name,
+            correlation_id=correlation_id,
         )
 
         # Delegate to the extracted execution method.
@@ -877,4 +949,5 @@ class AutomationProcessor(MessageProcessorInterface):
             account=account,
             secondary_agent=secondary_agent,
             processor_factory=processor_factory,
+            correlation_id=correlation_id,
         )

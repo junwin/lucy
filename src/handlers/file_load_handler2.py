@@ -32,7 +32,10 @@ class FileLoadHandler2(HandlerV2):
         "type": "function",
         "name": cls.NAME,
         "description": (
-            "Load a text file. Paths are always relative and resolved under a named location. "
+            "Read a text file's contents and return them. Use this tool to read, open, view, or "
+            "inspect any file whose path is known or specified. Prefer this over execute_command "
+            "with cat, sed, tail, head, or less. "
+            "Paths are always relative and resolved under a named location. "
             "location='storage' uses Lucy storage; location='external' uses external_root."
         ),
         "parameters": {

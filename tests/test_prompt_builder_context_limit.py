@@ -1,7 +1,8 @@
 import logging
-from types import SimpleNamespace
+from datetime import datetime, timezone
 
 from src.prompt_builders.prompt_builder import PromptBuilder
+from src.storage.models import Context
 
 
 def test_context_soft_maximum_triggers_warning(caplog):
@@ -20,7 +21,12 @@ def test_context_soft_maximum_triggers_warning(caplog):
     # Fake storage: returns a context with a very large text body
     class FakeStorage:
         def get_or_create_context(self, account_name, context_name):
-            return SimpleNamespace(data={"text": "x" * 10000})
+            return Context(
+                id=context_name,
+                account_name=account_name,
+                text="x" * 10000,
+                updated_at=datetime.now(timezone.utc),
+            )
 
     pb = PromptBuilder(
         agent_manager=FakeAgentManager(),

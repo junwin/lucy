@@ -1,3 +1,5 @@
+import json
+
 from src.handlers.tasklists_manage_handler import TasklistsManageHandler
 from src.tasklists.task_states import (
     TASK_LIST_STATE_CREATED,
@@ -272,6 +274,55 @@ def test_reset_validate_only(tmp_path):
     assert r2.get("ok") is True
     tl_stored = r2.get("tasklist")
     assert tl_stored["state"] == TASK_LIST_STATE_COMPLETED
+
+
+def test_reset_persists_to_same_on_disk_file(tmp_path):
+    cfg = SimpleConfig(str(tmp_path), "ns")
+    h = TasklistsManageHandler(cfg)
+
+    _create_completed_tasklist(h, "alice", "tl-reset-disk")
+
+    r = h.execute({"action": "reset", "tasklist_key": "tl-reset-disk", "validate_only": False}, account_name="alice")
+    assert r.get("ok") is True
+    assert r["tasklist"]["state"] == TASK_LIST_STATE_CREATED
+
+    expected_path = tmp_path / "ns" / "tasklists" / "alice" / "tl-reset-disk.json"
+    assert expected_path.exists()
+    raw = json.loads(expected_path.read_text(encoding="utf-8"))
+    assert raw["id"] == "tl-reset-disk"
+    assert raw["state"] == TASK_LIST_STATE_CREATED
+    assert raw.get("current_task_id") is None
+    for task in raw["tasks"]:
+        assert task["state"] == TASK_STATE_PENDING
+        assert task.get("result") is None
+        assert task.get("error") is None
+
+    r2 = h.execute({"action": "get", "tasklist_key": "tl-reset-disk", "validate_only": False}, account_name="alice")
+    assert r2.get("ok") is True
+    assert r2["tasklist"]["state"] == TASK_LIST_STATE_CREATED
+    for task in r2["tasklist"]["tasks"]:
+        assert task["state"] == TASK_STATE_PENDING
+        assert task.get("result") is None
+        assert task.get("error") is None
+
+
+def test_reset_persists_only_for_given_account(tmp_path):
+    cfg = SimpleConfig(str(tmp_path), "ns")
+    h = TasklistsManageHandler(cfg)
+
+    _create_completed_tasklist(h, "alice", "tl-acct")
+    _create_completed_tasklist(h, "bob", "tl-acct")
+
+    r = h.execute({"action": "reset", "tasklist_key": "tl-acct", "validate_only": False}, account_name="alice")
+    assert r.get("ok") is True
+
+    alice_raw = json.loads((tmp_path / "ns" / "tasklists" / "alice" / "tl-acct.json").read_text(encoding="utf-8"))
+    assert alice_raw["state"] == TASK_LIST_STATE_CREATED
+    for task in alice_raw["tasks"]:
+        assert task["state"] == TASK_STATE_PENDING
+
+    bob_raw = json.loads((tmp_path / "ns" / "tasklists" / "bob" / "tl-acct.json").read_text(encoding="utf-8"))
+    assert bob_raw["state"] == TASK_LIST_STATE_COMPLETED
 
 
 # ------------------------------------------------------------------

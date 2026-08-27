@@ -1,6 +1,6 @@
 import pytest
 
-from src.llm.provider_registry import ProviderRegistry
+from galet.provider_registry import ProviderRegistry
 
 
 def test_explicit_provider_overrides_prefix():
@@ -31,6 +31,20 @@ def test_ollama_explicit_provider():
     """Explicit provider=ollama routes correctly."""
     name, inst = ProviderRegistry.resolve("llama3.1", provider="ollama")
     assert name == "ollama"
+    assert inst is not None
+
+
+def test_gemini_prefix_resolution():
+    name, _ = ProviderRegistry.resolve("gemini-2.0-flash")
+    assert name == "gemini"
+
+    name2, _ = ProviderRegistry.resolve("gemini-pro")
+    assert name2 == "gemini"
+
+
+def test_gemini_explicit_provider():
+    name, inst = ProviderRegistry.resolve("some-model", provider="gemini")
+    assert name == "gemini"
     assert inst is not None
 
 

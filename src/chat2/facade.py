@@ -14,6 +14,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Iterator, List, Optional
 
+from src.chat2.correlation import get_links, link_event
 from src.chat2.jsonl_store import (
     append_event,
     create_session,
@@ -199,6 +200,45 @@ class Chat2Store:
         Returns 0 if the session does not exist.
         """
         return len(list(stream_events(self._store, session_id)))
+
+    # ------------------------------------------------------------------
+    # Correlation index
+    # ------------------------------------------------------------------
+
+    def link_event(
+        self,
+        correlation_id: Optional[str],
+        session_id: str,
+        event_id: str,
+    ) -> None:
+        """Link an event to a correlation id in the sidecar index.
+
+        Falsy correlation ids (None or '') are a no-op and never raise.
+        """
+        link_event(self._store, correlation_id, session_id, event_id)
+
+    def get_events_by_correlation(
+        self,
+        correlation_id: Optional[str],
+    ) -> List[ChatEvent]:
+        """Return events linked to a correlation id, in link order.
+
+        Resolves links via the sidecar index, reads each linked session's
+        events through the facade's own get_events, and returns the linked
+        events in link order. Returns [] when the correlation id is unknown.
+        """
+        links = get_links(self._store, correlation_id)
+        if not links:
+            return []
+        events_by_id: dict[str, ChatEvent] = {}
+        for session_id in {link.session_id for link in links}:
+            for event in self.get_events(session_id):
+                events_by_id[event.event_id] = event
+        return [
+            events_by_id[link.event_id]
+            for link in links
+            if link.event_id in events_by_id
+        ]
 
     # ------------------------------------------------------------------
     # Convenience
