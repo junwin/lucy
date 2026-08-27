@@ -293,3 +293,12 @@ def test_task_reset_clears_run_metrics():
     assert task.result is None
     assert task.error is None
     assert task.run_metrics is None
+
+def test_tasklist_round_trip_preserves_task_run_metrics():
+    metrics = {"iterations": 40, "openai_calls": 40}
+    task = Task(id=str(uuid.uuid4()), name="T", instructions="Do", run_metrics=metrics)
+    tasklist = TaskList(id="tl-run-metrics", name="n", description="d", tasks=[task])
+
+    loaded = TaskList.from_dict(tasklist.to_dict())
+
+    assert loaded.tasks[0].run_metrics == metrics

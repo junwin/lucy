@@ -251,7 +251,7 @@
     ],
     "provider": null,
     "use_embeddings": true,
-    "default_context": "lucyproject"
+    "default_context": "debo_work"
   },
   {
     "name": "star",
