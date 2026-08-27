@@ -1,5 +1,5 @@
 import logging
-from typing import List
+from typing import List, Optional
 
 from src.chat2.facade import Chat2Store
 from src.chat2.models import ChatEvent
@@ -52,8 +52,12 @@ class Chat2Recorder:
         ctx: ProcessorContext,
         user_message: str,
         streamed_events: List[SSEEvent],
+        correlation_id: Optional[str] = None,
     ) -> None:
         """Write streaming events to chat2 storage, preserving image and tool cards.
+
+        When *correlation_id* is provided, every written event is linked to it
+        in the correlation sidecar index. Falsy correlation ids write no links.
 
         Best-effort: failures are logged but not propagated.
         """
@@ -134,6 +138,10 @@ class Chat2Recorder:
                         ))
 
             self.chat2_store.add_events(ctx.conversation_id, chat_events)
+            for event in chat_events:
+                self.chat2_store.link_event(
+                    correlation_id, ctx.conversation_id, event.event_id
+                )
             logging.info(
                 "chat2: wrote %d streaming events for session=%s (user+tool+text+image)",
                 len(chat_events),

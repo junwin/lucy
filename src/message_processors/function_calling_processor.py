@@ -361,9 +361,12 @@ class FunctionCallingProcessor(MessageProcessorInterface):
         ctx: ProcessorContext,
         user_message: str,
         streamed_events: List[SSEEvent],
+        correlation_id: Optional[str] = None,
     ) -> None:
         self.chat2.chat2_store = self.chat2_store
-        self.chat2.write_streaming_events(ctx, user_message, streamed_events)
+        self.chat2.write_streaming_events(
+            ctx, user_message, streamed_events, correlation_id=correlation_id
+        )
 
     # ------------------------------------------------------------------
     # Public API
@@ -468,6 +471,7 @@ class FunctionCallingProcessor(MessageProcessorInterface):
                     ctx,
                     message,
                     [SSEEvent(type="text", content=response_text)],
+                    correlation_id=correlation_id,
                 )
 
             latency_ms = int((time.perf_counter() - start_ts) * 1000)
@@ -493,6 +497,7 @@ class FunctionCallingProcessor(MessageProcessorInterface):
                     ctx,
                     message,
                     [SSEEvent(type="text", content=e.message)],
+                    correlation_id=correlation_id,
                 )
             except Exception:
                 logging.exception(
@@ -521,6 +526,7 @@ class FunctionCallingProcessor(MessageProcessorInterface):
                     ctx,
                     message,
                     [SSEEvent(type="text", content=error_message + f" (Details: {type(e).__name__})")],
+                    correlation_id=correlation_id,
                 )
             except Exception:
                 logging.exception(
@@ -657,7 +663,7 @@ class FunctionCallingProcessor(MessageProcessorInterface):
 
             # Write all collected events to chat2 storage
             if ctx.store_this_call:
-                self._write_streaming_chat2_events(ctx, message, streamed_events)
+                self._write_streaming_chat2_events(ctx, message, streamed_events, correlation_id=correlation_id)
                 events_persisted = True
 
         except ToolHandlerError:
@@ -681,6 +687,7 @@ class FunctionCallingProcessor(MessageProcessorInterface):
                     ctx,
                     message,
                     [SSEEvent(type="text", content=e.message)],
+                    correlation_id=correlation_id,
                 )
                 events_persisted = True
             except Exception:
@@ -708,6 +715,7 @@ class FunctionCallingProcessor(MessageProcessorInterface):
                     ctx,
                     message,
                     [SSEEvent(type="text", content=error_message + f" (Details: {type(e).__name__})")],
+                    correlation_id=correlation_id,
                 )
                 events_persisted = True
             except Exception:
@@ -724,7 +732,7 @@ class FunctionCallingProcessor(MessageProcessorInterface):
             # Best-effort: if the client disconnected mid-stream (GeneratorExit),
             # persist whatever was streamed so far so history is not lost.
             if not events_persisted and ctx.store_this_call:
-                self._write_streaming_chat2_events(ctx, message, streamed_events)
+                self._write_streaming_chat2_events(ctx, message, streamed_events, correlation_id=correlation_id)
 
             latency_ms = int((time.perf_counter() - start_ts) * 1000)
             logging.info(

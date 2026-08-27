@@ -283,8 +283,12 @@ class AutomationProcessor(MessageProcessorInterface):
         payload: str,
         metadata: Optional[Dict[str, Any]] = None,
         friendly_name: Optional[str] = None,
+        correlation_id: Optional[str] = None,
     ) -> None:
         """Write a single event to chat2 storage.
+
+        When *correlation_id* is provided, the written event is linked to it
+        in the correlation sidecar index. Falsy correlation ids write no link.
 
         Best-effort: failures are logged but not propagated.
         """
@@ -310,6 +314,7 @@ class AutomationProcessor(MessageProcessorInterface):
                 metadata=meta,
             )
             self.chat2_store.add_event(conversation_id, event)
+            self.chat2_store.link_event(correlation_id, conversation_id, event.event_id)
             logger.info(
                 "chat2: wrote %s event for session=%s kind=%s (mapped from %s)",
                 role,
@@ -737,6 +742,7 @@ class AutomationProcessor(MessageProcessorInterface):
                     **({"correlation_id": correlation_id} if correlation_id else {}),
                 },
                 friendly_name=auto_friendly_name,
+                correlation_id=correlation_id,
             )
 
             # Persist after each task (COMPLETED or FAILED checkpoint).
@@ -814,6 +820,7 @@ class AutomationProcessor(MessageProcessorInterface):
                 **({"correlation_id": correlation_id} if correlation_id else {}),
             },
             friendly_name=auto_friendly_name,
+            correlation_id=correlation_id,
         )
 
         # Structured final log for observability
@@ -925,6 +932,7 @@ class AutomationProcessor(MessageProcessorInterface):
                 **({"correlation_id": correlation_id} if correlation_id else {}),
             },
             friendly_name=auto_friendly_name,
+            correlation_id=correlation_id,
         )
 
         # Delegate to the extracted execution method.
