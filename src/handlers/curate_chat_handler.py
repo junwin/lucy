@@ -20,6 +20,7 @@ from src.curation.resolver import resolve_session
 from src.embeddings.facade import EmbeddingFacade
 from galet.interface import LLMApi
 from galet.router_api import RouterApi
+from galet.settings import Settings
 
 logger = logging.getLogger(__name__)
 
@@ -38,7 +39,12 @@ class CurateChatHandler(HandlerV2):
     def __init__(self, config: ConfigManager):
         self.config = config
         self.chat2_store = self._build_store()
-        self.llm_api: LLMApi = RouterApi()
+        self.llm_api: LLMApi = RouterApi(
+            settings=Settings(
+                credential_path=config.get("credential_path"),
+                ollama_base_url=config.get("ollama_base_url"),
+            )
+        )
         self.engine = self._build_engine()
 
     @staticmethod

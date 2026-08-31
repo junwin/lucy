@@ -293,7 +293,7 @@
     "max_prompt_documents": 4,
     "temperature": 0,
     "save_responses": true,
-    "model": "mistral-large-latest",
+    "model": "mistral-medium-latest",
     "message_processor": "function_calling_processor",
     "max_function_call_iterations": 20,
     "partner_agent": "star",
