@@ -19,6 +19,7 @@ from src.storage_paths.storage_paths import StoragePaths
 from src.storage.base import Storage
 from src.storage.interfaces import ContextStore, DocumentStore, EmbeddingStore, TasklistStore
 from src.storage.json_file_storage import JsonFileStorage
+from src.storage.primitives_embedding_store import build_primitives_embedding_store
 
 from src.handlers.handler_registry import HandlerRegistry
 from src.handlers.registry_bootstrap import build_registry
@@ -116,8 +117,33 @@ class StorageModule(Module):
     @provider
     @singleton
     def provide_embedding_store(self, storage: Storage) -> EmbeddingStore:
-        """Provide the same JsonFileStorage instance bound to EmbeddingStore."""
-        return storage
+        """Provide the EmbeddingStore, optionally backed by the generic store.
+
+        Config key: ``embedding_store_backend`` (optional). When unset or
+        empty, the container keeps today's behavior — the shared
+        JsonFileStorage instance (byte-identical on disk).
+
+        - ``file``   -> ``PrimitivesEmbeddingStore`` over
+          ``FileChat2Primitives`` rooted at
+          ``<storage_root_path>/<storage_namespace>``, the same on-disk
+          layout as JsonFileStorage (interchangeable).
+        - ``sqlite`` -> ``PrimitivesEmbeddingStore`` over
+          ``SqliteChat2Primitives`` at ``embedding_store_db_path`` (default
+          ``<storage_root_path>/<storage_namespace>/embeddings.sqlite``).
+
+        Any other value raises ``ValueError`` so a misconfiguration fails
+        loudly at container build time instead of silently writing
+        embeddings to the wrong place.
+        """
+        backend = str(config.get("embedding_store_backend", "") or "").strip().lower()
+        if not backend:
+            return storage
+        if backend not in ("file", "sqlite"):
+            raise ValueError(
+                "Unknown embedding_store_backend %r: expected 'file' or 'sqlite'"
+                % backend
+            )
+        return build_primitives_embedding_store(config)
 
     @provider
     @singleton
