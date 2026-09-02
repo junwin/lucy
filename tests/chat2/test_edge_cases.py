@@ -65,8 +65,10 @@ class TestStreamEventsEdgeCases:
         ev2 = ChatEvent(role="assistant", actor="lucy", kind="assistant_message", payload="Hello")
 
         events_key = StoreKey(f"sessions/{sid}/events.jsonl")
-        content = ev1.model_dump_json() + "\n\n\n" + ev2.model_dump_json() + "\n"
-        store.write_text(events_key, content)
+        store.append_lines(
+            events_key,
+            [ev1.model_dump_json(), "", "", ev2.model_dump_json()],
+        )
 
         events = list(stream_events(store, sid))
         assert len(events) == 2
@@ -80,7 +82,7 @@ class TestStreamEventsEdgeCases:
 
         ev = ChatEvent(role="user", actor="john", kind="user_message", payload="Hi")
         events_key = StoreKey(f"sessions/{sid}/events.jsonl")
-        store.write_text(events_key, ev.model_dump_json() + "\n")
+        store.append_lines(events_key, [ev.model_dump_json()])
 
         events = list(stream_events(store, sid))
         assert len(events) == 1

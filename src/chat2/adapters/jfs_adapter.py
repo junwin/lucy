@@ -11,7 +11,7 @@ This adapter does NOT modify JsonFileStorage - it composes with it.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Optional
+from typing import Iterable, Optional
 
 from src.chat2.store_primitives import Chat2Primitives, StoreKey
 from src.storage.json_file_storage import JsonFileStorage
@@ -72,6 +72,28 @@ class JfsChat2Primitives:
         self._ensure_parent(path)
         with open(path, "a", encoding="utf-8") as f:
             f.write(text)
+
+    def read_lines(self, key: StoreKey) -> Optional[list[str]]:
+        path = self._resolve(key)
+        if not path.exists():
+            return None
+        lines = path.read_text(encoding="utf-8").splitlines()
+        return lines if lines else None
+
+    def append_lines(self, key: StoreKey, lines: Iterable[str]) -> None:
+        items = list(lines)
+        if not items:
+            return
+        path = self._resolve(key)
+        self._ensure_parent(path)
+        with open(path, "a", encoding="utf-8") as f:
+            for line in items:
+                f.write(line + "\n")
+
+    def truncate(self, key: StoreKey) -> None:
+        path = self._resolve(key)
+        if path.exists():
+            self._storage._atomic_write_text(path, "")
 
     def exists(self, key: StoreKey) -> bool:
         return self._resolve(key).exists()

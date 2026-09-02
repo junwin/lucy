@@ -17,10 +17,10 @@ The SQLite backend (SqliteChat2Primitives) is the reference implementation:
 documents live in a ``kv`` table and log lines in a ``logs`` table, so a
 document and a log can share one StoreKey (e.g. the empty ``events.jsonl``
 placeholder written by ``create_session`` plus the appended event lines).
-The memory and file factories wrap the production InMemoryStore /
-FileChat2Primitives with a log sidecar that mirrors that kv/logs split, so
-the suite exercises the real production backends for document ops while
-pinning identical log semantics on all three.
+The memory and file factories use the production InMemoryStore and
+FileChat2Primitives directly, since they now implement the log ops
+natively: documents and logs share one store (a dict sidecar in memory,
+a single file per key on disk), mirroring the kv/logs split.
 
 Run:  pytest tests/conformance/store_conformance.py
 """
@@ -28,7 +28,7 @@ Run:  pytest tests/conformance/store_conformance.py
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, Iterable, List, Optional, Protocol, Union, runtime_checkable
+from typing import Iterable, List, Optional, Protocol, Union, runtime_checkable
 
 import pytest
 
@@ -84,98 +84,15 @@ class GenericStore(Protocol):
 
 
 # ---------------------------------------------------------------------------
-# Memory / file factories: production backends + log sidecar
-# ---------------------------------------------------------------------------
-
-class _LogSidecarMixin:
-    """Adds the log ops and unified doc/log semantics to a doc-only backend.
-
-    Logs live in a side dict keyed by StoreKey value, mirroring the SQLite
-    backend's kv/logs table split: a document and a log may share one key,
-    ``truncate`` only clears the log, and ``delete`` removes both.
-    """
-
-    _docs: Any
-    _logs: dict[str, list[str]]
-
-    @staticmethod
-    def _coerce(key: Union[StoreKey, str]) -> StoreKey:
-        """Coerce to a validated StoreKey (same rule as the sqlite backend)."""
-        if isinstance(key, str):
-            return StoreKey(key)
-        if not isinstance(key, StoreKey):
-            raise TypeError(
-                f"key must be StoreKey or str, got {type(key).__name__}"
-            )
-        return key
-
-    def exists(self, key: Union[StoreKey, str]) -> bool:
-        k = self._coerce(key)
-        return self._docs.exists(k) or k.value in self._logs
-
-    def delete(self, key: Union[StoreKey, str]) -> None:
-        k = self._coerce(key)
-        self._docs.delete(k)
-        self._logs.pop(k.value, None)
-
-    def read_lines(self, key: Union[StoreKey, str]) -> Optional[List[str]]:
-        k = self._coerce(key)
-        lines = self._logs.get(k.value)
-        return list(lines) if lines is not None else None
-
-    def append_lines(self, key: Union[StoreKey, str], lines: Iterable[str]) -> None:
-        k = self._coerce(key)
-        self._logs.setdefault(k.value, []).extend(lines)
-
-    def truncate(self, key: Union[StoreKey, str]) -> None:
-        k = self._coerce(key)
-        self._logs.pop(k.value, None)
-
-    def list_keys(self, prefix: Union[StoreKey, str]) -> List[StoreKey]:
-        p = self._coerce(prefix)
-        keys = {k.value for k in self._docs.list_keys(p)}
-        keys |= {k for k in self._logs if k.startswith(p.value)}
-        return sorted((StoreKey(k) for k in keys), key=lambda k: k.value)
-
-
-class _MemoryStoreAdapter(_LogSidecarMixin):
-    """GenericStore over the production InMemoryStore (docs) + log sidecar."""
-
-    def __init__(self) -> None:
-        self._docs = InMemoryStore()
-        self._logs: dict[str, list[str]] = {}
-
-    def read_text(self, key: Union[StoreKey, str]) -> Optional[str]:
-        return self._docs.read_text(self._coerce(key))
-
-    def write_text(self, key: Union[StoreKey, str], text: str) -> None:
-        self._docs.write_text(self._coerce(key), text)
-
-
-class _FileStoreAdapter(_LogSidecarMixin):
-    """GenericStore over the production FileChat2Primitives + log sidecar."""
-
-    def __init__(self, root_dir: Union[str, Path]) -> None:
-        self._docs = FileChat2Primitives(root_dir)
-        self._logs: dict[str, list[str]] = {}
-
-    def read_text(self, key: Union[StoreKey, str]) -> Optional[str]:
-        return self._docs.read_text(self._coerce(key))
-
-    def write_text(self, key: Union[StoreKey, str], text: str) -> None:
-        self._docs.write_text(self._coerce(key), text)
-
-
-# ---------------------------------------------------------------------------
 # Factories + parameterized fixture
 # ---------------------------------------------------------------------------
 
 def _memory_factory(tmp_path: Path) -> GenericStore:
-    return _MemoryStoreAdapter()
+    return InMemoryStore()
 
 
 def _file_factory(tmp_path: Path) -> GenericStore:
-    return _FileStoreAdapter(tmp_path / "fs")
+    return FileChat2Primitives(tmp_path / "fs")
 
 
 def _sqlite_factory(tmp_path: Path) -> GenericStore:

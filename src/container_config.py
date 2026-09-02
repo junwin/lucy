@@ -148,14 +148,24 @@ class StorageModule(Module):
     @provider
     @singleton
     def provide_chat2_store(self, storage: Storage) -> Chat2Store:
-        """Provide a Chat2Store backed by the same JsonFileStorage.
+        backend = str(config.get("chat2_store_backend", "") or "").strip().lower()
+        if backend == "sqlite":
+            from pathlib import Path
 
-        Uses JfsChat2Primitives adapter to map chat2 logical keys to
-        filesystem paths under <storage_base>/chat2/. This is a parallel
-        storage layer — existing v1 code continues to use Storage directly.
-        """
-        adapter = JfsChat2Primitives(storage)
-        return Chat2Store(adapter)
+            from src.chat2.sqlite import SqliteChat2Primitives
+
+            db_path = config.get("chat2_store_db_path")
+            if not db_path:
+                storage_root = config.get("storage_root_path") or "/home/junwin/lucydata"
+                storage_namespace = config.get("storage_namespace") or "data"
+                db_path = str(Path(storage_root) / storage_namespace / "chat2.sqlite")
+            return Chat2Store(SqliteChat2Primitives(db_path))
+        if not backend or backend == "jsonl":
+            return Chat2Store(JfsChat2Primitives(storage))
+        raise ValueError(
+            "Unknown chat2_store_backend %r: expected 'jsonl' or 'sqlite'" % backend
+        )
+
 
 
 class MetricsModule(Module):
