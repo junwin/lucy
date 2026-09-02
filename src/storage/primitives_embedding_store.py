@@ -267,21 +267,28 @@ class PrimitivesEmbeddingStore(EmbeddingStore):
 # Factory — config-driven backend selection
 # ---------------------------------------------------------------------------
 
-def build_primitives_embedding_store(config: Any) -> PrimitivesEmbeddingStore:
-    """Build a PrimitivesEmbeddingStore from a ConfigManager-like object.
+def build_primitives_embedding_store(config: Any) -> EmbeddingStore:
+    """Build an embedding store from a ConfigManager-like object.
 
     Backend selection via ``embedding_store_backend`` (default ``file``):
 
-    - ``file``   -> ``FileChat2Primitives`` over the same storage root as
+    - ``file``       -> ``PrimitivesEmbeddingStore`` over
+      ``FileChat2Primitives`` at the same storage root as
       JsonFileStorage (``<storage_root_path>/<storage_namespace>``), so the
       on-disk layout is identical to today's JSON embedding store.
-    - ``sqlite`` -> ``SqliteChat2Primitives`` at
-      ``embedding_store_db_path`` (default
+    - ``sqlite``     -> ``PrimitivesEmbeddingStore`` over
+      ``SqliteChat2Primitives`` at ``embedding_store_db_path`` (default
       ``<storage_root_path>/<storage_namespace>/embeddings.sqlite``).
+    - ``sqlite_vec`` -> ``Vec0EmbeddingStore`` (sqlite-vec vec0 KNN, design
+      doc embedding-vec0-store.md) at ``embedding_store_db_path`` (default
+      ``<storage_root_path>/<storage_namespace>/embeddings.sqlite``); the
+      extension is loaded from ``sqlite_vec_extension_path`` (default
+      ``/usr/local/lib/sqlite-vec/vec0.so``).
 
     The default (``file``) keeps behavior byte-compatible with the existing
     store; ``sqlite`` is the protocol win (indexed prefix scans, no per-file
-    IO).
+    IO) and ``sqlite_vec`` the vector-index win (vec0 KNN instead of a
+    brute-force scan).
     """
     backend = str(config.get("embedding_store_backend", "file")).strip().lower()
 
@@ -294,6 +301,23 @@ def build_primitives_embedding_store(config: Any) -> PrimitivesEmbeddingStore:
             storage_ns = config.get("storage_namespace") or "data"
             db_path = str(Path(storage_root) / storage_ns / "embeddings.sqlite")
         return PrimitivesEmbeddingStore(SqliteChat2Primitives(db_path))
+
+    if backend == "sqlite_vec":
+        from src.storage.vec0_embedding_store import (
+            DEFAULT_SQLITE_VEC_EXTENSION_PATH,
+            Vec0EmbeddingStore,
+        )
+
+        db_path = config.get("embedding_store_db_path")
+        if not db_path:
+            storage_root = config.get("storage_root_path") or "/home/junwin/lucydata"
+            storage_ns = config.get("storage_namespace") or "data"
+            db_path = str(Path(storage_root) / storage_ns / "embeddings.sqlite")
+        extension_path = config.get("sqlite_vec_extension_path")
+        return Vec0EmbeddingStore(
+            db_path=db_path,
+            sqlite_vec_extension_path=extension_path or DEFAULT_SQLITE_VEC_EXTENSION_PATH,
+        )
 
     # Default: file backend over the same root as JsonFileStorage.
     from src.chat2.fs_primitives import FileChat2Primitives

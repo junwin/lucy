@@ -2,7 +2,8 @@
 
 Covers ``StorageModule.provide_embedding_store``: the default wiring (shared
 JsonFileStorage) stays untouched, ``embedding_store_backend=file`` / ``sqlite``
-opt into ``PrimitivesEmbeddingStore``, and an unknown value fails loudly.
+opt into ``PrimitivesEmbeddingStore``, ``sqlite_vec`` into
+``Vec0EmbeddingStore``, and an unknown value fails loudly.
 """
 
 from src.chat2.fs_primitives import FileChat2Primitives
@@ -154,6 +155,40 @@ def test_embedding_store_sqlite_default_db_path(monkeypatch, tmp_path):
         assert expected.exists()
     finally:
         store._store.close()
+
+
+def test_embedding_store_sqlite_vec_backend(monkeypatch, tmp_path):
+    import sqlite3
+    from pathlib import Path
+
+    from src.storage.vec0_embedding_store import (
+        DEFAULT_SQLITE_VEC_EXTENSION_PATH,
+        Vec0EmbeddingStore,
+    )
+
+    if not Path(DEFAULT_SQLITE_VEC_EXTENSION_PATH).exists():
+        pytest.skip("sqlite-vec extension not available")
+    probe = sqlite3.connect(":memory:")
+    try:
+        probe.enable_load_extension(True)
+        probe.load_extension(DEFAULT_SQLITE_VEC_EXTENSION_PATH)
+    except sqlite3.OperationalError:
+        pytest.skip("sqlite-vec extension not loadable")
+    finally:
+        probe.close()
+
+    db_path = tmp_path / "emb_vec0.sqlite"
+    module = _storage_module(
+        monkeypatch,
+        {
+            "embedding_store_backend": "sqlite_vec",
+            "embedding_store_db_path": str(db_path),
+        },
+    )
+    store = module.provide_embedding_store(_sentinel_storage())
+    assert isinstance(store, Vec0EmbeddingStore)
+    store.close()
+    assert db_path.exists()
 
 
 # ---------------------------------------------------------------------------

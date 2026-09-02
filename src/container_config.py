@@ -130,6 +130,10 @@ class StorageModule(Module):
         - ``sqlite`` -> ``PrimitivesEmbeddingStore`` over
           ``SqliteChat2Primitives`` at ``embedding_store_db_path`` (default
           ``<storage_root_path>/<storage_namespace>/embeddings.sqlite``).
+        - ``sqlite_vec`` -> ``Vec0EmbeddingStore`` (sqlite-vec vec0 KNN) at
+          ``embedding_store_db_path`` with the extension loaded from
+          ``sqlite_vec_extension_path`` (default
+          ``/usr/local/lib/sqlite-vec/vec0.so``).
 
         Any other value raises ``ValueError`` so a misconfiguration fails
         loudly at container build time instead of silently writing
@@ -138,9 +142,9 @@ class StorageModule(Module):
         backend = str(config.get("embedding_store_backend", "") or "").strip().lower()
         if not backend:
             return storage
-        if backend not in ("file", "sqlite"):
+        if backend not in ("file", "sqlite", "sqlite_vec"):
             raise ValueError(
-                "Unknown embedding_store_backend %r: expected 'file' or 'sqlite'"
+                "Unknown embedding_store_backend %r: expected 'file', 'sqlite' or 'sqlite_vec'"
                 % backend
             )
         return build_primitives_embedding_store(config)
