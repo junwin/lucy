@@ -16,6 +16,7 @@ from src.config_manager import ConfigManager
 from src.handlers.handler_v2 import HandlerV2
 from galet.interface import LLMApi
 from galet.router_api import RouterApi
+from galet.settings import Settings
 
 logger = logging.getLogger(__name__)
 
@@ -32,7 +33,12 @@ class GenerateDocHandler(HandlerV2):
         self.config = config
         external_roots = config.get("external_roots", {})
         self.repo_root = Path(external_roots.get("repo_lucy", "."))
-        self.llm_api: LLMApi = RouterApi()
+        self.llm_api: LLMApi = RouterApi(
+            settings=Settings(
+                credential_path=config.get("credential_path"),
+                ollama_base_url=config.get("ollama_base_url"),
+            )
+        )
 
     @classmethod
     def name(cls) -> str:
