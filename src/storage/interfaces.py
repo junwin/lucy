@@ -78,12 +78,12 @@ class TasklistStore(ABC):
 
     @abstractmethod
     def get_tasklist(self, account_name: str, tasklist_key: str) -> Optional[TaskList]:
-        """Return a persisted tasklist (plain dict) or None if missing."""
+        """Return a persisted tasklist (TaskList) or None if missing."""
         pass
 
     @abstractmethod
     def save_tasklist(self, account_name: str, tasklist_key: str, tasklist: TaskList) -> None:
-        """Persist a tasklist model (dict or JSON string) for the account."""
+        """Persist a TaskList object for the account."""
         pass
 
     @abstractmethod

@@ -11,7 +11,6 @@ import logging
 from pathlib import Path
 from typing import Any, Dict, Optional
 from src.storage_paths.storage_paths import StoragePaths
-from src.tasklists.service import TaskListService
 
 
 from .base import Storage
@@ -43,7 +42,6 @@ class JsonFileStorage(TasklistsMixin, ContextsMixin, DocumentsMixin, EmbeddingsM
     ):
 
         self.storage_paths = storage_paths
-        self._tasklist_service = TaskListService()
         self._tasklist_run_ttl_days = tasklist_run_ttl_days
 
 

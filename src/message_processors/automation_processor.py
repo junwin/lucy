@@ -581,7 +581,7 @@ class AutomationProcessor(MessageProcessorInterface):
 
             # Persist checkpoint: task is now RUNNING.
             try:
-                self.storage.save_tasklist(account_name, resolved_key, tasklist.to_dict())
+                self.storage.save_tasklist(account_name, resolved_key, tasklist)
             except Exception as e:
                 logger.exception("Failed persisting tasklist (RUNNING checkpoint)")
                 overall_state = TASK_LIST_STATE_FAILED
@@ -596,7 +596,7 @@ class AutomationProcessor(MessageProcessorInterface):
                 except Exception:
                     logger.exception("Failed setting tasklist state to FAILED after persist error")
                 try:
-                    self.storage.save_tasklist(account_name, resolved_key, tasklist.to_dict())
+                    self.storage.save_tasklist(account_name, resolved_key, tasklist)
                 except Exception:
                     logger.exception("Failed persisting tasklist after setting task FAILED")
 
@@ -769,7 +769,7 @@ class AutomationProcessor(MessageProcessorInterface):
                 except Exception:
                     logger.exception("Failed setting tasklist state to FAILED after append error")
                 try:
-                    self.storage.save_tasklist(account_name, resolved_key, tasklist.to_dict())
+                    self.storage.save_tasklist(account_name, resolved_key, tasklist)
                 except Exception:
                     logger.exception("Failed persisting tasklist after append failure")
                 logger.info(
@@ -809,7 +809,7 @@ class AutomationProcessor(MessageProcessorInterface):
 
             # Persist after each task (COMPLETED or FAILED checkpoint).
             try:
-                self.storage.save_tasklist(account_name, resolved_key, tasklist.to_dict())
+                self.storage.save_tasklist(account_name, resolved_key, tasklist)
             except Exception as e:
                 logger.exception("Failed persisting tasklist after task execution")
                 overall_state = TASK_LIST_STATE_FAILED
@@ -820,7 +820,7 @@ class AutomationProcessor(MessageProcessorInterface):
                 except Exception:
                     logger.exception("Failed setting tasklist state to FAILED after persist error")
                 try:
-                    self.storage.save_tasklist(account_name, resolved_key, tasklist.to_dict())
+                    self.storage.save_tasklist(account_name, resolved_key, tasklist)
                 except Exception:
                     logger.exception("Failed persisting tasklist after failure")
 
@@ -855,7 +855,7 @@ class AutomationProcessor(MessageProcessorInterface):
                 except Exception:
                     logger.exception("Failed setting tasklist state to FAILED")
 
-            self.storage.save_tasklist(account_name, resolved_key, tasklist.to_dict())
+            self.storage.save_tasklist(account_name, resolved_key, tasklist)
         except Exception:
             logger.exception("Failed final persist")
 

@@ -1,6 +1,8 @@
 import logging
 from typing import Any, Dict, Tuple
 
+from src.tasklists import TaskList
+
 
 def get_agents_impl(agent_manager) -> Tuple[Any, int]:
     try:
@@ -66,7 +68,8 @@ def put_tasklist_impl(storage, account_name: str, tasklist_key: str, payload: Di
         return {"error": "Invalid JSON body"}, 400
 
     try:
-        storage.save_tasklist(account_name, tasklist_key, payload)
+        tasklist = TaskList.from_dict(payload)
+        storage.save_tasklist(account_name, tasklist_key, tasklist)
         return {"ok": True}, 200
     except ValueError as e:
         return {"error": str(e)}, 400

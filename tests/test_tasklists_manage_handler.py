@@ -1,4 +1,5 @@
 import json
+from unittest.mock import patch
 
 from src.handlers.tasklists_manage_handler import TasklistsManageHandler
 from src.tasklists.task_states import (
@@ -119,6 +120,193 @@ def test_get_missing_and_delete_missing(tmp_path):
     r2 = h.execute({"action": "delete", "tasklist_key": "nope", "validate_only": False}, account_name="dave")
     # delete is idempotent and should succeed
     assert r2.get("ok") is True
+
+
+def test_read_actions_route_through_tasklist_service(tmp_path):
+    cfg = SimpleConfig(str(tmp_path), "ns")
+    h = TasklistsManageHandler(cfg)
+    _create_tl(
+        h,
+        "alice",
+        "tl-route",
+        tasks=[{"id": "task-1", "name": "T1", "instructions": "do 1"}],
+    )
+    h.tasklist_service.store.append_task_execution_record(
+        "alice",
+        "tl-route",
+        {
+            "schema_version": 1,
+            "record_id": "rec-route",
+            "tasklist_key": "tl-route",
+            "task_id": "task-1",
+            "task_name": "T1",
+            "state": TASK_STATE_COMPLETED,
+            "started": "2026-09-02T17:00:00.000Z",
+            "ended": "2026-09-02T17:01:00.000Z",
+            "result": {"output": "routed"},
+        },
+    )
+
+    svc = h.tasklist_service
+    with (
+        patch.object(svc, "list", wraps=svc.list) as m_list,
+        patch.object(svc, "get", wraps=svc.get) as m_get,
+        patch.object(svc, "get_task_result", wraps=svc.get_task_result) as m_get_result,
+        patch.object(svc, "delete", wraps=svc.delete) as m_delete,
+    ):
+        r = h.execute({"action": "list", "validate_only": False}, account_name="alice")
+        assert r.get("ok") is True
+        assert r.get("tasklist_keys") == ["tl-route"]
+
+        r = h.execute(
+            {"action": "get", "tasklist_key": "tl-route", "validate_only": False},
+            account_name="alice",
+        )
+        assert r.get("ok") is True
+        assert r["tasklist"]["id"] == "tl-route"
+        assert r["tasklist"]["tasks"][0]["id"] == "task-1"
+
+        r = h.execute(
+            {"action": "get_result", "tasklist_key": "tl-route", "task_id": "task-1"},
+            account_name="alice",
+        )
+        assert r.get("ok") is True
+        assert r.get("result_record", {}).get("record_id") == "rec-route"
+
+        r = h.execute(
+            {"action": "delete", "tasklist_key": "tl-route", "validate_only": False},
+            account_name="alice",
+        )
+        assert r.get("ok") is True
+
+    assert m_list.call_count == 1
+    assert m_get.call_count == 1
+    assert m_get_result.call_count == 1
+    assert m_delete.call_count == 1
+
+def test_write_actions_route_through_tasklist_service(tmp_path):
+    cfg = SimpleConfig(str(tmp_path), "ns")
+    h = TasklistsManageHandler(cfg)
+    assert not hasattr(h, "storage")
+
+    svc = h.tasklist_service
+    with (
+        patch.object(svc.store, "save_tasklist", wraps=svc.store.save_tasklist) as m_store_save,
+        patch.object(svc, "create", wraps=svc.create) as m_create,
+        patch.object(svc, "create_from_goal", wraps=svc.create_from_goal) as m_create_from_goal,
+        patch.object(svc, "save", wraps=svc.save) as m_save,
+        patch.object(svc, "reset", wraps=svc.reset) as m_reset,
+        patch.object(svc, "add_task", wraps=svc.add_task) as m_add_task,
+        patch.object(svc, "update_task", wraps=svc.update_task) as m_update_task,
+        patch.object(svc, "remove_task", wraps=svc.remove_task) as m_remove_task,
+        patch.object(svc, "set_state", wraps=svc.set_state) as m_set_state,
+        patch.object(svc, "set_name", wraps=svc.set_name) as m_set_name,
+        patch.object(svc, "set_description", wraps=svc.set_description) as m_set_description,
+        patch.object(svc, "set_general_instructions", wraps=svc.set_general_instructions) as m_set_gi,
+        patch.object(svc, "update_meta", wraps=svc.update_meta) as m_update_meta,
+    ):
+        r = h.execute(
+            {"action": "put", "tasklist_key": "tl-write", "name": "TL", "description": "d", "validate_only": False},
+            account_name="alice",
+        )
+        assert r.get("ok") is True
+
+        for tid in ("t1", "t2"):
+            r = h.execute(
+                {
+                    "action": "add_task",
+                    "tasklist_key": "tl-write",
+                    "task_id": tid,
+                    "task_name": f"Task {tid}",
+                    "validate_only": False,
+                },
+                account_name="alice",
+            )
+            assert r.get("ok") is True
+
+        r = h.execute(
+            {
+                "action": "update_task",
+                "tasklist_key": "tl-write",
+                "task_id": "t1",
+                "task_state": TASK_STATE_COMPLETED,
+                "validate_only": False,
+            },
+            account_name="alice",
+        )
+        assert r.get("ok") is True
+
+        r = h.execute(
+            {"action": "set_state", "tasklist_key": "tl-write", "state": TASK_LIST_STATE_RUNNING, "validate_only": False},
+            account_name="alice",
+        )
+        assert r.get("ok") is True
+
+        r = h.execute(
+            {"action": "set_name", "tasklist_key": "tl-write", "name": "Renamed", "validate_only": False},
+            account_name="alice",
+        )
+        assert r.get("ok") is True
+
+        r = h.execute(
+            {"action": "set_description", "tasklist_key": "tl-write", "description": "desc2", "validate_only": False},
+            account_name="alice",
+        )
+        assert r.get("ok") is True
+
+        r = h.execute(
+            {"action": "set_general_instructions", "tasklist_key": "tl-write", "instructions": "gi", "validate_only": False},
+            account_name="alice",
+        )
+        assert r.get("ok") is True
+
+        r = h.execute(
+            {"action": "update_meta", "tasklist_key": "tl-write", "meta": {"k": "v"}, "validate_only": False},
+            account_name="alice",
+        )
+        assert r.get("ok") is True
+
+        r = h.execute(
+            {"action": "remove_task", "tasklist_key": "tl-write", "task_id": "t2", "validate_only": False},
+            account_name="alice",
+        )
+        assert r.get("ok") is True
+
+        r = h.execute(
+            {"action": "put", "tasklist_key": "goal-write", "goal": "Do the goal", "validate_only": False},
+            account_name="alice",
+        )
+        assert r.get("ok") is True
+
+        r = h.execute(
+            {"action": "reset", "tasklist_key": "goal-write", "validate_only": False},
+            account_name="alice",
+        )
+        assert r.get("ok") is True
+
+    assert m_create.call_count == 1
+    assert m_create_from_goal.call_count == 1
+    assert m_save.call_count == 3
+    assert m_store_save.call_count == 12
+    assert m_reset.call_count == 1
+    assert m_add_task.call_count == 2
+    assert m_update_task.call_count == 1
+    assert m_remove_task.call_count == 1
+    assert m_set_state.call_count == 1
+    assert m_set_name.call_count == 1
+    assert m_set_description.call_count == 1
+    assert m_set_gi.call_count == 1
+    assert m_update_meta.call_count == 1
+
+    got = h.execute({"action": "get", "tasklist_key": "tl-write", "validate_only": False}, account_name="alice")
+    assert got.get("ok") is True
+    assert got["tasklist"]["name"] == "Renamed"
+    assert got["tasklist"]["state"] == TASK_LIST_STATE_RUNNING
+    assert got["tasklist"]["meta"]["k"] == "v"
+    assert [t["id"] for t in got["tasklist"]["tasks"]] == ["t1"]
+    assert got["tasklist"]["tasks"][0]["state"] == TASK_STATE_COMPLETED
+
+
 
 
 # ------------------------------------------------------------------
@@ -323,6 +511,54 @@ def test_reset_persists_only_for_given_account(tmp_path):
 
     bob_raw = json.loads((tmp_path / "ns" / "tasklists" / "bob" / "tl-acct.json").read_text(encoding="utf-8"))
     assert bob_raw["state"] == TASK_LIST_STATE_COMPLETED
+
+def test_reset_legacy_inline_result_adopts_to_runs(tmp_path):
+    cfg = SimpleConfig(str(tmp_path), "ns")
+    h = TasklistsManageHandler(cfg)
+    _create_tl(
+        h,
+        "alice",
+        "tl-legacy-reset",
+        tasks=[{"id": "task-1", "name": "T1", "instructions": "do 1"}],
+    )
+
+    legacy_path = tmp_path / "ns" / "tasklists" / "alice" / "tl-legacy-reset.json"
+    raw = json.loads(legacy_path.read_text(encoding="utf-8"))
+    raw["tasks"][0]["state"] = TASK_STATE_COMPLETED
+    raw["tasks"][0]["result"] = {"output": "keep me"}
+    raw["tasks"][0]["run_metrics"] = {"tokens": 3}
+    legacy_path.write_text(json.dumps(raw), encoding="utf-8")
+
+    r = h.execute(
+        {"action": "reset", "tasklist_key": "tl-legacy-reset", "validate_only": False},
+        account_name="alice",
+    )
+    assert r.get("ok") is True
+    assert r["tasklist"]["state"] == TASK_LIST_STATE_CREATED
+
+    stored = json.loads(legacy_path.read_text(encoding="utf-8"))
+    assert stored["state"] == TASK_LIST_STATE_CREATED
+    assert "result" not in stored["tasks"][0]
+    assert "run_metrics" not in stored["tasks"][0]
+
+    runs_path = tmp_path / "ns" / "tasklists" / "alice" / "tl-legacy-reset.runs.jsonl"
+    assert runs_path.exists()
+    records = [json.loads(line) for line in runs_path.read_text(encoding="utf-8").splitlines() if line.strip()]
+    assert len(records) == 1
+    rec = records[0]
+    assert rec.get("legacy") is True
+    assert rec.get("task_id") == "task-1"
+    assert rec["result"] == {"output": "keep me"}
+    assert rec["run_metrics"] == {"tokens": 3}
+
+    r2 = h.execute(
+        {"action": "get_result", "tasklist_key": "tl-legacy-reset", "task_id": "task-1"},
+        account_name="alice",
+    )
+    assert r2.get("ok") is True
+    assert r2.get("result_record", {}).get("result") == {"output": "keep me"}
+
+
 
 
 # ------------------------------------------------------------------
@@ -833,6 +1069,32 @@ def test_update_task_with_result_and_error(tmp_path):
     assert tl["tasks"][0]["error"] == "something went wrong"
 
 
+def test_update_task_ignores_inline_task_result(tmp_path):
+    cfg = SimpleConfig(str(tmp_path), "ns")
+    h = TasklistsManageHandler(cfg)
+    _create_tl(h, "alice", "tl-ignores-result", tasks=[
+        {"id": "t1", "name": "T1", "instructions": "do 1"},
+    ])
+
+    r = h.execute(
+        {
+            "action": "update_task",
+            "tasklist_key": "tl-ignores-result",
+            "task_id": "t1",
+            "task_result": {"ok": True, "output": "done"},
+            "validate_only": False,
+        },
+        account_name="alice",
+    )
+    assert r.get("ok") is True
+    assert r.get("action") == "update_task"
+    tl = r.get("tasklist")
+    assert "result" not in tl["tasks"][0]
+    assert "run_metrics" not in tl["tasks"][0]
+    runs_path = tmp_path / "ns" / "tasklists" / "alice" / "tl-ignores-result.runs.jsonl"
+    assert not runs_path.exists()
+
+
 def test_add_task_duplicate_id_rejected(tmp_path):
     cfg = SimpleConfig(str(tmp_path), "ns")
     h = TasklistsManageHandler(cfg)
@@ -903,7 +1165,7 @@ def test_get_result_completed_record_latest_wins(tmp_path):
         {"id": "task-1", "name": "T1", "instructions": "do 1"},
     ])
 
-    h.storage.append_task_execution_record(
+    h.tasklist_service.store.append_task_execution_record(
         "alice",
         "tl-gr-done",
         {
@@ -919,7 +1181,7 @@ def test_get_result_completed_record_latest_wins(tmp_path):
             "result": {"timestamp": "2026-09-02T14:01:00.000Z", "output": "first attempt"},
         },
     )
-    h.storage.append_task_execution_record(
+    h.tasklist_service.store.append_task_execution_record(
         "alice",
         "tl-gr-done",
         {
@@ -958,7 +1220,7 @@ def test_get_result_failure_record(tmp_path):
         {"id": "task-1", "name": "T1", "instructions": "do 1"},
     ])
 
-    h.storage.append_task_execution_record(
+    h.tasklist_service.store.append_task_execution_record(
         "alice",
         "tl-gr-fail",
         {

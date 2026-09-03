@@ -119,14 +119,8 @@ class InterfacesTestCase:
     def test_json_file_storage_implements_every_tasklist_store_method(self, json_storage):
         assert isinstance(json_storage, TasklistStore)
         store: TasklistStore = json_storage
-        payload = {
-            "schema_version": 1,
-            "id": "tl1",
-            "name": "My Tasks",
-            "description": "d",
-            "tasks": [],
-        }
-        store.save_tasklist("alice", "tl1", payload)
+        tasklist = TaskList(id="tl1", name="My Tasks", description="d", tasks=[])
+        store.save_tasklist("alice", "tl1", tasklist)
         assert store.list_tasklists("alice") == ["tl1"]
         tl = store.get_tasklist("alice", "tl1")
         assert isinstance(tl, TaskList)

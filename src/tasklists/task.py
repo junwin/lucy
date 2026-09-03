@@ -22,6 +22,7 @@ class _TaskModel(BaseModel):
     files: list[str] = Field(default_factory=list)
     parent_id: Optional[str] = None
     run_metrics: Optional[Dict[str, Any]] = None
+    context: Optional[str] = None
 
     model_config = {"extra": "forbid"}
 
@@ -40,6 +41,7 @@ class Task:
     files: list[str] = field(default_factory=list)
     parent_id: Optional[str] = None
     run_metrics: Optional[Dict[str, Any]] = None
+    context: Optional[str] = None
 
     def __init__(
         self,
@@ -56,6 +58,7 @@ class Task:
         files: Optional[list[str]] = None,
         parent_id: Optional[str] = None,
         run_metrics: Optional[Dict[str, Any]] = None,
+        context: Optional[str] = None,
     ) -> None:
         # Accept flexible id types (int, str, uuid). Persist as string
         self.id = str(id)
@@ -71,6 +74,7 @@ class Task:
         self.files = list(files or [])
         self.parent_id = parent_id
         self.run_metrics = run_metrics
+        self.context = context
 
     def to_dict(self) -> Dict[str, Any]:
         d: Dict[str, Any] = {
@@ -89,6 +93,8 @@ class Task:
             d["files"] = list(self.files)
         if self.parent_id:
             d["parent_id"] = self.parent_id
+        if self.context is not None:
+            d["context"] = self.context
         return d
 
     @classmethod
@@ -116,6 +122,7 @@ class Task:
             files=validated.files,
             parent_id=validated.parent_id,
             run_metrics=validated.run_metrics,
+            context=validated.context,
         )
 
     def to_json(self) -> str:

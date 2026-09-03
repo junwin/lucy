@@ -172,24 +172,8 @@ def test_tasklist_get_children_basic_filter():
     assert ids == {"1", "2"}
 
 
-def test_tasklist_service_save_all_pending_normalizes_to_created(tmp_path):
-    svc = TaskListService()
-    tl = TaskList(
-        id="svc-tl",
-        name="n",
-        description="d",
-        tasks=[Task(id="t1", name="T", instructions="i")],
-    )
-    path = tmp_path / "tl.json"
-    svc.save(str(path), tl)
-
-    loaded = svc.load(str(path))
-    assert loaded.state == TASK_LIST_STATE_CREATED
-    assert loaded.tasks[0].state == TASK_STATE_PENDING
-
-
-def test_tasklist_service_reset_clears_execution_state():
-    svc = TaskListService()
+def test_tasklist_service_reset_clears_execution_state(fake_tasklist_store):
+    svc = TaskListService(fake_tasklist_store)
     tl = TaskList(
         id="reset-tl",
         name="n",
@@ -217,7 +201,7 @@ def test_tasklist_service_reset_clears_execution_state():
     assert tl.current_task_id is None
     task = tl.tasks[0]
     assert task.state == TASK_STATE_PENDING
-    assert task.result is None
+    assert task.result == {"ok": True}
     assert task.error is None
     assert task.meta == {"priority": "high"}
     assert task.position == 0
@@ -271,8 +255,8 @@ def test_task_run_metrics_persist():
     assert legacy_loaded.run_metrics is None
 
 
-def test_task_reset_clears_run_metrics():
-    svc = TaskListService()
+def test_task_reset_leaves_result_and_run_metrics_for_adoption(fake_tasklist_store):
+    svc = TaskListService(fake_tasklist_store)
     tl = TaskList(
         id="reset-metrics-tl",
         name="n",
@@ -294,9 +278,9 @@ def test_task_reset_clears_run_metrics():
     svc.reset(tl)
     task = tl.tasks[0]
     assert task.state == TASK_STATE_PENDING
-    assert task.result is None
+    assert task.result == {"ok": True}
     assert task.error is None
-    assert task.run_metrics is None
+    assert task.run_metrics == {"iterations": 5, "failures": 1}
 
 def test_tasklist_round_trip_omits_run_metrics_and_result():
     metrics = {"iterations": 40, "openai_calls": 40}

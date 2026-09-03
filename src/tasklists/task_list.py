@@ -8,7 +8,21 @@ from typing import Any, Dict, Iterable, List, Optional
 from pydantic import BaseModel, Field, field_validator
 
 from .task import Task, _TaskModel
-from .task_states import TASK_LIST_STATE_CREATED
+from .task_states import TASK_LIST_STATE_CREATED, TASK_STATE_PENDING
+
+_TASK_UPDATABLE_FIELDS = frozenset(
+    {
+        "name",
+        "instructions",
+        "state",
+        "error",
+        "meta",
+        "agent",
+        "position",
+        "parent_id",
+        "files",
+    }
+)
 
 
 class _TaskListModel(BaseModel):
@@ -103,16 +117,59 @@ class TaskList:
     def next_id(self) -> str:
         return str(uuid.uuid4())
 
-    def add_task(self, task: Task) -> None:
+    def add_task(self, task: Task, *, after_index: Optional[int] = None) -> None:
         for existing in self.tasks:
             if existing.id == task.id:
                 raise ValueError(f"task with id '{task.id}' already exists")
-        self.tasks.append(task)
+        if after_index is None:
+            self.tasks.append(task)
+            return
+        index = int(after_index)
+        if index < 0:
+            raise ValueError(f"after_index must be >= 0, got {after_index}")
+        self.tasks.insert(min(index + 1, len(self.tasks)), task)
+
+    def update_task(self, id: str, **changes: Any) -> None:
+        unknown = set(changes) - _TASK_UPDATABLE_FIELDS
+        if unknown:
+            fields = ", ".join(sorted(unknown))
+            raise ValueError(f"cannot update task field(s): {fields}")
+        t = self.get_task(id)
+        if t is None:
+            raise ValueError(f"task with id '{id}' not found")
+        if "name" in changes:
+            t.name = str(changes["name"])
+        if "instructions" in changes:
+            t.instructions = str(changes["instructions"])
+        if "state" in changes:
+            t.state = changes["state"] or TASK_STATE_PENDING
+        if "error" in changes:
+            t.error = changes["error"]
+        if "meta" in changes:
+            if not isinstance(changes["meta"], dict):
+                raise TypeError("task meta must be a dict")
+            t.meta.update(changes["meta"])
+        if "agent" in changes:
+            t.agent = changes["agent"]
+        if "position" in changes:
+            t.position = changes["position"]
+        if "parent_id" in changes:
+            t.parent_id = changes["parent_id"]
+        if "files" in changes:
+            t.files = list(changes["files"] or [])
+
+    def remove_task(self, id: str) -> None:
+        for i, t in enumerate(self.tasks):
+            if str(t.id) == str(id):
+                self.tasks.pop(i)
+                return
+        raise ValueError(f"task with id '{id}' not found")
 
     def update_task_state(self, id: str, new_state: str) -> None:
         t = self.get_task(id)
-        if t:
-            t.state = new_state
+        if t is None:
+            raise ValueError(f"task with id '{id}' not found")
+        t.state = new_state
 
     def set_task_result(
         self,
@@ -123,8 +180,8 @@ class TaskList:
         error: Optional[str] = None,
     ) -> None:
         t = self.get_task(id)
-        if not t:
-            return
+        if t is None:
+            raise ValueError(f"task with id '{id}' not found")
         t.result = result
         if error is not None:
             t.error = error
@@ -196,6 +253,7 @@ class TaskList:
                     files=getattr(t, "files", []) or [],
                     parent_id=getattr(t, "parent_id", None),
                     run_metrics=getattr(t, "run_metrics", None),
+                    context=getattr(t, "context", None),
                 )
             )
 

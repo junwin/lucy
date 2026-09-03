@@ -2,8 +2,9 @@ import json
 import os
 import time
 
-from src.storage_paths.storage_paths import StoragePaths
 from src.storage.json_file_storage import JsonFileStorage
+from src.storage.json_file_storage_parts.tasklists import DEFAULT_RUN_TTL_DAYS, TasklistsMixin
+from src.storage_paths.storage_paths import StoragePaths
 from src.tasklists.task import Task
 from src.tasklists.task_list import TaskList
 from src.tasklists.task_states import (
@@ -14,9 +15,17 @@ from src.tasklists.task_states import (
 )
 
 
+class TasklistsMixinHost(TasklistsMixin):
+    def __init__(self, tmp_path, ns="ns"):
+        self.storage_paths = StoragePaths(str(tmp_path), ns)
+        self._tasklist_run_ttl_days = DEFAULT_RUN_TTL_DAYS
+
+    def _ensure_dir(self, path):
+        path.mkdir(parents=True, exist_ok=True)
+
+
 def make_storage(tmp_path, ns="ns"):
-    sp = StoragePaths(str(tmp_path), ns)
-    return JsonFileStorage(sp)
+    return TasklistsMixinHost(tmp_path, ns)
 
 
 def _write_raw_tasklist(storage, account_name, tasklist_key, tasks):
@@ -33,6 +42,49 @@ def _write_raw_tasklist(storage, account_name, tasklist_key, tasks):
     return path
 
 
+def test_tasklists_mixin_is_exercised_directly_without_internal_service(tmp_path):
+    storage = make_storage(tmp_path)
+    assert not hasattr(storage, "_tasklist_service")
+    payload = {
+        "schema_version": 1,
+        "id": "tl-direct",
+        "name": "n",
+        "description": "d",
+        "tasks": [],
+    }
+    storage.save_tasklist("alice", "tl-direct", TaskList.from_dict(payload))
+    tl = storage.get_tasklist("alice", "tl-direct")
+    assert isinstance(tl, TaskList)
+    assert tl.id == "tl-direct"
+
+
+def test_json_file_storage_constructs_without_internal_tasklist_service(tmp_path):
+    sp = StoragePaths(str(tmp_path), "ns")
+    storage = JsonFileStorage(sp)
+    assert not hasattr(storage, "_tasklist_service")
+    payload = {
+        "schema_version": 1,
+        "id": "tl-wired",
+        "name": "n",
+        "description": "d",
+        "tasks": [],
+    }
+    storage.save_tasklist("alice", "tl-wired", TaskList.from_dict(payload))
+    tl = storage.get_tasklist("alice", "tl-wired")
+    assert isinstance(tl, TaskList)
+    assert tl.id == "tl-wired"
+
+
+def test_save_tasklist_writes_tasklist_json_readable_directly(tmp_path):
+    storage = make_storage(tmp_path)
+    task = Task(id="t1", name="T1", instructions="do")
+    tasklist = TaskList(id="tljson", name="n", description="d", tasks=[task])
+    storage.save_tasklist("alice", "tljson", tasklist)
+    path = storage._tasklist_path("alice", "tljson")
+    loaded = TaskList.from_json(path.read_text(encoding="utf-8"))
+    assert loaded.to_dict() == tasklist.to_dict()
+
+
 def test_save_and_get_tasklist_roundtrip(tmp_path):
     storage = make_storage(tmp_path)
     payload = {
@@ -42,7 +94,7 @@ def test_save_and_get_tasklist_roundtrip(tmp_path):
         "description": "d",
         "tasks": [],
     }
-    storage.save_tasklist("alice", "tl1", payload)
+    storage.save_tasklist("alice", "tl1", TaskList.from_dict(payload))
 
     ids = storage.list_tasklists("alice")
     assert ids == ["tl1"]
@@ -59,7 +111,7 @@ def test_save_and_get_tasklist_roundtrip(tmp_path):
 def test_delete_tasklist_and_idempotent(tmp_path):
     storage = make_storage(tmp_path)
     payload = {"schema_version": 1, "id": "todelete", "name": "n", "description": "d", "tasks": []}
-    storage.save_tasklist("carol", "todelete", payload)
+    storage.save_tasklist("carol", "todelete", TaskList.from_dict(payload))
     assert storage.list_tasklists("carol") == ["todelete"]
 
     storage.delete_tasklist("carol", "todelete")
@@ -88,7 +140,7 @@ def test_id_auto_set_to_match_key(tmp_path):
     storage.save_tasklist(
         "alice",
         "tl1",
-        {"schema_version": 1, "id": "other", "name": "n", "description": "d", "tasks": []},
+        TaskList.from_dict({"schema_version": 1, "id": "other", "name": "n", "description": "d", "tasks": []}),
     )
     tl = storage.get_tasklist("alice", "tl1")
     assert tl.id == "tl1"
@@ -106,7 +158,7 @@ def test_save_all_pending_persists_created_state(tmp_path):
             {"id": "t1", "name": "T1", "instructions": "do", "state": "Pending"},
         ],
     }
-    storage.save_tasklist("alice", "tlpending", payload)
+    storage.save_tasklist("alice", "tlpending", TaskList.from_dict(payload))
 
     tl = storage.get_tasklist("alice", "tlpending")
     assert tl.state == TASK_LIST_STATE_CREATED
@@ -124,7 +176,7 @@ def test_save_and_get_tasklist_with_meta(tmp_path):
         "tasks": [],
         "meta": {"supervisor_agent": "super", "notes": "from test"},
     }
-    storage.save_tasklist("alice", "tlmeta", payload)
+    storage.save_tasklist("alice", "tlmeta", TaskList.from_dict(payload))
 
     ids = storage.list_tasklists("alice")
     assert ids == ["tlmeta"]
@@ -146,7 +198,7 @@ def test_save_tasklist_adopts_legacy_run_metrics(tmp_path):
         "description": "d",
         "tasks": [{"id": "t1", "name": "T1", "instructions": "do", "run_metrics": metrics}],
     }
-    storage.save_tasklist("alice", "tlrunmetrics", payload)
+    storage.save_tasklist("alice", "tlrunmetrics", TaskList.from_dict(payload))
 
     tl = storage.get_tasklist("alice", "tlrunmetrics")
     assert tl is not None
@@ -266,7 +318,7 @@ def test_tasklist_runs_path_is_safe_sibling_of_tasklist_json(tmp_path):
         "description": "d",
         "tasks": [],
     }
-    storage.save_tasklist(account, key, payload)
+    storage.save_tasklist(account, key, TaskList.from_dict(payload))
 
     json_path = storage._tasklist_path(account, key)
     runs_path = storage._tasklist_runs_path(account, key)
@@ -293,7 +345,7 @@ def test_tasklist_runs_path_is_safe_sibling_of_tasklist_json(tmp_path):
 def test_append_task_execution_record_writes_jsonl_line(tmp_path):
     storage = make_storage(tmp_path)
     payload = {"schema_version": 1, "id": "tlruns", "name": "n", "description": "d", "tasks": []}
-    storage.save_tasklist("alice", "tlruns", payload)
+    storage.save_tasklist("alice", "tlruns", TaskList.from_dict(payload))
 
     storage.append_task_execution_record(
         "alice",
@@ -401,7 +453,7 @@ def test_list_tasklists_ttl_sweep_removes_stale_runs_files(tmp_path):
     account = "alice"
     fresh_key, stale_key = "tlfresh", "tlstale"
     for key in (fresh_key, stale_key):
-        storage.save_tasklist(account, key, {"schema_version": 1, "id": key, "name": "n", "description": "d", "tasks": []})
+        storage.save_tasklist(account, key, TaskList.from_dict({"schema_version": 1, "id": key, "name": "n", "description": "d", "tasks": []}))
         runs_path = storage._tasklist_runs_path(account, key)
         runs_path.parent.mkdir(parents=True, exist_ok=True)
         runs_path.write_text("{}", encoding="utf-8")
@@ -417,7 +469,7 @@ def test_list_tasklists_ttl_sweep_removes_stale_runs_files(tmp_path):
 def test_delete_tasklist_removes_runs_file_sibling(tmp_path):
     storage = make_storage(tmp_path)
     account, key = "alice", "tldelruns"
-    storage.save_tasklist(account, key, {"schema_version": 1, "id": key, "name": "n", "description": "d", "tasks": []})
+    storage.save_tasklist(account, key, TaskList.from_dict({"schema_version": 1, "id": key, "name": "n", "description": "d", "tasks": []}))
     runs_path = storage._tasklist_runs_path(account, key)
     runs_path.parent.mkdir(parents=True, exist_ok=True)
     runs_path.write_text("{}", encoding="utf-8")
@@ -429,3 +481,23 @@ def test_delete_tasklist_removes_runs_file_sibling(tmp_path):
     assert not storage._tasklist_path(account, key).exists()
     assert not runs_path.exists()
     assert storage.list_tasklists(account) == []
+
+
+def test_save_tasklist_rejects_plain_dict_with_type_error(tmp_path):
+    storage = make_storage(tmp_path)
+    payload = {
+        "schema_version": 1,
+        "id": "tldict",
+        "name": "n",
+        "description": "d",
+        "tasks": [],
+    }
+    try:
+        storage.save_tasklist("alice", "tldict", payload)
+    except TypeError:
+        pass
+    else:
+        raise AssertionError("Expected TypeError when passing a plain dict to save_tasklist")
+
+    assert storage.list_tasklists("alice") == []
+    assert not storage._tasklist_path("alice", "tldict").exists()

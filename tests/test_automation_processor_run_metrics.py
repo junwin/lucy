@@ -125,9 +125,9 @@ def test_automation_writes_run_metrics_to_runs_record():
     assert "correlation_id" not in record
 
     assert storage.saved
-    saved_task = storage.saved[-1]["tasks"][0]
-    assert "result" not in saved_task
-    assert "run_metrics" not in saved_task
+    saved_task = storage.saved[-1].tasks[0]
+    assert saved_task.result is None
+    assert saved_task.run_metrics is None
 
 
 def test_automation_mandatory_stop_writes_failure_record():
@@ -195,6 +195,6 @@ def test_append_failure_aborts_run_and_marks_task_failed():
     assert tasklist.state == TASK_LIST_STATE_FAILED
     assert storage.records == []
 
-    saved_task = storage.saved[-1]["tasks"][0]
-    assert saved_task["state"] == TASK_STATE_FAILED
-    assert saved_task["error"] is not None
+    saved_task = storage.saved[-1].tasks[0]
+    assert saved_task.state == TASK_STATE_FAILED
+    assert saved_task.error is not None

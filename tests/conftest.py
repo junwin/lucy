@@ -16,6 +16,9 @@ if REPO_ROOT not in sys.path:
     sys.path.insert(0, REPO_ROOT)
 
 
+from src.storage.interfaces import TasklistStore
+from src.tasklists.task_list import TaskList
+
 
 # NOTE: tests use FakeStorage fixture below for most unit tests.
 # Some tests construct JsonFileStorage directly rather than using a fixture.
@@ -192,3 +195,43 @@ def make_proc(config, registry, storage, prompt_builder, llm_adapter) -> Callabl
         )
 
     return _make
+
+class InMemoryTasklistStore(TasklistStore):
+    def __init__(self) -> None:
+        self._tasklists: Dict[tuple[str, str], Dict[str, Any]] = {}
+        self._runs: Dict[tuple[str, str], List[dict]] = {}
+
+    def list_tasklists(self, account_name: str) -> List[str]:
+        return sorted(key for (acct, key) in self._tasklists if acct == account_name)
+
+    def get_tasklist(self, account_name: str, tasklist_key: str) -> Optional[TaskList]:
+        payload = self._tasklists.get((account_name, tasklist_key))
+        if payload is None:
+            return None
+        return TaskList.from_dict(payload)
+
+    def save_tasklist(self, account_name: str, tasklist_key: str, tasklist: TaskList) -> None:
+        if not isinstance(tasklist, TaskList):
+            raise TypeError(f"save_tasklist expects TaskList, got {type(tasklist).__name__}")
+        payload = tasklist.to_dict()
+        payload["id"] = tasklist_key
+        self._tasklists[(account_name, tasklist_key)] = payload
+
+    def delete_tasklist(self, account_name: str, tasklist_key: str) -> None:
+        self._tasklists.pop((account_name, tasklist_key), None)
+        self._runs.pop((account_name, tasklist_key), None)
+
+    def append_task_execution_record(self, account_name: str, tasklist_key: str, record: dict) -> None:
+        self._runs.setdefault((account_name, tasklist_key), []).append(dict(record))
+
+    def get_task_result(self, account_name: str, tasklist_key: str, task_id: str) -> Optional[dict]:
+        records = self._runs.get((account_name, tasklist_key), [])
+        for record in reversed(records):
+            if record.get("task_id") == task_id:
+                return record
+        return None
+
+
+@pytest.fixture
+def fake_tasklist_store() -> InMemoryTasklistStore:
+    return InMemoryTasklistStore()
