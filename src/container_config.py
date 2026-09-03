@@ -86,6 +86,8 @@ class StorageModule(Module):
         import os
         from pathlib import Path
 
+        from src.storage.json_file_storage_parts.tasklists import DEFAULT_RUN_TTL_DAYS
+
 
         storage_root_path = config.get("storage_root_path") or "/home/junwin/lucydata"
         storage_namespace = config.get("storage_namespace") or "data"
@@ -95,7 +97,8 @@ class StorageModule(Module):
             storage_namespace=storage_namespace,
         )
 
-        return JsonFileStorage(storage_paths)
+        ttl_days = (config.get("tasklists", {}) or {}).get("run_ttl_days", DEFAULT_RUN_TTL_DAYS)
+        return JsonFileStorage(storage_paths, tasklist_run_ttl_days=ttl_days)
 
     @provider
     @singleton

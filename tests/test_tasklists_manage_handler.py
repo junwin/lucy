@@ -828,5 +828,234 @@ def test_update_task_with_result_and_error(tmp_path):
     )
     assert r.get("ok") is True
     tl = r.get("tasklist")
-    assert tl["tasks"][0]["result"] == {"ok": True, "output": "done"}
+    assert "result" not in tl["tasks"][0]
+    assert "run_metrics" not in tl["tasks"][0]
     assert tl["tasks"][0]["error"] == "something went wrong"
+
+
+def test_add_task_duplicate_id_rejected(tmp_path):
+    cfg = SimpleConfig(str(tmp_path), "ns")
+    h = TasklistsManageHandler(cfg)
+    _create_tl(h, "alice", "tl-dup", tasks=[
+        {"id": "t1", "name": "T1", "instructions": "do 1"},
+    ])
+
+    r = h.execute(
+        {
+            "action": "add_task",
+            "tasklist_key": "tl-dup",
+            "task_id": "t1",
+            "task_name": "T1 Again",
+            "task_instructions": "do 1 again",
+            "validate_only": False,
+        },
+        account_name="alice",
+    )
+    assert r.get("ok") is False
+    assert r.get("action") == "add_task"
+    assert r.get("tasklist_key") == "tl-dup"
+    assert r.get("error", {}).get("code") == "duplicate_task_id"
+    assert r.get("error", {}).get("message") == "task with id 't1' already exists"
+
+    got = h.execute({"action": "get", "tasklist_key": "tl-dup", "validate_only": False}, account_name="alice")
+    assert got.get("ok") is True
+    tasks = got["tasklist"]["tasks"]
+    assert len(tasks) == 1
+    assert tasks[0]["id"] == "t1"
+    assert tasks[0]["name"] == "T1"
+    assert tasks[0]["instructions"] == "do 1"
+
+
+def test_add_task_duplicate_id_rejected_with_after_index(tmp_path):
+    cfg = SimpleConfig(str(tmp_path), "ns")
+    h = TasklistsManageHandler(cfg)
+    _create_tl(h, "alice", "tl-dup-idx", tasks=[
+        {"id": "a", "name": "A", "instructions": "a"},
+        {"id": "b", "name": "B", "instructions": "b"},
+    ])
+
+    r = h.execute(
+        {
+            "action": "add_task",
+            "tasklist_key": "tl-dup-idx",
+            "task_id": "a",
+            "task_name": "A Dup",
+            "task_instructions": "a again",
+            "after_index": 0,
+            "validate_only": False,
+        },
+        account_name="alice",
+    )
+    assert r.get("ok") is False
+    assert r.get("action") == "add_task"
+    assert r.get("error", {}).get("code") == "duplicate_task_id"
+    assert r.get("error", {}).get("message") == "task with id 'a' already exists"
+
+    got = h.execute({"action": "get", "tasklist_key": "tl-dup-idx", "validate_only": False}, account_name="alice")
+    assert got.get("ok") is True
+    assert [t["id"] for t in got["tasklist"]["tasks"]] == ["a", "b"]
+
+
+def test_get_result_completed_record_latest_wins(tmp_path):
+    cfg = SimpleConfig(str(tmp_path), "ns")
+    h = TasklistsManageHandler(cfg)
+    _create_tl(h, "alice", "tl-gr-done", tasks=[
+        {"id": "task-1", "name": "T1", "instructions": "do 1"},
+    ])
+
+    h.storage.append_task_execution_record(
+        "alice",
+        "tl-gr-done",
+        {
+            "schema_version": 1,
+            "record_id": "rec-old",
+            "tasklist_key": "tl-gr-done",
+            "task_id": "task-1",
+            "task_name": "T1",
+            "state": TASK_STATE_COMPLETED,
+            "started": "2026-09-02T14:00:00.000Z",
+            "ended": "2026-09-02T14:01:00.000Z",
+            "metrics": {"tokens": 10},
+            "result": {"timestamp": "2026-09-02T14:01:00.000Z", "output": "first attempt"},
+        },
+    )
+    h.storage.append_task_execution_record(
+        "alice",
+        "tl-gr-done",
+        {
+            "schema_version": 1,
+            "record_id": "rec-new",
+            "tasklist_key": "tl-gr-done",
+            "task_id": "task-1",
+            "task_name": "T1",
+            "state": TASK_STATE_COMPLETED,
+            "started": "2026-09-02T15:00:00.000Z",
+            "ended": "2026-09-02T15:01:00.000Z",
+            "metrics": {"tokens": 12},
+            "result": {"timestamp": "2026-09-02T15:01:00.000Z", "output": "second attempt"},
+        },
+    )
+
+    r = h.execute(
+        {"action": "get_result", "tasklist_key": "tl-gr-done", "task_id": "task-1"},
+        account_name="alice",
+    )
+    assert r.get("ok") is True
+    assert r.get("action") == "get_result"
+    assert r.get("tasklist_key") == "tl-gr-done"
+    assert r.get("task_id") == "task-1"
+    rec = r.get("result_record")
+    assert rec is not None
+    assert rec.get("record_id") == "rec-new"
+    assert rec.get("state") == TASK_STATE_COMPLETED
+    assert rec["result"]["output"] == "second attempt"
+
+
+def test_get_result_failure_record(tmp_path):
+    cfg = SimpleConfig(str(tmp_path), "ns")
+    h = TasklistsManageHandler(cfg)
+    _create_tl(h, "alice", "tl-gr-fail", tasks=[
+        {"id": "task-1", "name": "T1", "instructions": "do 1"},
+    ])
+
+    h.storage.append_task_execution_record(
+        "alice",
+        "tl-gr-fail",
+        {
+            "schema_version": 1,
+            "record_id": "rec-fail",
+            "tasklist_key": "tl-gr-fail",
+            "task_id": "task-1",
+            "task_name": "T1",
+            "state": "failed",
+            "started": "2026-09-02T16:00:00.000Z",
+            "ended": "2026-09-02T16:05:00.000Z",
+            "error": "Model reported it could not complete the task",
+            "error_detail": "Traceback (most recent call last):\n  File \"worker.py\", line 42\nValueError: boom",
+        },
+    )
+
+    r = h.execute(
+        {"action": "get_result", "tasklist_key": "tl-gr-fail", "task_id": "task-1"},
+        account_name="alice",
+    )
+    assert r.get("ok") is True
+    assert r.get("action") == "get_result"
+    rec = r.get("result_record")
+    assert rec is not None
+    assert rec.get("task_id") == "task-1"
+    assert rec.get("state") == "failed"
+    assert rec.get("error") == "Model reported it could not complete the task"
+    assert rec.get("error_detail", "").startswith("Traceback (most recent call last):")
+
+
+def test_get_result_legacy_inline_fallback(tmp_path):
+    cfg = SimpleConfig(str(tmp_path), "ns")
+    h = TasklistsManageHandler(cfg)
+    _create_tl(h, "alice", "tl-gr-legacy", tasks=[
+        {"id": "task-1", "name": "T1", "instructions": "do 1"},
+    ])
+
+    legacy_path = tmp_path / "ns" / "tasklists" / "alice" / "tl-gr-legacy.json"
+    raw = json.loads(legacy_path.read_text(encoding="utf-8"))
+    raw["tasks"][0]["state"] = TASK_STATE_COMPLETED
+    raw["tasks"][0]["result"] = {"timestamp": "2026-09-02T10:00:00.000Z", "output": "legacy inline output"}
+    raw["tasks"][0]["run_metrics"] = {"tokens": 5}
+    legacy_path.write_text(json.dumps(raw), encoding="utf-8")
+
+    r = h.execute(
+        {"action": "get_result", "tasklist_key": "tl-gr-legacy", "task_id": "task-1"},
+        account_name="alice",
+    )
+    assert r.get("ok") is True
+    rec = r.get("result_record")
+    assert rec is not None
+    assert rec.get("legacy") is True
+    assert rec.get("task_id") == "task-1"
+    assert rec.get("state") == TASK_STATE_COMPLETED
+    assert rec["result"]["output"] == "legacy inline output"
+    assert rec["run_metrics"]["tokens"] == 5
+
+
+def test_get_result_no_result_message(tmp_path):
+    cfg = SimpleConfig(str(tmp_path), "ns")
+    h = TasklistsManageHandler(cfg)
+    _create_tl(h, "alice", "tl-gr-none", tasks=[
+        {"id": "task-1", "name": "T1", "instructions": "do 1"},
+    ])
+
+    r = h.execute(
+        {"action": "get_result", "tasklist_key": "tl-gr-none", "task_id": "task-1"},
+        account_name="alice",
+    )
+    assert r.get("ok") is True
+    assert r.get("action") == "get_result"
+    assert r.get("tasklist_key") == "tl-gr-none"
+    assert r.get("task_id") == "task-1"
+    assert r.get("result_record") is None
+    assert r.get("message") == "no result for task task-1"
+
+    r2 = h.execute(
+        {"action": "get_result", "tasklist_key": "tl-gr-none", "task_id": "no-such-task"},
+        account_name="alice",
+    )
+    assert r2.get("ok") is True
+    assert r2.get("message") == "no result for task no-such-task"
+
+
+def test_get_result_missing_params(tmp_path):
+    cfg = SimpleConfig(str(tmp_path), "ns")
+    h = TasklistsManageHandler(cfg)
+    _create_tl(h, "alice", "tl-gr-missing")
+
+    r = h.execute({"action": "get_result"}, account_name="alice")
+    assert r.get("ok") is False
+    assert r.get("action") == "get_result"
+    assert r.get("error", {}).get("code") == "missing_key"
+
+    r2 = h.execute({"action": "get_result", "tasklist_key": "tl-gr-missing"}, account_name="alice")
+    assert r2.get("ok") is False
+    assert r2.get("action") == "get_result"
+    assert r2.get("tasklist_key") == "tl-gr-missing"
+    assert r2.get("error", {}).get("code") == "missing_fields"
+    assert "task_id" in r2.get("error", {}).get("message", "")

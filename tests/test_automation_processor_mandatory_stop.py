@@ -59,6 +59,7 @@ class FakeStorage:
     def __init__(self, tasklist):
         self.tasklist = tasklist
         self.saved = []
+        self.records = []
 
     def get_tasklist(self, account_name, tasklist_id):
         return self.tasklist
@@ -68,6 +69,9 @@ class FakeStorage:
 
     def save_tasklist(self, account_name, tasklist_id, data):
         self.saved.append((tasklist_id, data))
+
+    def append_task_execution_record(self, account_name, tasklist_key, record):
+        self.records.append(record)
 
 
 def make_tasklist():
@@ -98,7 +102,7 @@ def run_tasklist(processor_factory):
         account={"accountId": "acct"},
         processor_factory=processor_factory,
     )
-    return result, tasklist, tasklist.tasks[0]
+    return result, tasklist, tasklist.tasks[0], storage
 
 
 def test_is_mandatory_stop_response_detects_markers():
@@ -111,7 +115,7 @@ def test_is_mandatory_stop_response_detects_markers():
 
 
 def test_internal_limit_aborts_tasklist_and_marks_failed():
-    result, tasklist, task = run_tasklist(
+    result, tasklist, task, storage = run_tasklist(
         FakeProcessorFactory(FakeFunctionProcessor(INTERNAL_LIMIT))
     )
 
@@ -119,31 +123,45 @@ def test_internal_limit_aborts_tasklist_and_marks_failed():
     assert task.state == TASK_STATE_FAILED
     assert task.state != TASK_STATE_COMPLETED
     assert task.error is not None
+    assert task.result is None
     assert tasklist.state == TASK_LIST_STATE_FAILED
+
+    assert len(storage.records) == 1
+    record = storage.records[0]
+    assert record["task_id"] == task.id
+    assert record["state"] == "failed"
+    assert record["error"] == task.error
+    assert "error_detail" not in record
 
 
 def test_empty_response_aborts_tasklist():
-    result, tasklist, task = run_tasklist(
+    result, tasklist, task, storage = run_tasklist(
         FakeProcessorFactory(FakeFunctionProcessor(EMPTY_RESPONSE))
     )
 
     assert "state=Failed" in result
     assert task.state == TASK_STATE_FAILED
     assert tasklist.state == TASK_LIST_STATE_FAILED
+    assert len(storage.records) == 1
+    assert storage.records[0]["state"] == "failed"
+    assert storage.records[0]["task_id"] == task.id
 
 
 def test_stuck_loop_aborts_tasklist():
-    result, tasklist, task = run_tasklist(
+    result, tasklist, task, storage = run_tasklist(
         FakeProcessorFactory(FakeFunctionProcessor(STUCK_LOOP))
     )
 
     assert "state=Failed" in result
     assert task.state == TASK_STATE_FAILED
     assert tasklist.state == TASK_LIST_STATE_FAILED
+    assert len(storage.records) == 1
+    assert storage.records[0]["state"] == "failed"
+    assert storage.records[0]["task_id"] == task.id
 
 
 def test_normal_response_still_completes():
-    result, tasklist, task = run_tasklist(
+    result, tasklist, task, storage = run_tasklist(
         FakeProcessorFactory(FakeFunctionProcessor("Task finished successfully."))
     )
 
@@ -152,4 +170,12 @@ def test_normal_response_still_completes():
     assert "state=Failed" not in result
     assert task.state == TASK_STATE_COMPLETED
     assert task.error is None
+    assert task.result is None
     assert tasklist.state != TASK_LIST_STATE_FAILED
+
+    assert len(storage.records) == 1
+    record = storage.records[0]
+    assert record["state"] == "completed"
+    assert record["task_id"] == task.id
+    assert record["result"]["output"] == "Task finished successfully."
+    assert "error" not in record

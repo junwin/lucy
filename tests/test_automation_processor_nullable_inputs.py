@@ -40,6 +40,7 @@ class RecordingProcessorFactory:
 class FakeStorage:
     def __init__(self, tasklist):
         self.tasklist = tasklist
+        self.records = []
 
     def get_tasklist(self, account_name, tasklist_id):
         return self.tasklist
@@ -49,6 +50,9 @@ class FakeStorage:
 
     def save_tasklist(self, account_name, tasklist_id, data):
         pass
+
+    def append_task_execution_record(self, account_name, tasklist_key, record):
+        self.records.append(record)
 
 
 def make_tasklist(*, instructions="Do the thing", agent=None):
@@ -85,35 +89,57 @@ def run_tasklist(function_processor, tasklist, **overrides):
     }
     kwargs.update(overrides)
     result = ap.execute_tasklist(**kwargs)
-    return result, tasklist, tasklist.tasks[0]
+    return result, tasklist, tasklist.tasks[0], storage
 
 
 def test_none_context_name_does_not_crash():
     fcp = RecordingFunctionProcessor()
     tasklist = make_tasklist()
-    result, tasklist, task = run_tasklist(fcp, tasklist, context_name=None)
+    result, tasklist, task, storage = run_tasklist(fcp, tasklist, context_name=None)
 
     assert "state=Failed" not in result
     assert task.state == TASK_STATE_COMPLETED
+    assert task.result is None
     assert fcp.calls
     assert fcp.calls[0]["context_name"] == ""
+
+    assert len(storage.records) == 1
+    record = storage.records[0]
+    assert record["task_id"] == task.id
+    assert record["state"] == "completed"
+    assert record["result"]["output"] == fcp.response
 
 
 def test_none_worker_agent_does_not_crash():
     fcp = RecordingFunctionProcessor()
     tasklist = make_tasklist()
-    result, tasklist, task = run_tasklist(fcp, tasklist, worker_agent=None)
+    result, tasklist, task, storage = run_tasklist(fcp, tasklist, worker_agent=None)
 
     assert "state=Failed" not in result
     assert task.state == TASK_STATE_COMPLETED
+    assert task.result is None
     assert fcp.calls
+
+    assert len(storage.records) == 1
+    record = storage.records[0]
+    assert record["state"] == "completed"
+    assert record["task_id"] == task.id
 
 
 def test_nullable_task_fields_do_not_crash():
     fcp = RecordingFunctionProcessor()
     tasklist = make_tasklist(instructions="", agent=None)
-    result, tasklist, task = run_tasklist(fcp, tasklist, context_name=None)
+    result, tasklist, task, storage = run_tasklist(fcp, tasklist, context_name=None)
 
     assert "state=Failed" not in result
     assert task.state == TASK_STATE_COMPLETED
+    assert task.result is None
     assert not fcp.calls
+
+    assert len(storage.records) == 1
+    record = storage.records[0]
+    assert record["state"] == "completed"
+    assert record["task_id"] == task.id
+    assert "warning" in record["result"]
+    assert "metrics" not in record
+    assert "error" not in record

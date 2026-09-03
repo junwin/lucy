@@ -104,10 +104,9 @@ class TaskList:
         return str(uuid.uuid4())
 
     def add_task(self, task: Task) -> None:
-        for i, existing in enumerate(self.tasks):
+        for existing in self.tasks:
             if existing.id == task.id:
-                self.tasks[i] = task
-                return
+                raise ValueError(f"task with id '{task.id}' already exists")
         self.tasks.append(task)
 
     def update_task_state(self, id: str, new_state: str) -> None:
@@ -199,6 +198,12 @@ class TaskList:
                     run_metrics=getattr(t, "run_metrics", None),
                 )
             )
+
+        seen: set = set()
+        for t in tasks:
+            if t.id in seen:
+                raise ValueError(f"duplicate task id '{t.id}' in tasklist data")
+            seen.add(t.id)
 
         return cls(
             id=str(validated.id),
