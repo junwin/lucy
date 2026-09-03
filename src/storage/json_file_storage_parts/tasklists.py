@@ -17,8 +17,8 @@ DEFAULT_RUN_TTL_DAYS = 2
 class TasklistsMixin:
     """Tasklist methods extracted from JsonFileStorage.
 
-    Mixin: relies on self.storage_paths, self._tasklist_service, and
-    self._ensure_dir provided by the composing class.
+    Mixin: relies on self.storage_paths and self._ensure_dir provided by
+    the composing class.
     """
 
     def _tasklists_dir(self, account_name: str) -> Path:
@@ -61,16 +61,16 @@ class TasklistsMixin:
         return ids
 
     def get_tasklist(self, account_name: str, tasklist_key: str) -> Optional[TaskList]:
-        """Load a tasklist from storage using TaskListService."""
+        """Load a tasklist from its JSON file; None if the file is missing."""
 
         path = self._tasklist_path(account_name, tasklist_key)
         try:
-            return self._tasklist_service.load(str(path))
+            return TaskList.from_json(path.read_text(encoding="utf-8"))
         except FileNotFoundError:
             return None
 
     def save_tasklist(self, account_name: str, tasklist_key: str, tasklist: TaskList) -> None:
-        """Save a tasklist to storage using TaskListService."""
+        """Persist a tasklist as its JSON file."""
 
         # Basic id validation: only allow simple filenames (alnum, dash, underscore)
         import re as _re
@@ -109,7 +109,7 @@ class TasklistsMixin:
 
         path = self._tasklist_path(account_name, tasklist_key)
         self._ensure_dir(path.parent)
-        self._tasklist_service.save(str(path), tl)
+        path.write_text(tl.to_json(), encoding="utf-8")
 
     def delete_tasklist(self, account_name: str, tasklist_key: str) -> None:
 
