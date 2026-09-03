@@ -91,6 +91,20 @@ class TasklistStore(ABC):
         """Delete a persisted tasklist. Must be idempotent: no error if missing."""
         pass
 
+    @abstractmethod
+    def append_task_execution_record(
+        self, account_name: str, tasklist_key: str, record: dict
+    ) -> None:
+        """Append one task execution record to the tasklist's runs file."""
+        pass
+
+    @abstractmethod
+    def get_task_result(
+        self, account_name: str, tasklist_key: str, task_id: str
+    ) -> Optional[dict]:
+        """Return the latest execution record for a task, else legacy inline content."""
+        pass
+
 
 class DocumentStore(ABC):
     @abstractmethod

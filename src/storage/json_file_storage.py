@@ -18,7 +18,7 @@ from .base import Storage
 from .models import UserProfile
 from .json_file_storage_parts.contexts import ContextsMixin
 from .json_file_storage_parts.documents import DocumentsMixin
-from .json_file_storage_parts.tasklists import TasklistsMixin
+from .json_file_storage_parts.tasklists import DEFAULT_RUN_TTL_DAYS, TasklistsMixin
 from .json_file_storage_parts.embeddings import EmbeddingsMixin
 
 
@@ -36,10 +36,15 @@ class JsonFileStorage(TasklistsMixin, ContextsMixin, DocumentsMixin, EmbeddingsM
         'updated_at' if present, otherwise from the file's mtime.
     """
 
-    def __init__(self, storage_paths: StoragePaths):
+    def __init__(
+        self,
+        storage_paths: StoragePaths,
+        tasklist_run_ttl_days: int = DEFAULT_RUN_TTL_DAYS,
+    ):
 
         self.storage_paths = storage_paths
         self._tasklist_service = TaskListService()
+        self._tasklist_run_ttl_days = tasklist_run_ttl_days
 
 
     # ----------------------------------------------------------------------

@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json
 import logging
+import traceback
+import uuid
 from datetime import datetime, timezone
 from typing import Any, Dict, Optional, Tuple, TYPE_CHECKING
 
@@ -575,6 +577,8 @@ class AutomationProcessor(MessageProcessorInterface):
             except Exception:
                 logger.exception("Failed setting task running")
 
+            started_at = _now_utc().isoformat()
+
             # Persist checkpoint: task is now RUNNING.
             try:
                 self.storage.save_tasklist(account_name, resolved_key, tasklist.to_dict())
@@ -612,6 +616,8 @@ class AutomationProcessor(MessageProcessorInterface):
             # otherwise attach a placeholder result.
             task_result = None
             task_error = None
+            run_metrics = None
+            error_detail = None
             try:
                 if function_processor is not None:
                     # Build the message for the task execution.
@@ -676,7 +682,7 @@ class AutomationProcessor(MessageProcessorInterface):
                         )
 
                         response = fcp_result.text
-                        task.run_metrics = fcp_result.metrics.to_dict()
+                        run_metrics = fcp_result.metrics.to_dict()
                         task_result = {"timestamp": _now_utc().isoformat(), "output": response}
 
                         if _is_mandatory_stop_response(response):
@@ -701,13 +707,13 @@ class AutomationProcessor(MessageProcessorInterface):
             except Exception as e:
                 logger.exception("Task execution failed for task=%s", last_task_name)
                 task_error = str(e)
+                error_detail = traceback.format_exc()
 
             try:
-                task.result = task_result
                 if task_error is not None:
                     task.error = task_error
             except Exception:
-                logger.exception("Failed attaching result/error to task")
+                logger.exception("Failed attaching error to task")
 
             # Set final state based on whether execution raised an error.
             try:
@@ -721,6 +727,62 @@ class AutomationProcessor(MessageProcessorInterface):
                 overall_state = TASK_LIST_STATE_FAILED
 
             executed_count += 1
+
+            record: dict = {
+                "schema_version": 1,
+                "record_id": uuid.uuid4().hex,
+                "tasklist_key": resolved_key,
+                "task_id": task.id,
+                "task_name": task.name,
+                "state": "completed" if task_error is None else "failed",
+                "started": started_at,
+                "ended": _now_utc().isoformat(),
+            }
+            task_meta = tasklist.meta if isinstance(getattr(tasklist, "meta", None), dict) else {}
+            correlation = task_meta.get("correlation_id")
+            if correlation:
+                record["correlation_id"] = correlation
+            if task_error is not None:
+                record["error"] = task_error
+                if error_detail is not None:
+                    record["error_detail"] = error_detail
+            if run_metrics is not None:
+                record["metrics"] = run_metrics
+            if task_result is not None:
+                record["result"] = task_result
+            try:
+                self.storage.append_task_execution_record(account_name, resolved_key, record)
+            except Exception as e:
+                logger.exception("Failed appending task execution record")
+                overall_state = TASK_LIST_STATE_FAILED
+                try:
+                    _set_task_state(task, TASK_STATE_FAILED)
+                except Exception:
+                    logger.exception("Failed setting task failed after append error")
+                if task_error is None:
+                    try:
+                        task.error = str(e)
+                    except Exception:
+                        logger.exception("Failed attaching append error to task")
+                try:
+                    tasklist.state = TASK_LIST_STATE_FAILED
+                except Exception:
+                    logger.exception("Failed setting tasklist state to FAILED after append error")
+                try:
+                    self.storage.save_tasklist(account_name, resolved_key, tasklist.to_dict())
+                except Exception:
+                    logger.exception("Failed persisting tasklist after append failure")
+                logger.info(
+                    "AutomationProcessor end tasklist_id=%s task_id=%s mode=%s outcome=%s",
+                    tasklist_id,
+                    task.id,
+                    mode,
+                    overall_state,
+                )
+                return (
+                    f"[AutomationProcessor] mode={mode} state=failed task='{last_task_name}' "
+                    f"error='Failed to append task execution record: {e}'"
+                )
 
             # Write task result event to chat2
             task_outcome = "completed" if task_error is None else "failed"

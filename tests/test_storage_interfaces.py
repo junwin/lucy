@@ -29,6 +29,8 @@ TASKLIST_STORE_METHODS = {
     "get_tasklist",
     "save_tasklist",
     "delete_tasklist",
+    "append_task_execution_record",
+    "get_task_result",
 }
 
 DOCUMENT_STORE_METHODS = {

@@ -252,9 +252,13 @@ def test_task_run_metrics_persist():
     t = Task(id=str(uuid.uuid4()), name="T10", instructions="Do", run_metrics=metrics)
     assert t.run_metrics == metrics
     d = t.to_dict()
-    assert d["run_metrics"] == metrics
-    loaded = Task.from_dict(d)
+    assert "run_metrics" not in d
+    assert "result" not in d
+    legacy_dict = dict(d)
+    legacy_dict["run_metrics"] = metrics
+    loaded = Task.from_dict(legacy_dict)
     assert loaded.run_metrics == metrics
+    assert "run_metrics" not in loaded.to_dict()
 
     plain = Task(id=str(uuid.uuid4()), name="T11", instructions="Do")
     assert plain.run_metrics is None
@@ -294,11 +298,19 @@ def test_task_reset_clears_run_metrics():
     assert task.error is None
     assert task.run_metrics is None
 
-def test_tasklist_round_trip_preserves_task_run_metrics():
+def test_tasklist_round_trip_omits_run_metrics_and_result():
     metrics = {"iterations": 40, "openai_calls": 40}
     task = Task(id=str(uuid.uuid4()), name="T", instructions="Do", run_metrics=metrics)
     tasklist = TaskList(id="tl-run-metrics", name="n", description="d", tasks=[task])
 
-    loaded = TaskList.from_dict(tasklist.to_dict())
+    d = tasklist.to_dict()
+    assert "run_metrics" not in d["tasks"][0]
+    assert "result" not in d["tasks"][0]
 
-    assert loaded.tasks[0].run_metrics == metrics
+    loaded = TaskList.from_dict(d)
+    assert loaded.tasks[0].run_metrics is None
+
+    legacy_dict = json.loads(json.dumps(d))
+    legacy_dict["tasks"][0]["run_metrics"] = metrics
+    legacy_loaded = TaskList.from_dict(legacy_dict)
+    assert legacy_loaded.tasks[0].run_metrics == metrics

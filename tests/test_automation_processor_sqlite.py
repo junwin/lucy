@@ -58,6 +58,9 @@ class FakeStorage:
     def save_tasklist(self, account_name, tasklist_id, data):
         pass
 
+    def append_task_execution_record(self, account_name, tasklist_key, record):
+        pass
+
 
 def make_tasklist(*, instructions="Do the thing"):
     task = Task(id=str(uuid.uuid4()), name="T1", instructions=instructions)

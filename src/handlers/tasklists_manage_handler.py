@@ -8,6 +8,7 @@ from src.config_manager import ConfigManager
 from src.handlers.handler_v2 import HandlerV2
 from src.storage.interfaces import TasklistStore
 from src.storage.json_file_storage import JsonFileStorage
+from src.storage.json_file_storage_parts.tasklists import DEFAULT_RUN_TTL_DAYS
 from src.storage_paths.storage_paths import StoragePaths
 from src.tasklists.service import TaskListService
 from src.tasklists.task import Task
@@ -25,7 +26,8 @@ class TasklistsManageHandler(HandlerV2):
         storage_root = self.config.get("storage_root_path")
         storage_ns = self.config.get("storage_namespace")
         sp = StoragePaths(storage_root, storage_ns)
-        self.storage: TasklistStore = JsonFileStorage(sp)
+        ttl_days = (self.config.get("tasklists", {}) or {}).get("run_ttl_days", DEFAULT_RUN_TTL_DAYS)
+        self.storage: TasklistStore = JsonFileStorage(sp, tasklist_run_ttl_days=ttl_days)
         self.tasklist_service = TaskListService()
 
     @classmethod
@@ -44,7 +46,7 @@ class TasklistsManageHandler(HandlerV2):
                     "action": {
                         "type": "string",
                         "enum": [
-                            "list", "get", "put", "delete", "reset",
+                            "list", "get", "get_result", "put", "delete", "reset",
                             "add_task", "update_task", "remove_task",
                             "set_state", "set_name", "set_description",
                             "set_general_instructions", "update_meta",
@@ -86,7 +88,7 @@ class TasklistsManageHandler(HandlerV2):
                     },
                     "task_id": {
                         "type": "string",
-                        "description": "Task id (add/update/remove_task).",
+                        "description": "Task id (add/update/remove_task/get_result).",
                     },
                     "task_name": {
                         "type": "string",
@@ -185,7 +187,7 @@ class TasklistsManageHandler(HandlerV2):
         )
 
         valid_actions = {
-            "list", "get", "put", "delete", "reset",
+            "list", "get", "get_result", "put", "delete", "reset",
             "add_task", "update_task", "remove_task",
             "set_state", "set_name", "set_description",
             "set_general_instructions", "update_meta",
@@ -203,6 +205,8 @@ class TasklistsManageHandler(HandlerV2):
                 return self._handle_list(account_name)
             elif action == "get":
                 return self._handle_get(account_name, args)
+            elif action == "get_result":
+                return self._handle_get_result(account_name, args)
             elif action == "put":
                 return self._handle_put(account_name, args)
             elif action == "delete":
@@ -288,6 +292,41 @@ class TasklistsManageHandler(HandlerV2):
             "action": "get",
             "tasklist_key": tasklist_key,
             "tasklist": tl.to_dict(),
+        }
+
+    def _handle_get_result(self, account_name: str, args: Dict[str, Any]) -> Dict[str, Any]:
+        tasklist_key = (args.get("tasklist_key") or "").strip()
+        err = self._require_key(tasklist_key, "get_result")
+        if err:
+            return err
+
+        task_id = str(args.get("task_id") or "").strip()
+        if not task_id:
+            return {
+                "ok": False,
+                "tool": self.NAME,
+                "action": "get_result",
+                "tasklist_key": tasklist_key,
+                "error": {"code": "missing_fields", "message": "task_id is required for get_result"},
+            }
+
+        record = self.storage.get_task_result(account_name, tasklist_key, task_id)
+        if record is not None:
+            return {
+                "ok": True,
+                "tool": self.NAME,
+                "action": "get_result",
+                "tasklist_key": tasklist_key,
+                "task_id": task_id,
+                "result_record": record,
+            }
+        return {
+            "ok": True,
+            "tool": self.NAME,
+            "action": "get_result",
+            "tasklist_key": tasklist_key,
+            "task_id": task_id,
+            "message": f"no result for task {task_id}",
         }
 
     def _handle_delete(self, account_name: str, args: Dict[str, Any]) -> Dict[str, Any]:
@@ -450,11 +489,21 @@ class TasklistsManageHandler(HandlerV2):
         )
 
         after_index = args.get("after_index")
+        try:
+            tl.add_task(task)
+        except ValueError:
+            return {
+                "ok": False,
+                "tool": self.NAME,
+                "action": "add_task",
+                "tasklist_key": tasklist_key,
+                "error": {"code": "duplicate_task_id", "message": f"task with id '{task_id}' already exists"},
+            }
+
         if after_index is not None:
+            added = tl.tasks.pop()
             insert_at = min(int(after_index) + 1, len(tl.tasks))
-            tl.tasks.insert(insert_at, task)
-        else:
-            tl.tasks.append(task)
+            tl.tasks.insert(insert_at, added)
 
         payload = tl.to_dict()
         if not validate_only:

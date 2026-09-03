@@ -78,7 +78,6 @@ class Task:
             "name": self.name,
             "instructions": self.instructions,
             "state": self.state,
-            "result": self.result,
             "error": self.error,
             "meta": dict(self.meta or {}),
         }
@@ -90,8 +89,6 @@ class Task:
             d["files"] = list(self.files)
         if self.parent_id:
             d["parent_id"] = self.parent_id
-        if self.run_metrics is not None:
-            d["run_metrics"] = dict(self.run_metrics)
         return d
 
     @classmethod

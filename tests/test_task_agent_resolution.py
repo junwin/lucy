@@ -59,6 +59,9 @@ class FakeStorage:
     def save_tasklist(self, account_name, tasklist_id, data):
         return None
 
+    def append_task_execution_record(self, account_name, tasklist_key, record):
+        return None
+
 
 def make_processor(agent_manager=None, function_processor=None):
     storage = FakeStorage(make_tasklist())
