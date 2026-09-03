@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
+from .interfaces import TasklistManager
 from .task import Task
 from .task_list import TaskList
 from .task_states import (
@@ -21,7 +22,7 @@ if TYPE_CHECKING:
     from src.storage.interfaces import TasklistStore
 
 
-class TaskListService:
+class TaskListService(TasklistManager):
     """CRUD facade over an injected TasklistStore persistence port."""
 
     def __init__(self, store: TasklistStore):
@@ -99,6 +100,79 @@ class TaskListService:
                 )
             )
         return tasklist
+
+    def add_task(
+        self,
+        account_name: str,
+        tasklist_key: str,
+        task: Task,
+        *,
+        after_index: Optional[int] = None,
+    ) -> TaskList:
+        tl = self._load_required(account_name, tasklist_key)
+        tl.add_task(task, after_index=after_index)
+        self.store.save_tasklist(account_name, tasklist_key, tl)
+        return tl
+
+    def update_task(
+        self,
+        account_name: str,
+        tasklist_key: str,
+        task_id: str,
+        **changes: Any,
+    ) -> TaskList:
+        tl = self._load_required(account_name, tasklist_key)
+        tl.update_task(task_id, **changes)
+        self.store.save_tasklist(account_name, tasklist_key, tl)
+        return tl
+
+    def remove_task(self, account_name: str, tasklist_key: str, task_id: str) -> TaskList:
+        tl = self._load_required(account_name, tasklist_key)
+        tl.remove_task(task_id)
+        self.store.save_tasklist(account_name, tasklist_key, tl)
+        return tl
+
+    def set_state(self, account_name: str, tasklist_key: str, state: str) -> TaskList:
+        tl = self._load_required(account_name, tasklist_key)
+        tl.state = str(state)
+        self.store.save_tasklist(account_name, tasklist_key, tl)
+        return tl
+
+    def set_name(self, account_name: str, tasklist_key: str, name: str) -> TaskList:
+        tl = self._load_required(account_name, tasklist_key)
+        tl.name = str(name)
+        self.store.save_tasklist(account_name, tasklist_key, tl)
+        return tl
+
+    def set_description(self, account_name: str, tasklist_key: str, description: str) -> TaskList:
+        tl = self._load_required(account_name, tasklist_key)
+        tl.description = str(description)
+        self.store.save_tasklist(account_name, tasklist_key, tl)
+        return tl
+
+    def set_general_instructions(
+        self, account_name: str, tasklist_key: str, instructions: str
+    ) -> TaskList:
+        tl = self._load_required(account_name, tasklist_key)
+        tl.general_instructions = str(instructions)
+        self.store.save_tasklist(account_name, tasklist_key, tl)
+        return tl
+
+    def update_meta(
+        self, account_name: str, tasklist_key: str, meta: Dict[str, Any]
+    ) -> TaskList:
+        tl = self._load_required(account_name, tasklist_key)
+        if not isinstance(meta, dict):
+            raise TypeError("meta must be a dict")
+        tl.meta.update(meta)
+        self.store.save_tasklist(account_name, tasklist_key, tl)
+        return tl
+
+    def _load_required(self, account_name: str, tasklist_key: str) -> TaskList:
+        tl = self.store.get_tasklist(account_name, tasklist_key)
+        if tl is None:
+            raise ValueError(f"tasklist '{tasklist_key}' not found")
+        return tl
 
     def load(self, path: str) -> TaskList:
         """Load a TaskList from a JSON file path.
