@@ -82,7 +82,7 @@ def link_event(
     """Append one link line for an event to the correlation's index file.
 
     Falsy correlation ids (None or '') are a no-op and never raise.
-    Creates the index file on first use via append_text. ts is serialized
+    Creates the index file on first use via append_lines. ts is serialized
     as datetime.now(timezone.utc).isoformat().
     """
     if not correlation_id:
@@ -97,7 +97,7 @@ def link_event(
         },
         separators=(",", ":"),
     )
-    store.append_text(_key(correlation_id), line + "\n")
+    store.append_lines(_key(correlation_id), [line])
 
 
 def get_links(
@@ -112,12 +112,12 @@ def get_links(
     """
     if not correlation_id:
         return []
-    raw = store.read_text(_key(correlation_id))
-    if raw is None:
+    lines = store.read_lines(_key(correlation_id))
+    if lines is None:
         return []
     links: List[CorrelationLink] = []
     seen: set[str] = set()
-    for line in raw.splitlines():
+    for line in lines:
         line = line.strip()
         if not line:
             continue

@@ -1,46 +1,15 @@
 """
 Tests for Chat v2 storage primitives (StoreKey + Chat2Primitives protocol).
 
-Includes an in-memory fake implementation of Chat2Primitives for testing.
+Uses the InMemoryStore fake from src.chat2.store_primitives as the
+reference implementation for protocol conformance tests.
 """
 
 from __future__ import annotations
 
-from typing import Optional
-
 import pytest
 
-from src.chat2.store_primitives import Chat2Primitives, StoreKey
-
-
-# ---------------------------------------------------------------------------
-# In-memory fake implementation of Chat2Primitives
-# ---------------------------------------------------------------------------
-
-class InMemoryStore:
-    """A dict-backed implementation of Chat2Primitives for testing."""
-
-    def __init__(self) -> None:
-        self._data: dict[str, str] = {}
-
-    def read_text(self, key: StoreKey) -> Optional[str]:
-        return self._data.get(key.value)
-
-    def write_text(self, key: StoreKey, text: str) -> None:
-        self._data[key.value] = text
-
-    def append_text(self, key: StoreKey, text: str) -> None:
-        existing = self._data.get(key.value, "")
-        self._data[key.value] = existing + text
-
-    def exists(self, key: StoreKey) -> bool:
-        return key.value in self._data
-
-    def delete(self, key: StoreKey) -> None:
-        self._data.pop(key.value, None)
-
-    def list_keys(self, prefix: StoreKey) -> list[StoreKey]:
-        return [StoreKey(k) for k in self._data if k.startswith(prefix.value)]
+from src.chat2.store_primitives import Chat2Primitives, InMemoryStore, StoreKey
 
 
 # Verify InMemoryStore satisfies the Chat2Primitives protocol at runtime
@@ -150,3 +119,56 @@ class TestChat2Primitives:
     def test_protocol_runtime_checkable(self) -> None:
         """InMemoryStore should satisfy the Chat2Primitives protocol."""
         assert isinstance(InMemoryStore(), Chat2Primitives)
+
+
+# ---------------------------------------------------------------------------
+# Log ops (read_lines / append_lines / truncate)
+# ---------------------------------------------------------------------------
+
+class TestLogOps:
+    def test_append_and_read_lines_roundtrip(self, store: Chat2Primitives) -> None:
+        key = StoreKey("logs/events.jsonl")
+        store.append_lines(key, ["a", "b", "c"])
+        assert store.read_lines(key) == ["a", "b", "c"]
+
+    def test_append_lines_preserves_batch_order(self, store: Chat2Primitives) -> None:
+        key = StoreKey("logs/events.jsonl")
+        store.append_lines(key, ["a", "b"])
+        store.append_lines(key, ["c", "d"])
+        assert store.read_lines(key) == ["a", "b", "c", "d"]
+
+    def test_append_lines_empty_batch_is_noop(self, store: Chat2Primitives) -> None:
+        key = StoreKey("logs/events.jsonl")
+        store.append_lines(key, ["a"])
+        store.append_lines(key, [])
+        assert store.read_lines(key) == ["a"]
+
+    def test_read_lines_missing_key(self, store: Chat2Primitives) -> None:
+        assert store.read_lines(StoreKey("logs/missing.jsonl")) is None
+
+    def test_truncate_clears_log_keeps_doc(self, store: Chat2Primitives) -> None:
+        key = StoreKey("sessions/s1/events.jsonl")
+        store.write_text(key, "")
+        store.append_lines(key, ["e1", "e2"])
+        store.truncate(key)
+        assert store.read_lines(key) is None
+        assert store.exists(key)
+        assert store.read_text(key) == ""
+
+    def test_delete_removes_doc_and_log(self, store: Chat2Primitives) -> None:
+        key = StoreKey("sessions/s1/events.jsonl")
+        store.write_text(key, "")
+        store.append_lines(key, ["e1"])
+        store.delete(key)
+        assert not store.exists(key)
+        assert store.read_text(key) is None
+        assert store.read_lines(key) is None
+
+    def test_list_keys_includes_log_keys(self, store: Chat2Primitives) -> None:
+        store.append_lines(StoreKey("sessions/a/events.jsonl"), ["e1"])
+        store.write_text(StoreKey("sessions/a/meta.json"), "{}")
+        keys = store.list_keys(StoreKey("sessions/"))
+        assert keys == [
+            StoreKey("sessions/a/events.jsonl"),
+            StoreKey("sessions/a/meta.json"),
+        ]

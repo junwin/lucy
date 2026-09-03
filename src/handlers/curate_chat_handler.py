@@ -17,6 +17,7 @@ from src.config_manager import ConfigManager
 from src.handlers.handler_v2 import HandlerV2
 from src.curation.core import CurationEngine
 from src.curation.resolver import resolve_session
+from src.chat2.facade import Chat2Store
 from src.embeddings.facade import EmbeddingFacade
 from galet.interface import LLMApi
 from galet.router_api import RouterApi
@@ -47,21 +48,33 @@ class CurateChatHandler(HandlerV2):
         )
         self.engine = self._build_engine()
 
-    @staticmethod
-    def _build_store():
+    def _build_store(self) -> Chat2Store:
         """Construct a Chat2Store from config."""
+        from pathlib import Path
+
         from src.chat2.adapters.jfs_adapter import JfsChat2Primitives
-        from src.chat2.facade import Chat2Store
+        from src.chat2.sqlite import SqliteChat2Primitives
         from src.storage.json_file_storage import JsonFileStorage
         from src.storage_paths.storage_paths import StoragePaths
 
-        cfg = ConfigManager("config.json")
-        storage_root = cfg.get("storage_root_path") or "/home/junwin/lucydata"
-        storage_ns = cfg.get("storage_namespace") or "data"
-        sp = StoragePaths(storage_root, storage_ns)
-        storage = JsonFileStorage(sp)
-        adapter = JfsChat2Primitives(storage)
-        return Chat2Store(adapter)
+        config = self.config
+        backend = str(config.get("chat2_store_backend", "") or "").strip().lower()
+        if backend == "sqlite":
+            db_path = config.get("chat2_store_db_path")
+            if not db_path:
+                storage_root = config.get("storage_root_path") or "/home/junwin/lucydata"
+                storage_namespace = config.get("storage_namespace") or "data"
+                db_path = str(Path(storage_root) / storage_namespace / "chat2.sqlite")
+            return Chat2Store(SqliteChat2Primitives(db_path))
+        if not backend or backend == "jsonl":
+            storage_root = config.get("storage_root_path") or "/home/junwin/lucydata"
+            storage_namespace = config.get("storage_namespace") or "data"
+            sp = StoragePaths(storage_root, storage_namespace)
+            storage = JsonFileStorage(sp)
+            return Chat2Store(JfsChat2Primitives(storage))
+        raise ValueError(
+            "Unknown chat2_store_backend %r: expected 'jsonl' or 'sqlite'" % backend
+        )
 
     def _build_engine(self) -> CurationEngine:
         """Build the curation engine with paths from config."""

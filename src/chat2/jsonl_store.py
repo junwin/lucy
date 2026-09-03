@@ -193,8 +193,8 @@ def append_event(
     Updates session meta.updated_at.
     Returns the event (with its generated event_id).
     """
-    line = event.model_dump_json() + "\n"
-    store.append_text(_events_key(session_id), line)
+    line = event.model_dump_json()
+    store.append_lines(_events_key(session_id), [line])
 
     # Update session meta timestamp
     meta = get_session_meta(store, session_id)
@@ -211,13 +211,14 @@ def stream_events(
 ) -> Iterator[ChatEvent]:
     """Yield events from the session's JSONL log in file order.
 
-    Yields nothing if the session does not exist or has no events.
+    Blank lines in the log are skipped. Yields nothing if the session
+    does not exist or has no events.
     """
-    raw = store.read_text(_events_key(session_id))
-    if raw is None or raw.strip() == "":
+    lines = store.read_lines(_events_key(session_id))
+    if lines is None:
         return
 
-    for line in raw.splitlines():
+    for line in lines:
         line = line.strip()
         if not line:
             continue
@@ -265,8 +266,7 @@ def reset_session_events(store: Chat2Primitives, session_id: str) -> None:
     if meta is None:
         raise ValueError(f"Session not found: {session_id}")
 
-    # Truncate events file by writing empty string
-    store.write_text(_events_key(session_id), "")
+    store.truncate(_events_key(session_id))
 
     meta.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
     store.write_text(_meta_key(session_id), meta.model_dump_json())

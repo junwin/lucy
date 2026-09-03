@@ -5,80 +5,94 @@
 tags:
   - src_handlers
   - lucyproject
-  - Chat2Handler
-  - CommandExecutionHandler2
-  - CurateChatHandler
-  - DelegateTasksHandler
-  - EmbeddingHandler
   - FileLoadHandler2
   - FileSaveHandler2
+  - CommandExecutionHandler2
+  - ScrapeWebPageHandler2
+  - WebSearchHandler2
+  - Chat2Handler
+  - ResetSessionHandler
+  - RemoteExecuteHandler
+  - ToolHandlerMetaHandler
+  - AgentsManageHandler
+  - GetKeywordsHandler
+  - CurateChatHandler
   - GenerateDocHandler
   - GenerateImageHandler
   - GenerateSvgHandler
-  - GetKeywordsHandler
-  - ResetSessionHandler
-  - ScrapeWebPageHandler2
+  - EmbeddingHandler
   - TasklistsManageHandler
   - TasklistsRunHandler
-  - WebSearchHandler2
+  - LazyToolSelectorHandler
+  - ToolSelectionProbeHandler
 ```
 
 ## 1. Summary
-The `src/handlers` module provides a collection of handler classes that facilitate various operations within the Lucy project. Each handler implements the `HandlerV2` interface, allowing for structured interactions with external services, file operations, and task management. The module is designed to support a wide range of functionalities, including web scraping, file handling, task delegation, and keyword extraction, thereby enabling the core functionalities of the Lucy project.
+The `src/handlers` module provides a collection of handler classes that facilitate various operations within the Lucy project. Each handler is designed to perform a specific task, such as managing files, executing commands, scraping web pages, or handling chat sessions. This modular design allows for easy integration and extensibility, enabling the system to interact with different components and services seamlessly.
 
-This module fits into the overall architecture as a key component that manages interactions between the application and external resources or services. It solves the problem of providing a consistent interface for various operations, allowing for easy integration and extensibility.
+The handlers fit into the overall architecture as part of the Function Calling Processor (FCP), which orchestrates the execution of tasks based on user requests. By encapsulating functionality within these handlers, the system can maintain a clean separation of concerns, making it easier to manage and extend.
+
+The module addresses the need for a flexible and extensible way to handle various operations, allowing users to interact with the system through a consistent interface.
 
 ## 2. Architecture & Design
-The design of the `src/handlers` module follows the **Handler** pattern, where each handler is responsible for a specific type of operation. The handlers inherit from the abstract base class `HandlerV2`, which enforces a consistent interface across all handlers. 
+The design of the `src/handlers` module follows several key principles:
 
-Key design patterns used include:
-- **Strategy Pattern**: Each handler encapsulates a specific strategy for performing its designated task.
-- **Factory Pattern**: The `HandlerRegistry` class acts as a factory for creating handler instances based on their names.
+- **Handler Interface**: Each handler implements the `HandlerV2` interface, ensuring a consistent method signature and behavior across all handlers. This interface includes methods for defining tool metadata, executing tasks, and returning results.
 
-The handlers are designed to be modular and reusable, allowing for easy addition of new functionalities. The use of Pydantic models for input validation ensures that the handlers receive well-structured data.
+- **Dependency Injection**: Handlers receive configuration and context through their constructors and method parameters, promoting loose coupling and easier testing.
 
-There is no explicit legacy/v2 split in this module, as all handlers conform to the `HandlerV2` interface. Important design decisions include the use of lazy imports for handlers that depend on optional libraries, ensuring that the module can be loaded in environments where those libraries are not available.
+- **Error Handling**: Each handler is designed to handle errors gracefully, returning structured error messages that can be easily interpreted by the calling context.
+
+- **Modularity**: The handlers are modular, allowing for easy addition or removal of functionality without affecting the overall system. This is particularly useful for optional features that depend on external libraries.
+
+- **Lazy Loading**: Some handlers are imported lazily to avoid unnecessary dependencies, ensuring that the system can function even in environments where certain libraries are not available.
 
 ## 3. Key Classes
 | Class                          | Base/Parent         | Purpose                                                                 |
 |--------------------------------|---------------------|-------------------------------------------------------------------------|
-| Chat2Handler                   | HandlerV2           | Manages chat session operations.                                        |
-| CommandExecutionHandler2       | HandlerV2           | Executes shell commands in a controlled environment.                   |
+| FileLoadHandler2               | HandlerV2           | Loads text files and returns their contents.                           |
+| FileSaveHandler2               | HandlerV2           | Saves text or code into a specified file.                              |
+| CommandExecutionHandler2       | HandlerV2           | Executes system commands in a controlled environment.                  |
+| ScrapeWebPageHandler2         | HandlerV2           | Scrapes text from web pages.                                           |
+| WebSearchHandler2              | HandlerV2           | Performs web searches using the Brave Search API.                      |
+| Chat2Handler                   | HandlerV2           | Manages chat sessions and their events.                                 |
+| ResetSessionHandler            | HandlerV2           | Resets the current chat session.                                       |
+| RemoteExecuteHandler           | HandlerV2           | Sends queries to a remote Lucy instance.                               |
+| ToolHandlerMetaHandler         | HandlerV2           | Provides metadata for registered handlers.                             |
+| AgentsManageHandler            | HandlerV2           | Manages agent definitions at runtime.                                  |
+| GetKeywordsHandler             | HandlerV2           | Extracts keywords from text.                                           |
 | CurateChatHandler              | HandlerV2           | Curates chat sessions by filtering, summarizing, or archiving events.  |
-| DelegateTasksHandler           | HandlerV2           | Manages task delegation for goals.                                     |
-| EmbeddingHandler               | HandlerV2           | Generates and compares vector embeddings.                               |
-| FileLoadHandler2               | HandlerV2           | Loads text files from specified locations.                             |
-| FileSaveHandler2               | HandlerV2           | Saves text files to specified locations.                               |
 | GenerateDocHandler             | HandlerV2           | Generates documentation for Python modules.                            |
 | GenerateImageHandler           | HandlerV2           | Generates simple images and returns them as base64 data URIs.         |
 | GenerateSvgHandler             | HandlerV2           | Validates and sanitizes SVG markup.                                    |
-| GetKeywordsHandler             | HandlerV2           | Extracts keywords from text.                                           |
-| ResetSessionHandler            | HandlerV2           | Resets the current chat session.                                       |
-| ScrapeWebPageHandler2         | HandlerV2           | Scrapes text from web pages.                                          |
-| TasklistsManageHandler         | HandlerV2           | Manages persisted tasklists.                                          |
-| TasklistsRunHandler            | HandlerV2           | Executes persisted tasklists.                                         |
-| WebSearchHandler2              | HandlerV2           | Searches the web using Brave Search API.                               |
+| EmbeddingHandler               | HandlerV2           | Generates and compares vector embeddings.                               |
+| TasklistsManageHandler         | HandlerV2           | Manages tasklists and tasks.                                           |
+| TasklistsRunHandler            | HandlerV2           | Executes persisted tasklists.                                          |
+| LazyToolSelectorHandler        | HandlerV2           | Probes the lazy tool-loading mechanism.                                 |
+| ToolSelectionProbeHandler      | HandlerV2           | Diagnoses the tool selection pipeline.                                  |
 
 ## 4. Source Files
-| File                              | Responsibility                                           | Notable Exports                                                                 |
-|-----------------------------------|---------------------------------------------------------|---------------------------------------------------------------------------------|
-| `__init__.py`                     | Package exports for handler implementations.            | Exports all handler classes for easy access.                                   |
-| `chat2_handler.py`                | Manages chat session operations.                        | `Chat2Handler`                                                                  |
-| `command_execution_handler2.py`   | Executes shell commands.                                | `CommandExecutionHandler2`                                                      |
-| `curate_chat_handler.py`          | Curates chat sessions.                                 | `CurateChatHandler`                                                             |
-| `delegate_tasks_handler.py`       | Manages task delegation.                               | `DelegateTasksHandler`                                                          |
-| `embedding_handler.py`            | Generates and compares embeddings.                      | `EmbeddingHandler`                                                              |
-| `file_load_handler2.py`           | Loads text files.                                      | `FileLoadHandler2`                                                              |
-| `file_save_handler.py`            | Saves text files.                                      | `FileSaveHandler2`                                                              |
-| `generate_doc_handler.py`         | Generates documentation for modules.                   | `GenerateDocHandler`                                                            |
-| `generate_image_handler.py`       | Generates images.                                      | `GenerateImageHandler`                                                          |
-| `generate_svg_handler.py`         | Validates and sanitizes SVG markup.                    | `GenerateSvgHandler`                                                            |
-| `get_keywords_handler.py`         | Extracts keywords from text.                           | `GetKeywordsHandler`                                                            |
-| `reset_session_handler.py`        | Resets chat sessions.                                  | `ResetSessionHandler`                                                           |
-| `scrape_web_page_handler2.py`     | Scrapes text from web pages.                           | `ScrapeWebPageHandler2`                                                         |
-| `tasklists_manage_handler.py`     | Manages tasklists.                                    | `TasklistsManageHandler`                                                        |
-| `tasklists_run_handler.py`        | Executes tasklists.                                   | `TasklistsRunHandler`                                                           |
-| `web_search_handler2.py`          | Searches the web.                                     | `WebSearchHandler2`                                                              |
+| File                             | Responsibility                                           | Notable Exports                                                                 |
+|----------------------------------|---------------------------------------------------------|---------------------------------------------------------------------------------|
+| `__init__.py`                    | Package exports for handler implementations.            | Exposes all handler classes for easy import.                                   |
+| `agents_manage_handler.py`       | Manages agent definitions at runtime.                   | `AgentsManageHandler`                                                           |
+| `chat2_handler.py`               | Manages chat2 session management.                       | `Chat2Handler`                                                                  |
+| `command_execution_handler2.py`  | Executes system commands.                               | `CommandExecutionHandler2`                                                      |
+| `curate_chat_handler.py`         | Curates chat sessions.                                  | `CurateChatHandler`                                                             |
+| `embedding_handler.py`           | Generates and compares embeddings.                      | `EmbeddingHandler`                                                              |
+| `file_load_handler2.py`          | Loads text files.                                      | `FileLoadHandler2`                                                              |
+| `file_save_handler.py`           | Saves text or code into files.                         | `FileSaveHandler2`                                                              |
+| `generate_doc_handler.py`        | Generates documentation for Python modules.            | `GenerateDocHandler`                                                            |
+| `generate_image_handler.py`      | Generates simple images.                                | `GenerateImageHandler`                                                          |
+| `generate_svg_handler.py`        | Validates and sanitizes SVG markup.                    | `GenerateSvgHandler`                                                            |
+| `lazy_tool_selector_handler.py`  | Probes lazy tool loading.                              | `LazyToolSelectorHandler`                                                       |
+| `remote_execute_handler.py`      | Queries a remote Lucy instance.                        | `RemoteExecuteHandler`                                                          |
+| `reset_session_handler.py`       | Resets the current chat session.                       | `ResetSessionHandler`                                                           |
+| `scrape_web_page_handler2.py`    | Scrapes web pages.                                    | `ScrapeWebPageHandler2`                                                         |
+| `tasklists_manage_handler.py`    | Manages tasklists and tasks.                          | `TasklistsManageHandler`                                                        |
+| `tasklists_run_handler.py`       | Executes persisted tasklists.                          | `TasklistsRunHandler`                                                           |
+| `tool_handler_meta_handler.py`   | Returns tool metadata for registered handlers.        | `ToolHandlerMetaHandler`                                                        |
+| `web_search_handler2.py`         | Performs web searches.                                 | `WebSearchHandler2`                                                              |
 
 ## 5. Dependencies
 - **Standard library**:
@@ -87,9 +101,9 @@ There is no explicit legacy/v2 split in this module, as all handlers conform to 
   - `os`
   - `shlex`
   - `subprocess`
+  - `sys`
   - `re`
   - `io`
-  - `hashlib`
   
 - **Third-party packages**:
   - `requests`
@@ -99,235 +113,188 @@ There is no explicit legacy/v2 split in this module, as all handlers conform to 
 - **Internal modules**:
   - `src.config_manager`
   - `src.handlers.handler_v2`
+  - `src.storage.interfaces`
   - `src.storage.json_file_storage`
   - `src.storage_paths.storage_paths`
+  - `src.tasklists.service`
   - `src.tasklists.task`
   - `src.tasklists.task_list`
+  - `src.tasklists.task_states`
   - `src.keywords.keywords`
-  - `src.llm.interface`
-  - `src.llm.router_api`
+  - `src.tool_selection`
   
 - **Optional dependencies**:
-  - Handlers that depend on NLP libraries (spaCy, nltk, sklearn) are imported lazily.
+  - Handlers that depend on NLP libraries (e.g., `spaCy`, `nltk`, `sklearn`) are imported lazily.
 
 ## 6. Configuration / Settings
-| Key                        | Type   | Default                       | What it controls                                      |
-|----------------------------|--------|-------------------------------|------------------------------------------------------|
-| `storage_root_path`       | string | `/home/junwin/lucydata`      | Base path for storage operations.                    |
-| `storage_namespace`        | string | `data`                        | Namespace for storage operations.                    |
-| `credential_path`          | string | `None`                       | Path to credentials for external services.           |
-| `external_roots`          | dict   | `{}`                          | Mapping of external root keys to paths.              |
-| `code_sandbox_path`       | string | `None`                       | Path for sandboxed execution.                        |
-| `curation_llm_model`      | string | `gpt-4o-mini`                | Model used for curation tasks.                       |
+| Key                          | Type   | Default                       | What it controls                                      |
+|------------------------------|--------|-------------------------------|------------------------------------------------------|
+| `storage_root_path`          | string | N/A                           | Base path for storage operations.                     |
+| `storage_namespace`           | string | N/A                           | Namespace for storage operations.                     |
+| `credential_path`            | string | N/A                           | Path to credentials for external services.           |
+| `chat2_store_backend`        | string | N/A                           | Backend for chat2 storage (e.g., SQLite, JSON).     |
+| `curation_llm_model`         | string | `gpt-4o-mini`                | LLM model used for curation tasks.                   |
+| `code_sandbox_path`          | string | N/A                           | Path for sandbox execution.                           |
+| `external_roots`             | dict   | N/A                           | Mapping of external root keys to paths.              |
 
 ## 7. Exceptions
-| Exception                  | Base                | When Raised                                           |
-|----------------------------|---------------------|------------------------------------------------------|
-| `ValueError`               | Exception           | Raised for invalid arguments or configuration issues.|
-| `FileNotFoundError`        | Exception           | Raised when a specified file cannot be found.       |
-| `KeyError`                 | Exception           | Raised when an unknown handler is requested.        |
-| `ValidationError`          | Exception           | Raised when input validation fails.                  |
+| Exception                     | Base                     | When Raised                                                                 |
+|-------------------------------|--------------------------|-----------------------------------------------------------------------------|
+| `FileNotFoundError`           | `OSError`                | Raised when a file cannot be found during load operations.                 |
+| `ValueError`                  | `Exception`              | Raised for invalid arguments or when paths are outside allowed directories. |
+| `KeyError`                    | `Exception`              | Raised when attempting to access a non-existent key in a dictionary.       |
+| `ValidationError`             | `Exception`              | Raised when input validation fails in Pydantic models.                     |
 
 ## 8. Module-Level Constants
-| Constant                   | Value               | Description                                           |
-|----------------------------|---------------------|------------------------------------------------------|
-| `BRAVE_ENDPOINT`           | `https://api.search.brave.com/res/v1/web/search` | Endpoint for Brave Search API.                       |
-| `_ALLOWED_MIME_TYPES`      | Set of MIME types   | Allowed MIME types for images.                       |
-| `_DEFAULT_MAX_DIMENSION`   | `512`                | Default maximum dimension for images.                |
-| `_MAX_ALLOWED_DIMENSION`    | `512`                | Hard cap for maximum dimension to prevent overflow.  |
+| Constant                      | Value                     | Description                                           |
+|-------------------------------|---------------------------|-------------------------------------------------------|
+| `DEFAULT_MAX_DIMENSION`       | 512                       | Default maximum dimension for images.                 |
+| `MAX_ALLOWED_DIMENSION`       | 512                       | Hard cap for maximum dimension to prevent oversized images. |
 
 ## 9. Methods (by class)
-### Chat2Handler
-| Method                | Type        | Signature                                   | Description                                                                 |
-|-----------------------|-------------|---------------------------------------------|-----------------------------------------------------------------------------|
-| `__init__`           | instance    | `def __init__(self, config: ConfigManager)` | Initializes the handler with configuration.                                |
-| `execute`            | instance    | `def execute(self, args: Dict[str, Any], *, account_name: str = "auto", **context) -> Dict[str, Any]` | Executes chat session management operations.                               |
-| `name`               | class       | `@classmethod def name(cls) -> str`       | Returns the name of the handler.                                           |
-| `tool_def`           | class       | `@classmethod def tool_def(cls) -> Dict[str, Any]` | Returns the tool definition for the handler.                              |
-
-### CommandExecutionHandler2
-| Method                | Type        | Signature                                   | Description                                                                 |
-|-----------------------|-------------|---------------------------------------------|-----------------------------------------------------------------------------|
-| `__init__`           | instance    | `def __init__(self, config: ConfigManager)` | Initializes the handler with configuration.                                |
-| `execute`            | instance    | `def execute(self, args: Dict[str, Any], *, account_name: str = "auto") -> Dict[str, Any]` | Executes a command in a sandboxed environment.                            |
-| `name`               | class       | `@classmethod def name(cls) -> str`       | Returns the name of the handler.                                           |
-| `tool_def`           | class       | `@classmethod def tool_def(cls) -> Dict[str, Any]` | Returns the tool definition for the handler.                              |
-
-### CurateChatHandler
-| Method                | Type        | Signature                                   | Description                                                                 |
-|-----------------------|-------------|---------------------------------------------|-----------------------------------------------------------------------------|
-| `__init__`           | instance    | `def __init__(self, config: ConfigManager)` | Initializes the handler with configuration.                                |
-| `execute`            | instance    | `def execute(self, args: Dict[str, Any], *, account_name: str = "auto", **context) -> Dict[str, Any]` | Executes chat curation operations.                                         |
-| `name`               | class       | `@classmethod def name(cls) -> str`       | Returns the name of the handler.                                           |
-| `tool_def`           | class       | `@classmethod def tool_def(cls) -> Dict[str, Any]` | Returns the tool definition for the handler.                              |
-
-### DelegateTasksHandler
-| Method                | Type        | Signature                                   | Description                                                                 |
-|-----------------------|-------------|---------------------------------------------|-----------------------------------------------------------------------------|
-| `__init__`           | instance    | `def __init__(self, config: ConfigManager)` | Initializes the handler with configuration.                                |
-| `execute`            | instance    | `def execute(self, args: Dict[str, Any], *, account_name: str = "auto") -> Dict[str, Any]` | Manages task delegation operations.                                        |
-| `name`               | class       | `@classmethod def name(cls) -> str`       | Returns the name of the handler.                                           |
-| `tool_def`           | class       | `@classmethod def tool_def(cls) -> Dict[str, Any]` | Returns the tool definition for the handler.                              |
-
-### EmbeddingHandler
-| Method                | Type        | Signature                                   | Description                                                                 |
-|-----------------------|-------------|---------------------------------------------|-----------------------------------------------------------------------------|
-| `__init__`           | instance    | `def __init__(self, config: ConfigManager)` | Initializes the handler with configuration.                                |
-| `execute`            | instance    | `def execute(self, args: Dict[str, Any], *, account_name: str = "auto", **context) -> Dict[str, Any]` | Generates and compares embeddings.                                         |
-| `name`               | class       | `@classmethod def name(cls) -> str`       | Returns the name of the handler.                                           |
-| `tool_def`           | class       | `@classmethod def tool_def(cls) -> Dict[str, Any]` | Returns the tool definition for the handler.                              |
-
 ### FileLoadHandler2
-| Method                | Type        | Signature                                   | Description                                                                 |
-|-----------------------|-------------|---------------------------------------------|-----------------------------------------------------------------------------|
-| `__init__`           | instance    | `def __init__(self, config: ConfigManager)` | Initializes the handler with configuration.                                |
-| `execute`            | instance    | `def execute(self, args: Dict[str, Any], *, account_name: str = "auto") -> Dict[str, Any]` | Loads text files from specified locations.                                 |
-| `name`               | class       | `@classmethod def name(cls) -> str`       | Returns the name of the handler.                                           |
-| `tool_def`           | class       | `@classmethod def tool_def(cls) -> Dict[str, Any]` | Returns the tool definition for the handler.                              |
+| Method         | Type         | Signature                                   | Description                                                                 |
+|----------------|--------------|---------------------------------------------|-----------------------------------------------------------------------------|
+| `execute`      | instance     | `def execute(self, args: Dict[str, Any], *, account_name: str = "auto") -> Dict[str, Any]:` | Loads a file and returns its contents.                                     |
 
 ### FileSaveHandler2
-| Method                | Type        | Signature                                   | Description                                                                 |
-|-----------------------|-------------|---------------------------------------------|-----------------------------------------------------------------------------|
-| `__init__`           | instance    | `def __init__(self, config: ConfigManager)` | Initializes the handler with configuration.                                |
-| `execute`            | instance    | `def execute(self, args: Dict[str, Any], *, account_name: str = "auto") -> Dict[str, Any]` | Saves text files to specified locations.                                   |
-| `name`               | class       | `@classmethod def name(cls) -> str`       | Returns the name of the handler.                                           |
-| `tool_def`           | class       | `@classmethod def tool_def(cls) -> Dict[str, Any]` | Returns the tool definition for the handler.                              |
+| Method         | Type         | Signature                                   | Description                                                                 |
+|----------------|--------------|---------------------------------------------|-----------------------------------------------------------------------------|
+| `execute`      | instance     | `def execute(self, args: Dict[str, Any], *, account_name: str = "auto") -> Dict[str, Any]:` | Saves content to a specified file.                                         |
 
-### GenerateDocHandler
-| Method                | Type        | Signature                                   | Description                                                                 |
-|-----------------------|-------------|---------------------------------------------|-----------------------------------------------------------------------------|
-| `__init__`           | instance    | `def __init__(self, config: ConfigManager)` | Initializes the handler with configuration.                                |
-| `execute`            | instance    | `def execute(self, args: Dict[str, Any], *, account_name: str = "auto") -> Dict[str, Any]` | Generates documentation for Python modules.                                |
-| `name`               | class       | `@classmethod def name(cls) -> str`       | Returns the name of the handler.                                           |
-| `tool_def`           | class       | `@classmethod def tool_def(cls) -> Dict[str, Any]` | Returns the tool definition for the handler.                              |
-
-### GenerateImageHandler
-| Method                | Type        | Signature                                   | Description                                                                 |
-|-----------------------|-------------|---------------------------------------------|-----------------------------------------------------------------------------|
-| `__init__`           | instance    | `def __init__(self, config: ConfigManager)` | Initializes the handler with configuration.                                |
-| `execute`            | instance    | `def execute(self, args: Dict[str, Any], *, account_name: str = "auto") -> Dict[str, Any]` | Generates images and returns them as base64 data URIs.                    |
-| `name`               | class       | `@classmethod def name(cls) -> str`       | Returns the name of the handler.                                           |
-| `tool_def`           | class       | `@classmethod def tool_def(cls) -> Dict[str, Any]` | Returns the tool definition for the handler.                              |
-
-### GenerateSvgHandler
-| Method                | Type        | Signature                                   | Description                                                                 |
-|-----------------------|-------------|---------------------------------------------|-----------------------------------------------------------------------------|
-| `__init__`           | instance    | `def __init__(self, config: ConfigManager)` | Initializes the handler with configuration.                                |
-| `execute`            | instance    | `def execute(self, args: Dict[str, Any], *, account_name: str = "auto") -> Dict[str, Any]` | Validates and sanitizes SVG markup.                                        |
-| `name`               | class       | `@classmethod def name(cls) -> str`       | Returns the name of the handler.                                           |
-| `tool_def`           | class       | `@classmethod def tool_def(cls) -> Dict[str, Any]` | Returns the tool definition for the handler.                              |
-
-### GetKeywordsHandler
-| Method                | Type        | Signature                                   | Description                                                                 |
-|-----------------------|-------------|---------------------------------------------|-----------------------------------------------------------------------------|
-| `__init__`           | instance    | `def __init__(self, config: ConfigManager)` | Initializes the handler with configuration.                                |
-| `execute`            | instance    | `def execute(self, args: Dict[str, Any], **context: Any) -> Dict[str, Any]` | Extracts keywords from text.                                               |
-| `name`               | class       | `@classmethod def name(cls) -> str`       | Returns the name of the handler.                                           |
-| `tool_def`           | class       | `@classmethod def tool_def(cls) -> Dict[str, Any]` | Returns the tool definition for the handler.                              |
-
-### ResetSessionHandler
-| Method                | Type        | Signature                                   | Description                                                                 |
-|-----------------------|-------------|---------------------------------------------|-----------------------------------------------------------------------------|
-| `__init__`           | instance    | `def __init__(self, config: ConfigManager)` | Initializes the handler with configuration.                                |
-| `execute`            | instance    | `def execute(self, args: Dict[str, Any], *, account_name: str = "auto", **context) -> Dict[str, Any]` | Resets the current chat session.                                           |
-| `name`               | class       | `@classmethod def name(cls) -> str`       | Returns the name of the handler.                                           |
-| `tool_def`           | class       | `@classmethod def tool_def(cls) -> Dict[str, Any]` | Returns the tool definition for the handler.                              |
+### CommandExecutionHandler2
+| Method         | Type         | Signature                                   | Description                                                                 |
+|----------------|--------------|---------------------------------------------|-----------------------------------------------------------------------------|
+| `execute`      | instance     | `def execute(self, args: Dict[str, Any], *, account_name: str = "auto") -> Dict[str, Any]:` | Executes a command in a specified location.                                |
 
 ### ScrapeWebPageHandler2
-| Method                | Type        | Signature                                   | Description                                                                 |
-|-----------------------|-------------|---------------------------------------------|-----------------------------------------------------------------------------|
-| `__init__`           | instance    | `def __init__(self, config: ConfigManager)` | Initializes the handler with configuration.                                |
-| `execute`            | instance    | `def execute(self, args: Dict[str, Any], *, account_name: str = "auto") -> Dict[str, Any]` | Scrapes text from web pages.                                              |
-| `name`               | class       | `@classmethod def name(cls) -> str`       | Returns the name of the handler.                                           |
-| `tool_def`           | class       | `@classmethod def tool_def(cls) -> Dict[str, Any]` | Returns the tool definition for the handler.                              |
-
-### TasklistsManageHandler
-| Method                | Type        | Signature                                   | Description                                                                 |
-|-----------------------|-------------|---------------------------------------------|-----------------------------------------------------------------------------|
-| `__init__`           | instance    | `def __init__(self, config: ConfigManager)` | Initializes the handler with configuration.                                |
-| `execute`            | instance    | `def execute(self, args: Dict[str, Any], *, account_name: str = "auto", **context) -> Dict[str, Any]` | Manages persisted tasklists.                                              |
-| `name`               | class       | `@classmethod def name(cls) -> str`       | Returns the name of the handler.                                           |
-| `tool_def`           | class       | `@classmethod def tool_def(cls) -> Dict[str, Any]` | Returns the tool definition for the handler.                              |
-
-### TasklistsRunHandler
-| Method                | Type        | Signature                                   | Description                                                                 |
-|-----------------------|-------------|---------------------------------------------|-----------------------------------------------------------------------------|
-| `__init__`           | instance    | `def __init__(self, config: ConfigManager)` | Initializes the handler with configuration.                                |
-| `execute`            | instance    | `def execute(self, args: Dict[str, Any], *, account_name: str = "auto", **context) -> Dict[str, Any]` | Executes persisted tasklists.                                             |
-| `name`               | class       | `@classmethod def name(cls) -> str`       | Returns the name of the handler.                                           |
-| `tool_def`           | class       | `@classmethod def tool_def(cls) -> Dict[str, Any]` | Returns the tool definition for the handler.                              |
+| Method         | Type         | Signature                                   | Description                                                                 |
+|----------------|--------------|---------------------------------------------|-----------------------------------------------------------------------------|
+| `execute`      | instance     | `def execute(self, args: Dict[str, Any], *, account_name: str = "auto") -> Dict[str, Any]:` | Scrapes a web page and returns its text content.                           |
 
 ### WebSearchHandler2
-| Method                | Type        | Signature                                   | Description                                                                 |
-|-----------------------|-------------|---------------------------------------------|-----------------------------------------------------------------------------|
-| `__init__`           | instance    | `def __init__(self, config: ConfigManager)` | Initializes the handler with configuration.                                |
-| `execute`            | instance    | `def execute(self, args: Dict[str, Any], *, account_name: str = "auto") -> Dict[str, Any]` | Searches the web using Brave Search API.                                   |
-| `name`               | class       | `@classmethod def name(cls) -> str`       | Returns the name of the handler.                                           |
-| `tool_def`           | class       | `@classmethod def tool_def(cls) -> Dict[str, Any]` | Returns the tool definition for the handler.                              |
+| Method         | Type         | Signature                                   | Description                                                                 |
+|----------------|--------------|---------------------------------------------|-----------------------------------------------------------------------------|
+| `execute`      | instance     | `def execute(self, args: Dict[str, Any], *, account_name: str = "auto") -> Dict[str, Any]:` | Performs a web search and returns results.                                 |
+
+### Chat2Handler
+| Method         | Type         | Signature                                   | Description                                                                 |
+|----------------|--------------|---------------------------------------------|-----------------------------------------------------------------------------|
+| `execute`      | instance     | `def execute(self, args: Dict[str, Any], *, account_name: str = "auto") -> Dict[str, Any]:` | Manages chat sessions and their events.                                     |
+
+### ResetSessionHandler
+| Method         | Type         | Signature                                   | Description                                                                 |
+|----------------|--------------|---------------------------------------------|-----------------------------------------------------------------------------|
+| `execute`      | instance     | `def execute(self, args: Dict[str, Any], *, account_name: str = "auto") -> Dict[str, Any]:` | Resets the current chat session.                                           |
+
+### RemoteExecuteHandler
+| Method         | Type         | Signature                                   | Description                                                                 |
+|----------------|--------------|---------------------------------------------|-----------------------------------------------------------------------------|
+| `execute`      | instance     | `def execute(self, args: Dict[str, Any], *, account_name: str = "auto") -> Dict[str, Any]:` | Sends a query to a remote Lucy instance.                                   |
+
+### ToolHandlerMetaHandler
+| Method         | Type         | Signature                                   | Description                                                                 |
+|----------------|--------------|---------------------------------------------|-----------------------------------------------------------------------------|
+| `execute`      | instance     | `def execute(self, args: Dict[str, Any], *, account_name: str = "auto") -> Dict[str, Any]:` | Returns metadata for registered handlers.                                   |
+
+### AgentsManageHandler
+| Method         | Type         | Signature                                   | Description                                                                 |
+|----------------|--------------|---------------------------------------------|-----------------------------------------------------------------------------|
+| `execute`      | instance     | `def execute(self, args: Dict[str, Any], *, account_name: str = "auto") -> Dict[str, Any]:` | Manages agent definitions at runtime.                                      |
+
+### GetKeywordsHandler
+| Method         | Type         | Signature                                   | Description                                                                 |
+|----------------|--------------|---------------------------------------------|-----------------------------------------------------------------------------|
+| `execute`      | instance     | `def execute(self, args: Dict[str, Any], **context: Any) -> Dict[str, Any]:` | Extracts keywords from text.                                               |
+
+### CurateChatHandler
+| Method         | Type         | Signature                                   | Description                                                                 |
+|----------------|--------------|---------------------------------------------|-----------------------------------------------------------------------------|
+| `execute`      | instance     | `def execute(self, args: Dict[str, Any], *, account_name: str = "auto", **context) -> Dict[str, Any]:` | Curates chat sessions by filtering, summarizing, or archiving events.      |
+
+### GenerateDocHandler
+| Method         | Type         | Signature                                   | Description                                                                 |
+|----------------|--------------|---------------------------------------------|-----------------------------------------------------------------------------|
+| `execute`      | instance     | `def execute(self, args: Dict[str, Any], *, account_name: str = "auto", **context) -> Dict[str, Any]:` | Generates documentation for Python modules.                                |
+
+### GenerateImageHandler
+| Method         | Type         | Signature                                   | Description                                                                 |
+|----------------|--------------|---------------------------------------------|-----------------------------------------------------------------------------|
+| `execute`      | instance     | `def execute(self, args: Dict[str, Any], *, account_name: str = "auto", **context) -> Dict[str, Any]:` | Generates simple images and returns them as base64 data URIs.             |
+
+### GenerateSvgHandler
+| Method         | Type         | Signature                                   | Description                                                                 |
+|----------------|--------------|---------------------------------------------|-----------------------------------------------------------------------------|
+| `execute`      | instance     | `def execute(self, args: Dict[str, Any], *, account_name: str = "auto", **context) -> Dict[str, Any]:` | Validates and sanitizes SVG markup.                                       |
+
+### EmbeddingHandler
+| Method         | Type         | Signature                                   | Description                                                                 |
+|----------------|--------------|---------------------------------------------|-----------------------------------------------------------------------------|
+| `execute`      | instance     | `def execute(self, args: Dict[str, Any], *, account_name: str = "auto", **context) -> Dict[str, Any]:` | Generates and compares vector embeddings.                                   |
+
+### TasklistsManageHandler
+| Method         | Type         | Signature                                   | Description                                                                 |
+|----------------|--------------|---------------------------------------------|-----------------------------------------------------------------------------|
+| `execute`      | instance     | `def execute(self, args: Dict[str, Any], *, account_name: str = "auto", **context) -> Dict[str, Any]:` | Manages tasklists and tasks.                                               |
+
+### TasklistsRunHandler
+| Method         | Type         | Signature                                   | Description                                                                 |
+|----------------|--------------|---------------------------------------------|-----------------------------------------------------------------------------|
+| `execute`      | instance     | `def execute(self, args: Dict[str, Any], *, account_name: str = "auto", **context) -> Dict[str, Any]:` | Executes persisted tasklists.                                             |
+
+### LazyToolSelectorHandler
+| Method         | Type         | Signature                                   | Description                                                                 |
+|----------------|--------------|---------------------------------------------|-----------------------------------------------------------------------------|
+| `execute`      | instance     | `def execute(self, args: Dict[str, Any], *, account_name: str = "auto", **context: Any) -> Dict[str, Any]:` | Probes the lazy tool-loading mechanism.                                     |
+
+### ToolSelectionProbeHandler
+| Method         | Type         | Signature                                   | Description                                                                 |
+|----------------|--------------|---------------------------------------------|-----------------------------------------------------------------------------|
+| `execute`      | instance     | `def execute(self, args: Dict[str, Any], *, account_name: str = "auto", **context: Any) -> Dict[str, Any]:` | Diagnoses the tool selection pipeline.                                      |
 
 ## 10. Usage Examples
-### Chat2Handler
+### FileLoadHandler2
 ```python
-from src.handlers import Chat2Handler
-from src.config_manager import ConfigManager
+from src.handlers import FileLoadHandler2
 
-config = ConfigManager("config.json")
-chat_handler = Chat2Handler(config)
-
-result = chat_handler.execute({
-    "action": "get_session",
-    "session_id": "12345"
-})
+handler = FileLoadHandler2(config)
+result = handler.execute({"path": "example.txt", "location": "storage", "external_root": ""})
 print(result)
 ```
 
 ### CommandExecutionHandler2
 ```python
 from src.handlers import CommandExecutionHandler2
-from src.config_manager import ConfigManager
 
-config = ConfigManager("config.json")
-command_handler = CommandExecutionHandler2(config)
-
-result = command_handler.execute({
-    "location": "sandbox",
-    "command": "ls -la",
-    "working_directory": "."
-})
+handler = CommandExecutionHandler2(config)
+result = handler.execute({"command": "ls", "location": "sandbox", "working_directory": "."})
 print(result)
 ```
 
-### CurateChatHandler
+### WebSearchHandler2
 ```python
-from src.handlers import CurateChatHandler
-from src.config_manager import ConfigManager
+from src.handlers import WebSearchHandler2
 
-config = ConfigManager("config.json")
-curate_handler = CurateChatHandler(config)
-
-result = curate_handler.execute({
-    "session_id": "12345",
-    "mode": "summarize",
-    "publish": True
-})
+handler = WebSearchHandler2(config)
+result = handler.execute({"query": "OpenAI", "count": 5})
 print(result)
 ```
 
 ## 11. Edge Cases & Gotchas
-- **Error Handling Patterns**: Each handler implements robust error handling, returning structured error messages when exceptions occur. Handlers like `CommandExecutionHandler2` and `ScrapeWebPageHandler2` log detailed error messages for debugging.
-- **Legacy Field Mapping**: Some handlers maintain backward compatibility by accepting legacy field names (e.g., `relative_path` in `FileLoadHandler2`).
-- **Thread-Safety Concerns**: Handlers are designed to be stateless, making them inherently thread-safe. However, care should be taken when using shared resources like configuration files.
-- **Known Limitations**: Handlers that depend on external services (e.g., `WebSearchHandler2`) may fail if the service is unavailable or if the API key is invalid.
-- **Validation Logic**: Each handler uses Pydantic for input validation, ensuring that only well-structured data is processed.
+- **Error Handling**: Each handler has its own error handling mechanism. Ensure that the calling context is prepared to handle structured error responses.
+- **Dependency Management**: Some handlers may not be available if their dependencies are not installed. Check for warnings in the logs if a handler fails to register.
+- **Path Validation**: Handlers that deal with file paths enforce strict validation to prevent directory traversal attacks. Ensure that paths are always relative and do not contain `..` segments.
+- **Resource Limits**: Be aware of limits on input sizes, especially for SVG and image generation, to avoid exceeding tool-result limits.
 
 ## 12. Consumers
-| Consumer                     | What it uses                                      |
-|------------------------------|--------------------------------------------------|
-| `src.main`                   | Imports various handlers for executing tasks.    |
-| `src.api`                    | Uses handlers to process API requests.           |
-| `src.cli`                    | CLI commands invoke handlers for specific tasks. |
-| `src.tests`                  | Unit tests for handlers to ensure functionality. |
+| Consumer                       | What it uses                                      |
+|-------------------------------|---------------------------------------------------|
+| FunctionCallingProcessor       | Calls various handlers based on user requests.   |
+| TasklistService               | Uses TasklistsManageHandler for task management.  |
+| AutomationProcessor            | Uses TasklistsRunHandler for executing tasklists. |
+| Chat2Store                    | Interacts with Chat2Handler for session management. |
+| External APIs                 | Utilizes WebSearchHandler2 for web searches.     |
 
 ---
 
-This document provides a comprehensive overview of the `src/handlers` module, detailing its structure, functionality, and usage.
+This document provides a comprehensive overview of the `src/handlers` module, detailing its structure, functionality, and usage. It serves as a reference for developers working with the Lucy project, ensuring they understand how to effectively utilize the various handlers available.

@@ -1,8 +1,10 @@
 from __future__ import annotations
 from abc import ABC, abstractmethod
-from typing import Any, Dict, List, Optional, Tuple
+from datetime import datetime
+from typing import Any, Dict, Iterator, List, Optional, Tuple
 
 from src.tasklists import TaskList
+from src.topics.schemas import TopicEvent, TopicRecord
 
 from .models import Context, DocumentRef, EmbeddingRecord, Skill
 
@@ -143,11 +145,28 @@ class EmbeddingStore(ABC):
         *,
         source_id: Optional[str] = None,
         source_type: Optional[str] = None,
+        record_id: Optional[str] = None,
     ) -> int:
         """Delete embedding records matching the given filters.
 
-        Returns count of deleted records. Idempotent: returns 0 if no
-        matching records exist.
+        Filters are ANDed; passing none deletes every record in the
+        namespace/account scope. ``record_id`` targets one exact record id
+        within that scope and never expands to other records sharing the
+        same source_id. Returns count of deleted records. Idempotent:
+        returns 0 if no matching records exist.
+        """
+        pass
+
+    @abstractmethod
+    def list_embeddings(
+        self,
+        namespace: str,
+        account_name: str,
+    ) -> List[EmbeddingRecord]:
+        """Return every embedding record in a namespace for an account.
+
+        Deterministic order: sorted by record id ascending. Returns an
+        empty list when the namespace/account has no records.
         """
         pass
 
@@ -159,6 +178,150 @@ class EmbeddingStore(ABC):
         implementations. Returns empty list if the account has no embeddings.
         """
         return []
+
+
+class EventStore(ABC):
+    """Append-only event log seam for topic streams (issue #129).
+
+    Integration point for the topics component (decision 4): implemented by
+    ``src/topics/streams.py``, consumed by the FCP once integrated. Streams
+    are partitioned by **topic** (inbox + one per explicit topic), never by
+    agent (decision 7) - any agent can append to any stream.
+
+    The log is append-only: events are never updated or deleted (corrections
+    are new events). ``stream`` is physical placement at write time, not topic
+    membership (decision 1); membership is derived by the index.
+    """
+
+    @abstractmethod
+    def append_event(self, account: str, stream: str, event: TopicEvent) -> TopicEvent:
+        """Append an event to a stream.
+
+        Raises if the stream does not exist (e.g. archived topics reject new
+        writes). Returns the event as persisted.
+        """
+        pass
+
+    @abstractmethod
+    def stream_events(self, account: str, stream: str) -> Iterator[TopicEvent]:
+        """Yield events from a stream in append order (oldest first)."""
+        pass
+
+    @abstractmethod
+    def read_events(
+        self,
+        account: str,
+        stream: str,
+        *,
+        start_ts: Optional[datetime] = None,
+        end_ts: Optional[datetime] = None,
+        limit: Optional[int] = None,
+    ) -> List[TopicEvent]:
+        """Read events from a stream with optional time bounds and a cap."""
+        pass
+
+
+class TopicStore(ABC):
+    """Topic lifecycle + query seam (issue #129).
+
+    Integration point for the topics component (decision 4): implemented by
+    ``src/topics/mutation.py`` (mutations) and ``src/topics/queries.py``
+    (queries), consumed by the FCP once integrated.
+
+    Every mutation appends events to the log; nothing is ever mutated in
+    place. Identity model (pinned 2026-09-01): ``topic_id`` = immutable slug;
+    ``name`` = mutable label; rename changes the name only.
+    """
+
+    @abstractmethod
+    def create_topic(
+        self,
+        account: str,
+        name: str,
+        slug_proposal: str,
+        *,
+        agent: str,
+        description: Optional[str] = None,
+    ) -> str:
+        """Create an explicit topic; returns the resolved stored slug."""
+        pass
+
+    @abstractmethod
+    def rename_topic(
+        self,
+        account: str,
+        slug: str,
+        new_name: str,
+        *,
+        agent: str,
+    ) -> None:
+        """Rename a topic (name only; the slug never changes)."""
+        pass
+
+    @abstractmethod
+    def link_events(
+        self,
+        account: str,
+        slug: str,
+        event_ids: List[str],
+        *,
+        agent: str,
+        reason: Optional[str] = None,
+    ) -> None:
+        """Re-tag event ids into a topic (membership changes; events never move)."""
+        pass
+
+    @abstractmethod
+    def unlink_events(
+        self,
+        account: str,
+        slug: str,
+        event_ids: List[str],
+        *,
+        agent: str,
+    ) -> None:
+        """Remove event ids from a topic (append-only re-tagging)."""
+        pass
+
+    @abstractmethod
+    def merge_topics(
+        self,
+        account: str,
+        source: str,
+        target: str,
+        *,
+        agent: str,
+    ) -> None:
+        """Merge source into target: source frozen, its event ids re-linked."""
+        pass
+
+    @abstractmethod
+    def archive_topic(
+        self,
+        account: str,
+        slug: str,
+        *,
+        agent: str,
+        reason: Optional[str] = None,
+    ) -> None:
+        """Archive a topic (event + freeze only in v1; no physical copy)."""
+        pass
+
+    @abstractmethod
+    def get_topic(self, account: str, slug: str) -> Optional[TopicRecord]:
+        """Return a topic record (projection) by slug, or None if missing."""
+        pass
+
+    @abstractmethod
+    def list_topics(
+        self,
+        account: str,
+        *,
+        kind: Optional[str] = None,
+    ) -> List[TopicRecord]:
+        """List topic records, optionally filtered by kind
+        (``explicit``, ``temporal``, ``inferred``)."""
+        pass
 
 
 class HealthCheckable(ABC):

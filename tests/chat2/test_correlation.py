@@ -170,8 +170,9 @@ class TestCorrelationMapping:
 
         link_event(store, corr, sid, events[0].event_id)
 
-        raw = store.read_text(StoreKey(f"correlations/{corr}.jsonl"))
-        assert raw is not None
+        lines = store.read_lines(StoreKey(f"correlations/{corr}.jsonl"))
+        assert lines is not None
+        raw = lines[0]
         assert '"ts":"' in raw
         assert "+00:00" in raw
         assert isinstance(get_links(store, corr)[0].ts, datetime)

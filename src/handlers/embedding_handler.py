@@ -10,7 +10,6 @@ Supports four operations:
 from __future__ import annotations
 
 import logging
-from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from src.config_manager import ConfigManager
@@ -19,6 +18,10 @@ from src.embeddings.registry import known_models
 from src.handlers.handler_v2 import HandlerV2
 from src.storage.interfaces import EmbeddingStore
 from galet.embedding_dto import EmbeddingResponse
+from galet.embedding_router import EmbeddingRouter
+from galet.mistral_embedding import MistralEmbeddingApi
+from galet.openai_embedding import OpenAIEmbeddingApi
+from galet.settings import Settings
 
 logger = logging.getLogger(__name__)
 
@@ -30,7 +33,16 @@ class EmbeddingHandler(HandlerV2):
 
     def __init__(self, config: ConfigManager):
         self.config = config
-        self.facade = EmbeddingFacade()
+        settings = Settings(
+            credential_path=config.get("credential_path"),
+            ollama_base_url=config.get("ollama_base_url"),
+        )
+        self.facade = EmbeddingFacade(
+            embedding_api=EmbeddingRouter(
+                openai_api=OpenAIEmbeddingApi(settings=settings),
+                mistral_api=MistralEmbeddingApi(settings=settings),
+            )
+        )
 
     # ------------------------------------------------------------------
     # HandlerV2 interface
@@ -462,11 +474,5 @@ class EmbeddingHandler(HandlerV2):
         return mapping.get(name)
 
     def _get_storage(self) -> EmbeddingStore:
-        """Lazily construct storage from config."""
-        from src.storage.json_file_storage import JsonFileStorage
-        from src.storage_paths.storage_paths import StoragePaths
-
-        storage_root = self.config.get("storage_root_path") or "/home/junwin/lucydata"
-        storage_ns = self.config.get("storage_namespace") or "data"
-        sp = StoragePaths(storage_root, storage_ns)
-        return JsonFileStorage(sp)
+        from src.storage.primitives_embedding_store import build_primitives_embedding_store
+        return build_primitives_embedding_store(self.config)

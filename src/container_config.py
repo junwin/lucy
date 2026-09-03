@@ -19,6 +19,7 @@ from src.storage_paths.storage_paths import StoragePaths
 from src.storage.base import Storage
 from src.storage.interfaces import ContextStore, DocumentStore, EmbeddingStore, TasklistStore
 from src.storage.json_file_storage import JsonFileStorage
+from src.storage.primitives_embedding_store import build_primitives_embedding_store
 
 from src.handlers.handler_registry import HandlerRegistry
 from src.handlers.registry_bootstrap import build_registry
@@ -116,20 +117,59 @@ class StorageModule(Module):
     @provider
     @singleton
     def provide_embedding_store(self, storage: Storage) -> EmbeddingStore:
-        """Provide the same JsonFileStorage instance bound to EmbeddingStore."""
-        return storage
+        """Provide the EmbeddingStore, optionally backed by the generic store.
+
+        Config key: ``embedding_store_backend`` (optional). When unset or
+        empty, the container keeps today's behavior — the shared
+        JsonFileStorage instance (byte-identical on disk).
+
+        - ``file``   -> ``PrimitivesEmbeddingStore`` over
+          ``FileChat2Primitives`` rooted at
+          ``<storage_root_path>/<storage_namespace>``, the same on-disk
+          layout as JsonFileStorage (interchangeable).
+        - ``sqlite`` -> ``PrimitivesEmbeddingStore`` over
+          ``SqliteChat2Primitives`` at ``embedding_store_db_path`` (default
+          ``<storage_root_path>/<storage_namespace>/embeddings.sqlite``).
+        - ``sqlite_vec`` -> ``Vec0EmbeddingStore`` (sqlite-vec vec0 KNN) at
+          ``embedding_store_db_path`` with the extension loaded from
+          ``sqlite_vec_extension_path`` (default
+          ``/usr/local/lib/sqlite-vec/vec0.so``).
+
+        Any other value raises ``ValueError`` so a misconfiguration fails
+        loudly at container build time instead of silently writing
+        embeddings to the wrong place.
+        """
+        backend = str(config.get("embedding_store_backend", "") or "").strip().lower()
+        if not backend:
+            return storage
+        if backend not in ("file", "sqlite", "sqlite_vec"):
+            raise ValueError(
+                "Unknown embedding_store_backend %r: expected 'file', 'sqlite' or 'sqlite_vec'"
+                % backend
+            )
+        return build_primitives_embedding_store(config)
 
     @provider
     @singleton
     def provide_chat2_store(self, storage: Storage) -> Chat2Store:
-        """Provide a Chat2Store backed by the same JsonFileStorage.
+        backend = str(config.get("chat2_store_backend", "") or "").strip().lower()
+        if backend == "sqlite":
+            from pathlib import Path
 
-        Uses JfsChat2Primitives adapter to map chat2 logical keys to
-        filesystem paths under <storage_base>/chat2/. This is a parallel
-        storage layer — existing v1 code continues to use Storage directly.
-        """
-        adapter = JfsChat2Primitives(storage)
-        return Chat2Store(adapter)
+            from src.chat2.sqlite import SqliteChat2Primitives
+
+            db_path = config.get("chat2_store_db_path")
+            if not db_path:
+                storage_root = config.get("storage_root_path") or "/home/junwin/lucydata"
+                storage_namespace = config.get("storage_namespace") or "data"
+                db_path = str(Path(storage_root) / storage_namespace / "chat2.sqlite")
+            return Chat2Store(SqliteChat2Primitives(db_path))
+        if not backend or backend == "jsonl":
+            return Chat2Store(JfsChat2Primitives(storage))
+        raise ValueError(
+            "Unknown chat2_store_backend %r: expected 'jsonl' or 'sqlite'" % backend
+        )
+
 
 
 class MetricsModule(Module):

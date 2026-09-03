@@ -34,20 +34,33 @@ class Chat2Handler(HandlerV2):
         self.config = config
         self.chat2_store = self._build_store()
 
-    @staticmethod
-    def _build_store() -> Chat2Store:
+    def _build_store(self) -> Chat2Store:
         """Construct a Chat2Store from config."""
+        from pathlib import Path
+
         from src.chat2.adapters.jfs_adapter import JfsChat2Primitives
+        from src.chat2.sqlite import SqliteChat2Primitives
         from src.storage.json_file_storage import JsonFileStorage
         from src.storage_paths.storage_paths import StoragePaths
 
-        config = ConfigManager("config.json")
-        storage_root = config.get("storage_root_path") or "/home/junwin/lucydata"
-        storage_ns = config.get("storage_namespace") or "data"
-        sp = StoragePaths(storage_root, storage_ns)
-        storage = JsonFileStorage(sp)
-        adapter = JfsChat2Primitives(storage)
-        return Chat2Store(adapter)
+        config = self.config
+        backend = str(config.get("chat2_store_backend", "") or "").strip().lower()
+        if backend == "sqlite":
+            db_path = config.get("chat2_store_db_path")
+            if not db_path:
+                storage_root = config.get("storage_root_path") or "/home/junwin/lucydata"
+                storage_namespace = config.get("storage_namespace") or "data"
+                db_path = str(Path(storage_root) / storage_namespace / "chat2.sqlite")
+            return Chat2Store(SqliteChat2Primitives(db_path))
+        if not backend or backend == "jsonl":
+            storage_root = config.get("storage_root_path") or "/home/junwin/lucydata"
+            storage_namespace = config.get("storage_namespace") or "data"
+            sp = StoragePaths(storage_root, storage_namespace)
+            storage = JsonFileStorage(sp)
+            return Chat2Store(JfsChat2Primitives(storage))
+        raise ValueError(
+            "Unknown chat2_store_backend %r: expected 'jsonl' or 'sqlite'" % backend
+        )
 
     @classmethod
     def name(cls) -> str:
