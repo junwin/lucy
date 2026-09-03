@@ -189,6 +189,21 @@ class PrimitivesEmbeddingStore(EmbeddingStore):
                 namespaces.add(namespace)
         return sorted(namespaces)
 
+    def list_embeddings(self, namespace: str, account_name: str) -> List[EmbeddingRecord]:
+        """Return all embedding records in a namespace for an account, sorted by id."""
+        records: List[EmbeddingRecord] = []
+        prefix = self._namespace_prefix(account_name, namespace)
+        for key in self._store.list_keys(prefix):
+            raw = self._store.read_text(key)
+            if raw is None:
+                continue
+            record = self._from_doc(key, raw)
+            if record is None:
+                continue
+            records.append(record)
+        records.sort(key=lambda record: record.id)
+        return records
+
     def delete_embeddings(
         self,
         namespace: str,
@@ -196,6 +211,7 @@ class PrimitivesEmbeddingStore(EmbeddingStore):
         *,
         source_id: Optional[str] = None,
         source_type: Optional[str] = None,
+        record_id: Optional[str] = None,
     ) -> int:
         """Delete embedding records matching the given filters.
 
@@ -209,6 +225,8 @@ class PrimitivesEmbeddingStore(EmbeddingStore):
                 continue
             record = self._from_doc(key, raw)
             if record is None:
+                continue
+            if record_id is not None and record.id != record_id:
                 continue
             if source_id is not None and record.source_id != source_id:
                 continue

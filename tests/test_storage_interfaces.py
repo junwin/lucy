@@ -41,6 +41,7 @@ EMBEDDING_STORE_METHODS = {
     "upsert_embedding",
     "query_embeddings",
     "delete_embeddings",
+    "list_embeddings",
     "list_embedding_namespaces",
 }
 

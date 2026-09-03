@@ -145,11 +145,28 @@ class EmbeddingStore(ABC):
         *,
         source_id: Optional[str] = None,
         source_type: Optional[str] = None,
+        record_id: Optional[str] = None,
     ) -> int:
         """Delete embedding records matching the given filters.
 
-        Returns count of deleted records. Idempotent: returns 0 if no
-        matching records exist.
+        Filters are ANDed; passing none deletes every record in the
+        namespace/account scope. ``record_id`` targets one exact record id
+        within that scope and never expands to other records sharing the
+        same source_id. Returns count of deleted records. Idempotent:
+        returns 0 if no matching records exist.
+        """
+        pass
+
+    @abstractmethod
+    def list_embeddings(
+        self,
+        namespace: str,
+        account_name: str,
+    ) -> List[EmbeddingRecord]:
+        """Return every embedding record in a namespace for an account.
+
+        Deterministic order: sorted by record id ascending. Returns an
+        empty list when the namespace/account has no records.
         """
         pass
 

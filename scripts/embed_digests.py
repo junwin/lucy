@@ -11,10 +11,17 @@ Usage:
     python scripts/embed_digests.py --files path/to/d1.md,path/to/d2.md  # explicit files
     python scripts/embed_digests.py --files /abs/path/d1.md,/abs/path/d2.md
 
-Reads .md digest files from <lucy_data_root>/data/digests/<account>/,
-embeds the digest text directly (digests are already summaries), and persists
-as EmbeddingRecord via JsonFileStorage. Skips files that already have a
-matching embedding record (idempotent).
+Reads .md digest files from <lucy_data_root>/data/digests/<account>/ and
+persists them as EmbeddingRecords through the configured embedding backend
+(``build_primitives_embedding_store`` honoring ``embedding_store_backend``;
+default ``file`` keeps the legacy JsonFileStorage on-disk layout).
+
+The pass is a namespace sync: files whose stored ``content_hash`` (sha256 of
+the source bytes) matches are skipped, changed or un-hashed files are
+re-embedded under the same record id (digest filename stem), and records
+whose digest file vanished under the digests directory are pruned by record
+id only — never by source_id (a session id is shared by every digest of that
+session, so source_id-based deletes would over-delete; see #90/#81).
 
 Pass --summarize to re-summarize via LLM before embedding (not recommended —
 digests are already summaries; double-summarization loses detail).
@@ -29,26 +36,23 @@ import argparse
 import logging
 import sys
 from pathlib import Path
+from typing import Any, Callable, Dict, List, Optional
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from src.config_manager import ConfigManager
 from src.embeddings.facade import EmbeddingFacade
 from galet.router_api import RouterApi
-from src.storage.json_file_storage import JsonFileStorage
+from scripts.embed_sync import StoreConfig, is_unchanged, prune_missing, sha256_file
+from src.storage.interfaces import EmbeddingStore
 from src.storage.models import EmbeddingRecord
-from src.storage_paths.storage_paths import StoragePaths
+from src.storage.primitives_embedding_store import build_primitives_embedding_store
 
 logging.basicConfig(level=logging.WARNING)
 
-# Known production defaults (used when config.json has test paths)
 PROD_LUCY_DATA_ROOT = "/home/junwin/lucy_storage"
 PROD_STORAGE_ROOT = "/home/junwin/lucy_storage"
 PROD_STORAGE_NS = "data"
-
-# ---------------------------------------------------------------------------
-# Summarization prompt
-# ---------------------------------------------------------------------------
 
 SUMMARIZE_SYSTEM_PROMPT = (
     "You are a concise summarizer. Your job is to distill a chat session digest "
@@ -94,7 +98,6 @@ def parse_args() -> argparse.Namespace:
         default=None,
         help="Override storage_root_path (embeddings persisted under <root>/data/embeddings/)",
     )
-    # --- File selection flags ---
     parser.add_argument(
         "--files",
         default=None,
@@ -110,7 +113,6 @@ def parse_args() -> argparse.Namespace:
         help="Recursively scan digest directory tree (default: flat scan only). "
         "Ignored when --files is set.",
     )
-    # --- Summarization flags ---
     parser.add_argument(
         "--summarize",
         action="store_true",
@@ -132,18 +134,15 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def resolve_paths(args: argparse.Namespace):
-    """Resolve lucy_data_root and storage paths, preferring CLI overrides."""
-    cfg = ConfigManager("config.json")
-
-    # --- lucy_data_root (where digests live) ---
+def resolve_paths(
+    args: argparse.Namespace, cfg: ConfigManager
+) -> tuple[str, str, str]:
     lucy_data_root = args.lucy_data_root
     if not lucy_data_root:
         lucy_data_root = cfg.get("external_roots", {}).get("lucy_data_files", "")
     if not lucy_data_root or "/tmp/pytest" in lucy_data_root:
         lucy_data_root = PROD_LUCY_DATA_ROOT
 
-    # --- storage paths (where embeddings are persisted) ---
     storage_root = args.storage_root
     if not storage_root:
         storage_root = cfg.get("storage_root_path") or ""
@@ -155,12 +154,6 @@ def resolve_paths(args: argparse.Namespace):
     return lucy_data_root, storage_root, storage_ns
 
 
-def already_embedded(storage: JsonFileStorage, account: str, record_id: str) -> bool:
-    """Check if an embedding record already exists for this digest."""
-    emb_dir = storage.storage_paths.base / "embeddings" / account / "digests"
-    return (emb_dir / f"{record_id}.json").exists()
-
-
 def summarize_text(
     text: str,
     *,
@@ -168,10 +161,6 @@ def summarize_text(
     model: str = "deepseek-chat",
     max_chars: int = 1024,
 ) -> str:
-    """Summarize digest text via LLM.
-
-    Returns the summary, or the original text (truncated) on failure.
-    """
     user_prompt = (
         f"Summarize this chat session digest to approximately {max_chars} characters. "
         "Preserve the key topics, decisions made, files modified, commands run, "
@@ -195,18 +184,10 @@ def summarize_text(
     except Exception:
         logging.exception("summarize_text: LLM call failed — falling back to raw text")
 
-    # Fallback: truncate raw text
-    return text[:max_chars * 4]  # generous fallback
+    return text[: max_chars * 4]
 
 
-def _collect_files(
-    args: argparse.Namespace, digests_dir: Path
-) -> list[Path]:
-    """Collect digest files based on --files, --recursive, or default flat scan.
-
-    Returns sorted list of Path objects.
-    """
-    # --files takes priority
+def _collect_files(args: argparse.Namespace, digests_dir: Path) -> list[Path]:
     if args.files:
         paths: list[Path] = []
         for raw in args.files.split(","):
@@ -228,30 +209,133 @@ def _collect_files(
             sys.exit(0)
         return sorted(paths)
 
-    # --recursive: scan all subdirectories
     if args.recursive:
         return sorted(digests_dir.rglob("*.md"))
 
-    # Default: flat scan only
     return sorted(digests_dir.glob("*.md"))
+
+
+def sync_digests(
+    *,
+    store: EmbeddingStore,
+    account: str,
+    digests_dir: Path,
+    digest_files: List[Path],
+    embed_fn: Callable[[str], List[float]],
+    summarize_fn: Optional[Callable[[str], str]] = None,
+    summary_model: str = "deepseek-chat",
+    min_chars: int = 100,
+    force: bool = False,
+    dry_run: bool = False,
+    log: Callable[[str], None] = print,
+) -> Dict[str, int]:
+    existing_by_id: Dict[str, EmbeddingRecord] = {}
+    if not force:
+        for record in store.list_embeddings("digests", account):
+            existing_by_id[record.id] = record
+
+    counts: Dict[str, int] = {
+        "embedded": 0,
+        "skipped": 0,
+        "skipped_empty": 0,
+        "pruned": 0,
+        "errors": 0,
+    }
+
+    for md_file in digest_files:
+        record_id = md_file.stem
+        current_hash = sha256_file(md_file)
+
+        if not force and is_unchanged(existing_by_id.get(record_id), current_hash):
+            log(f"  SKIP (unchanged): {md_file.name}")
+            counts["skipped"] += 1
+            continue
+
+        try:
+            text = md_file.read_text(encoding="utf-8")
+        except Exception as e:
+            log(f"  ERROR reading {md_file.name}: {e}")
+            counts["errors"] += 1
+            continue
+
+        if len(text.strip()) < min_chars:
+            log(f"  SKIP (too short, {len(text.strip())} chars): {md_file.name}")
+            counts["skipped_empty"] += 1
+            continue
+
+        session_id = record_id.split("_")[0] if "_" in record_id else record_id
+        embed_text = text
+        source_metadata: Dict[str, Any] = {
+            "path": str(md_file),
+            "session_id": session_id,
+            "full_text_chars": len(text),
+            "content_hash": current_hash,
+        }
+
+        if summarize_fn is not None:
+            embed_text = summarize_fn(text)
+            source_metadata["summary_text"] = embed_text
+            source_metadata["summary_model"] = summary_model
+            log(
+                f"  SUMMARIZING: {md_file.name} ({len(text)} chars) "
+                f"→ {len(embed_text)} chars"
+            )
+
+        if dry_run:
+            log(f"  WOULD embed: {md_file.name} ({len(embed_text)} chars)")
+            counts["embedded"] += 1
+            continue
+
+        try:
+            vector = embed_fn(embed_text)
+        except Exception as e:
+            log(f"  ERROR embedding {md_file.name}: {e}")
+            counts["errors"] += 1
+            continue
+
+        try:
+            record = EmbeddingRecord(
+                id=record_id,
+                namespace="digests",
+                account_name=account,
+                vector=vector,
+                source_type="digest",
+                source_id=session_id,
+                source_metadata=source_metadata,
+            )
+            store.upsert_embedding(record)
+            log(f"  EMBEDDED: {md_file.name} ({len(embed_text)} chars)")
+            counts["embedded"] += 1
+        except Exception as e:
+            log(f"  ERROR persisting {md_file.name}: {e}")
+            counts["errors"] += 1
+            continue
+
+    pruned_ids = prune_missing(
+        store,
+        account_name=account,
+        namespace="digests",
+        source_root=digests_dir,
+        dry_run=dry_run,
+        log=log,
+    )
+    counts["pruned"] = len(pruned_ids)
+    return counts
 
 
 def main() -> None:
     args = parse_args()
-    lucy_data_root, storage_root, storage_ns = resolve_paths(args)
+    cfg = ConfigManager("config.json")
+    lucy_data_root, storage_root, storage_ns = resolve_paths(args, cfg)
 
-    # Build storage and embedding facade
-    sp = StoragePaths(storage_root, storage_ns)
-    storage = JsonFileStorage(sp)
+    store = build_primitives_embedding_store(
+        StoreConfig(cfg, storage_root=storage_root, storage_namespace=storage_ns)
+    )
     facade = EmbeddingFacade()
 
-    # Build LLM router (only needed if summarization is on)
-    llm_api: RouterApi | None = None
-    if args.summarize:
-        llm_api = RouterApi()
-
-    # Locate digest files
-    digests_dir = Path(lucy_data_root) / "data" / "digests" / args.account
+    digests_dir = (
+        Path(lucy_data_root) / "data" / "digests" / args.account
+    ).resolve()
     if not digests_dir.exists():
         print(f"Digests directory not found: {digests_dir}")
         sys.exit(1)
@@ -261,8 +345,23 @@ def main() -> None:
         print(f"No .md files found in {digests_dir}")
         sys.exit(0)
 
+    summarize_fn: Optional[Callable[[str], str]] = None
+    if args.summarize:
+        llm_api = RouterApi()
+
+        def summarize_one(text: str) -> str:
+            return summarize_text(
+                text,
+                llm_api=llm_api,
+                model=args.summary_model,
+                max_chars=args.max_summary_chars,
+            )
+
+        summarize_fn = summarize_one
+
+    backend_name = str(cfg.get("embedding_store_backend") or "file")
     print(f"Digests dir:  {digests_dir}")
-    print(f"Embeddings:   {sp.base / 'embeddings' / args.account / 'digests'}")
+    print(f"Store:        {type(store).__name__} (backend: {backend_name})")
     print(f"Found {len(digest_files)} digest files")
     if args.files:
         print(f"Mode:         --files (explicit list)")
@@ -271,9 +370,11 @@ def main() -> None:
     else:
         print(f"Mode:         flat scan (default)")
     print(f"Embed model:  {args.model}")
-    print(f"Summarize:    {'yes' if args.summarize else 'no'}  |  "
-          f"Summary model: {args.summary_model if args.summarize else 'N/A'}  |  "
-          f"Max summary: {args.max_summary_chars} chars")
+    print(
+        f"Summarize:    {'yes' if args.summarize else 'no'}  |  "
+        f"Summary model: {args.summary_model if args.summarize else 'N/A'}  |  "
+        f"Max summary: {args.max_summary_chars} chars"
+    )
     print(f"Min chars:    {args.min_chars}")
     if args.dry_run:
         print("*** DRY RUN — nothing will be embedded or persisted ***")
@@ -281,95 +382,28 @@ def main() -> None:
         print("*** FORCE — will re-embed even existing records ***")
     print("-" * 60)
 
-    skipped_empty = 0
-    skipped_exists = 0
-    embedded = 0
-    errors = 0
+    def embed_one(text: str) -> List[float]:
+        return facade.embed([text], model=args.model).embeddings[0]
 
-    for md_file in digest_files:
-        record_id = md_file.stem  # filename without .md
-
-        # Check if already exists
-        if not args.force and already_embedded(storage, args.account, record_id):
-            print(f"  SKIP (exists): {md_file.name}")
-            skipped_exists += 1
-            continue
-
-        # Read digest text
-        try:
-            text = md_file.read_text(encoding="utf-8")
-        except Exception as e:
-            print(f"  ERROR reading {md_file.name}: {e}")
-            errors += 1
-            continue
-
-        # Skip too-short digests
-        if len(text.strip()) < args.min_chars:
-            print(f"  SKIP (too short, {len(text.strip())} chars): {md_file.name}")
-            skipped_empty += 1
-            continue
-
-        # --- Summarize (opt-in — off by default for digests) ---
-        embed_text = text
-        source_metadata: dict = {
-            "path": str(md_file),
-            "session_id": (
-                record_id.split("_")[0] if "_" in record_id else record_id
-            ),
-            "full_text_chars": len(text),
-        }
-
-        if args.summarize and llm_api is not None:
-            print(f"  SUMMARIZING: {md_file.name} ({len(text)} chars)", end=" ... ")
-            embed_text = summarize_text(
-                text,
-                llm_api=llm_api,
-                model=args.summary_model,
-                max_chars=args.max_summary_chars,
-            )
-            source_metadata["summary_text"] = embed_text
-            source_metadata["summary_model"] = args.summary_model
-            print(f"→ {len(embed_text)} chars")
-
-        if args.dry_run:
-            print(f"  WOULD embed: {md_file.name} ({len(embed_text)} chars)")
-            embedded += 1
-            continue
-
-        # Generate embedding
-        try:
-            resp = facade.embed([embed_text], model=args.model)
-            vector = resp.embeddings[0]
-        except Exception as e:
-            print(f"  ERROR embedding {md_file.name}: {e}")
-            errors += 1
-            continue
-
-        # Build and persist EmbeddingRecord
-        try:
-            record = EmbeddingRecord(
-                id=record_id,
-                namespace="digests",
-                account_name=args.account,
-                vector=vector,
-                source_type="digest",
-                source_id=(
-                    record_id.split("_")[0] if "_" in record_id else record_id
-                ),
-                source_metadata=source_metadata,
-            )
-            storage.upsert_embedding(record)
-            print(f"  EMBEDDED: {md_file.name} ({len(embed_text)} chars)")
-            embedded += 1
-        except Exception as e:
-            print(f"  ERROR persisting {md_file.name}: {e}")
-            errors += 1
-            continue
+    counts = sync_digests(
+        store=store,
+        account=args.account,
+        digests_dir=digests_dir,
+        digest_files=digest_files,
+        embed_fn=embed_one,
+        summarize_fn=summarize_fn,
+        summary_model=args.summary_model,
+        min_chars=args.min_chars,
+        force=args.force,
+        dry_run=args.dry_run,
+    )
 
     print("-" * 60)
     print(
-        f"Summary: {embedded} embedded, {skipped_exists} skipped (exists), "
-        f"{skipped_empty} skipped (empty/short), {errors} errors"
+        f"Summary: {counts['embedded']} embedded, "
+        f"{counts['skipped']} skipped (unchanged), "
+        f"{counts['skipped_empty']} skipped (empty/short), "
+        f"{counts['pruned']} pruned, {counts['errors']} errors"
     )
 
 

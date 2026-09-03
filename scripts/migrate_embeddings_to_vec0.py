@@ -1,3 +1,14 @@
+"""One-time lift of kv embedding documents into the sqlite-vec serving tables.
+
+Historical migration path (sqlite kv -> vec0), not a sync: it copies whatever
+kv documents currently exist into ``vec_embeddings`` + ``embedding_metadata``
+as-is and leaves the kv documents untouched. It never prunes records (the
+only row-level change is replacing the same-id row being lifted) and never
+refreshes changed content - no content hashes are compared or written, so
+re-running it cannot repair a stale or drifted serving store. The namespace
+sync (embed scripts) owns content-hash refresh and prune.
+"""
+
 from __future__ import annotations
 
 import argparse
@@ -220,7 +231,11 @@ def migrate_embeddings_to_vec0(
 
 def main(argv: Optional[List[str]] = None) -> int:
     parser = argparse.ArgumentParser(
-        description="Migrate kv embedding documents into sqlite-vec vec0 tables"
+        description=(
+            "One-time lift of kv embedding documents into the sqlite-vec vec0"
+            " serving tables (not a sync: never prunes records, never refreshes"
+            " changed content)"
+        )
     )
     parser.add_argument(
         "--base-path",

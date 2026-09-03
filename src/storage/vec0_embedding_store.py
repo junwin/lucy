@@ -80,6 +80,11 @@ _NAMESPACE_SELECT_SQL = (
     " WHERE account_name = ? ORDER BY namespace"
 )
 
+_LIST_METADATA_SQL = (
+    "SELECT id, account_name, namespace, source_type, source_id, source_metadata, created_at"
+    " FROM embedding_metadata WHERE account_name = ? AND namespace = ? ORDER BY id"
+)
+
 
 def _to_utc_iso(dt: datetime) -> str:
     if dt.tzinfo is None:
@@ -212,6 +217,46 @@ class Vec0EmbeddingStore(EmbeddingStore):
         results.sort(key=lambda item: item[1], reverse=True)
         return results[:top_k]
 
+    def list_embeddings(self, namespace: str, account_name: str) -> List[EmbeddingRecord]:
+        """Return all embedding records in a namespace for an account, sorted by id."""
+        with self._lock:
+            rows = self._conn.execute(
+                _LIST_METADATA_SQL, (account_name, namespace)
+            ).fetchall()
+            if not rows:
+                return []
+            vector_blobs = self._fetch_vector_blobs([row[0] for row in rows])
+        records: List[EmbeddingRecord] = []
+        for meta in rows:
+            blob = vector_blobs.get(meta[0])
+            if blob is None:
+                continue
+            records.append(
+                EmbeddingRecord(
+                    id=meta[0],
+                    account_name=meta[1],
+                    namespace=meta[2],
+                    source_type=meta[3],
+                    source_id=meta[4],
+                    source_metadata=json.loads(meta[5] or "{}"),
+                    created_at=_from_utc_iso(meta[6]),
+                    vector=_decode_vector(blob),
+                )
+            )
+        return records
+
+    def _fetch_vector_blobs(self, record_ids: List[str]) -> Dict[str, bytes]:
+        if not record_ids:
+            return {}
+        placeholders = ", ".join("?" for _ in record_ids)
+        sql = (
+            "SELECT id, embedding FROM vec_embeddings WHERE id IN ("
+            + placeholders
+            + ")"
+        )
+        rows = self._conn.execute(sql, record_ids).fetchall()
+        return {row[0]: row[1] for row in rows}
+
     def delete_embeddings(
         self,
         namespace: str,
@@ -219,9 +264,13 @@ class Vec0EmbeddingStore(EmbeddingStore):
         *,
         source_id: Optional[str] = None,
         source_type: Optional[str] = None,
+        record_id: Optional[str] = None,
     ) -> int:
         clauses = ["account_name = ?", "namespace = ?"]
         params: List[Any] = [account_name, namespace]
+        if record_id is not None:
+            clauses.append("id = ?")
+            params.append(record_id)
         if source_id is not None:
             clauses.append("source_id = ?")
             params.append(source_id)

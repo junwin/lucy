@@ -106,6 +106,31 @@ class EmbeddingsMixin:
         namespaces.sort()
         return namespaces
 
+    def list_embeddings(self, namespace: str, account_name: str) -> List[EmbeddingRecord]:
+        """Return all embedding records in a namespace for an account, sorted by id."""
+        path = self.storage_paths.base / "embeddings" / account_name / namespace
+        if not path.exists():
+            return []
+
+        records: List[EmbeddingRecord] = []
+        for emb_file in sorted(path.glob("*.json")):
+            data = self._load_json(emb_file)
+            if not data or not isinstance(data.get("vector"), list):
+                continue
+            records.append(
+                EmbeddingRecord(
+                    id=data["id"],
+                    namespace=data["namespace"],
+                    account_name=data["account_name"],
+                    vector=data["vector"],
+                    source_type=data["source_type"],
+                    source_id=data["source_id"],
+                    source_metadata=data.get("source_metadata", {}) or {},
+                    created_at=_parse_dt_utc(data.get("created_at", "")),
+                )
+            )
+        return records
+
     def delete_embeddings(
         self,
         namespace: str,
@@ -113,6 +138,7 @@ class EmbeddingsMixin:
         *,
         source_id: Optional[str] = None,
         source_type: Optional[str] = None,
+        record_id: Optional[str] = None,
     ) -> int:
         """Delete embedding records matching the given filters.
 
@@ -127,6 +153,8 @@ class EmbeddingsMixin:
         for emb_file in path.glob("*.json"):
             data = self._load_json(emb_file)
             if not data:
+                continue
+            if record_id is not None and data.get("id") != record_id:
                 continue
             if source_id is not None and data.get("source_id") != source_id:
                 continue

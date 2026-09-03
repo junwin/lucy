@@ -5,6 +5,12 @@ migrate_embeddings_to_sqlite.py
 Copy embedding records from the file-based embedding store to the SQLite
 embedding store, using the generic-store primitives protocol on both sides.
 
+One-time lift, not a sync: this script copies whatever records currently
+exist in the file store into SQLite as-is. It never prunes records whose
+source file vanished and never refreshes changed content - no content
+hashes are compared or written. Re-running it cannot repair a stale or
+drifted target; the namespace sync (embed scripts) owns refresh and prune.
+
 The two stores speak the same Chat2Primitives document protocol
 (read_text / write_text / exists / delete / list_keys), so a migration is a
 straight key-by-key copy under the "embeddings/" prefix:
@@ -19,7 +25,8 @@ records lossless regardless of their JSON shape.
 Behavior:
 - Idempotent: re-running overwrites the same keys (write_text upserts).
 - Non-destructive by default: source files are left in place. Pass
-  --prune-files to delete a source file only after its copy succeeded.
+  --prune-files to delete a source file only after its copy succeeded
+  (source-store lift cleanup - not a sync prune of target records).
 - --dry-run shows what would be copied without writing to SQLite.
 - --self-test runs a small built-in check in a temp dir and exits.
 
@@ -142,7 +149,11 @@ def _self_test() -> bool:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
-        description="Migrate file-based embeddings into the SQLite embedding store"
+        description=(
+            "One-time lift of file-based embeddings into the SQLite embedding"
+            " store (not a sync: never prunes target records, never refreshes"
+            " changed content)"
+        )
     )
     parser.add_argument(
         "--base-path",
@@ -160,7 +171,14 @@ def main(argv: list[str] | None = None) -> int:
         help="SQLite db path (default: <base-path>/<namespace>/embeddings.sqlite)",
     )
     parser.add_argument("--dry-run", action="store_true", help="Do not write; just show what would be done")
-    parser.add_argument("--prune-files", action="store_true", help="Delete source files after successful copy")
+    parser.add_argument(
+        "--prune-files",
+        action="store_true",
+        help=(
+            "Delete source files only after a successful copy"
+            " (source-store lift cleanup - not a sync prune of target records)"
+        ),
+    )
     parser.add_argument("--verbose", action="store_true", help="Log each key copied")
     parser.add_argument("--self-test", action="store_true", help="Run a built-in self-check and exit")
 
