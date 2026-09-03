@@ -34,6 +34,11 @@ class TaskListService(TasklistManager):
     def get(self, account_name: str, tasklist_key: str) -> Optional[TaskList]:
         return self.store.get_tasklist(account_name, tasklist_key)
 
+    def get_task_result(
+        self, account_name: str, tasklist_key: str, task_id: str
+    ) -> Optional[dict]:
+        return self.store.get_task_result(account_name, tasklist_key, task_id)
+
     def save(self, account_name: str, tasklist_key: str, tasklist: TaskList) -> None:
         self.store.save_tasklist(account_name, tasklist_key, tasklist)
 

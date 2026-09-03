@@ -269,7 +269,7 @@ class TasklistsManageHandler(HandlerV2):
         err = self._require_key(tasklist_key, action)
         if err:
             return None, err
-        tl = self.storage.get_tasklist(account_name, tasklist_key)
+        tl = self.tasklist_service.get(account_name, tasklist_key)
         err = self._require_found(tl, tasklist_key, action)
         return tl, err
 
@@ -278,7 +278,7 @@ class TasklistsManageHandler(HandlerV2):
     # ------------------------------------------------------------------
 
     def _handle_list(self, account_name: str) -> Dict[str, Any]:
-        ids = self.storage.list_tasklists(account_name)
+        ids = self.tasklist_service.list(account_name)
         return {"ok": True, "tool": self.NAME, "action": "list", "tasklist_keys": ids}
 
     def _handle_get(self, account_name: str, args: Dict[str, Any]) -> Dict[str, Any]:
@@ -310,7 +310,7 @@ class TasklistsManageHandler(HandlerV2):
                 "error": {"code": "missing_fields", "message": "task_id is required for get_result"},
             }
 
-        record = self.storage.get_task_result(account_name, tasklist_key, task_id)
+        record = self.tasklist_service.get_task_result(account_name, tasklist_key, task_id)
         if record is not None:
             return {
                 "ok": True,
@@ -335,7 +335,7 @@ class TasklistsManageHandler(HandlerV2):
         if err:
             return err
         # delete is idempotent per storage contract
-        self.storage.delete_tasklist(account_name, tasklist_key)
+        self.tasklist_service.delete(account_name, tasklist_key)
         return {"ok": True, "tool": self.NAME, "action": "delete", "tasklist_key": tasklist_key}
 
     def _handle_reset(self, account_name: str, args: Dict[str, Any]) -> Dict[str, Any]:

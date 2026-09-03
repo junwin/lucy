@@ -1,4 +1,5 @@
 import json
+from unittest.mock import patch
 
 from src.handlers.tasklists_manage_handler import TasklistsManageHandler
 from src.tasklists.task_states import (
@@ -119,6 +120,69 @@ def test_get_missing_and_delete_missing(tmp_path):
     r2 = h.execute({"action": "delete", "tasklist_key": "nope", "validate_only": False}, account_name="dave")
     # delete is idempotent and should succeed
     assert r2.get("ok") is True
+
+
+def test_read_actions_route_through_tasklist_service(tmp_path):
+    cfg = SimpleConfig(str(tmp_path), "ns")
+    h = TasklistsManageHandler(cfg)
+    _create_tl(
+        h,
+        "alice",
+        "tl-route",
+        tasks=[{"id": "task-1", "name": "T1", "instructions": "do 1"}],
+    )
+    h.storage.append_task_execution_record(
+        "alice",
+        "tl-route",
+        {
+            "schema_version": 1,
+            "record_id": "rec-route",
+            "tasklist_key": "tl-route",
+            "task_id": "task-1",
+            "task_name": "T1",
+            "state": TASK_STATE_COMPLETED,
+            "started": "2026-09-02T17:00:00.000Z",
+            "ended": "2026-09-02T17:01:00.000Z",
+            "result": {"output": "routed"},
+        },
+    )
+
+    svc = h.tasklist_service
+    with (
+        patch.object(svc, "list", wraps=svc.list) as m_list,
+        patch.object(svc, "get", wraps=svc.get) as m_get,
+        patch.object(svc, "get_task_result", wraps=svc.get_task_result) as m_get_result,
+        patch.object(svc, "delete", wraps=svc.delete) as m_delete,
+    ):
+        r = h.execute({"action": "list", "validate_only": False}, account_name="alice")
+        assert r.get("ok") is True
+        assert r.get("tasklist_keys") == ["tl-route"]
+
+        r = h.execute(
+            {"action": "get", "tasklist_key": "tl-route", "validate_only": False},
+            account_name="alice",
+        )
+        assert r.get("ok") is True
+        assert r["tasklist"]["id"] == "tl-route"
+        assert r["tasklist"]["tasks"][0]["id"] == "task-1"
+
+        r = h.execute(
+            {"action": "get_result", "tasklist_key": "tl-route", "task_id": "task-1"},
+            account_name="alice",
+        )
+        assert r.get("ok") is True
+        assert r.get("result_record", {}).get("record_id") == "rec-route"
+
+        r = h.execute(
+            {"action": "delete", "tasklist_key": "tl-route", "validate_only": False},
+            account_name="alice",
+        )
+        assert r.get("ok") is True
+
+    assert m_list.call_count == 1
+    assert m_get.call_count == 1
+    assert m_get_result.call_count == 1
+    assert m_delete.call_count == 1
 
 
 # ------------------------------------------------------------------

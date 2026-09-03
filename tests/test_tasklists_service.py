@@ -94,6 +94,22 @@ def test_get_returns_reloaded_copy_not_shared_reference(fake_tasklist_store):
     assert second.name == "n"
 
 
+def test_get_task_result_passthrough_to_store(fake_tasklist_store):
+    fake_tasklist_store.save_tasklist("alice", "tl1", _make_tl("tl1"))
+    fake_tasklist_store.append_task_execution_record(
+        "alice",
+        "tl1",
+        {"record_id": "r1", "task_id": "t1", "state": TASK_STATE_COMPLETED, "result": {"output": "x"}},
+    )
+    svc = TaskListService(fake_tasklist_store)
+    rec = svc.get_task_result("alice", "tl1", "t1")
+    assert rec is not None
+    assert rec["record_id"] == "r1"
+    assert rec["result"]["output"] == "x"
+    assert svc.get_task_result("alice", "tl1", "missing") is None
+    assert svc.get_task_result("bob", "tl1", "t1") is None
+
+
 def test_save_persists_through_store(fake_tasklist_store):
     svc = TaskListService(fake_tasklist_store)
     svc.save("alice", "tl1", _make_tl("tl1"))
