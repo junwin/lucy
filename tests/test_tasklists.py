@@ -172,22 +172,6 @@ def test_tasklist_get_children_basic_filter():
     assert ids == {"1", "2"}
 
 
-def test_tasklist_service_save_all_pending_normalizes_to_created(tmp_path, fake_tasklist_store):
-    svc = TaskListService(fake_tasklist_store)
-    tl = TaskList(
-        id="svc-tl",
-        name="n",
-        description="d",
-        tasks=[Task(id="t1", name="T", instructions="i")],
-    )
-    path = tmp_path / "tl.json"
-    svc.save_file(str(path), tl)
-
-    loaded = svc.load(str(path))
-    assert loaded.state == TASK_LIST_STATE_CREATED
-    assert loaded.tasks[0].state == TASK_STATE_PENDING
-
-
 def test_tasklist_service_reset_clears_execution_state(fake_tasklist_store):
     svc = TaskListService(fake_tasklist_store)
     tl = TaskList(

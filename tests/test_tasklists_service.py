@@ -40,13 +40,13 @@ def _reload(store, account="alice", key="tl1"):
 
 def test_tasklist_manager_abc_declares_crud_and_task_ops_surface():
     expected = {
-        "list", "get", "save", "delete", "create", "create_from_goal",
+        "list", "get", "get_task_result", "save", "delete", "create", "create_from_goal",
         "add_task", "update_task", "remove_task",
         "set_state", "set_name", "set_description",
-        "set_general_instructions", "update_meta",
+        "set_general_instructions", "update_meta", "reset",
     }
     assert inspect.isabstract(TasklistManager)
-    assert expected <= set(TasklistManager.__abstractmethods__)
+    assert expected == set(TasklistManager.__abstractmethods__)
 
 
 def test_service_conforms_to_tasklist_manager_interface(fake_tasklist_store):

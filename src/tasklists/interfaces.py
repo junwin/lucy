@@ -16,6 +16,12 @@ class TasklistManager(ABC):
         pass
 
     @abstractmethod
+    def get_task_result(
+        self, account_name: str, tasklist_key: str, task_id: str
+    ) -> Optional[dict]:
+        pass
+
+    @abstractmethod
     def save(self, account_name: str, tasklist_key: str, tasklist: TaskList) -> None:
         pass
 
@@ -141,4 +147,8 @@ class TasklistManager(ABC):
         *,
         validate_only: bool = False,
     ) -> TaskList:
+        pass
+
+    @abstractmethod
+    def reset(self, tasklist: TaskList) -> TaskList:
         pass
