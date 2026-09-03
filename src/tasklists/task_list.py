@@ -196,6 +196,7 @@ class TaskList:
                     files=getattr(t, "files", []) or [],
                     parent_id=getattr(t, "parent_id", None),
                     run_metrics=getattr(t, "run_metrics", None),
+                    context=getattr(t, "context", None),
                 )
             )
 

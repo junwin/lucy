@@ -53,3 +53,51 @@ def test_from_dict_rejects_duplicate_task_ids():
     payload["tasks"][1]["id"] = "t1"
     with pytest.raises(ValueError, match="duplicate task id"):
         TaskList.from_dict(payload)
+
+
+def test_task_constructor_accepts_context():
+    task = Task(id="t1", name="T", instructions="do it", context="junwin")
+    assert task.context == "junwin"
+
+
+def test_task_to_dict_omits_context_when_unset():
+    task = _make_task("t1")
+    assert "context" not in task.to_dict()
+
+
+def test_task_to_dict_emits_context_when_set():
+    task = Task(id="t1", name="T", instructions="do it", context="junwin")
+    assert task.to_dict()["context"] == "junwin"
+
+
+def test_task_round_trip_preserves_context():
+    task = Task(id="t1", name="T", instructions="do it", context="junwin")
+    restored = Task.from_dict(task.to_dict())
+    assert restored.context == "junwin"
+    assert restored.to_dict()["context"] == "junwin"
+
+
+def test_task_from_dict_tolerates_missing_context():
+    task = Task.from_dict({"id": "t1", "name": "T", "instructions": "do it"})
+    assert task.context is None
+
+
+def test_tasklist_round_trip_preserves_task_context():
+    tl = _make_list()
+    tl.add_task(Task(id="t1", name="T", instructions="do it", context="junwin"))
+    tl.add_task(_make_task("t2"))
+    restored = TaskList.from_dict(tl.to_dict())
+    assert restored.get_task("t1").context == "junwin"
+    assert restored.get_task("t2").context is None
+
+
+def test_tasklist_from_dict_tolerates_legacy_task_without_context():
+    payload = {
+        "schema_version": 1,
+        "id": "tl1",
+        "name": "My List",
+        "description": "desc",
+        "tasks": [{"id": "t1", "name": "T", "instructions": "do it"}],
+    }
+    tl = TaskList.from_dict(payload)
+    assert tl.get_task("t1").context is None
