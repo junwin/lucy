@@ -28,7 +28,7 @@ class TasklistsManageHandler(HandlerV2):
         sp = StoragePaths(storage_root, storage_ns)
         ttl_days = (self.config.get("tasklists", {}) or {}).get("run_ttl_days", DEFAULT_RUN_TTL_DAYS)
         self.storage: TasklistStore = JsonFileStorage(sp, tasklist_run_ttl_days=ttl_days)
-        self.tasklist_service = TaskListService()
+        self.tasklist_service = TaskListService(self.storage)
 
     @classmethod
     def name(cls) -> str:

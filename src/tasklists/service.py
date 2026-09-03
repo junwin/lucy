@@ -1,8 +1,9 @@
 from __future__ import annotations
 
-import uuid
-from typing import Any, Dict, Optional
+import os
+from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
+from .task import Task
 from .task_list import TaskList
 from .task_states import (
     TASK_LIST_STATE_COMPLETED,
@@ -16,12 +17,88 @@ from .task_states import (
     TASK_STATE_RUNNING,
 )
 
+if TYPE_CHECKING:
+    from src.storage.interfaces import TasklistStore
+
 
 class TaskListService:
-    """Single service boundary for TaskList creation and domain normalization.
+    """CRUD facade over an injected TasklistStore persistence port."""
 
-    Step 2 scope: in-memory operations only (no persistence path decisions yet).
-    """
+    def __init__(self, store: TasklistStore):
+        self.store = store
+
+    def list(self, account_name: str) -> List[str]:
+        return self.store.list_tasklists(account_name)
+
+    def get(self, account_name: str, tasklist_key: str) -> Optional[TaskList]:
+        return self.store.get_tasklist(account_name, tasklist_key)
+
+    def save(self, account_name: str, tasklist_key: str, tasklist: TaskList) -> None:
+        self.store.save_tasklist(account_name, tasklist_key, tasklist)
+
+    def delete(self, account_name: str, tasklist_key: str) -> None:
+        self.store.delete_tasklist(account_name, tasklist_key)
+
+    def create(
+        self,
+        tasklist_key: str,
+        name: str,
+        description: str,
+        *,
+        meta: Optional[Dict[str, Any]] = None,
+        general_instructions: str = "",
+    ) -> TaskList:
+        return TaskList(
+            id=tasklist_key,
+            schema_version=1,
+            state=TASK_LIST_STATE_CREATED,
+            name=name,
+            description=description,
+            tasks=[],
+            meta=meta or {},
+            general_instructions=general_instructions,
+        )
+
+    def create_from_goal(
+        self,
+        tasklist_key: str,
+        goal: str,
+        files: Optional[List[str]] = None,
+        worker_agent: Optional[str] = None,
+    ) -> TaskList:
+        name = tasklist_key.replace("-", " ").replace("_", " ").title()
+        tasklist = TaskList(
+            id=tasklist_key,
+            schema_version=1,
+            state=TASK_LIST_STATE_CREATED,
+            name=name,
+            description=goal,
+            tasks=[],
+            meta={},
+            general_instructions=goal,
+        )
+        if files:
+            for i, filepath in enumerate(files):
+                fname = os.path.basename(filepath)
+                task_name = os.path.splitext(fname)[0]
+                tasklist.add_task(
+                    Task(
+                        id=f"task-{i + 1}",
+                        name=task_name,
+                        instructions=goal,
+                        agent=worker_agent,
+                    )
+                )
+        else:
+            tasklist.add_task(
+                Task(
+                    id="task-1",
+                    name="Execute goal",
+                    instructions=goal,
+                    agent=worker_agent,
+                )
+            )
+        return tasklist
 
     def load(self, path: str) -> TaskList:
         """Load a TaskList from a JSON file path.
@@ -32,26 +109,7 @@ class TaskListService:
         with open(path, "r", encoding="utf-8") as f:
             return TaskList.from_json(f.read())
 
-    def create(
-        self,
-        name: str,
-        description: str,
-        *,
-        meta: Optional[Dict[str, Any]] = None,
-        general_instructions: str = "",
-    ) -> TaskList:
-        return TaskList(
-            id=str(uuid.uuid4()),
-            schema_version=1,
-            state=TASK_LIST_STATE_CREATED,
-            name=name,
-            description=description,
-            tasks=[],
-            meta=meta or {},
-            general_instructions=general_instructions,
-        )
-
-    def save(self, path: str, tasklist: TaskList) -> None:
+    def save_file(self, path: str, tasklist: TaskList) -> None:
         """Normalize then save to a JSON file path."""
 
         self._normalize(tasklist)
