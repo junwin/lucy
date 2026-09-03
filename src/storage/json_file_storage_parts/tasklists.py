@@ -78,7 +78,9 @@ class TasklistsMixin:
         if not tasklist_key or not _re.match(r"^[A-Za-z0-9_-]+$", tasklist_key):
             raise ValueError(f"Invalid tasklist key: {tasklist_key!r}")
 
-        tl = TaskList.from_dict(tasklist) if isinstance(tasklist, dict) else tasklist
+        if not isinstance(tasklist, TaskList):
+            raise TypeError(f"save_tasklist expects TaskList, got {type(tasklist).__name__}")
+        tl = tasklist
 
         # Enforce key == id: the tasklist id must match its storage key
         if tl.id != tasklist_key:

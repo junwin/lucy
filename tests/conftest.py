@@ -211,8 +211,9 @@ class InMemoryTasklistStore(TasklistStore):
         return TaskList.from_dict(payload)
 
     def save_tasklist(self, account_name: str, tasklist_key: str, tasklist: TaskList) -> None:
-        tl = TaskList.from_dict(tasklist) if isinstance(tasklist, dict) else tasklist
-        payload = tl.to_dict()
+        if not isinstance(tasklist, TaskList):
+            raise TypeError(f"save_tasklist expects TaskList, got {type(tasklist).__name__}")
+        payload = tasklist.to_dict()
         payload["id"] = tasklist_key
         self._tasklists[(account_name, tasklist_key)] = payload
 
