@@ -1069,6 +1069,32 @@ def test_update_task_with_result_and_error(tmp_path):
     assert tl["tasks"][0]["error"] == "something went wrong"
 
 
+def test_update_task_ignores_inline_task_result(tmp_path):
+    cfg = SimpleConfig(str(tmp_path), "ns")
+    h = TasklistsManageHandler(cfg)
+    _create_tl(h, "alice", "tl-ignores-result", tasks=[
+        {"id": "t1", "name": "T1", "instructions": "do 1"},
+    ])
+
+    r = h.execute(
+        {
+            "action": "update_task",
+            "tasklist_key": "tl-ignores-result",
+            "task_id": "t1",
+            "task_result": {"ok": True, "output": "done"},
+            "validate_only": False,
+        },
+        account_name="alice",
+    )
+    assert r.get("ok") is True
+    assert r.get("action") == "update_task"
+    tl = r.get("tasklist")
+    assert "result" not in tl["tasks"][0]
+    assert "run_metrics" not in tl["tasks"][0]
+    runs_path = tmp_path / "ns" / "tasklists" / "alice" / "tl-ignores-result.runs.jsonl"
+    assert not runs_path.exists()
+
+
 def test_add_task_duplicate_id_rejected(tmp_path):
     cfg = SimpleConfig(str(tmp_path), "ns")
     h = TasklistsManageHandler(cfg)

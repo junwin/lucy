@@ -123,11 +123,6 @@ class TasklistsManageHandler(HandlerV2):
                         "items": {"type": "string"},
                         "description": "Task file paths.",
                     },
-                    "task_result": {
-                        "type": "object",
-                        "description": "New task result.",
-                        "additionalProperties": False,
-                    },
                     "task_error": {
                         "type": "string",
                         "description": "New task error.",
