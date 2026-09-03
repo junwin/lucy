@@ -215,7 +215,7 @@ def test_create_from_goal_empty_files_list_falls_back_to_execute_goal(fake_taskl
 
 def test_add_task_appends_and_persists(fake_tasklist_store):
     svc = _seed(fake_tasklist_store)
-    tl = svc.add_task("alice", "tl1", Task(id="t3", name="Three", instructions="i3"))
+    tl = svc.add_task("alice", "tl1", task_id="t3", task_name="Three", task_instructions="i3")
     assert isinstance(tl, TaskList)
     assert [t.id for t in tl.tasks] == ["t1", "t2", "t3"]
     loaded = _reload(fake_tasklist_store)
@@ -225,7 +225,7 @@ def test_add_task_appends_and_persists(fake_tasklist_store):
 
 def test_add_task_after_index_inserts_and_persists(fake_tasklist_store):
     svc = _seed(fake_tasklist_store)
-    tl = svc.add_task("alice", "tl1", Task(id="t3", name="Three", instructions="i3"), after_index=0)
+    tl = svc.add_task("alice", "tl1", task_id="t3", task_name="Three", task_instructions="i3", after_index=0)
     assert [t.id for t in tl.tasks] == ["t1", "t3", "t2"]
     loaded = _reload(fake_tasklist_store)
     assert [t.id for t in loaded.tasks] == ["t1", "t3", "t2"]
@@ -234,7 +234,7 @@ def test_add_task_after_index_inserts_and_persists(fake_tasklist_store):
 def test_add_task_duplicate_id_raises_and_does_not_persist(fake_tasklist_store):
     svc = _seed(fake_tasklist_store)
     with pytest.raises(ValueError, match="already exists"):
-        svc.add_task("alice", "tl1", Task(id="t1", name="Duplicate", instructions="x"))
+        svc.add_task("alice", "tl1", task_id="t1", task_name="Duplicate", task_instructions="x")
     loaded = _reload(fake_tasklist_store)
     assert [t.id for t in loaded.tasks] == ["t1", "t2"]
     assert loaded.tasks[0].name == "One"
@@ -396,13 +396,13 @@ def test_task_op_on_other_accounts_tasklist_raises(fake_tasklist_store):
     _seed(fake_tasklist_store, account="alice", key="tl1")
     svc = TaskListService(fake_tasklist_store)
     with pytest.raises(ValueError, match="not found"):
-        svc.add_task("bob", "tl1", Task(id="t9", name="T", instructions="i"))
+        svc.add_task("bob", "tl1", task_id="t9", task_name="T", task_instructions="i")
 
 
 @pytest.mark.parametrize(
     "mutate",
     [
-        lambda svc: svc.add_task("alice", "missing", Task(id="t9", name="T", instructions="i")),
+        lambda svc: svc.add_task("alice", "missing", task_id="t9", task_name="T", task_instructions="i"),
         lambda svc: svc.update_task("alice", "missing", "t1", name="x"),
         lambda svc: svc.remove_task("alice", "missing", "t1"),
         lambda svc: svc.set_state("alice", "missing", TASK_LIST_STATE_RUNNING),

@@ -3,7 +3,6 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from typing import Any, Dict, List, Optional
 
-from .task import Task
 from .task_list import TaskList
 
 
@@ -51,9 +50,18 @@ class TasklistManager(ABC):
         self,
         account_name: str,
         tasklist_key: str,
-        task: Task,
         *,
+        task_id: str,
+        task_name: str,
+        task_instructions: str = "",
+        task_state: Optional[str] = None,
+        task_agent: Optional[str] = None,
+        task_meta: Optional[Dict[str, Any]] = None,
+        task_position: Optional[int] = None,
+        task_parent_id: Optional[str] = None,
+        task_files: Optional[List[str]] = None,
         after_index: Optional[int] = None,
+        validate_only: bool = False,
     ) -> TaskList:
         pass
 
@@ -63,30 +71,74 @@ class TasklistManager(ABC):
         account_name: str,
         tasklist_key: str,
         task_id: str,
+        *,
+        validate_only: bool = False,
         **changes: Any,
     ) -> TaskList:
         pass
 
     @abstractmethod
-    def remove_task(self, account_name: str, tasklist_key: str, task_id: str) -> TaskList:
+    def remove_task(
+        self,
+        account_name: str,
+        tasklist_key: str,
+        task_id: str,
+        *,
+        validate_only: bool = False,
+    ) -> TaskList:
         pass
 
     @abstractmethod
-    def set_state(self, account_name: str, tasklist_key: str, state: str) -> TaskList:
+    def set_state(
+        self,
+        account_name: str,
+        tasklist_key: str,
+        state: str,
+        *,
+        validate_only: bool = False,
+    ) -> TaskList:
         pass
 
     @abstractmethod
-    def set_name(self, account_name: str, tasklist_key: str, name: str) -> TaskList:
+    def set_name(
+        self,
+        account_name: str,
+        tasklist_key: str,
+        name: str,
+        *,
+        validate_only: bool = False,
+    ) -> TaskList:
         pass
 
     @abstractmethod
-    def set_description(self, account_name: str, tasklist_key: str, description: str) -> TaskList:
+    def set_description(
+        self,
+        account_name: str,
+        tasklist_key: str,
+        description: str,
+        *,
+        validate_only: bool = False,
+    ) -> TaskList:
         pass
 
     @abstractmethod
-    def set_general_instructions(self, account_name: str, tasklist_key: str, instructions: str) -> TaskList:
+    def set_general_instructions(
+        self,
+        account_name: str,
+        tasklist_key: str,
+        instructions: str,
+        *,
+        validate_only: bool = False,
+    ) -> TaskList:
         pass
 
     @abstractmethod
-    def update_meta(self, account_name: str, tasklist_key: str, meta: Dict[str, Any]) -> TaskList:
+    def update_meta(
+        self,
+        account_name: str,
+        tasklist_key: str,
+        meta: Dict[str, Any],
+        *,
+        validate_only: bool = False,
+    ) -> TaskList:
         pass

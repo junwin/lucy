@@ -110,13 +110,34 @@ class TaskListService(TasklistManager):
         self,
         account_name: str,
         tasklist_key: str,
-        task: Task,
         *,
+        task_id: str,
+        task_name: str,
+        task_instructions: str = "",
+        task_state: Optional[str] = None,
+        task_agent: Optional[str] = None,
+        task_meta: Optional[Dict[str, Any]] = None,
+        task_position: Optional[int] = None,
+        task_parent_id: Optional[str] = None,
+        task_files: Optional[List[str]] = None,
         after_index: Optional[int] = None,
+        validate_only: bool = False,
     ) -> TaskList:
         tl = self._load_required(account_name, tasklist_key)
+        task = Task(
+            id=task_id,
+            name=task_name,
+            instructions=task_instructions,
+            state=task_state,
+            agent=task_agent,
+            meta=task_meta,
+            position=task_position,
+            parent_id=task_parent_id,
+            files=task_files,
+        )
         tl.add_task(task, after_index=after_index)
-        self.store.save_tasklist(account_name, tasklist_key, tl)
+        if not validate_only:
+            self.store.save_tasklist(account_name, tasklist_key, tl)
         return tl
 
     def update_task(
@@ -124,53 +145,100 @@ class TaskListService(TasklistManager):
         account_name: str,
         tasklist_key: str,
         task_id: str,
+        *,
+        validate_only: bool = False,
         **changes: Any,
     ) -> TaskList:
         tl = self._load_required(account_name, tasklist_key)
         tl.update_task(task_id, **changes)
-        self.store.save_tasklist(account_name, tasklist_key, tl)
+        if not validate_only:
+            self.store.save_tasklist(account_name, tasklist_key, tl)
         return tl
 
-    def remove_task(self, account_name: str, tasklist_key: str, task_id: str) -> TaskList:
+    def remove_task(
+        self,
+        account_name: str,
+        tasklist_key: str,
+        task_id: str,
+        *,
+        validate_only: bool = False,
+    ) -> TaskList:
         tl = self._load_required(account_name, tasklist_key)
         tl.remove_task(task_id)
-        self.store.save_tasklist(account_name, tasklist_key, tl)
+        if not validate_only:
+            self.store.save_tasklist(account_name, tasklist_key, tl)
         return tl
 
-    def set_state(self, account_name: str, tasklist_key: str, state: str) -> TaskList:
+    def set_state(
+        self,
+        account_name: str,
+        tasklist_key: str,
+        state: str,
+        *,
+        validate_only: bool = False,
+    ) -> TaskList:
         tl = self._load_required(account_name, tasklist_key)
         tl.state = str(state)
-        self.store.save_tasklist(account_name, tasklist_key, tl)
+        if not validate_only:
+            self.store.save_tasklist(account_name, tasklist_key, tl)
         return tl
 
-    def set_name(self, account_name: str, tasklist_key: str, name: str) -> TaskList:
+    def set_name(
+        self,
+        account_name: str,
+        tasklist_key: str,
+        name: str,
+        *,
+        validate_only: bool = False,
+    ) -> TaskList:
         tl = self._load_required(account_name, tasklist_key)
         tl.name = str(name)
-        self.store.save_tasklist(account_name, tasklist_key, tl)
+        if not validate_only:
+            self.store.save_tasklist(account_name, tasklist_key, tl)
         return tl
 
-    def set_description(self, account_name: str, tasklist_key: str, description: str) -> TaskList:
+    def set_description(
+        self,
+        account_name: str,
+        tasklist_key: str,
+        description: str,
+        *,
+        validate_only: bool = False,
+    ) -> TaskList:
         tl = self._load_required(account_name, tasklist_key)
         tl.description = str(description)
-        self.store.save_tasklist(account_name, tasklist_key, tl)
+        if not validate_only:
+            self.store.save_tasklist(account_name, tasklist_key, tl)
         return tl
 
     def set_general_instructions(
-        self, account_name: str, tasklist_key: str, instructions: str
+        self,
+        account_name: str,
+        tasklist_key: str,
+        instructions: str,
+        *,
+        validate_only: bool = False,
     ) -> TaskList:
         tl = self._load_required(account_name, tasklist_key)
         tl.general_instructions = str(instructions)
-        self.store.save_tasklist(account_name, tasklist_key, tl)
+        if not validate_only:
+            self.store.save_tasklist(account_name, tasklist_key, tl)
         return tl
 
     def update_meta(
-        self, account_name: str, tasklist_key: str, meta: Dict[str, Any]
+        self,
+        account_name: str,
+        tasklist_key: str,
+        meta: Dict[str, Any],
+        *,
+        validate_only: bool = False,
     ) -> TaskList:
         tl = self._load_required(account_name, tasklist_key)
         if not isinstance(meta, dict):
             raise TypeError("meta must be a dict")
         tl.meta.update(meta)
-        self.store.save_tasklist(account_name, tasklist_key, tl)
+        if not validate_only:
+            self.store.save_tasklist(account_name, tasklist_key, tl)
         return tl
 
     def _load_required(self, account_name: str, tasklist_key: str) -> TaskList:
