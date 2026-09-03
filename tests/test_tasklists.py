@@ -217,7 +217,7 @@ def test_tasklist_service_reset_clears_execution_state(fake_tasklist_store):
     assert tl.current_task_id is None
     task = tl.tasks[0]
     assert task.state == TASK_STATE_PENDING
-    assert task.result is None
+    assert task.result == {"ok": True}
     assert task.error is None
     assert task.meta == {"priority": "high"}
     assert task.position == 0
@@ -271,7 +271,7 @@ def test_task_run_metrics_persist():
     assert legacy_loaded.run_metrics is None
 
 
-def test_task_reset_clears_run_metrics(fake_tasklist_store):
+def test_task_reset_leaves_result_and_run_metrics_for_adoption(fake_tasklist_store):
     svc = TaskListService(fake_tasklist_store)
     tl = TaskList(
         id="reset-metrics-tl",
@@ -294,9 +294,9 @@ def test_task_reset_clears_run_metrics(fake_tasklist_store):
     svc.reset(tl)
     task = tl.tasks[0]
     assert task.state == TASK_STATE_PENDING
-    assert task.result is None
+    assert task.result == {"ok": True}
     assert task.error is None
-    assert task.run_metrics is None
+    assert task.run_metrics == {"iterations": 5, "failures": 1}
 
 def test_tasklist_round_trip_omits_run_metrics_and_result():
     metrics = {"iterations": 40, "openai_calls": 40}
