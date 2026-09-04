@@ -43,4 +43,4 @@ coverage==7.14.0
 # Galet (separate repo)
 # galet is a separate public repo: https://github.com/junwin/galet.git
 # It is a provider-agnostic LLM/embedding/image-generation stack extracted from Lucy.
--e git+https://github.com/junwin/galet.git#egg=galet
+-e git+https://github.com/junwin/galet.git@release/0.1.1#egg=galet
