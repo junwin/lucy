@@ -385,5 +385,32 @@
     "provider": "gemini",
     "use_embeddings": false,
     "default_context": "skinny"
+  },
+  {
+    "name": "mcp",
+    "language_code": "en-US",
+    "context_type": "hybrid",
+    "max_prompt_conversations": 1,
+    "max_prompt_documents": 0,
+    "temperature": 0,
+    "save_responses": false,
+    "model": "gpt-5.1",
+    "message_processor": "function_calling_processor",
+    "max_function_call_iterations": 1,
+    "partner_agent": null,
+    "system_prompt": "MCP facade agent (issue #157): never used for chat. Its allowed_tools define the externally exposed HandlerRegistry surface served by the loopback MCP server (docs/design/mcp-handlerregistry.md).",
+    "style_prompt": "",
+    "persona": "MCP facade agent (issue #157)",
+    "allowed_tools": [
+      "get_keywords",
+      "web_search_handler",
+      "scrape_web_page",
+      "file_load",
+      "generate_svg",
+      "generate_image"
+    ],
+    "provider": null,
+    "use_embeddings": false,
+    "default_context": null
   }
 ]

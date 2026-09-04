@@ -166,7 +166,8 @@ No new abstraction layer is invented; composition over duplication.
 ```
 
 - `enabled: false` default — opt-in only, and the branch keeps it off until the
-  smoke test passes.
+  smoke test passes. The block ships in `config.json` (2026-09-04) with
+  `enabled: false`; the `mcp` agent entry is in `static/data/agents.json`.
 - `agent` / `account` fix the scope; the server refuses to start if the agent is
   missing or has no `allowed_tools`.
 
@@ -177,13 +178,31 @@ delegation, no chat-mutation tools first:
 ```
 mcp: allowed_tools = [
   "get_keywords",
-  "web_search",
+  "web_search_handler",
   "scrape_web_page",
   "file_load",
   "generate_svg",
   "generate_image"
 ]
 ```
+
+Implementation note (2026-09-04): `allowed_tools` entries must match `HandlerV2.name()`
+exactly; WebSearchHandler2 registers as `web_search_handler`, not `web_search`, so the
+agents.json entry uses the real name (`web_search` would be a silent no-op).
+
+file_load verification (2026-09-04): **kept** in the allowlist. Code review plus
+live probes under the current Lucy path-resolution rules (merged config on the Pi:
+storage base = `storage_root_path`/`storage_namespace` = `/home/junwin/lucy_storage/data`;
+external base = the configured `external_roots` map keys only). Enforced and verified:
+relative paths only (absolute paths and drive-letter paths rejected); `..` segments
+rejected after normpath (any surviving `..` -> error, so in-base collapses like
+`data/../contexts/...` stay in-base while `../../etc` is refused); `location` enum
+`storage`/`external` only; `external_root` must be an allow-listed config key (empty or
+unknown -> error); realpath containment rejects symlink escapes (probe: in-root symlink
+to `/etc/hostname` -> "File access outside allowed base path"); open is read-only
+(`"r"`). Exposure is therefore bounded to the operator-configured named roots, plus the
+loopback-only + `enabled:false` defaults in the Config section. No drop needed, so no
+change to the allowlist on #157.
 
 Selection is a proposal for review, not a code constraint: eligibility comes from
 `allowed_tools`, so widening later is a config edit. Excluded for now:
@@ -220,7 +239,7 @@ All pure/offline; no live connection.
 | `test_tool_adapter_duplicate_defs` | Duplicate names cannot surface (registry `register` raises); adapter is idempotent over the registry list. |
 | `test_mcp_eligibility` | `tools/list` content == `eligible_tool_defs(mcp_agent, context)`; missing/empty `allowed_tools` ⇒ empty list. |
 | `test_mcp_call_argument_passing` | Arguments dict reaches a fake handler's `execute()` unchanged. |
-| `test_mcp_call_result_mapping` | Handler dict result → MCP text content; too-large result → capped error. |
+| `test_mcp_call_result_mapping` | Handler dict result → MCP text content; too-large result → capped error text content (`isError` False — `ToolExecutor` converts `ToolResultTooLargeError` into an error-text result, FCP parity; only execution failures map to `isError`, see `tool_adapter`). |
 | `test_mcp_call_error_mapping` | Handler exception → MCP `isError` result, not a transport failure. |
 | `test_mcp_config` | Config block parse; missing agent / empty allowlist ⇒ startup refusal. |
 
@@ -236,6 +255,49 @@ agent allowlist, audit log), and a minimal Python MCP client example (connect,
 3. Smoke test: start server locally, list tools, call one safe tool.
 4. Docs + final review; commit on a feature branch from `develop` and open a PR
    back to `develop` (no merge), with permission.
+
+
+## Smoke test record (2026-09-04, issue #157 checklist item 7)
+
+Test suite (repo root, branch `experiment/mcp-handlerregistry`, worktree state --
+nothing committed yet):
+
+- `.venv/bin/python -m pytest tests/test_mcp_server.py tests/test_tool_adapter.py -v`
+  -> **22 passed** (20 `test_mcp_*` + 2 `test_tool_adapter_*`).
+- Full suite `.venv/bin/python -m pytest tests -q` -> **exit 0, no failures/errors**.
+
+Manual local smoke test (real server + official MCP SDK 2.1.1 client over streamable HTTP):
+
+- The shipped config block stays `enabled: false`; the run opted in via a
+  throwaway `mcp` override in the untracked `config.local.json` (deep-merged by
+  `ConfigManager`), removed again immediately after the run.
+- Port: the default `8765` is occupied on the dev Pi by an unrelated uvicorn (as
+  the Config notes warn), so the override bound `127.0.0.1:8877`.
+- Start: `.venv/bin/python -m src.mcp.server` logged
+  `mcp_server_start agent=mcp account=junwin context=lucyproject tools=6
+  transport=streamable-http bind=127.0.0.1:8877`, one `mcp_server_tool` line per
+  exposed tool (file_load, generate_image, generate_svg, get_keywords,
+  scrape_web_page, web_search_handler), then
+  `mcp_server_serving url=http://127.0.0.1:8877/mcp agent=mcp`.
+- Client: initialize OK (server `lucy` v0.1.0); `tools/list` returned exactly 6
+  tools == the `mcp` agent's `allowed_tools` (no context narrowing: the
+  lucyproject context file carries no `allowed_tools`).
+- `tools/call` of one safe tool: `file_load` with `{"location": "storage",
+  "external_root": "", "path": "contexts/junwin/skinny.md"}` ->
+  `isError=false`, one text content block (552 chars), result begins
+  `{"ok": true, "tool": "file_load", ...}`.
+- Per-call audit lines observed (FCP conventions, correlation id per call):
+  `tool_execute_start correlation_id=321eaa13-9fd6-4fba-b03a-62239d48bef8
+  tool=file_load call_id=3 account=junwin` and the matching `tool_execute_done`
+  line with the result preview.
+- Server stopped after the run; the `config.local.json` override was removed;
+  `config.json` still ships `enabled: false`; no process left listening.
+
+No server-side defects found. (Two early client attempts hit snake_case attribute
+names in the throwaway script itself -- `server_info` vs `serverInfo`,
+`input_schema` vs `inputSchema` -- fixed in the script; no source change needed.)
+Implementation order step 3 and issue checklist item 7 are therefore complete;
+step 4 (docs + final review, then the normal git workflow with permission) remains.
 
 ## Review checklist
 - [x] Registry-as-boundary decision accepted (Q1)

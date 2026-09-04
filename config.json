@@ -42,5 +42,14 @@
   },
   "tasklists": {
     "run_ttl_days": 2
+  },
+  "mcp": {
+    "enabled": false,
+    "agent": "mcp",
+    "account": "junwin",
+    "context_name": "lucyproject",
+    "transport": "streamable-http",
+    "host": "127.0.0.1",
+    "port": 8765
   }
 }

@@ -40,6 +40,11 @@ pytest==9.0.2
 pytest-cov==7.1.0
 coverage==7.14.0
 
+# MCP server (issue #157, docs/design/mcp-handlerregistry.md)
+# Official MCP Python SDK; pinned per design doc Risks (SDK churn stays in
+# src/mcp/server.py). HTTP extras (uvicorn/starlette) come in transitively.
+mcp==2.1.1
+
 # Galet (separate repo)
 # galet is a separate public repo: https://github.com/junwin/galet.git
 # It is a provider-agnostic LLM/embedding/image-generation stack extracted from Lucy.
