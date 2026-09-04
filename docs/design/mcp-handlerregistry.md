@@ -1,7 +1,9 @@
 # MCP / ChatGPT façade over HandlerRegistry
 
 ## Status
-Draft — for review. Linked to issue #157 (open), branch `experiment/mcp-handlerregistry`.
+Approved 2026-09-04 — reviewed on issue #157 (junwin). Linked to issue #157,
+branch `experiment/mcp-handlerregistry`. Implementation tracked as a persisted
+tasklist derived from the checklist on #157.
 
 
 ## Goal
@@ -232,16 +234,18 @@ agent allowlist, audit log), and a minimal Python MCP client example (connect,
 1. `tool_adapter.py` + mapping tests (pure, no server).
 2. `server.py` using `ToolExecutor`; config block + `mcp` agent entry.
 3. Smoke test: start server locally, list tools, call one safe tool.
-4. Docs + final review; commit on `experiment/mcp-handlerregistry` only with
-   permission.
+4. Docs + final review; commit on a feature branch from `develop` and open a PR
+   back to `develop` (no merge), with permission.
 
 ## Review checklist
-- [ ] Registry-as-boundary decision accepted (Q1)
-- [ ] Single-source `tool_def()` + translator accepted, no canonical schema (Q2)
-- [ ] Scope model accepted: fixed account/agent/context, session-derived
+- [x] Registry-as-boundary decision accepted (Q1)
+- [x] Single-source `tool_def()` + translator accepted, no canonical schema (Q2)
+- [x] Scope model accepted: fixed account/agent/context, session-derived
       conversation_id, reuse `ToolExecutor` (Q3)
-- [ ] Dedicated `mcp` agent + fail-closed allowlist accepted (Q4)
-- [ ] Two-file + config scope accepted as smallest implementation (Q5)
-- [ ] Initial `mcp` agent allowlist agreed
-- [ ] `mcp` SDK dependency approved
-- [ ] Test list agreed
+- [x] Dedicated `mcp` agent + fail-closed allowlist accepted (Q4)
+- [x] Two-file + config scope accepted as smallest implementation (Q5)
+- [x] Initial `mcp` agent allowlist agreed — conditional on `file_load`
+      path/root restrictions being verified tight under current Lucy
+      path-resolution rules (see #157 review)
+- [x] `mcp` SDK dependency approved
+- [x] Test list agreed
