@@ -105,6 +105,10 @@ class TasklistsManageHandler(HandlerV2):
                         "type": "string",
                         "description": "Task worker agent.",
                     },
+                    "task_context": {
+                        "type": "string",
+                        "description": "Per-task context/project scope (add_task/update_task).",
+                    },
                     "task_meta": {
                         "type": "object",
                         "description": "Task meta; merged on update.",
@@ -445,6 +449,7 @@ class TasklistsManageHandler(HandlerV2):
                 task_instructions=args.get("task_instructions", ""),
                 task_state=args.get("task_state"),
                 task_agent=args.get("task_agent"),
+                task_context=args.get("task_context"),
                 task_meta=args.get("task_meta"),
                 task_position=args.get("task_position"),
                 task_parent_id=args.get("task_parent_id"),
@@ -491,6 +496,8 @@ class TasklistsManageHandler(HandlerV2):
             changes["meta"] = args["task_meta"]
         if "task_agent" in args:
             changes["agent"] = args["task_agent"]
+        if "task_context" in args:
+            changes["context"] = args["task_context"]
         if "task_position" in args:
             changes["position"] = args["task_position"]
         if "task_parent_id" in args:

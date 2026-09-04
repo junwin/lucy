@@ -1321,3 +1321,89 @@ def test_get_result_missing_params(tmp_path):
     assert r2.get("tasklist_key") == "tl-gr-missing"
     assert r2.get("error", {}).get("code") == "missing_fields"
     assert "task_id" in r2.get("error", {}).get("message", "")
+
+
+def test_tool_def_includes_task_context_property(tmp_path):
+    td = TasklistsManageHandler.tool_def()
+    properties = td["parameters"]["properties"]
+    assert "task_context" in properties
+    assert properties["task_context"]["type"] == "string"
+
+
+def test_add_task_with_task_context(tmp_path):
+    cfg = SimpleConfig(str(tmp_path), "ns")
+    h = TasklistsManageHandler(cfg)
+    _create_tl(h, "alice", "tl-add-ctx")
+
+    r = h.execute(
+        {
+            "action": "add_task",
+            "tasklist_key": "tl-add-ctx",
+            "task_id": "t1",
+            "task_name": "Task 1",
+            "task_instructions": "do step 1",
+            "task_context": "proj_x",
+            "validate_only": False,
+        },
+        account_name="alice",
+    )
+    assert r.get("ok") is True
+    tl = r.get("tasklist")
+    assert tl["tasks"][0]["context"] == "proj_x"
+
+
+def test_update_task_with_task_context(tmp_path):
+    cfg = SimpleConfig(str(tmp_path), "ns")
+    h = TasklistsManageHandler(cfg)
+    _create_tl(h, "alice", "tl-upd-ctx", tasks=[
+        {"id": "t1", "name": "T1", "instructions": "do 1"},
+    ])
+
+    r = h.execute(
+        {
+            "action": "update_task",
+            "tasklist_key": "tl-upd-ctx",
+            "task_id": "t1",
+            "task_context": "proj_y",
+            "validate_only": False,
+        },
+        account_name="alice",
+    )
+    assert r.get("ok") is True
+    tl = r.get("tasklist")
+    assert tl["tasks"][0]["context"] == "proj_y"
+
+
+def test_update_task_task_context_none_clears(tmp_path):
+    cfg = SimpleConfig(str(tmp_path), "ns")
+    h = TasklistsManageHandler(cfg)
+    _create_tl(h, "alice", "tl-upd-ctx-none")
+
+    r_add = h.execute(
+        {
+            "action": "add_task",
+            "tasklist_key": "tl-upd-ctx-none",
+            "task_id": "t1",
+            "task_name": "T1",
+            "task_instructions": "do 1",
+            "task_context": "proj_x",
+            "validate_only": False,
+        },
+        account_name="alice",
+    )
+    assert r_add.get("ok") is True
+    assert r_add["tasklist"]["tasks"][0]["context"] == "proj_x"
+
+    r = h.execute(
+        {
+            "action": "update_task",
+            "tasklist_key": "tl-upd-ctx-none",
+            "task_id": "t1",
+            "task_context": None,
+            "validate_only": False,
+        },
+        account_name="alice",
+    )
+    assert r.get("ok") is True
+    tl = r.get("tasklist")
+    assert "context" not in tl["tasks"][0]

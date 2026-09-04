@@ -107,6 +107,31 @@ def test_update_task_partial_update_leaves_other_fields():
     assert t.meta == {"k": "v"}
 
 
+def test_update_task_sets_context():
+    tl = _make_list()
+    tl.add_task(_make_task("t1"))
+    tl.update_task("t1", context="some_ctx")
+    assert tl.get_task("t1").context == "some_ctx"
+
+
+def test_update_task_clears_context_with_none():
+    tl = _make_list()
+    tl.add_task(Task(id="t1", name="T", instructions="do it", context="some_ctx"))
+    assert tl.get_task("t1").context == "some_ctx"
+    tl.update_task("t1", context=None)
+    assert tl.get_task("t1").context is None
+
+
+def test_update_task_accepts_context_field():
+    tl = _make_list()
+    tl.add_task(_make_task("t1"))
+    tl.update_task("t1", context="some_ctx", name="B", agent="worker")
+    t = tl.get_task("t1")
+    assert t.context == "some_ctx"
+    assert t.name == "B"
+    assert t.agent == "worker"
+
+
 def test_update_task_merges_meta():
     tl = _make_list()
     tl.add_task(Task(id="t1", name="T", instructions="do it", meta={"a": 1, "b": 2}))
@@ -125,8 +150,6 @@ def test_update_task_rejects_result_field():
 def test_update_task_rejects_unknown_fields():
     tl = _make_list()
     tl.add_task(_make_task("t1"))
-    with pytest.raises(ValueError, match="cannot update task field"):
-        tl.update_task("t1", context="junwin")
     with pytest.raises(ValueError, match="cannot update task field"):
         tl.update_task("t1", run_metrics={"x": 1})
     with pytest.raises(ValueError, match="cannot update task field"):

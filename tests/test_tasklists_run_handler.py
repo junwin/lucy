@@ -154,7 +154,6 @@ class TestTasklistsRunHandler:
         assert result["mode"] == "single-step"
         assert "completed" in result["result"]
 
-        # Verify the automation processor was called with correct params
         assert len(fake_ap.calls) == 1
         call_kwargs = fake_ap.calls[0]
         assert call_kwargs["tasklist_id"] == "tl1"
@@ -166,7 +165,6 @@ class TestTasklistsRunHandler:
         """When both automation_processor and processor_factory are missing, returns error."""
         handler = TasklistsRunHandler(SimpleConfig())
         ctx = make_context(automation_processor=None)
-        # Remove processor_factory too (it's not in make_context by default)
 
         result = handler.execute(
             {"tasklist_id": "tl1", "mode": "single-step"},
@@ -193,7 +191,6 @@ class TestTasklistsRunHandler:
         assert result["mode"] == "single-step"
         assert "completed" in result["result"]
 
-        # Verify the automation processor was called with correct params
         assert len(fake_ap.calls) == 1
         call_kwargs = fake_ap.calls[0]
         assert call_kwargs["tasklist_id"] == "tl1"
@@ -267,10 +264,6 @@ class TestTasklistsRunHandler:
         assert result["ok"] is True
         assert fake_ap.calls[0]["agent_name"] == "lucy"
 
-    # ------------------------------------------------------------------
-    # worker_agent delegation tests
-    # ------------------------------------------------------------------
-
     def test_worker_agent_passed_through_to_execute_tasklist(self):
         """worker_agent string is passed to execute_tasklist() when provided."""
         fake_ap = FakeAutomationProcessor(result="[AutomationProcessor] mode=single-step state=completed task='T1' executed=1")
@@ -285,7 +278,6 @@ class TestTasklistsRunHandler:
         assert result["ok"] is True
         assert result.get("worker_agent") == "colin"
 
-        # Verify execute_tasklist was called with worker_agent
         assert len(fake_ap.calls) == 1
         assert fake_ap.calls[0]["worker_agent"] == "colin"
 
@@ -303,7 +295,6 @@ class TestTasklistsRunHandler:
         assert result["ok"] is True
         assert result.get("worker_agent") is None
 
-        # Verify execute_tasklist was called with worker_agent=None
         assert len(fake_ap.calls) == 1
         assert fake_ap.calls[0]["worker_agent"] is None
 
@@ -366,3 +357,42 @@ class TestTasklistsRunHandler:
         )
         assert result["ok"] is True
         assert fake_ap.calls[0]["context_name"] == ""
+
+    def test_present_secondary_agent_default_context_not_used_as_context_name(self):
+        """A present secondary_agent_default_context must not become the run-level context_name."""
+        fake_ap = FakeAutomationProcessor()
+        handler = TasklistsRunHandler(SimpleConfig())
+        ctx = make_context(
+            automation_processor=fake_ap,
+            secondary_agent="star",
+            secondary_agent_default_context="star-default",
+        )
+
+        result = handler.execute(
+            {"tasklist_id": "tl1", "mode": "single-step"},
+            account_name="alice",
+            **ctx,
+        )
+        assert result["ok"] is True
+        assert fake_ap.calls[0]["context_name"] == ""
+
+    def test_secondary_agent_and_worker_agent_forwarded_unchanged(self):
+        """secondary_agent and worker_agent pass through unchanged when a partner default context exists."""
+        fake_ap = FakeAutomationProcessor()
+        handler = TasklistsRunHandler(SimpleConfig())
+        ctx = make_context(
+            automation_processor=fake_ap,
+            secondary_agent="star",
+            secondary_agent_default_context="star-default",
+        )
+
+        result = handler.execute(
+            {"tasklist_id": "tl1", "mode": "single-step", "worker_agent": "colin"},
+            account_name="alice",
+            **ctx,
+        )
+        assert result["ok"] is True
+        call_kwargs = fake_ap.calls[0]
+        assert call_kwargs["context_name"] == ""
+        assert call_kwargs["secondary_agent"] == "star"
+        assert call_kwargs["worker_agent"] == "colin"
