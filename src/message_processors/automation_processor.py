@@ -339,50 +339,80 @@ class AutomationProcessor(MessageProcessorInterface):
         task: Task,
         primary_agent: Agent,
         agent_name: str,
+        secondary_agent: Optional[Agent] = None,
     ) -> Agent:
         """Resolve the agent to use for executing a task.
 
-        If the task has an agent field set and it differs from the calling agent,
-        look up the worker agent via AgentManager. Otherwise fall back to primary_agent.
+        task.agent set and differing from the caller must resolve via AgentManager
+        or ValueError is raised. task.agent matching the caller uses the caller.
+        task.agent unset uses the caller's partner (secondary_agent, else the
+        caller's configured partner_agent) when available, else the caller.
 
         Returns the resolved Agent to use for this task.
         """
         task_agent_name = (task.agent or "").strip().lower()
-        if not task_agent_name or task_agent_name == agent_name:
-            logger.info(
-                "AutomationProcessor: task '%s' agent=%s (same as caller=%s), using primary agent",
-                task.name,
-                task_agent_name or "(none)",
-                agent_name,
-            )
-            return primary_agent
+        caller_name = (agent_name or "").strip().lower()
 
-        # Task specifies a different agent — resolve it.
-        logger.info(
-            "AutomationProcessor: task '%s' requested agent=%s, caller=%s — resolving worker agent",
-            task.name,
-            task_agent_name,
-            agent_name,
-        )
-
-        if self.agent_manager is not None:
-            worker = self.agent_manager.get_agent(task_agent_name)
-            if worker is not None:
+        if task_agent_name:
+            if task_agent_name == caller_name:
                 logger.info(
-                    "AutomationProcessor: resolved worker agent '%s' for task '%s'",
-                    task_agent_name,
+                    "AutomationProcessor: task '%s' agent=%s (same as caller=%s), using primary agent",
                     task.name,
+                    task_agent_name,
+                    caller_name,
                 )
-                return worker
-            else:
+                return primary_agent
+
+            logger.info(
+                "AutomationProcessor: task '%s' requested agent=%s, caller=%s — resolving worker agent",
+                task.name,
+                task_agent_name,
+                caller_name,
+            )
+
+            if self.agent_manager is not None:
+                worker = self.agent_manager.get_agent(task_agent_name)
+                if worker is not None:
+                    logger.info(
+                        "AutomationProcessor: resolved worker agent '%s' for task '%s'",
+                        task_agent_name,
+                        task.name,
+                    )
+                    return worker
+
+            raise ValueError(
+                f"task agent '{task_agent_name}' not found (task '{task.name}')"
+            )
+
+        partner: Optional[Agent] = None
+        if secondary_agent is not None:
+            partner = secondary_agent
+        else:
+            partner_name = (
+                getattr(primary_agent, "partner_agent", None) or ""
+            ).strip().lower()
+            if partner_name and self.agent_manager is not None:
+                partner = self.agent_manager.get_agent(partner_name)
+            if partner_name and partner is None:
                 logger.warning(
-                    "AutomationProcessor: agent '%s' not found in AgentManager for task '%s', falling back to %s",
-                    task_agent_name,
-                    task.name,
-                    agent_name,
+                    "AutomationProcessor: partner agent '%s' of caller '%s' not resolvable; treating as no partner",
+                    partner_name,
+                    caller_name,
                 )
 
-        # Fallback: if AgentManager is unavailable or agent not found, use primary_agent
+        if partner is not None:
+            logger.info(
+                "AutomationProcessor: task '%s' agent unset; using partner agent '%s'",
+                task.name,
+                (getattr(partner, "name", "") or "").lower().strip(),
+            )
+            return partner
+
+        logger.info(
+            "AutomationProcessor: task '%s' agent=%s (none, no partner), using primary agent",
+            task.name,
+            "(none)",
+        )
         return primary_agent
 
     # ------------------------------------------------------------------
@@ -412,8 +442,11 @@ class AutomationProcessor(MessageProcessorInterface):
         JSON command parsing.
 
         If worker_agent is provided, the named agent is resolved via AgentManager
-        and used for ALL tasks (per-task _resolve_task_agent is skipped). When not
-        provided, existing per-task resolution behavior is unchanged.
+        and used for ALL tasks (per-task _resolve_task_agent is skipped); an
+        unknown worker agent raises ValueError. Otherwise per-task resolution
+        applies: task.agent wins over the caller's partner, unknown task agents
+        raise ValueError, and each task uses an effective context (run-level
+        override > task.context > resolved agent default_context).
 
         Returns a human-readable result string.
         Raises ValueError if the tasklist is not found in storage.
@@ -437,26 +470,15 @@ class AutomationProcessor(MessageProcessorInterface):
             worker_name = worker_agent.strip().lower()
             if self.agent_manager is not None:
                 resolved_worker = self.agent_manager.get_agent(worker_name)
-                if resolved_worker is not None:
-                    resolved_worker_name = (
-                        getattr(resolved_worker, "name", "") or ""
-                    ).lower().strip()
-                    logger.info(
-                        "execute_tasklist: using worker agent '%s' for all tasks",
-                        resolved_worker_name,
-                    )
-                else:
-                    logger.warning(
-                        "execute_tasklist: worker agent '%s' not found in AgentManager, "
-                        "falling back to per-task resolution",
-                        worker_name,
-                    )
-            else:
-                logger.warning(
-                    "execute_tasklist: agent_manager not available, "
-                    "cannot resolve worker agent '%s'",
-                    worker_name,
-                )
+            if resolved_worker is None:
+                raise ValueError(f"worker agent '{worker_name}' not found")
+            resolved_worker_name = (
+                getattr(resolved_worker, "name", "") or ""
+            ).lower().strip()
+            logger.info(
+                "execute_tasklist: using worker agent '%s' for all tasks",
+                resolved_worker_name,
+            )
 
         # Resolve tasklist: tasklist_id may be either a storage key (friendly name)
         # or a UUID (the tasklist's id field). Try direct key lookup first, then
@@ -561,14 +583,28 @@ class AutomationProcessor(MessageProcessorInterface):
                 task_agent = resolved_worker
                 task_agent_name = resolved_worker_name or agent_name
             else:
-                task_agent = self._resolve_task_agent(task, primary_agent, agent_name)
+                task_agent = self._resolve_task_agent(
+                    task,
+                    primary_agent,
+                    agent_name,
+                    secondary_agent=secondary_agent,
+                )
                 task_agent_name = (getattr(task_agent, "name", "") or "").lower().strip()
 
+            effective_context = context_name
+            if not effective_context:
+                effective_context = (task.context or "").strip()
+            if not effective_context:
+                effective_context = (
+                    getattr(task_agent, "default_context", None) or ""
+                ).strip()
+
             logger.info(
-                "AutomationProcessor executing task id=%s name=%s task_agent=%s (caller=%s)",
+                "AutomationProcessor executing task id=%s name=%s task_agent=%s effective_context=%s (caller=%s)",
                 task.id,
                 last_task_name,
                 task_agent_name,
+                effective_context or "(none)",
                 agent_name,
             )
 
@@ -673,7 +709,7 @@ class AutomationProcessor(MessageProcessorInterface):
                             account=account,
                             message=task_message,
                             conversation_id=conversation_id,
-                            context_name=context_name,
+                            context_name=effective_context,
                             secondary_agent=secondary_agent,
                             processor_factory=processor_factory,
                             image_ids=image_ids,

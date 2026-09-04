@@ -240,6 +240,23 @@ def test_add_task_duplicate_id_raises_and_does_not_persist(fake_tasklist_store):
     assert loaded.tasks[0].name == "One"
 
 
+def test_add_task_with_task_context_sets_and_persists_context(fake_tasklist_store):
+    svc = _seed(fake_tasklist_store)
+    tl = svc.add_task(
+        "alice", "tl1", task_id="t3", task_name="Three", task_instructions="i3", task_context="proj_x"
+    )
+    assert tl.get_task("t3").context == "proj_x"
+    loaded = _reload(fake_tasklist_store)
+    assert loaded.get_task("t3").context == "proj_x"
+
+
+def test_add_task_without_task_context_leaves_context_none(fake_tasklist_store):
+    svc = _seed(fake_tasklist_store)
+    svc.add_task("alice", "tl1", task_id="t3", task_name="Three", task_instructions="i3")
+    loaded = _reload(fake_tasklist_store)
+    assert loaded.get_task("t3").context is None
+
+
 def test_update_task_merges_whitelisted_fields_and_persists(fake_tasklist_store):
     svc = _seed(fake_tasklist_store)
     tl = svc.update_task(
@@ -288,6 +305,24 @@ def test_update_task_partial_change_leaves_other_fields(fake_tasklist_store):
     assert t.name == "OnlyName"
     assert t.instructions == "i1"
     assert t.state == TASK_STATE_PENDING
+
+
+def test_update_task_context_persists(fake_tasklist_store):
+    svc = _seed(fake_tasklist_store)
+    tl = svc.update_task("alice", "tl1", "t1", context="proj_y")
+    assert tl.get_task("t1").context == "proj_y"
+    loaded = _reload(fake_tasklist_store)
+    assert loaded.get_task("t1").context == "proj_y"
+
+
+def test_update_task_context_none_clears_persisted_context(fake_tasklist_store):
+    svc = _seed(fake_tasklist_store)
+    svc.add_task(
+        "alice", "tl1", task_id="t3", task_name="Three", task_instructions="i3", task_context="proj_x"
+    )
+    svc.update_task("alice", "tl1", "t3", context=None)
+    loaded = _reload(fake_tasklist_store)
+    assert loaded.get_task("t3").context is None
 
 
 def test_update_task_rejects_result_field_and_does_not_persist(fake_tasklist_store):

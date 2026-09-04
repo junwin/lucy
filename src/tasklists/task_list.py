@@ -18,6 +18,7 @@ _TASK_UPDATABLE_FIELDS = frozenset(
         "error",
         "meta",
         "agent",
+        "context",
         "position",
         "parent_id",
         "files",
@@ -151,6 +152,8 @@ class TaskList:
             t.meta.update(changes["meta"])
         if "agent" in changes:
             t.agent = changes["agent"]
+        if "context" in changes:
+            t.context = changes["context"]
         if "position" in changes:
             t.position = changes["position"]
         if "parent_id" in changes:

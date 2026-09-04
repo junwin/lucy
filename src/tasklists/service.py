@@ -113,6 +113,7 @@ class TaskListService(TasklistManager):
         task_position: Optional[int] = None,
         task_parent_id: Optional[str] = None,
         task_files: Optional[List[str]] = None,
+        task_context: Optional[str] = None,
         after_index: Optional[int] = None,
         validate_only: bool = False,
     ) -> TaskList:
@@ -127,6 +128,7 @@ class TaskListService(TasklistManager):
             position=task_position,
             parent_id=task_parent_id,
             files=task_files,
+            context=task_context,
         )
         tl.add_task(task, after_index=after_index)
         if not validate_only:

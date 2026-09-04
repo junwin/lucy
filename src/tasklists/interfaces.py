@@ -66,6 +66,7 @@ class TasklistManager(ABC):
         task_position: Optional[int] = None,
         task_parent_id: Optional[str] = None,
         task_files: Optional[List[str]] = None,
+        task_context: Optional[str] = None,
         after_index: Optional[int] = None,
         validate_only: bool = False,
     ) -> TaskList:
