@@ -14,8 +14,8 @@ httpx==0.28.1
 requests==2.32.5
 
 # Data / validation
-pydantic==2.9.0
-pydantic_core==2.23.2
+pydantic==2.12.5
+pydantic_core==2.41.5
 
 # NLP
 spacy==3.8.11
