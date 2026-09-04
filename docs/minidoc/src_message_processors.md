@@ -1,172 +1,121 @@
-# Documentation for `src/message_processors`
-
-## YAML Front Matter
-```yaml
+```markdown
+---
 tags:
-  - src_message_processors
+  - message_processors
   - lucyproject
   - AutomationProcessor
   - FunctionCallingProcessor
   - Chat2Recorder
   - ToolExecutor
+  - LLMLoopRunner
+  - ProcessorContext
   - ToolResultTooLargeError
   - ToolHandlerError
-```
-
-## 1. Summary
-The `src/message_processors` module is responsible for processing messages in a conversational AI system, particularly focusing on executing tasks and managing interactions with various tools. It serves as a bridge between user commands and the underlying task execution logic, allowing for dynamic tool selection and execution based on user input. This module fits into the overall architecture by facilitating the interaction between agents and tools, ensuring that user requests are handled efficiently and effectively.
-
-The primary problem it solves is the orchestration of task execution in response to user commands, enabling a seamless interaction experience. It manages the complexities of tool selection, execution, and error handling, ensuring that the system can respond to user requests in a robust manner.
-
-## 2. Architecture & Design
-The module employs several key design patterns:
-
-- **Dependency Injection**: Utilizes the `injector` library to manage dependencies, allowing for flexible and testable code.
-- **Command Pattern**: The `FunctionCallingProcessor` and `AutomationProcessor` classes encapsulate command execution logic, allowing for easy extension and modification of command handling.
-- **Observer Pattern**: The use of events (e.g., `SSEEvent`) allows different parts of the system to react to changes in state or actions taken, promoting loose coupling.
-
-### Class Relationships
-- `FunctionCallingProcessor` and `AutomationProcessor` both implement the `MessageProcessorInterface`, ensuring they adhere to a common interface for processing messages.
-- The `ToolExecutor` class is responsible for executing tool calls, while `Chat2Recorder` handles logging events to a chat storage system.
-- The `LLMLoopRunner` orchestrates the execution of tasks in a loop, managing the interaction with the LLM (Language Model).
-
-### Legacy/V2 Split
-There is no explicit legacy or v2 split mentioned in the code, but the use of dependency injection and modular design suggests a focus on maintainability and future extensibility.
-
-### Important Design Decisions
-- The decision to use JSON for command parsing and event handling allows for a flexible and easily extensible communication format.
-- The use of context variables for correlation IDs in logging ensures that all logs related to a specific request can be traced easily.
-
-## 3. Key Classes
-| Class                        | Base/Parent                     | Purpose                                                                 |
-|------------------------------|----------------------------------|-------------------------------------------------------------------------|
-| `FunctionCallingProcessor`    | `MessageProcessorInterface`      | Processes messages and manages function calling logic.                  |
-| `AutomationProcessor`         | `MessageProcessorInterface`      | Manages the execution of task lists and automation commands.            |
-| `Chat2Recorder`              | N/A                              | Records chat events to a storage system.                                |
-| `ToolExecutor`               | N/A                              | Executes tool calls and manages tool results.                          |
-| `LLMLoopRunner`              | N/A                              | Manages the execution loop for LLM interactions.                       |
-| `ToolResultTooLargeError`    | Exception                        | Raised when a tool result exceeds the maximum allowed size.            |
-| `ToolHandlerError`           | Exception                        | Raised when a tool handler fails during execution.                     |
-
-## 4. Source Files
-| File                                      | Responsibility                                           | Notable Exports                                      |
-|-------------------------------------------|---------------------------------------------------------|-----------------------------------------------------|
-| `__init__.py`                             | Initializes the module.                                | N/A                                                 |
-| `automation_processor.py`                 | Implements the `AutomationProcessor` class.           | `AutomationProcessor`                               |
-| `fcp_chat2.py`                           | Implements the `Chat2Recorder` class.                 | `Chat2Recorder`                                    |
-| `fcp_loop.py`                             | Implements the `LLMLoopRunner` class.                 | `LLMLoopRunner`                                    |
-| `fcp_models.py`                           | Defines data models and exceptions for function calling.| `ProcessorContext`, `ToolResultTooLargeError`, `ToolHandlerError` |
-| `fcp_tool_executor.py`                    | Implements the `ToolExecutor` class.                   | `ToolExecutor`                                     |
-| `function_calling_processor.py`           | Implements the `FunctionCallingProcessor` class.       | `FunctionCallingProcessor`                          |
-| `lazy_tool_selection.py`                  | Implements lazy tool selection logic.                  | `select_active_tool_defs`                           |
-| `message_processor_interface.py`          | Defines the `MessageProcessorInterface`.                | `MessageProcessorInterface`                         |
-| `processor_factory.py`                     | Implements the `ProcessorFactory` class.               | `ProcessorFactory`                                  |
-| `run_metrics.py`                          | Defines metrics for tracking execution performance.     | `RunMetrics`                                       |
-| `sse_events.py`                           | Defines the `SSEEvent` model for streaming responses.   | `SSEEvent`                                         |
-| `types.py`                                | Defines type aliases for agent and account dictionaries. | `AgentDict`, `AccountDict`                         |
-
-## 5. Dependencies
-### Standard Library
-- `json`
-- `logging`
-- `os`
-- `time`
-- `uuid`
-- `contextvars`
-- `datetime`
-
-### Third-party Packages
-- `injector`
-- `pydantic`
-
-### Internal Modules
-- `src.agent`
-- `src.config_manager`
-- `src.chat2`
-- `src.handlers`
-- `src.prompt_builders`
-- `src.storage`
-- `src.tool_selection`
-- `src.message_processors.types`
-
-### Optional Dependencies
-- None
-
-## 6. Configuration / Settings
-| Key                             | Type   | Default | What it controls                                      |
-|---------------------------------|--------|---------|------------------------------------------------------|
-| `max_tool_result_chars`         | int    | 20000   | Maximum allowed characters for tool results.         |
-| `provider_throttle_ms`          | dict   | {}      | Throttle settings for different providers.           |
-| `environment_prompt_block`      | str    | ""      | Environment prompt injection messages.                |
-| `metrics_runs_log_path`         | str    | N/A     | Path for logging run metrics.                         |
-
-## 7. Exceptions
-| Exception                     | Base       | When Raised                                      |
-|-------------------------------|------------|--------------------------------------------------|
-| `ToolResultTooLargeError`     | Exception  | Raised when a tool result exceeds the max size. |
-| `ToolHandlerError`            | Exception  | Raised when a tool handler fails during execution.|
-
-## 8. Module-Level Constants
-| Constant                       | Value      |
-|--------------------------------|------------|
-| `DEFAULT_MAX_HANDLER_SCHEMA_TOKENS` | 8000   |
-
-## 9. Methods (by class)
-### `FunctionCallingProcessor`
-| Method                     | Type         | Signature                                                                 | Description                                                                 |
-|----------------------------|--------------|---------------------------------------------------------------------------|-----------------------------------------------------------------------------|
-| `process_message`          | instance     | `def process_message(self, *, primary_agent: Agent, account: Dict[str, Any], message: str, ...)` | Processes a message and returns a result.                                  |
-| `process_message_streaming`| instance     | `def process_message_streaming(self, *, primary_agent: Agent, account: Dict[str, Any], message: str, ...)` | Streaming variant of `process_message`.                                    |
-
-### `AutomationProcessor`
-| Method                     | Type         | Signature                                                                 | Description                                                                 |
-|----------------------------|--------------|---------------------------------------------------------------------------|-----------------------------------------------------------------------------|
-| `process_message`          | instance     | `def process_message(self, *, primary_agent: Agent, account: Dict[str, Any], message: str, ...)` | Processes a message and manages task execution.                           |
-
-### `Chat2Recorder`
-| Method                     | Type         | Signature                                                                 | Description                                                                 |
-|----------------------------|--------------|---------------------------------------------------------------------------|-----------------------------------------------------------------------------|
-| `ensure_session`           | instance     | `def ensure_session(self, ctx: ProcessorContext) -> None`               | Ensures a chat session exists for the given context.                      |
-| `write_streaming_events`   | instance     | `def write_streaming_events(self, ctx: ProcessorContext, user_message: str, streamed_events: List[SSEEvent], ...)` | Writes streaming events to chat storage.                                   |
-
-### `ToolExecutor`
-| Method                     | Type         | Signature                                                                 | Description                                                                 |
-|----------------------------|--------------|---------------------------------------------------------------------------|-----------------------------------------------------------------------------|
-| `execute_tool_calls`       | instance     | `def execute_tool_calls(self, *, tool_calls: List[_ToolCall], primary_agent: Agent, ...)` | Executes the given tool calls and returns results.                        |
-
-### `LLMLoopRunner`
-| Method                     | Type         | Signature                                                                 | Description                                                                 |
-|----------------------------|--------------|---------------------------------------------------------------------------|-----------------------------------------------------------------------------|
-| `run`                      | instance     | `def run(self, *, ctx: ProcessorContext, prompt_messages: List[Dict[str, Any]], ...)` | Runs the LLM loop and yields events.                                       |
-
-## 10. Usage Examples
-```python
-from src.message_processors import FunctionCallingProcessor
-
-# Example of processing a message
-processor = FunctionCallingProcessor(...)
-result = processor.process_message(
-    primary_agent=agent,
-    account=account_info,
-    message="Run the task list.",
-    conversation_id="12345"
-)
-print(result.text)
-```
-
-## 11. Edge Cases & Gotchas
-- **Error Handling Patterns**: The system employs a fail-fast approach, raising exceptions for invalid states or configurations. This ensures that issues are caught early in the processing pipeline.
-- **Tool Selection**: The lazy tool selection mechanism may lead to under-selection of tools if the LLM does not recognize the user's intent clearly. This can be mitigated by ensuring that the prompt is clear and specific.
-- **Thread-Safety**: The use of context variables for correlation IDs ensures that logging is thread-safe, as each request has its own context.
-
-## 12. Consumers
-| Consumer                          | What it uses                                      |
-|-----------------------------------|--------------------------------------------------|
-| `src.agent`                       | Uses `FunctionCallingProcessor` for message processing. |
-| `src.chat2`                       | Uses `Chat2Recorder` for logging chat events.   |
-| `src.handlers`                    | Uses various processors for handling messages.   |
-| `src.prompt_builders`             | Interacts with `FunctionCallingProcessor` for prompt generation. |
-
 ---
 
-This document provides a comprehensive overview of the `src/message_processors` module, detailing its architecture, key components, and usage patterns.
+## 1. Summary
+The `message_processors` module provides a framework for processing messages in a conversational AI context. It includes various processors that handle tasks such as executing commands, managing task lists, and interacting with external tools. The module aims to streamline the execution of complex workflows by integrating various components, including agents, storage, and chat interfaces.
+
+## 2. Key Classes
+
+| Class                        | Base/Parent                     | Purpose                                                                 |
+|------------------------------|----------------------------------|-------------------------------------------------------------------------|
+| AutomationProcessor           | MessageProcessorInterface        | Manages the execution of task lists and automation commands.            |
+| FunctionCallingProcessor      | MessageProcessorInterface        | Handles function calling and tool execution in a conversational context.|
+| Chat2Recorder                | -                                | Records chat events and manages chat sessions.                          |
+| ToolExecutor                 | -                                | Executes tool calls and manages interactions with external tools.       |
+| LLMLoopRunner                | -                                | Manages the loop for LLM interactions and tool calls.                  |
+| ProcessorContext             | -                                | Holds contextual information for processing messages.                   |
+| ToolResultTooLargeError      | Exception                        | Raised when a tool result exceeds the maximum allowed size.             |
+| ToolHandlerError             | Exception                        | Raised when a tool handler fails during execution.                      |
+
+## 3. Source Files
+
+| File                                   | Responsibility                                      | Notable Exports                                   |
+|----------------------------------------|----------------------------------------------------|--------------------------------------------------|
+| `__init__.py`                         | Initializes the message_processors module.         | -                                                |
+| `automation_processor.py`              | Implements the AutomationProcessor class.          | AutomationProcessor                               |
+| `fcp_chat2.py`                        | Implements Chat2Recorder for chat event handling.  | Chat2Recorder                                     |
+| `fcp_loop.py`                         | Implements LLMLoopRunner for LLM interactions.     | LLMLoopRunner                                     |
+| `fcp_models.py`                       | Defines models for processing context and errors.   | ProcessorContext, ToolResultTooLargeError, ToolHandlerError |
+| `fcp_tool_executor.py`                | Implements ToolExecutor for executing tool calls.  | ToolExecutor                                      |
+| `function_calling_processor.py`       | Implements FunctionCallingProcessor for message processing. | FunctionCallingProcessor                          |
+| `lazy_tool_selection.py`              | Implements lazy tool selection logic.               | select_active_tool_defs                           |
+| `message_processor_interface.py`      | Defines the MessageProcessorInterface.              | MessageProcessorInterface                         |
+| `processor_factory.py`                | Implements ProcessorFactory for creating processors. | ProcessorFactory                                  |
+| `run_metrics.py`                      | Defines metrics for tracking execution performance.  | RunMetrics                                       |
+| `sse_events.py`                       | Defines the SSEEvent model for streaming responses.  | SSEEvent                                         |
+| `types.py`                            | Defines type aliases for agent and account dictionaries. | AgentDict, AccountDict                           |
+
+## 4. Dependencies
+
+- **Standard library**
+  - json
+  - logging
+  - os
+  - re
+  - time
+  - uuid
+  - contextvars
+  - datetime
+
+- **Third-party packages**
+  - injector
+  - pydantic
+
+- **Internal modules**
+  - src.agent
+  - src.config_manager
+  - src.chat2.facade
+  - src.handlers.handler_registry
+  - src.prompt_builders.prompt_builder_interface
+  - src.storage.interfaces
+  - galet.adapter_interface
+  - galet.provider_registry
+
+## 5. Methods (by class)
+
+### AutomationProcessor
+
+| Method                     | Type         | Signature                                                                 | Description                                                                 |
+|----------------------------|--------------|---------------------------------------------------------------------------|-----------------------------------------------------------------------------|
+| `__init__`                 | Instance     | `def __init__(self, config: ConfigManager, registry: HandlerRegistry, ...)` | Initializes the processor with necessary dependencies.                     |
+| `process_message`          | Instance     | `def process_message(self, primary_agent: Agent, account: Dict[str, Any], message: str, ...)` | Processes incoming messages and executes tasks based on the command.      |
+| `execute_tasklist`         | Instance     | `def execute_tasklist(self, tasklist_id: str, mode: str, ...)`         | Executes a task list based on the provided ID and mode.                   |
+
+### FunctionCallingProcessor
+
+| Method                     | Type         | Signature                                                                 | Description                                                                 |
+|----------------------------|--------------|---------------------------------------------------------------------------|-----------------------------------------------------------------------------|
+| `__init__`                 | Instance     | `def __init__(self, config: ConfigManager, registry: HandlerRegistry, ...)` | Initializes the processor with necessary dependencies.                     |
+| `process_message`          | Instance     | `def process_message(self, primary_agent: Agent, account: Dict[str, Any], message: str, ...)` | Processes incoming messages and executes functions based on the command.   |
+| `process_message_streaming`| Instance     | `def process_message_streaming(self, primary_agent: Agent, account: Dict[str, Any], message: str, ...)` | Processes messages in a streaming manner, yielding events as they occur.   |
+
+### Chat2Recorder
+
+| Method                     | Type         | Signature                                                                 | Description                                                                 |
+|----------------------------|--------------|---------------------------------------------------------------------------|-----------------------------------------------------------------------------|
+| `__init__`                 | Instance     | `def __init__(self, chat2_store: Chat2Store = None)`                   | Initializes the recorder with a chat store.                               |
+| `ensure_session`           | Instance     | `def ensure_session(self, ctx: ProcessorContext) -> None`               | Ensures a chat session exists for the given context.                      |
+| `write_streaming_events`   | Instance     | `def write_streaming_events(self, ctx: ProcessorContext, user_message: str, streamed_events: List[SSEEvent], ...)` | Writes streaming events to the chat store.                                 |
+
+### ToolExecutor
+
+| Method                     | Type         | Signature                                                                 | Description                                                                 |
+|----------------------------|--------------|---------------------------------------------------------------------------|-----------------------------------------------------------------------------|
+| `__init__`                 | Instance     | `def __init__(self, registry: HandlerRegistry, config: ConfigManager, ...)` | Initializes the executor with necessary dependencies.                      |
+| `execute_tool_calls`       | Instance     | `def execute_tool_calls(self, tool_calls: List[_ToolCall], primary_agent: Agent, ...)` | Executes the provided tool calls and returns results.                     |
+
+### LLMLoopRunner
+
+| Method                     | Type         | Signature                                                                 | Description                                                                 |
+|----------------------------|--------------|---------------------------------------------------------------------------|-----------------------------------------------------------------------------|
+| `__init__`                 | Instance     | `def __init__(self, llm_adapter: LLMAdapter, config: ConfigManager, tool_executor: ToolExecutor)` | Initializes the loop runner with necessary dependencies.                   |
+| `run`                      | Instance     | `def run(self, ctx: ProcessorContext, prompt_messages: List[Dict[str, Any]], ...)` | Runs the LLM loop, yielding events as they occur.                          |
+
+### ProcessorContext
+
+| Method                     | Type         | Signature                                                                 | Description                                                                 |
+|----------------------------|--------------|---------------------------------------------------------------------------|-----------------------------------------------------------------------------|
+| `from_agent`               | Class Method | `@classmethod def from_agent(cls, primary_agent: Agent, account: Dict[str, Any], ...)` | Creates a ProcessorContext from the given agent and account information.   |
+```

@@ -1,145 +1,92 @@
+```markdown
 ---
 tags:
-  - src_storage_paths
+  - storage_paths
   - lucyproject
   - StoragePaths
-  - resolve_relative
-  - index_for
-  - domain_index
 ---
 
 ## 1. Summary
-
-`src/storage_paths` is a thin, single-class module that provides the **centralised, authoritative resolver for all user-data paths** in Lucy. It maps logical domains (`contexts`, `chats`, `documents`, `tasklists`, `skills`, `users`, `agents`) to filesystem directories under a configurable storage root, and enforces a strict sandbox so that no caller can break out of the storage namespace via `..`, absolute paths, or symlink tricks.
-
-It is the **single source of truth** for every on-disk location used by `JsonFileStorage` and related consumers. No other module should hard-code storage paths — they must always go through `StoragePaths`.
+The `storage_paths` module provides a centralized and authoritative resolver for user-data paths within a storage system. Its primary responsibility is to manage and construct file paths for various data types, such as contexts, chats, documents, task lists, skills, users, and agents, ensuring that all paths are correctly structured and secure. This module fits into the overall architecture by serving as a foundational component that other modules can rely on for consistent and safe path resolution, thereby solving the problem of path management and organization in a user-data context.
 
 ## 2. Architecture & Design
+The design of the `StoragePaths` class employs several key principles:
+- **Encapsulation**: The class encapsulates all logic related to path management, providing a clean interface for users to interact with.
+- **Validation**: It includes validation checks to ensure that paths do not escape the defined storage root, enhancing security and preventing misconfigurations.
+- **Property Methods**: The use of property methods for common paths (e.g., `contexts`, `chats`, etc.) allows for a clean and intuitive API.
 
-- **Single-class module.** Everything lives in one class `StoragePaths` — no inheritance, no ABC, no DI. It is a pure value object / path factory.
-- **Sandboxed by construction.** The constructor resolves `storage_root_path` and `storage_namespace` into absolute `Path` objects, then checks `base.is_relative_to(root)`. If the namespace escapes (e.g. `storage_namespace = "../../outside"`), it raises `ValueError` immediately. This is a **hard guard against misconfiguration**.
-- **No index directory.** Historically there was a top-level `indexes/` directory. That has been **removed** — index files now live alongside domain data (e.g. `chats/alice/index.json`). The `index_for()` and `domain_index()` helpers enforce this new convention.
-- **Lazy properties.** The seven domain properties (`contexts`, `chats`, `documents`, `tasklists`, `skills`, `users`, `agents`) are simple `@property` accessors that return `Path` objects — they do not create directories on disk.
-- **No configuration dependency.** `StoragePaths` does not read `ConfigManager`; it receives its two parameters as explicit constructor arguments. This keeps it testable with zero mocking.
+The class does not exhibit inheritance or complex relationships with other classes, as it stands alone in its functionality. There is no legacy or versioning split evident in the code, indicating a straightforward design focused on current requirements.
 
 ## 3. Key Classes
-
-| Class | Base/Parent | Purpose |
-|---|---|---|
-| `StoragePaths` | `object` | Centralised path resolver; owns all domain subdirectory paths and sandbox-safe relative resolution |
+| Class         | Base/Parent | Purpose                                           |
+|---------------|-------------|---------------------------------------------------|
+| StoragePaths  | None        | Manages and resolves user-data file paths.       |
 
 ## 4. Source Files
-
-| File | Responsibility | Notable Exports |
-|---|---|---|
-| `storage_paths.py` | The entire module — class definition, properties, and helper methods | `StoragePaths` |
-
-There is no `__init__.py`; the directory is a namespace package. The single file `storage_paths.py` is the module entry point.
+| File                        | Responsibility                                      | Notable Exports      |
+|-----------------------------|----------------------------------------------------|----------------------|
+| `storage_paths.py`         | Defines the `StoragePaths` class for path management. | `StoragePaths`       |
+| `__init__.py` (if present) | N/A                                                | None                 |
 
 ## 5. Dependencies
+- **Standard library**:
+  - `pathlib`: Used for path manipulations and validations.
 
-### Standard library
-- `pathlib.Path` — all path construction and resolution
+- **Third-party packages**: None.
 
-### Third-party packages
-- None
+- **Internal modules**: None.
 
-### Internal modules
-- None — this is a leaf module with no internal dependencies
-
-### Optional dependencies
-- None
+- **Optional dependencies**: None.
 
 ## 6. Configuration / Settings
-
-**None.** `StoragePaths` does not read `ConfigManager`, env vars, or any config files. Its two parameters (`storage_root_path`, `storage_namespace`) are passed explicitly by the caller (typically `container_config.py`).
+None.
 
 ## 7. Exceptions
-
-**None.** No custom exception classes are defined. The class raises stdlib `ValueError` for path escapes and invalid arguments.
+| Exception      | Base         | When Raised                                      |
+|----------------|--------------|--------------------------------------------------|
+| ValueError     | Exception    | Raised when paths escape the defined storage root or when required parameters are missing. |
 
 ## 8. Module-Level Constants
-
-**None.** No module-level constants, defaults, or sentinels are defined.
+None.
 
 ## 9. Methods (by class)
 
-### `StoragePaths`
-
-| Method | Type | Signature | Description |
-|---|---|---|---|
-| `__init__` | instance | `(self, storage_root_path: str, storage_namespace: str) -> None` | Resolves `storage_root_path` and `storage_namespace` into absolute `Path` objects. Stores `.root` (resolved root) and `.base` (root/namespace, resolved). **Raises `ValueError`** if `base` is not relative to `root` (i.e. namespace escapes the root via `..` or absolute path). |
-| `contexts` | property | `(self) -> Path` | Returns `<base>/contexts`. Does not create the directory. |
-| `chats` | property | `(self) -> Path` | Returns `<base>/chats`. |
-| `documents` | property | `(self) -> Path` | Returns `<base>/documents`. |
-| `tasklists` | property | `(self) -> Path` | Returns `<base>/tasklists`. |
-| `skills` | property | `(self) -> Path` | Returns `<base>/skills`. |
-| `users` | property | `(self) -> Path` | Returns `<base>/users`. |
-| `agents` | property | `(self) -> Path` | Returns `<base>/agents`. |
-| `resolve_relative` | instance | `(self, relative_path: str) -> Path` | Safely resolves a user-supplied relative path under `self.base`. Joins, resolves (following symlinks), then checks `is_relative_to(base)`. **Raises `ValueError`** if the resolved path escapes the namespace — this catches absolute paths, `..` traversal, and symlink escapes. Returns the resolved `Path`. |
-| `index_for` | instance | `(self, domain: str, account: str, filename: str = "index.json") -> Path` | Builds a canonical index path: `<base>/<domain>/<account>/<filename>`. Replace the old top-level `indexes/` directory. **Raises `ValueError`** if `domain` or `account` is empty. |
-| `domain_index` | instance | `(self, domain: str, *subpaths: str) -> Path` | Flexible builder for domain-local paths. Joins `base / domain` with any number of `subpaths`. **Raises `ValueError`** if `domain` is empty. Example: `storage.domain_index('documents', 'doc123', 'index.json')` → `<base>/documents/doc123/index.json`. |
+### StoragePaths
+| Method                | Type         | Signature                                         | Description                                                                                       |
+|-----------------------|--------------|---------------------------------------------------|---------------------------------------------------------------------------------------------------|
+| `__init__`           | Instance     | `def __init__(self, storage_root_path: str, storage_namespace: str)` | Initializes the `StoragePaths` object, setting the root and namespace, and validates the configuration. |
+| `contexts`           | Property     | `def contexts(self) -> Path`                      | Returns the path for contexts.                                                                    |
+| `chats`              | Property     | `def chats(self) -> Path`                         | Returns the path for chats.                                                                       |
+| `documents`          | Property     | `def documents(self) -> Path`                     | Returns the path for documents.                                                                   |
+| `tasklists`          | Property     | `def tasklists(self) -> Path`                     | Returns the path for task lists.                                                                   |
+| `skills`             | Property     | `def skills(self) -> Path`                        | Returns the path for skills.                                                                       |
+| `users`              | Property     | `def users(self) -> Path`                         | Returns the path for users.                                                                        |
+| `agents`             | Property     | `def agents(self) -> Path`                        | Returns the path for agents.                                                                       |
+| `resolve_relative`    | Instance     | `def resolve_relative(self, relative_path: str) -> Path` | Safely resolves a user-supplied relative path under the storage base, rejecting unsafe paths.     |
+| `index_for`          | Instance     | `def index_for(self, domain: str, account: str, filename: str = "index.json") -> Path` | Returns the canonical path for an index file for a given domain and account.                      |
+| `domain_index`       | Instance     | `def domain_index(self, domain: str, *subpaths: str) -> Path` | Builds a flexible domain-local index path based on the provided domain and subpaths.             |
 
 ## 10. Usage Examples
-
-**Construction and basic property access:**
-
 ```python
-from src.storage_paths.storage_paths import StoragePaths
+from storage_paths import StoragePaths
 
-sp = StoragePaths("/data/lucy", "junwin")
-print(sp.chats)       # /data/lucy/junwin/chats
-print(sp.contexts)    # /data/lucy/junwin/contexts
-print(sp.skills)      # /data/lucy/junwin/skills
-print(sp.index_for("chats", "alice"))  # /data/lucy/junwin/chats/alice/index.json
-```
+# Initialize the StoragePaths with a root and namespace
+storage = StoragePaths("/data/storage", "user_data")
 
-**Safe relative path resolution:**
+# Get the path for user contexts
+contexts_path = storage.contexts
 
-```python
-# Resolves to /data/lucy/junwin/documents/report.txt
-path = sp.resolve_relative("documents/report.txt")
-
-# All of these raise ValueError:
-sp.resolve_relative("/etc/passwd")       # absolute
-sp.resolve_relative("../outside")        # parent traversal
-sp.resolve_relative("link/secret.txt")   # symlink pointing outside
-```
-
-**Using in JsonFileStorage construction (real usage):**
-
-```python
-# From container_config.py
-storage_paths = StoragePaths(
-    storage_root_path=config.get("storage_root_path", "storage"),
-    storage_namespace=config.get("storage_namespace", "default")
-)
-storage = JsonFileStorage(storage_paths)
+# Resolve a relative path
+resolved_path = storage.resolve_relative("chats/alice/messages.json")
 ```
 
 ## 11. Edge Cases & Gotchas
-
-- **Path escape is caught at construction time**, not lazily. If `storage_namespace` is `"../../etc"`, the constructor raises `ValueError` immediately. This is a hard fail — no recovery.
-- **`resolve_relative()` follows symlinks.** The method calls `Path.resolve()`, which resolves all symlinks in the chain. This is intentional; it prevents symlink-based escape attacks. A symlink inside the namespace that points outside will cause `resolve_relative()` to raise `ValueError`.
-- **Properties do not create directories.** `sp.chats`, `sp.documents`, `sp.skills`, etc. return `Path` objects that may not exist on disk yet. Callers must `mkdir(parents=True)` before writing.
-- **No `indexes` property.** The old top-level `indexes/` directory concept has been removed. Use `index_for()` or `domain_index()` to build domain-local index paths instead.
-- **Empty domain/account raises `ValueError`** in `index_for()` and `domain_index()`. The checks are strict: empty string or None both trigger the error.
-- **No `__init__.py`.** The package is a namespace package (no `__init__.py`). The import path is `from src.storage_paths.storage_paths import StoragePaths` — note the double `storage_paths`.
-- **Thread-safe.** The class is immutable after construction (all attributes set in `__init__`, properties are pure read-only `Path` objects). No locks needed.
-- **Tests cover all escape vectors:** absolute namespace, `..` traversal in namespace, absolute relative_path, `..` traversal in relative_path, and symlink escape.
+- The `StoragePaths` class employs a fail-fast approach by raising `ValueError` exceptions when misconfigurations are detected, such as paths escaping the defined storage root or missing required parameters.
+- The class does not handle multi-threading concerns, so care should be taken when using it in concurrent environments.
+- The design assumes that the provided paths are valid and does not perform extensive validation beyond the scope of its responsibilities.
 
 ## 12. Consumers
-
-| Consumer | What it uses |
-|---|---|
-| `src/container_config.py` | Constructs `StoragePaths` with config values, passes to `JsonFileStorage` |
-| `src/storage/json_file_storage.py` | Stores `self.storage_paths` and uses all properties (`.chats`, `.contexts`, `.documents`, `.tasklists`, `.skills`, `.users`, `.agents`, `.base`) plus `resolve_relative()` |
-| `src/storage/json_file_storage_parts/chats.py` | Uses `.storage_paths.chats` for session I/O |
-| `src/chat2/adapters/jfs_adapter.py` | Uses `storage.storage_paths.base / "chat2"` to build chat2 root |
-| `src/handlers/chat2_handler.py` | Lazy-imports `StoragePaths` for session management helpers |
-| `src/handlers/curate_chat_handler.py` | Lazy-imports `StoragePaths` in handler methods |
-| `src/handlers/tasklists_manage_handler.py` | Imports `StoragePaths` at module level |
-| `src/obsidian_index_cli.py` | Constructs `StoragePaths` and passes to `JsonFileStorage` |
-| `tests/test_storage_paths.py` | Dedicated unit tests: constructor, properties, helpers, all escape guards |
-| `tests/test_tasklists_storage.py` | Uses `StoragePaths(str(tmp_path), ns)` for tasklist test fixtures |
-| `tests/chat2/test_jfs_adapter.py` | Uses `StoragePaths(str(tmp_path), "test_ns")` for adapter test fixtures |
+| Consumer         | What it uses                                   |
+|------------------|------------------------------------------------|
+| Unknown          | Unknown — trace imports to confirm.            |
+```

@@ -1,233 +1,145 @@
+```markdown
 ---
 tags:
   - src_utils
   - lucyproject
-  - get_document_context
-  - load_text_snippet
-  - migrate
-  - index_obsidian_vault
-  - index_obsidian_file
-  - scrape_url
-  - extract_text_from_html
+  - DocumentStore
+  - Keywords
   - DocumentRef
-  - Storage
-  - DEFAULT_MAX_CHARS
-  - DEFAULT_TIMEOUT_SECONDS
-  - USER_AGENT
-  - _stable_doc_id_from_path
-  - _extract_tags
-  - _extract_title
-  - _remove_elements
 ---
 
 ## 1. Summary
+The `src/utils` module provides a collection of utility functions and classes designed to facilitate document management and processing within the Lucy project. Its primary responsibility is to handle various operations related to document storage, migration, and indexing, particularly for markdown files used in the Obsidian note-taking application. This module fits into the overall architecture by serving as a bridge between user-generated content and the underlying storage mechanisms, ensuring that documents can be efficiently retrieved, indexed, and migrated.
 
-`src/utils` is a namespace package (no `__init__.py`) containing five standalone utility modules that provide side-effecting helpers: web scraping, Obsidian vault indexing, legacy chat migration, text-file snippet loading, and document-context retrieval. These are not a coherent library — each file solves a distinct operational need that didn't fit elsewhere in the architecture. The common thread is that all modules operate at the "edge" of the system: reading external files, talking to external services, or performing one-off data migrations.
+The module addresses the problem of managing and processing documents in a structured manner, allowing users to easily access and manipulate their notes and related content. It provides functionalities such as scraping web pages, loading text snippets, and migrating legacy data formats, thereby enhancing the overall user experience.
 
 ## 2. Architecture & Design
+The design of the `src/utils` module employs several key design patterns and principles:
 
-- **Namespace package** — no `__init__.py`, so each module is imported directly (e.g. `from src.utils.scrape import scrape_url`).
-- **Functional / procedural style** — all five modules expose plain functions rather than classes. There is no shared base class, registry, or protocol.
-- **Dependency injection by argument** — shared services (e.g. `Storage`) are passed as parameters; no `injector` usage here.
-- **CLI-first design in `scrape.py`** — the module doubles as a command-line tool (`python3 src/utils/scrape.py <url>`) with a `main()` entry point.
-- **`migrate_legacy_completions.py` is a one-shot script** — it reads a hard-coded input path and writes to `data/chats/<account>/`. It is not imported by any production code; it's only run as `__main__`.
-- **`document_context.py` is a thin orchestration layer** — it composes `Storage.search_documents_poor_man()` with `load_text_snippet()` to build a list of context dictionaries for prompt builders.
-- **`obsidian_importer.py` uses `Storage.upsert_document()`** — it is storage-backend-agnostic, relying on the `Storage` protocol from `src.storage.base`.
+- **Factory Pattern**: The `index_obsidian_file` and `index_obsidian_vault` functions act as factories for creating `DocumentRef` instances, encapsulating the logic for document creation and storage.
+- **Separation of Concerns**: Each utility function is focused on a specific task, such as scraping, indexing, or migrating data, which promotes maintainability and readability.
+- **Error Handling**: The module employs robust error handling, particularly in file operations and network requests, ensuring that failures are logged and managed gracefully.
+
+Classes and functions within the module often interact through composition, where utility functions are called within other functions to achieve complex behaviors. For instance, the `load_text_snippet` function is used within the document context retrieval functions to load content from files.
+
+There is no explicit legacy/v2 split in the module, but the presence of migration functions indicates a consideration for backward compatibility with older data formats.
 
 ## 3. Key Classes
-
-| Class | Base/Parent | Purpose |
-|---|---|---|
-| _(none)_ | — | This module defines no classes; all exports are functions. |
+| Class         | Base/Parent | Purpose                                           |
+|---------------|-------------|---------------------------------------------------|
+| DocumentRef   | N/A         | Represents a reference to a document in storage.  |
+| Keywords      | N/A         | Utility for extracting keywords from text.        |
 
 ## 4. Source Files
-
-| File | Responsibility | Notable Exports |
-|---|---|---|
-| `document_context.py` | Retrieve document snippets for a query via storage search | `get_document_context` |
-| `migrate_legacy_completions.py` | One-shot script to migrate legacy completion JSON into chat session files | `migrate`, `parse_dt_utc`, `iso_utc`, `safe_first_line` |
-| `obsidian_importer.py` | Index Obsidian vault markdown files as `DocumentRef` entries | `index_obsidian_vault`, `index_obsidian_file`, `_stable_doc_id_from_path`, `_extract_title`, `_extract_tags` |
-| `scrape.py` | Fetch a webpage and extract readable text | `scrape_url`, `extract_text_from_html`, `main` |
-| `text_snippet_loader.py` | Load a bounded character window from a text file | `load_text_snippet`, `DEFAULT_MAX_CHARS` |
-
-No `__init__.py` — this is a namespace package.
+| File                             | Responsibility                                           | Notable Exports                     |
+|----------------------------------|---------------------------------------------------------|-------------------------------------|
+| document_context.py              | Provides functions to retrieve document context snippets.| get_document_context, get_document_context_traced |
+| migrate_legacy_completions.py    | Handles migration of legacy completion data to new format.| migrate                             |
+| obsidian_importer.py            | Indexes Obsidian markdown files as DocumentRef entries. | index_obsidian_file, index_obsidian_vault |
+| scrape.py                        | Scrapes text from web pages.                            | scrape_url, main                   |
+| text_snippet_loader.py           | Loads text snippets from files.                         | load_text_snippet                  |
 
 ## 5. Dependencies
-
-### Standard library
-
-| Module | Used by |
-|---|---|
-| `hashlib` | `obsidian_importer.py` |
-| `json` | `migrate_legacy_completions.py` |
-| `logging` | `document_context.py`, `obsidian_importer.py`, `text_snippet_loader.py` |
-| `pathlib.Path` | `migrate_legacy_completions.py`, `obsidian_importer.py`, `text_snippet_loader.py` |
-| `re` | `scrape.py` |
-| `sys` | `scrape.py` |
-| `datetime` | `migrate_legacy_completions.py` |
-| `collections.defaultdict` | `migrate_legacy_completions.py` |
-| `typing` | all five files |
-
-### Third-party packages
-
-| Package | Used by | Notes |
-|---|---|---|
-| `requests` | `scrape.py` | HTTP GET with timeout |
-| `bs4` (BeautifulSoup) | `scrape.py` | HTML parsing and text extraction |
-| `yaml` (PyYAML) | `obsidian_importer.py` | Frontmatter tag extraction |
-
-### Internal modules
-
-| Internal import | Used by |
-|---|---|
-| `src.storage.base.Storage` | `document_context.py`, `obsidian_importer.py` |
-| `src.storage.models.DocumentRef` | `obsidian_importer.py` |
-| `src.utils.text_snippet_loader.load_text_snippet` | `document_context.py` |
-
-### Optional dependencies
-
-None — all imports are unconditional.
+- **Standard library**:
+  - `json`
+  - `datetime`
+  - `pathlib`
+  - `collections`
+  - `logging`
+  - `re`
+  - `sys`
+- **Third-party packages**:
+  - `requests`
+  - `bs4` (BeautifulSoup)
+  - `yaml`
+- **Internal modules**:
+  - `src.storage.interfaces`
+  - `src.storage.base`
+  - `src.storage.models`
+  - `src.utils.text_snippet_loader`
+  - `src.keywords.keywords`
+- **Optional dependencies**:
+  - None
 
 ## 6. Configuration / Settings
-
-None. This module reads no `ConfigManager` keys, env vars, or config files. The constants below are code-level defaults only.
-
-| Constant | Type | Default | What it controls |
-|---|---|---|---|
-| `DEFAULT_MAX_CHARS` (text_snippet_loader) | `int` | `8000` | Default character limit when `load_text_snippet` is called without an explicit `max_chars` |
-| `DEFAULT_TIMEOUT_SECONDS` (scrape) | `int` | `10` | HTTP request timeout for `scrape_url` |
-| `USER_AGENT` (scrape) | `str` | `"Mozilla/5.0 … LucyScraper/1.0"` | User-Agent header sent with scrape requests |
-| `INPUT_PATH` (migrate_legacy_completions) | `Path` | `"data/completions/lucy_junwin_conv.json"` | Hard-coded input file for migration |
-| `OUT_BASE` (migrate_legacy_completions) | `Path` | `"data"` | Output root for migrated chat files |
+| Key                | Type   | Default | What it controls                      |
+|--------------------|--------|---------|---------------------------------------|
+| None               | N/A    | N/A     | None                                  |
 
 ## 7. Exceptions
-
-None. No custom exception classes are defined in this module. All functions raise only standard-library exceptions:
-
-| Exception type | Raised by | Condition |
-|---|---|---|
-| `ValueError` | `index_obsidian_file`, `index_obsidian_vault` | Missing/invalid file paths, file not inside vault root, wrong extension |
-| `requests.exceptions.Timeout` | `scrape_url` | HTTP request exceeds `timeout_seconds` |
-| `requests.exceptions.ConnectionError` | `scrape_url` | DNS failure, refused connection |
-| `requests.exceptions.HTTPError` | `scrape_url` | Non-2xx HTTP status (via `resp.raise_for_status()`) |
-| `Exception` (general) | `load_text_snippet`, obsidian file reads | Caught internally, logged as warning, returns empty/fallback — never propagated |
+| Exception         | Base         | When Raised                                      |
+|-------------------|--------------|-------------------------------------------------|
+| None              | N/A          | None                                            |
 
 ## 8. Module-Level Constants
-
-| Constant | File | Value | Purpose |
-|---|---|---|---|
-| `DEFAULT_MAX_CHARS` | `text_snippet_loader.py` | `8000` | Default snippet size in characters |
-| `DEFAULT_TIMEOUT_SECONDS` | `scrape.py` | `10` | Default HTTP timeout |
-| `USER_AGENT` | `scrape.py` | `"Mozilla/5.0 …"` | HTTP User-Agent string |
-| `INPUT_PATH` | `migrate_legacy_completions.py` | `Path("data/completions/lucy_junwin_conv.json")` | Legacy input file path |
-| `OUT_BASE` | `migrate_legacy_completions.py` | `Path("data")` | Migration output root |
+| Constant                     | Value                          | Description                                   |
+|------------------------------|--------------------------------|-----------------------------------------------|
+| DEFAULT_MAX_CHARS            | 8000                           | Default maximum characters to load from a text file. |
+| DEFAULT_TIMEOUT_SECONDS       | 10                             | Default timeout for web scraping requests.    |
+| INPUT_PATH                   | Path("data/completions/lucy_junwin_conv.json") | Path to the input JSON file for migration.    |
+| OUT_BASE                     | Path("data")                  | Base path for output files during migration.  |
 
 ## 9. Methods (by class)
 
-_No classes in this module. All exports are plain functions, documented below._
+### DocumentRef
+| Method | Type         | Signature | Description |
+|--------|--------------|-----------|-------------|
+| N/A    | N/A          | N/A       | N/A         |
 
-### `document_context.py`
+### Keywords
+| Method | Type         | Signature | Description |
+|--------|--------------|-----------|-------------|
+| N/A    | N/A          | N/A       | N/A         |
 
-| Method | Type | Signature | Description |
-|---|---|---|---|
-| `get_document_context` | function | `(storage: Storage, account_name: str, query: str, *, kind: str \| None = None, docs_tag: str \| None = None, limit: int = 3, max_chars: int = 6000) -> List[Dict[str, Any]]` | Retrieves context snippets from documents for a query. If `docs_tag` is set, filters strictly by tag (ignoring query relevance). Otherwise uses the storage backend's `search_documents_poor_man()`. For each result, loads up to `max_chars` via `load_text_snippet`. Returns a list of dicts with keys: `id`, `title`, `path`, `tags`, `snippet`, `truncated`. Falls back to `[]` if the storage backend lacks `search_documents_poor_man`. |
+### Functions
+#### document_context.py
+| Method                       | Type         | Signature                                                                 | Description |
+|------------------------------|--------------|---------------------------------------------------------------------------|-------------|
+| get_document_context          | Function     | `get_document_context(storage: DocumentStore, account_name: str, query: str, kind: Optional[str] = None, docs_tag: Optional[str] = None, limit: int = 3, max_chars: int = 6000) -> List[Dict[str, Any]]` | Retrieves context snippets from documents based on a query. |
+| get_document_context_traced   | Function     | `get_document_context_traced(storage: DocumentStore, account_name: str, query: str, kind: Optional[str] = None, docs_tag: Optional[str] = None, limit: int = 3, max_chars: int = 6000, keywords: Optional[Any] = None) -> Tuple[List[Dict[str, Any]], Dict[str, Any]]` | Similar to `get_document_context`, but returns a trace of the scoring process. |
 
-### `migrate_legacy_completions.py`
+#### migrate_legacy_completions.py
+| Method | Type         | Signature | Description |
+|--------|--------------|-----------|-------------|
+| migrate | Function     | `migrate(account_name: str = "junwin", agent_name: str = "lucy") -> None` | Migrates legacy completion data to a new format. |
 
-| Method | Type | Signature | Description |
-|---|---|---|---|
-| `parse_dt_utc` | function | `(dt_str: str) -> datetime` | Parses legacy timestamp strings (e.g. `"2023-06-07T22:12:14.041985Z"` or with trailing `Z`). Handles `Z` → `+00:00` conversion and normalises to UTC. Returns `datetime.now(timezone.utc)` for empty/missing input. |
-| `iso_utc` | function | `(dt: datetime) -> str` | Converts a datetime to ISO-8601 string with `+00:00` offset. Normalises naive datetimes to UTC. |
-| `safe_first_line` | function | `(text: str, max_len: int = 80) -> str` | Extracts the first line of text, truncated to `max_len` characters with ellipsis. Returns `"Conversation"` for empty input. Used to generate `friendly_name` from the first user message. |
-| `migrate` | function | `(account_name: str = "junwin", agent_name: str = "lucy") -> None` | Reads `INPUT_PATH`, groups records by `conversation_id`, sorts turns by timestamp, and writes one JSON file per conversation to `data/chats/<account_name>/`. Also writes `index.json`. Side effect: prints a summary line to stdout. |
+#### obsidian_importer.py
+| Method | Type         | Signature | Description |
+|--------|--------------|-----------|-------------|
+| index_obsidian_file | Function | `index_obsidian_file(storage: Storage, account_name: str, md_path: str | Path, vault_root: Optional[str | Path] = None, kind: str = "obsidian_note") -> list[DocumentRef]` | Indexes a single Obsidian markdown file as a DocumentRef entry. |
+| index_obsidian_vault | Function | `index_obsidian_vault(storage: Storage, account_name: str, vault_path: str | Path, kind: str = "obsidian_note", max_files: Optional[int] = None, recursive: bool = False) -> list[DocumentRef]` | Indexes all .md files in an Obsidian vault as DocumentRef entries. |
 
-### `obsidian_importer.py`
+#### scrape.py
+| Method | Type         | Signature | Description |
+|--------|--------------|-----------|-------------|
+| scrape_url | Function | `scrape_url(url: str, timeout_seconds: int = DEFAULT_TIMEOUT_SECONDS) -> str` | Scrapes text from a given URL. |
+| main | Function | `main(argv: Optional[list[str]] = None) -> int` | Main entry point for the script, handling command-line arguments. |
 
-| Method | Type | Signature | Description |
-|---|---|---|---|
-| `_stable_doc_id_from_path` | function | `(vault_name: str, relative_path: str) -> str` | Private helper. Produces a portable SHA-256 hex digest from `vault_name/relative_path` so the same vault produces identical IDs across machines. |
-| `_extract_title` | function | `(md_path: Path, contents: Optional[str] = None) -> str` | Private helper. Derives a document title from the file stem (filename without extension). The `contents` parameter is accepted but currently unused; reserved for future heading-parsing logic. |
-| `_extract_tags` | function | `(contents: str) -> list[str]` | Private helper. Parses YAML frontmatter (`--- … ---`) and extracts the `tags` field. Handles string tags and list-of-string tags. Returns `[]` on parse failure or missing frontmatter. |
-| `index_obsidian_file` | function | `(storage: Storage, account_name: str, md_path: str \| Path, *, vault_root: Optional[str \| Path] = None, kind: str = "obsidian_note") -> list[DocumentRef]` | Indexes a single `.md` file as a `DocumentRef`. Validates the file exists, is a file, has `.md` extension, and (if `vault_root` given) resides under the vault root. Reads file contents, extracts title/tags, computes stable ID, and calls `storage.upsert_document`. Returns a list with the single `DocumentRef` or `[]` on failure. |
-| `index_obsidian_vault` | function | `(storage: Storage, account_name: str, vault_path: str \| Path, *, kind: str = "obsidian_note", max_files: Optional[int] = None) -> list[DocumentRef]` | Recursively walks a vault directory (`vault.rglob("*.md")`) and indexes every `.md` file. Per-file error handling: continues on read/upsert failures. Optional `max_files` cap for testing. Returns list of all successfully upserted `DocumentRef` objects. |
-
-### `scrape.py`
-
-| Method | Type | Signature | Description |
-|---|---|---|---|
-| `_remove_elements` | function | `(soup: BeautifulSoup, selectors: Iterable[str]) -> None` | Private helper. Removes all elements matching each CSS selector from the BeautifulSoup tree via `.decompose()`. |
-| `extract_text_from_html` | function | `(html: str) -> str` | Parses HTML, strips non-content elements (scripts, styles, nav, header, footer, forms, etc.), prefers `<main>` if present, extracts text with newline separation, normalises whitespace (collapses 3+ blank lines to 2). |
-| `scrape_url` | function | `(url: str, *, timeout_seconds: int = DEFAULT_TIMEOUT_SECONDS) -> str` | HTTP GETs a URL with a browser-like User-Agent, returns extracted readable text. Raises `requests` exceptions on timeout, connection error, or non-2xx status. |
-| `main` | function | `(argv: Optional[list[str]] = None) -> int` | CLI entry point. Accepts a URL as first argument. Prints help on `-h`/`--help`. Returns exit codes: `0` success, `1` error, `2` usage. Writes text to stdout, errors to stderr. |
-
-### `text_snippet_loader.py`
-
-| Method | Type | Signature | Description |
-|---|---|---|---|
-| `load_text_snippet` | function | `(path: str \| Path, max_chars: int = DEFAULT_MAX_CHARS) -> Tuple[str, bool]` | Reads a text file (UTF-8, errors ignored) and returns `(snippet, truncated)`. If the file exceeds `max_chars`, returns the first `max_chars` characters and `truncated=True`. On read failure, logs a warning and returns `("", False)`. |
+#### text_snippet_loader.py
+| Method | Type         | Signature | Description |
+|--------|--------------|-----------|-------------|
+| load_text_snippet | Function | `load_text_snippet(path: str | Path, max_chars: int = DEFAULT_MAX_CHARS) -> Tuple[str, bool]` | Loads a text file and returns a snippet of specified maximum length. |
 
 ## 10. Usage Examples
-
-### Web scraping
-
-```python
-from src.utils.scrape import scrape_url
-
-text = scrape_url("https://example.com")
-print(text[:200])
-```
-
-### Obsidian vault indexing
-
-```python
-from src.storage.json_file_storage import JsonFileStorage
-from src.utils.obsidian_importer import index_obsidian_vault
-
-storage = JsonFileStorage(base_path="data")
-docs = index_obsidian_vault(storage, "junwin", "/home/junwin/ObsidianVault")
-print(f"Indexed {len(docs)} notes")
-```
-
-### Document context for prompt building
-
 ```python
 from src.utils.document_context import get_document_context
+from src.storage.interfaces import DocumentStore
 
-contexts = get_document_context(
-    storage, "junwin", "What is Lucy?",
-    kind="obsidian_note", limit=3, max_chars=4000
-)
-for c in contexts:
-    print(c["title"], c["truncated"])
-```
-
-### Legacy migration (one-shot CLI)
-
-```bash
-python3 -c "from src.utils.migrate_legacy_completions import migrate; migrate()"
+# Assuming `storage` is an instance of DocumentStore
+contexts = get_document_context(storage, "my_account", "search query", limit=5)
+print(contexts)
 ```
 
 ## 11. Edge Cases & Gotchas
-
-- **`document_context.py` depends on a duck-typed method** — if the storage backend doesn't have `search_documents_poor_man`, the function silently returns `[]`. This is checked via `hasattr`, not a protocol.
-- **`migrate_legacy_completions.py` hard-codes paths** — `INPUT_PATH` and `OUT_BASE` are module-level constants, not parameterised. It only runs for `junwin`/`lucy` unless you pass different args.
-- **`_extract_tags` eats YAML parse errors** — malformed frontmatter is logged as a warning and tags are silently dropped. There's no way for callers to detect parse failures.
-- **`_extract_title` ignores `contents`** — the parameter is accepted but the function always uses `md_path.stem`. This is a deliberate stub for future heading parsing.
-- **`index_obsidian_file` failure modes** — files that fail to read or upsert return `[]` (empty list). The caller can't distinguish "file not found" (raises) from "read failed" (returns `[]`) from "upsert failed" (returns `[]`).
-- **`scrape_url` has no retry logic** — transient HTTP errors are raised directly to the caller. There's no backoff or rate limiting.
-- **`scrape_url` element removal is CSS-selector-based** — some websites put content in `<header>` or `<footer>` elements; this removal is aggressive and may drop legitimate content.
-- **`load_text_snippet` truncates at character boundary** — no attempt to split at word/sentence/paragraph boundaries. You may get mid-word breaks.
-- **Thread-safety** — none of these functions maintain internal state, so they are thread-safe for reads. However, `migrate` and `index_obsidian_vault` write to disk concurrently through `Storage`; safe only if the storage backend itself is thread-safe.
-- **No `__init__.py`** — you cannot do `import src.utils` and expect submodules to be available. Each submodule must be imported explicitly.
+- **Error Handling**: The module employs a fail-fast approach in many functions, raising exceptions for invalid inputs (e.g., non-existent files or directories).
+- **Thread Safety**: The module does not explicitly address thread safety, which may be a concern if multiple threads access shared resources.
+- **Legacy Data**: The migration functions are designed to handle legacy data formats, but users should ensure that the input data adheres to expected structures to avoid runtime errors.
 
 ## 12. Consumers
-
-| Consumer | What it uses |
-|---|---|
-| `src/prompt_builders/prompt_builder.py` | `get_document_context` — builds document context snippets for prompts |
-| `src/http_endpoints/prompt_builder_debug_endpoints.py` | `get_document_context`, `load_text_snippet` — debug endpoint for inspecting prompt construction |
-| `src/obsidian_index_cli.py` | `index_obsidian_vault` — CLI command for indexing an Obsidian vault |
-| `src/utils/document_context.py` | `load_text_snippet` — internal cross-import within the module |
-| `tests/test_obsidian_importer.py` | `_stable_doc_id_from_path`, `_extract_tags`, `_extract_title`, `index_obsidian_file` — unit tests |
-| `tests/test_live_prompt_builder.py` | References `python_utils_path: "src/utils"` in test config (indirect) |
-| `migrate_legacy_completions` (standalone) | Run directly as `__main__` — not imported by any production code |
+| Consumer                     | What it uses                                      |
+|------------------------------|---------------------------------------------------|
+| src.main                     | Imports various utility functions for document processing. |
+| src.storage                  | Utilizes DocumentRef and storage interfaces for document management. |
+| src.keywords                 | Uses Keywords for extracting keywords from text. |
+| Unknown — trace imports to confirm. | Unknown — trace imports to confirm. |
+```
