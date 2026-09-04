@@ -7,7 +7,7 @@
     "max_prompt_documents": 4,
     "temperature": 0,
     "save_responses": true,
-    "model": "gpt-5.2",
+    "model": "gpt-6-astra",
     "message_processor": "function_calling_processor",
     "max_function_call_iterations": 20,
     "partner_agent": "colin",
