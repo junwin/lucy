@@ -22,9 +22,9 @@
   "port": 5000,
   "debug": false,
   "elapsed_new_session_seconds": 600,
-  "max_tool_result_chars": 32000,
+  "max_tool_result_chars": 16000,
   "max_handler_schema_tokens": 8000,
-  "context_text_soft_max_tokens": 8000,
+  "context_text_soft_max_tokens": 10000,
   "environment_prompt_block": "ENVIRONMENT\n- Test mode",
   "curation_max_chars": 32000,
   "lazy_tool_loading": {
