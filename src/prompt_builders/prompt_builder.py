@@ -32,6 +32,7 @@ DEFAULT_SOURCE_BUDGETS = {
 # Minimum cosine similarity score for a digest to be included as context.
 # Derived from Step 3a evaluation: positive queries ≥0.29, negatives ≤0.18.
 DIGEST_SCORE_THRESHOLD = 0.25
+DIGEST_SEARCH_NAMESPACES = ["digests"]
 
 # Score threshold for embedding-based document retrieval.
 DOC_EMBEDDING_SCORE_THRESHOLD = 0.25
@@ -58,12 +59,14 @@ class PromptBuilder(PromptBuilderInterface):
         storage: Storage,
         chat2_store: Optional[Chat2Store] = None,
         embedding_facade=None,  # Optional[EmbeddingFacade] — lazy import
+        embedding_store: Optional[EmbeddingStore] = None,
     ):
         self.agent_manager = agent_manager
         self.config = config
         self.storage = storage
         self.chat2_store = chat2_store
         self.embedding_facade = embedding_facade
+        self.embedding_store = embedding_store
         # last prompt breakdown for instrumentation by processors
         self._last_prompt_token_breakdown: Dict[str, int] = {}
 
@@ -624,7 +627,7 @@ class PromptBuilder(PromptBuilderInterface):
                 namespaces,
             )
 
-            embedding_store: EmbeddingStore = self.storage
+            embedding_store = self.embedding_store or self.storage
             results = embedding_store.query_embeddings(
                 namespaces=namespaces,
                 account_name=account_name,
@@ -709,8 +712,7 @@ class PromptBuilder(PromptBuilderInterface):
     ) -> List[Dict[str, Any]]:
         """Search embeddings across one or more namespaces and return relevant snippets.
 
-        If namespaces is None, auto-discovers all available embedding namespaces
-        for the account via storage.list_embedding_namespaces().
+        If namespaces is None, defaults to DIGEST_SEARCH_NAMESPACES.
         """
         if self.embedding_facade is None:
             return []
@@ -725,14 +727,9 @@ class PromptBuilder(PromptBuilderInterface):
             )
             query_vector = resp.embeddings[0]
 
-            # Auto-discover namespaces if not explicitly provided
-            embedding_store: EmbeddingStore = self.storage
+            embedding_store = self.embedding_store or self.storage
             if namespaces is None:
-                namespaces = embedding_store.list_embedding_namespaces(account_name)
-                logging.info(
-                    "PromptBuilder._get_digest_context: auto-discovered namespaces=%s",
-                    namespaces,
-                )
+                namespaces = DIGEST_SEARCH_NAMESPACES
 
             results = embedding_store.query_embeddings(
                 namespaces=namespaces,

@@ -18,7 +18,8 @@ import logging
 from typing import Any, Dict, List, Tuple
 
 from src.handlers.handler_registry import HandlerRegistry
-from src.prompt_builders.prompt_builder import PromptBuilder, estimate_tokens_from_text
+from src.prompt_builders.prompt_builder import estimate_tokens_from_text
+from src.prompt_builders.prompt_builder_interface import PromptBuilderInterface
 from src.message_processors.function_calling_processor import (
     apply_handler_schema_budget,
     load_context_state,
@@ -101,13 +102,6 @@ def prompt_builder_metrics_impl(
         # default from agent config
         context_type = my_agent.context_type if my_agent else "hybrid"
 
-    try:
-        # PromptBuilder is DI-based and requires agent_manager/config/storage.
-        # Resolve it from the container (preferred) or construct with deps.
-        prompt_builder = container.get(PromptBuilder)
-    except Exception:
-        prompt_builder = PromptBuilder(agent_manager=agent_manager, config=config, storage=storage)
-
     # --- Resolve tool handler schema set (same source as the FCP) ---
     try:
         registry = container.get(HandlerRegistry)
@@ -115,6 +109,7 @@ def prompt_builder_metrics_impl(
         registry = None
 
     try:
+        prompt_builder = container.get(PromptBuilderInterface)
         prompt = prompt_builder.build_prompt(
             content_text=question,
             conversation_id=conversationId,

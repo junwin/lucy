@@ -234,6 +234,7 @@ class PromptBuilderModule(Module):
         storage: Storage,
         chat2_store: Chat2Store,
         embedding_facade: EmbeddingFacade,
+        embedding_store: EmbeddingStore,
     ) -> PromptBuilderInterface:
         return PromptBuilder(
             agent_manager=agent_manager,
@@ -241,6 +242,7 @@ class PromptBuilderModule(Module):
             storage=storage,
             chat2_store=chat2_store,
             embedding_facade=embedding_facade,
+            embedding_store=embedding_store,
         )
 
 
