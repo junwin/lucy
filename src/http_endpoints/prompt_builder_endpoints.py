@@ -1,7 +1,7 @@
 from typing import Any, Tuple
 import logging
 
-from src.prompt_builders.prompt_builder import PromptBuilder
+from src.prompt_builders.prompt_builder_interface import PromptBuilderInterface
 
 
 def build_prompt_impl(agent_manager, storage, container, config, payload: dict) -> Tuple[Any, int]:
@@ -34,13 +34,7 @@ def build_prompt_impl(agent_manager, storage, container, config, payload: dict) 
         context_type = my_agent.context_type if my_agent else "hybrid"
 
     try:
-        # PromptBuilder is DI-based and requires agent_manager/config/storage.
-        # Resolve it from the container (preferred) or construct with deps.
-        prompt_builder = container.get(PromptBuilder)
-    except Exception:
-        prompt_builder = PromptBuilder(agent_manager=agent_manager, config=config, storage=storage)
-
-    try:
+        prompt_builder = container.get(PromptBuilderInterface)
         prompt = prompt_builder.build_prompt(
             content_text=question,
             conversation_id=conversationId,

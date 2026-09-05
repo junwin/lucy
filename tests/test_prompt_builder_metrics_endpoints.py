@@ -13,6 +13,7 @@ from src.handlers.handler_registry import HandlerRegistry
 from src.http_endpoints.prompt_builder_metrics_endpoints import prompt_builder_metrics_impl
 from src.message_processors.function_calling_processor import resolve_tool_defs
 from src.prompt_builders.prompt_builder import PromptBuilder
+from src.prompt_builders.prompt_builder_interface import PromptBuilderInterface
 
 
 def _make_deps(*, allowed_tools, tool_defs):
@@ -32,7 +33,7 @@ def _make_deps(*, allowed_tools, tool_defs):
     prompt_builder._last_prompt_token_breakdown = {"total_without_handlers": 10}
 
     def _container_get(cls):
-        if cls is PromptBuilder:
+        if cls is PromptBuilder or cls is PromptBuilderInterface:
             return prompt_builder
         if cls is HandlerRegistry:
             return registry
