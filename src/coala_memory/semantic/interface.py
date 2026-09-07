@@ -12,6 +12,11 @@ class SemanticMemoryRequest:
     ``use_embeddings`` selects the same two retrieval modes PromptBuilder uses
     today: semantic vector lookup or document/tag lookup. ``namespaces`` and
     ``docs_tag`` are supplied by the active procedural context.
+
+    ``embedding_model`` and ``source_type`` are explicit because the embeddings
+    handler shows these are real search parameters in Lucy's vector layer.  They
+    remain retrieval concerns here; raw embed/compare/rank operations are not
+    part of the semantic-memory interface.
     """
 
     account_name: str
@@ -23,6 +28,8 @@ class SemanticMemoryRequest:
     top_k: int = 3
     max_chars: int = 9000
     score_threshold: float = 0.25
+    embedding_model: str = "text-embedding-3-small"
+    source_type: Optional[str] = None
 
 
 @dataclass(frozen=True)
@@ -34,6 +41,7 @@ class SemanticDocument:
     score: Optional[float] = None
     truncated: bool = False
     path: Optional[str] = None
+    source_type: Optional[str] = None
     metadata: Dict[str, Any] = field(default_factory=dict)
 
 
