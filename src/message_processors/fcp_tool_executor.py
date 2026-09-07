@@ -5,6 +5,7 @@ from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 from src.agent import Agent
 from src.agent.agent_manager import AgentManager
+from src.agent.caps import resolve_effective_cap
 from src.chat2.facade import Chat2Store
 from src.config_manager import ConfigManager
 from src.handlers.handler_registry import HandlerRegistry
@@ -16,6 +17,9 @@ from src.message_processors.fcp_models import (
     _ToolCall,
 )
 from src.prompt_builders.prompt_builder_interface import PromptBuilderInterface
+
+DEFAULT_MAX_TOOL_RESULT_CHARS = 20000
+
 
 def load_context_state(prompt_builder: Any, account_name: str, context_name: str) -> Optional[Any]:
     """Load the active Context (or None) for the given account/context.
@@ -80,7 +84,7 @@ class ToolExecutor:
             return {}
 
 
-    def tool_result_to_text(self, tool_result_text: Any, correlation_id: Optional[str] = None) -> str:
+    def tool_result_to_text(self, tool_result_text: Any, *, max_chars: int, correlation_id: Optional[str] = None) -> str:
         """Ensure the tool result is a string and enforce max size.
 
         We do not parse/serialize tool I/O here anymore. Handlers are expected
@@ -97,7 +101,6 @@ class ToolExecutor:
             except Exception as e:
                 s = json.dumps({"ok": False, "error": f"Tool result not serializable: {e}"}, ensure_ascii=False)
 
-        max_chars = int(self.config.get("max_tool_result_chars", 20000))
         if len(s) > max_chars:
             logging.error(
                 "Tool result too large: correlation_id=%s chars=%d (limit %d). Sample: %r",
@@ -134,6 +137,9 @@ class ToolExecutor:
         correlation_id: Optional[str] = None,
     ) -> Tuple[List[Dict[str, Any]], List[Tuple[_ToolCall, str]]]:
         correlation_id = correlation_id or "-"
+        max_tool_result_chars = resolve_effective_cap(
+            "max_tool_result_chars", primary_agent, self.config, DEFAULT_MAX_TOOL_RESULT_CHARS
+        )
         tool_output_items: List[Dict[str, Any]] = []
         raw_results: List[Tuple[_ToolCall, str]] = []
 
@@ -230,7 +236,9 @@ class ToolExecutor:
                 # Collect raw result before enforcing max size (for SSE action/image inspection)
                 raw_results.append((tc, tool_result_text))
 
-                tool_result_text = self.tool_result_to_text(tool_result_text, correlation_id=correlation_id)
+                tool_result_text = self.tool_result_to_text(
+                    tool_result_text, max_chars=max_tool_result_chars, correlation_id=correlation_id
+                )
 
             except ToolResultTooLargeError as e:
                 metrics["failures"] += 1

@@ -6,6 +6,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from . import selection
 from .errors import ToolSelectionError
+from src.agent.caps import resolve_effective_cap
 
 __all__ = [
     "ToolSelection",
@@ -145,7 +146,7 @@ class ToolSelectionPipeline:
         active_defs = self._defs_by_name(active)
         meta["active_defs"] = active_defs
 
-        cap = _resolve_schema_cap(self.config)
+        cap = resolve_effective_cap("max_handler_schema_tokens", agent, self.config, DEFAULT_MAX_HANDLER_SCHEMA_TOKENS, disable_on_non_positive=True)
         tokens = _schema_tokens(active_defs)
         meta["schema_tokens"] = tokens
         meta["schema_cap"] = cap
@@ -253,19 +254,6 @@ def _schema_tokens(function_defs: List[Dict[str, Any]]) -> int:
         return 0
     return max(1, len(text) // 4)
 
-def _resolve_schema_cap(config) -> Optional[int]:
-    if config is not None:
-        try:
-            raw = config.get("max_handler_schema_tokens", None)
-            if raw is not None:
-                value = int(raw)
-                if value > 0:
-                    return value
-                if value <= 0:
-                    return None
-        except Exception:
-            pass
-    return DEFAULT_MAX_HANDLER_SCHEMA_TOKENS
 
 def _as_int(value, default: int) -> int:
     try:

@@ -56,6 +56,10 @@ class Agent:
     use_embeddings: bool = False
     # Optional default context name for this agent (can be overridden at runtime)
     default_context: Optional[str] = None
+    max_tool_result_chars: Optional[int] = None
+    max_handler_schema_tokens: Optional[int] = None
+    context_text_soft_max_tokens: Optional[int] = None
+    prompt_budget_max_tokens: Optional[int] = None
 
     @staticmethod
     def _coerce_bool(value: Any) -> bool:
@@ -196,6 +200,26 @@ class Agent:
                 except Exception:
                     raise ValueError(f"Agent '{agent_name}' has invalid temperature={val!r}; expected float")
 
+        cap_fields = [
+            "max_tool_result_chars",
+            "max_handler_schema_tokens",
+            "context_text_soft_max_tokens",
+            "prompt_budget_max_tokens",
+        ]
+        for fname in cap_fields:
+            if fname in raw:
+                val = raw[fname]
+                if not isinstance(val, int):
+                    try:
+                        raw[fname] = int(val)
+                        logger.debug("Coerced %s to int for agent '%s'", fname, agent_name)
+                    except Exception:
+                        raise ValueError(f"Agent '{agent_name}' has invalid {fname}={val!r}; expected int")
+                if raw[fname] < 0:
+                    raise ValueError(
+                        f"Agent '{agent_name}' has invalid {fname}={raw[fname]!r}; expected non-negative int"
+                    )
+
         if "save_responses" in raw:
             try:
                 raw["save_responses"] = Agent._coerce_bool(raw["save_responses"])
@@ -223,7 +247,7 @@ class Agent:
     def to_dict(self) -> Dict[str, Any]:
         """Serialize Agent to a dict suitable for JSON storage."""
 
-        return {
+        result = {
             "name": self.name,
             "language_code": self.language_code,
             "context_type": self.context_type,
@@ -243,6 +267,15 @@ class Agent:
             "use_embeddings": self.use_embeddings,
             "default_context": self.default_context,
         }
+        if self.max_tool_result_chars is not None:
+            result["max_tool_result_chars"] = self.max_tool_result_chars
+        if self.max_handler_schema_tokens is not None:
+            result["max_handler_schema_tokens"] = self.max_handler_schema_tokens
+        if self.context_text_soft_max_tokens is not None:
+            result["context_text_soft_max_tokens"] = self.context_text_soft_max_tokens
+        if self.prompt_budget_max_tokens is not None:
+            result["prompt_budget_max_tokens"] = self.prompt_budget_max_tokens
+        return result
 
     def allows_tool(self, tool_name: str) -> bool:
         """Return True if the given tool is allowed for this agent.
