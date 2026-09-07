@@ -6,6 +6,7 @@ from .management import (
     EpisodicCurationRequest,
     EpisodicCurationResult,
 )
+from .chat2_memory import Chat2EpisodicMemory
 
 __all__ = [
     "EpisodicMemory",
@@ -18,4 +19,5 @@ __all__ = [
     "EpisodicSessionQuery",
     "EpisodicCurationRequest",
     "EpisodicCurationResult",
+    "Chat2EpisodicMemory",
 ]
