@@ -16,7 +16,12 @@ from .episodic import (
     EpisodicCurationRequest,
     EpisodicCurationResult,
 )
-from .semantic import SemanticMemory, SemanticMemoryRequest, SemanticMemoryResult
+from .semantic import (
+    SemanticMemory,
+    SemanticMemoryRequest,
+    SemanticMemoryResult,
+    SqliteVecSemanticMemory,
+)
 from .procedural import ProceduralMemory, ProceduralMemoryRequest, ProceduralMemoryResult
 
 __all__ = [
@@ -31,6 +36,7 @@ __all__ = [
     "SemanticMemory",
     "SemanticMemoryRequest",
     "SemanticMemoryResult",
+    "SqliteVecSemanticMemory",
     "ProceduralMemory",
     "ProceduralMemoryRequest",
     "ProceduralMemoryResult",
