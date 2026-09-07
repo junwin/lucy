@@ -49,7 +49,6 @@ class FakeWorkflowExecutor:
 
 def classify_semantic_outcome(text: str, execution_state: str) -> str:
     """Classify semantic outcome without equating normal execution with success."""
-
     if execution_state != "completed":
         return "failed"
 
@@ -77,21 +76,14 @@ def classify_semantic_outcome(text: str, execution_state: str) -> str:
     )
     if any(marker in lowered for marker in blocked_markers):
         return "blocked"
-
     return "inconclusive"
 
 
 class AskWorkflowExecutor:
     """Run workflow work through Lucy's public ``/ask`` boundary.
 
-    For a node without an existing tasklist id, a one-task TaskList JSON file is
-    written directly into Lucy's tasklist storage directory. The executor then
-    asks Lucy to invoke ``tasklists_run`` in multi-step mode.
-
-    ``/ask`` is the transport/execution check. A successful HTTP response alone
-    is not accepted as proof that the TaskList ran: the corresponding append-only
-    ``<tasklist_id>.jsonl`` history must gain at least one new execution record.
-    Those new records are the source of result text, execution state and metrics.
+    Authentication defaults to reading ``api_key`` from ``config.local.json``
+    and sending it in Lucy's primary ``X-API-Key`` request header.
     """
 
     _ADDITIVE_METRIC_KEYS = (
@@ -116,6 +108,8 @@ class AskWorkflowExecutor:
         default_agent: str = "peace",
         default_context: str = "lucyproject",
         timeout: float = 300.0,
+        config_path: str | Path = "config.local.json",
+        api_key: str | None = None,
         post: Callable[..., Any] | None = None,
     ) -> None:
         self.account_name = account_name
@@ -124,9 +118,21 @@ class AskWorkflowExecutor:
         self.default_agent = default_agent
         self.default_context = default_context
         self.timeout = timeout
+        self.config_path = Path(config_path)
+        self.api_key = api_key.strip() if api_key is not None else self._load_api_key(self.config_path)
         self._post = post or requests.post
 
     def execute(self, node: WorkflowNode) -> WorkflowResult:
+        if not self.api_key:
+            return WorkflowResult(
+                execution_state="error",
+                outcome="failed",
+                error=(
+                    "Lucy API key is missing. Expected non-empty 'api_key' in "
+                    f"{self.config_path}"
+                ),
+            )
+
         tasklist_id = node.tasklist_id
         if not tasklist_id:
             tasklist_id = f"workflow-{node.id}-{uuid.uuid4().hex[:8]}"
@@ -149,7 +155,12 @@ class AskWorkflowExecutor:
         }
 
         try:
-            response = self._post(self.ask_url, json=payload, timeout=self.timeout)
+            response = self._post(
+                self.ask_url,
+                json=payload,
+                headers={"X-API-Key": self.api_key},
+                timeout=self.timeout,
+            )
         except Exception as exc:
             return WorkflowResult(
                 execution_state="error",
@@ -212,6 +223,16 @@ class AskWorkflowExecutor:
             metrics=metrics,
             error=error,
         )
+
+    @staticmethod
+    def _load_api_key(config_path: Path) -> str:
+        try:
+            data = json.loads(config_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return ""
+        if not isinstance(data, dict):
+            return ""
+        return str(data.get("api_key") or "").strip()
 
     def _write_generated_tasklist(self, tasklist_id: str, node: WorkflowNode) -> None:
         self.tasklist_dir.mkdir(parents=True, exist_ok=True)
@@ -308,7 +329,14 @@ class AskWorkflowExecutor:
                 value = metrics.get(key)
                 if isinstance(value, (int, float)) and not isinstance(value, bool):
                     aggregate[key] = aggregate.get(key, 0) + value
-            for key in ("agent", "account", "session_id", "correlation_id", "max_iterations", "hit_iteration_cap"):
+            for key in (
+                "agent",
+                "account",
+                "session_id",
+                "correlation_id",
+                "max_iterations",
+                "hit_iteration_cap",
+            ):
                 if key in metrics:
                     aggregate[key] = metrics[key]
         return aggregate
