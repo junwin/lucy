@@ -1,7 +1,8 @@
-from src.tasklists.task_states import TASK_STATE_COMPLETED
+import json
+
 from src.workflows.executor import (
+    AskWorkflowExecutor,
     FakeWorkflowExecutor,
-    TaskListWorkflowExecutor,
     classify_semantic_outcome,
 )
 from src.workflows.loader import WorkflowLoader
@@ -132,73 +133,121 @@ def test_execution_completion_is_not_automatically_semantic_success():
     assert classify_semantic_outcome("I could not access the repository", "completed") == "blocked"
 
 
-class FakeAgent:
-    name = "lucy"
+class FakeResponse:
+    def __init__(self, status_code, body):
+        self.status_code = status_code
+        self._body = body
+
+    def json(self):
+        return self._body
 
 
-class FakeStore:
-    def __init__(self):
-        self.tasklists = {}
-        self.records = {}
+def test_ask_executor_writes_tasklist_calls_ask_and_reads_new_jsonl_record(tmp_path):
+    calls = []
 
-    def save_tasklist(self, account_name, tasklist_key, tasklist):
-        self.tasklists[(account_name, tasklist_key)] = tasklist
+    def fake_post(url, *, json: payload, timeout):
+        calls.append((url, payload, timeout))
+        tasklist_id = payload["question"].split('tasklist "', 1)[1].split('"', 1)[0]
+        history = tmp_path / f"{tasklist_id}.jsonl"
+        history.write_text(
+            json.dumps(
+                {
+                    "state": "completed",
+                    "result": {
+                        "output": '{"outcome":"blocked","result":"Repository is not available"}'
+                    },
+                    "metrics": {"total_tokens": 123, "iterations": 4},
+                }
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        return FakeResponse(200, {"response": "TaskList run requested", "conversation_id": "c1"})
 
-    def get_tasklist(self, account_name, tasklist_key):
-        return self.tasklists.get((account_name, tasklist_key))
-
-    def get_task_result(self, account_name, tasklist_key, task_id):
-        return self.records.get((account_name, tasklist_key, task_id))
-
-
-class FakeAutomationProcessor:
-    def __init__(self, store):
-        self.store = store
-        self.calls = []
-
-    def execute_tasklist(self, **kwargs):
-        self.calls.append(kwargs)
-        key = (kwargs["account_name"], kwargs["tasklist_id"])
-        tasklist = self.store.tasklists[key]
-        task = tasklist.tasks[0]
-        task.state = TASK_STATE_COMPLETED
-        self.store.records[(key[0], key[1], task.id)] = {
-            "state": "completed",
-            "result": {
-                "output": '{"outcome":"blocked","result":"Repository is not available"}'
-            },
-            "metrics": {"total_tokens": 123, "iterations": 4},
-        }
-        self.store.save_tasklist(key[0], key[1], tasklist)
-        return "[AutomationProcessor] state=Completed"
-
-
-def test_tasklist_adapter_uses_existing_execution_path_and_reads_metrics():
-    store = FakeStore()
-    automation = FakeAutomationProcessor(store)
     node = WorkflowLoader().load_text(
         """
 name: clarity
 id: clarity
 type: condition
-agent: lucy
+agent: peace
 context: lucyproject
 instructions: Assess requirement clarity and return structured JSON.
 """
     )
-    executor = TaskListWorkflowExecutor(
-        automation_processor=automation,
-        storage=store,
+    executor = AskWorkflowExecutor(
         account_name="junwin",
-        primary_agent=FakeAgent(),
-        account={"accountId": "junwin"},
+        tasklist_dir=tmp_path,
+        post=fake_post,
     )
 
     run = executor.execute(node)
 
     assert run.execution_state == "completed"
     assert run.outcome == "blocked"
-    assert run.metrics == {"total_tokens": 123, "iterations": 4}
-    assert automation.calls[0]["worker_agent"] == "lucy"
-    assert automation.calls[0]["context_name"] == "lucyproject"
-    assert len(store.tasklists) == 1
+    assert run.metrics["total_tokens"] == 123
+    assert run.metrics["iterations"] == 4
+    assert len(list(tmp_path.glob("workflow-clarity-*.json"))) == 1
+    assert calls[0][1]["agentName"] == "peace"
+    assert calls[0][1]["accountName"] == "junwin"
+    assert calls[0][1]["contextName"] == "lucyproject"
+    assert 'worker_agent "peace"' in calls[0][1]["question"]
+
+
+def test_ask_executor_reports_http_error_before_reading_history(tmp_path):
+    def fake_post(url, *, json, timeout):
+        return FakeResponse(500, {"error": "Tool execution failed: tasklist not found"})
+
+    node = WorkflowLoader().load_text(
+        """
+name: clarity
+id: clarity
+type: condition
+agent: peace
+instructions: Assess requirement clarity.
+"""
+    )
+    executor = AskWorkflowExecutor(
+        account_name="junwin",
+        tasklist_dir=tmp_path,
+        post=fake_post,
+    )
+
+    run = executor.execute(node)
+
+    assert run.execution_state == "error"
+    assert run.outcome == "failed"
+    assert "HTTP 500" in run.error
+    assert "tasklist not found" in run.error
+
+
+def test_ask_executor_requires_new_jsonl_record_even_when_ask_returns_200(tmp_path):
+    existing = tmp_path / "xyz.jsonl"
+    existing.write_text(
+        json.dumps({"state": "completed", "result": {"output": '{"outcome":"success"}'}}) + "\n",
+        encoding="utf-8",
+    )
+
+    def fake_post(url, *, json, timeout):
+        return FakeResponse(200, {"response": "I tried to run it", "conversation_id": "c1"})
+
+    node = WorkflowLoader().load_text(
+        """
+name: existing
+id: existing
+type: tasklist
+tasklist: xyz
+agent: peace
+"""
+    )
+    executor = AskWorkflowExecutor(
+        account_name="junwin",
+        tasklist_dir=tmp_path,
+        post=fake_post,
+    )
+
+    run = executor.execute(node)
+
+    assert run.execution_state == "error"
+    assert run.outcome == "failed"
+    assert run.text == "I tried to run it"
+    assert "produced no new execution records" in run.error
