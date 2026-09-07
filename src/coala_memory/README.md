@@ -1,39 +1,63 @@
 # CoALA memory scaffold
 
 This package introduces typed seams around the memory access already performed
-inside `src/prompt_builders/prompt_builder.py`.  It does **not** yet change
-PromptBuilder behaviour.
+inside `src/prompt_builders/prompt_builder.py` and related chat/curation APIs.
+It does **not** yet change runtime behaviour.
 
-## Mapping from PromptBuilder
+## Mapping from current Lucy code
 
 ### Episodic memory
 
-Current sources:
+Prompt-time sources:
 
-- `Chat2Store.get_session()` for session metadata.
-- `Chat2Store.session_exists()` / `stream_events()` for recent conversation
-  events.
-- `_get_digest_context()` for semantic lookup of archived chat digests.
-- `_save_overflow_digest()` for history dropped by the prompt token budget.
+- `PromptBuilder` uses `Chat2Store.get_session()` for session metadata.
+- `PromptBuilder` uses `session_exists()` / `stream_events()` for recent
+  conversational events.
+- `_get_digest_context()` performs similarity lookup over archived chat digests.
+- `_save_overflow_digest()` persists history dropped by the prompt token budget.
 
-Contract: `EpisodicMemory.recall(EpisodicMemoryRequest)` plus
-`save_overflow_digest(...)`.
+Lifecycle and curation sources:
+
+- `src/handlers/chat2_handler.py` exposes reset, search, curate, get, list,
+  delete and update operations over Chat2 sessions.
+- `src/handlers/curate_chat_handler.py` adds summarize/archive workflows,
+  preview/publish controls, templates and digest embedding publication.
+- `src/http_endpoints/chats_endpoints.py` exposes session create/get/list,
+  append-message, update and delete operations.
+- `app.py` wires those operations into `/chats` and also resolves or creates
+  sessions for `/ask` via `resolve_or_create_session()`.
+
+Contracts:
+
+- `EpisodicMemory.recall(EpisodicMemoryRequest)` is the prompt-time read seam.
+- `EpisodicMemory.save_overflow_digest(...)` owns prompt overflow persistence.
+- `EpisodicMemoryManager` owns session lifecycle plus filter/summarize/archive
+  curation. It is deliberately separate from HTTP and handler schemas.
 
 ### Semantic memory
 
-Current sources:
+Prompt-time sources:
 
 - `_get_document_embedding_context()` -> embedding facade + `EmbeddingStore`.
 - `get_document_context()` -> `DocumentStore`, normally `obsidian_note` records
   filtered by context tag.
 
-Contract: `SemanticMemory.recall(SemanticMemoryRequest)`.  The request keeps
-`use_embeddings`, namespaces, tag, top-k, character limit and score threshold
-explicit because PromptBuilder currently makes decisions using all of them.
+Embedding infrastructure:
+
+- `src/handlers/embedding_handler.py` exposes raw embed, compare, rank and
+  stored-vector search operations.
+- The memory boundary should *not* absorb all of those vector utilities.
+  Embedding generation/comparison is infrastructure; semantic memory owns the
+  higher-level operation "retrieve durable knowledge relevant to this query".
+- The handler confirms that embedding model, namespace, account, top-k and
+  source_type are real vector-search parameters, so the semantic request keeps
+  those retrieval-relevant fields explicit.
+
+Contract: `SemanticMemory.recall(SemanticMemoryRequest)`.
 
 ### Procedural memory
 
-Current source:
+Current sources:
 
 - `_get_context_state()` -> `ContextStore.get_or_create_context()`.
 - `_get_context_text()` -> `Context.resolved_text`.
@@ -41,15 +65,28 @@ Current source:
   `missing_imports`.
 
 The resolved Context already combines the intrinsic context body with imported
-skill bodies.  That makes it the natural Lucy representation of procedural
+skill bodies. That makes it the natural Lucy representation of procedural
 memory.
 
 Contract: `ProceduralMemory.recall(ProceduralMemoryRequest)`.
 
+## Architectural boundary
+
+The CoALA package is a domain layer, not a replacement API layer.
+
+Expected direction:
+
+- PromptBuilder depends on recall interfaces.
+- Chat handlers and `/chats` endpoints may eventually share an
+  `EpisodicMemoryManager` adapter.
+- Semantic adapters depend on Lucy's `DocumentStore`, `EmbeddingStore` and
+  embedding facade internally.
+- Procedural adapters depend on `ContextStore` and return fully-resolved context
+  state without exposing storage/import mechanics to PromptBuilder.
+
 ## Next step
 
-Implement adapters around Lucy's current `Chat2Store`, `DocumentStore` /
-`EmbeddingStore`, and `ContextStore`, then inject those interfaces into
-PromptBuilder.  PromptBuilder should remain responsible for prompt composition
-and token budgeting; the CoALA modules should own memory retrieval and memory
-source details.
+Implement adapters around Lucy's current `Chat2Store`, curation engine,
+`DocumentStore` / `EmbeddingStore`, and `ContextStore`. Test those adapters
+against the current behaviour before replacing direct calls inside
+PromptBuilder or handlers.
