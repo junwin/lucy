@@ -29,6 +29,7 @@ from src.handlers.serve_image_handler import ServeImageHandler
 from src.handlers.generate_svg_handler import GenerateSvgHandler
 from src.handlers.embedding_handler import EmbeddingHandler
 from src.handlers.semantic_memory_handler import SemanticMemoryHandler
+from src.handlers.episodic_memory_handler import EpisodicMemoryHandler
 from src.handlers.remote_execute_handler import RemoteExecuteHandler
 from src.handlers.tool_handler_meta_handler import ToolHandlerMetaHandler
 from src.handlers.agents_manage_handler import AgentsManageHandler
@@ -114,6 +115,8 @@ def build_registry() -> HandlerRegistry:
     reg.register(EmbeddingHandler)
     # CoALA semantic memory recall — integration-test seam for Lucy agents
     reg.register(SemanticMemoryHandler)
+    # CoALA episodic memory — integration-test seam over Chat2
+    reg.register(EpisodicMemoryHandler)
 
     # Remote execution — query a remote Lucy instance's /ask endpoint
     reg.register(RemoteExecuteHandler)
