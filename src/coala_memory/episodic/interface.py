@@ -30,9 +30,13 @@ class EpisodicMemoryRequest:
 
 @dataclass(frozen=True)
 class EpisodicEvent:
+    """Provider-neutral representation of a Chat2 event."""
+
     role: str
-    content: str
+    content: Any
     kind: str = ""
+    actor: str = ""
+    event_id: str = ""
     created_at: Optional[datetime] = None
     metadata: Dict[str, Any] = field(default_factory=dict)
 
@@ -49,8 +53,14 @@ class EpisodicDigest:
 @dataclass
 class EpisodicMemoryResult:
     session_id: str = ""
+    session_user_id: str = ""
+    session_account_name: str = ""
     session_agent_name: str = ""
     session_context_name: str = ""
+    session_type: str = ""
+    session_participants: List[str] = field(default_factory=list)
+    session_friendly_name: str = ""
+    session_tags: List[str] = field(default_factory=list)
     session_updated_at: Optional[datetime] = None
     events: List[EpisodicEvent] = field(default_factory=list)
     digests: List[EpisodicDigest] = field(default_factory=list)
