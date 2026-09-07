@@ -51,7 +51,16 @@ class WorkflowLoader:
         if max_attempts < 1:
             raise ValueError(f"max_attempts must be >= 1 for node '{node_id}'")
 
-        branch_map = data.get("on") or {}
+        # PyYAML follows YAML 1.1 boolean resolution, where an unquoted `on:`
+        # mapping key is parsed as the boolean True. Workflows intentionally use
+        # the natural `on:` spelling, so accept either representation here.
+        if "on" in data:
+            branch_map = data["on"]
+        elif True in data:
+            branch_map = data[True]
+        else:
+            branch_map = {}
+        branch_map = branch_map or {}
         if not isinstance(branch_map, dict):
             raise ValueError(f"on must be a mapping for node '{node_id}'")
 
