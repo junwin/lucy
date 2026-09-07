@@ -187,6 +187,7 @@
     "persona": "a kind agent",
     "allowed_tools": [
       "embeddings",
+      "semantic_memory",
       "execute_command",
       "file_load",
       "file_save",
