@@ -3,14 +3,18 @@
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 from galet.embedding_router import EmbeddingRouter
 from galet.mistral_embedding import MistralEmbeddingApi
 from galet.openai_embedding import OpenAIEmbeddingApi
 from galet.settings import Settings
 
-from src.coala_memory.semantic import SemanticMemoryRequest, SqliteVecSemanticMemory
+from src.coala_memory.semantic import (
+    SemanticMemory,
+    SemanticMemoryRequest,
+    SqliteVecSemanticMemory,
+)
 from src.config_manager import ConfigManager
 from src.embeddings.facade import EmbeddingFacade
 from src.handlers.handler_v2 import HandlerV2
@@ -23,15 +27,22 @@ class SemanticMemoryHandler(HandlerV2):
     """Recall durable semantic memory through the CoALA semantic interface.
 
     This handler is intentionally small and exists primarily as an integration
-    seam: Lucy agents can invoke it and inspect the documents returned by
-    ``SqliteVecSemanticMemory`` using the same embedding-store configuration as
-    the rest of Lucy.
+    seam: Lucy agents can invoke it and inspect the documents returned by the
+    configured semantic-memory implementation.
     """
 
     NAME = "semantic_memory"
 
-    def __init__(self, config: ConfigManager):
+    def __init__(
+        self,
+        config: ConfigManager,
+        memory: Optional[SemanticMemory] = None,
+    ):
         self.config = config
+        if memory is not None:
+            self.memory = memory
+            return
+
         settings = Settings(
             credential_path=config.get("credential_path"),
             ollama_base_url=config.get("ollama_base_url"),
