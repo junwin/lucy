@@ -52,8 +52,8 @@ def test_runner_executes_clarity_design_review_and_accumulates_metrics():
     executor = FakeWorkflowExecutor(
         {
             "clarity": result("success", tokens=10, iterations=1),
-            "design": result("success", "design v1", tokens=20, iterations=2),
-            "review": result("success", "approved", tokens=5, iterations=1),
+            "design": [result("success", "design v1", tokens=20, iterations=2)],
+            "review": [result("success", "approved", tokens=5, iterations=1)],
         }
     )
 
@@ -142,12 +142,26 @@ class FakeResponse:
         return self._body
 
 
+def test_ask_executor_reads_api_key_from_config_local_json(tmp_path):
+    config_path = tmp_path / "config.local.json"
+    config_path.write_text(jsonlib.dumps({"api_key": "sekret"}), encoding="utf-8")
+
+    executor = AskWorkflowExecutor(
+        account_name="junwin",
+        tasklist_dir=tmp_path,
+        config_path=config_path,
+        post=lambda *args, **kwargs: None,
+    )
+
+    assert executor.api_key == "sekret"
+
+
 def test_ask_executor_writes_tasklist_calls_ask_and_reads_new_jsonl_record(tmp_path):
     calls = []
 
-    def fake_post(url, *, json, timeout):
+    def fake_post(url, *, json, headers, timeout):
         payload = json
-        calls.append((url, payload, timeout))
+        calls.append((url, payload, headers, timeout))
         tasklist_id = payload["question"].split('tasklist "', 1)[1].split('"', 1)[0]
         history = tmp_path / f"{tasklist_id}.jsonl"
         history.write_text(
@@ -178,6 +192,7 @@ instructions: Assess requirement clarity and return structured JSON.
     executor = AskWorkflowExecutor(
         account_name="junwin",
         tasklist_dir=tmp_path,
+        api_key="sekret",
         post=fake_post,
     )
 
@@ -191,11 +206,12 @@ instructions: Assess requirement clarity and return structured JSON.
     assert calls[0][1]["agentName"] == "peace"
     assert calls[0][1]["accountName"] == "junwin"
     assert calls[0][1]["contextName"] == "lucyproject"
+    assert calls[0][2] == {"X-API-Key": "sekret"}
     assert 'worker_agent "peace"' in calls[0][1]["question"]
 
 
 def test_ask_executor_reports_http_error_before_reading_history(tmp_path):
-    def fake_post(url, *, json, timeout):
+    def fake_post(url, *, json, headers, timeout):
         return FakeResponse(500, {"error": "Tool execution failed: tasklist not found"})
 
     node = WorkflowLoader().load_text(
@@ -210,6 +226,7 @@ instructions: Assess requirement clarity.
     executor = AskWorkflowExecutor(
         account_name="junwin",
         tasklist_dir=tmp_path,
+        api_key="sekret",
         post=fake_post,
     )
 
@@ -228,7 +245,7 @@ def test_ask_executor_requires_new_jsonl_record_even_when_ask_returns_200(tmp_pa
         encoding="utf-8",
     )
 
-    def fake_post(url, *, json, timeout):
+    def fake_post(url, *, json, headers, timeout):
         return FakeResponse(200, {"response": "I tried to run it", "conversation_id": "c1"})
 
     node = WorkflowLoader().load_text(
@@ -243,6 +260,7 @@ agent: peace
     executor = AskWorkflowExecutor(
         account_name="junwin",
         tasklist_dir=tmp_path,
+        api_key="sekret",
         post=fake_post,
     )
 
