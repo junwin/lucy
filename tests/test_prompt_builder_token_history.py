@@ -1,3 +1,4 @@
+import logging
 from types import SimpleNamespace
 from unittest.mock import Mock
 
@@ -238,3 +239,136 @@ def test_max_prompt_conversations_cap_and_budget_combined():
     # Should have at most 5 (the cap) and the token budget will further restrict.
     # With the budget above, we expect ~2-3 messages.
     assert 1 <= len(hist_contents) <= 5, f"Expected 1-5 history messages, got {len(hist_contents)}"
+
+
+# --- per-agent budget cap tests ---
+
+def _make_prompt_builder_with_cap_config(chat2_store, config_values, max_prompt_conversations=10, agent_budget=None):
+    agent_manager = Mock()
+    mock_agent = Mock()
+    mock_agent.max_prompt_conversations = max_prompt_conversations
+    mock_agent.system_prompt = None
+    mock_agent.persona = None
+    mock_agent.style_prompt = None
+    mock_agent.allowed_tools = None
+    mock_agent.use_embeddings = False
+    mock_agent.max_prompt_documents = 0
+    mock_agent.max_tool_result_chars = None
+    mock_agent.max_handler_schema_tokens = None
+    mock_agent.context_text_soft_max_tokens = None
+    mock_agent.prompt_budget_max_tokens = agent_budget
+    agent_manager.get_agent.return_value = mock_agent
+
+    config = Mock()
+
+    def cfg_get(key, default=None):
+        return config_values.get(key, default)
+
+    config.get.side_effect = cfg_get
+
+    storage = Mock()
+
+    return PromptBuilder(agent_manager=agent_manager, config=config, storage=storage, chat2_store=chat2_store)
+
+
+def _seed_history_messages(store):
+    meta = store.create_session(user_id="u", account_name="acct", agent_name="a")
+    sid = meta.session_id
+    for i in range(1, 6):
+        content = f"msg{i}-" + ("x" * 20)
+        store.add_event(sid, ChatEvent(role="user", actor="u", kind="user_message", payload=content))
+    return sid
+
+
+def _budget_fitting_two_history_messages():
+    sys_est = _system_token_estimate_for_fake_agent()
+    msg_tok = max(1, 25 // 4)
+    user_tok = max(1, len("query") // 4)
+    return sys_est + msg_tok * 2 + user_tok + pb_module.PROMPT_BUDGET_SAFETY_MARGIN
+
+
+def test_history_budget_env_ceiling_wins_over_config_with_fieldless_agent(monkeypatch):
+    monkeypatch.setenv("PROMPT_BUDGET_MAX_TOKENS", str(_budget_fitting_two_history_messages()))
+
+    store = Chat2Store(InMemoryStore())
+    sid = _seed_history_messages(store)
+    pb = _make_prompt_builder_with_cap_config(store, {"prompt_budget_max_tokens": 100000})
+
+    prompt = pb.build_prompt(
+        content_text="query",
+        conversation_id=sid,
+        agent_name="a",
+        account_name="acct",
+        context_type="none",
+    )
+
+    hist_contents = _history_only(prompt, "query")
+    assert any("msg4-" in c for c in hist_contents), "Expected msg4 in history"
+    assert any("msg5-" in c for c in hist_contents), "Expected msg5 in history"
+    assert not any("msg1-" in c for c in hist_contents), "Expected msg1 excluded by env cap"
+
+
+def test_history_budget_config_ceiling_honored_with_fieldless_agent(monkeypatch):
+    monkeypatch.delenv("PROMPT_BUDGET_MAX_TOKENS", raising=False)
+
+    store = Chat2Store(InMemoryStore())
+    sid = _seed_history_messages(store)
+    pb = _make_prompt_builder_with_cap_config(store, {"prompt_budget_max_tokens": _budget_fitting_two_history_messages()})
+
+    prompt = pb.build_prompt(
+        content_text="query",
+        conversation_id=sid,
+        agent_name="a",
+        account_name="acct",
+        context_type="none",
+    )
+
+    hist_contents = _history_only(prompt, "query")
+    assert any("msg4-" in c for c in hist_contents), "Expected msg4 in history"
+    assert any("msg5-" in c for c in hist_contents), "Expected msg5 in history"
+    assert not any("msg1-" in c for c in hist_contents), "Expected msg1 excluded by config cap"
+
+
+def test_history_budget_defaults_to_module_constant_with_fieldless_agent(caplog, monkeypatch):
+    monkeypatch.delenv("PROMPT_BUDGET_MAX_TOKENS", raising=False)
+    caplog.set_level(logging.INFO)
+
+    store = Chat2Store(InMemoryStore())
+    sid = _seed_history_messages(store)
+    pb = _make_prompt_builder_with_cap_config(store, {})
+
+    pb.build_prompt(
+        content_text="query",
+        conversation_id=sid,
+        agent_name="a",
+        account_name="acct",
+        context_type="none",
+    )
+
+    expected = f"ceiling={pb_module.DEFAULT_PROMPT_BUDGET_TOKENS}"
+    assert any(expected in rec.getMessage() for rec in caplog.records), f"Expected log {expected!r}"
+
+
+def test_history_budget_agent_ceiling_smaller_than_config_caps_history(monkeypatch):
+    monkeypatch.delenv("PROMPT_BUDGET_MAX_TOKENS", raising=False)
+
+    store = Chat2Store(InMemoryStore())
+    sid = _seed_history_messages(store)
+    pb = _make_prompt_builder_with_cap_config(
+        store,
+        {"prompt_budget_max_tokens": 100000},
+        agent_budget=_budget_fitting_two_history_messages(),
+    )
+
+    prompt = pb.build_prompt(
+        content_text="query",
+        conversation_id=sid,
+        agent_name="a",
+        account_name="acct",
+        context_type="none",
+    )
+
+    hist_contents = _history_only(prompt, "query")
+    assert any("msg4-" in c for c in hist_contents), "Expected msg4 in history"
+    assert any("msg5-" in c for c in hist_contents), "Expected msg5 in history"
+    assert not any("msg1-" in c for c in hist_contents), "Expected msg1 excluded by agent cap"

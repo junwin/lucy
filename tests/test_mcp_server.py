@@ -151,6 +151,16 @@ class _BigResultHandler(_RecordingHandler):
         return {"blob": "x" * 4000}
 
 
+class _SizeResultHandler(_RecordingHandler):
+    _NAME = "mcp_size_tool"
+
+    def execute(
+        self, args: Dict[str, Any], *, account_name: str = "auto", **context
+    ) -> Dict[str, Any]:
+        size = int((args or {}).get("size", 0))
+        return {"blob": "x" * size}
+
+
 class _LlamaStub:
     """LLMAdapter stand-in: ToolExecutor only calls format_tool_output."""
 
@@ -468,6 +478,55 @@ def test_mcp_call_result_mapping_too_large_is_capped_error_text() -> None:
     text = result["content"][0]["text"]
     assert "too large" in text
     assert "80" in text  # the cap is reported
+
+
+def test_mcp_call_tool_result_cap_defaults_to_20000_without_config_or_agent_override() -> None:
+    registry = _registry_with(_SizeResultHandler)
+    agent = _mcp_agent(["mcp_size_tool"])
+
+    result = _dispatch(
+        registry,
+        agent,
+        name="mcp_size_tool",
+        arguments={"size": 25000},
+        config=_Cfg({}),
+    )
+
+    assert result["isError"] is False
+    text = result["content"][0]["text"]
+    assert "too large" in text
+    assert "limit 20000" in text
+
+
+def test_mcp_call_agent_tool_result_override_smaller_than_config_caps() -> None:
+    registry = _registry_with(_SizeResultHandler)
+    agent = Agent(
+        name="mcp",
+        allowed_tools=["mcp_size_tool"],
+        max_tool_result_chars=1000,
+    )
+
+    over = _dispatch(
+        registry,
+        agent,
+        name="mcp_size_tool",
+        arguments={"size": 3000},
+    )
+
+    assert over["isError"] is False
+    text = over["content"][0]["text"]
+    assert "too large" in text
+    assert "limit 1000" in text
+
+    under = _dispatch(
+        registry,
+        agent,
+        name="mcp_size_tool",
+        arguments={"size": 500},
+    )
+
+    assert under["isError"] is False
+    assert "too large" not in under["content"][0]["text"]
 
 
 def test_mcp_call_error_mapping_handler_exception_is_iserror() -> None:

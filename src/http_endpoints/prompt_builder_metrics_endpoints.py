@@ -17,13 +17,14 @@ import json
 import logging
 from typing import Any, Dict, List, Tuple
 
+from src.agent.caps import resolve_effective_cap
 from src.handlers.handler_registry import HandlerRegistry
+from src.message_processors.fcp_models import DEFAULT_MAX_HANDLER_SCHEMA_TOKENS
 from src.prompt_builders.prompt_builder import estimate_tokens_from_text
 from src.prompt_builders.prompt_builder_interface import PromptBuilderInterface
 from src.message_processors.function_calling_processor import (
     apply_handler_schema_budget,
     load_context_state,
-    resolve_handler_schema_cap,
     resolve_tool_defs,
 )
 
@@ -151,6 +152,7 @@ def prompt_builder_metrics_impl(
         filtered_function_defs = apply_handler_schema_budget(
             filtered_function_defs,
             config,
+            agent=my_agent,
             agent_name=agentName,
         )
         handler_tokens, handlers_table = _handler_schema_metrics(filtered_function_defs)
@@ -169,7 +171,7 @@ def prompt_builder_metrics_impl(
             "breakdown": breakdown,
             "total_tokens_actual": total_tokens_actual,
             "handler_schema_tokens": handler_tokens,
-            "handler_schema_cap": resolve_handler_schema_cap(config),
+            "handler_schema_cap": resolve_effective_cap("max_handler_schema_tokens", my_agent, config, DEFAULT_MAX_HANDLER_SCHEMA_TOKENS, disable_on_non_positive=True),
             "tool_count": len(filtered_function_defs),
             "handlers": handlers_table,
             "messages": messages_table,

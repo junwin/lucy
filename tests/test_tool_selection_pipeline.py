@@ -16,7 +16,9 @@ Coverage (tasklist ts5):
   LLM omits them.
 - step 8 budget: under cap unchanged; over cap raises ``ToolSelectionError``
   (``budget_exceeded``) with a message telling the user to increase the budget;
-  cap <= 0 disables the check.
+  cap <= 0 disables the check. The per-agent ``max_handler_schema_tokens``
+  override wins over config at resolve time (agent > config; agent <= 0
+  disables even when the config cap is tiny).
 """
 
 from __future__ import annotations
@@ -64,6 +66,7 @@ class FakeAgent:
     allowed_tools: Optional[List[str]] = None
     model: str = "test-model"
     provider: Optional[str] = None
+    max_handler_schema_tokens: Optional[int] = None
 
 
 # ---------------------------------------------------------------------------
@@ -123,6 +126,7 @@ def _build(
     enabled: bool = True,
     min_eligible: int = 1,
     schema_cap: Optional[int] = None,
+    agent_schema_cap: Optional[int] = None,
 ) -> Tuple[ToolSelectionPipeline, FakeLLM, FakeAgent]:
     registry = FakeRegistry(tool_defs=_defs(*tool_names))
     storage = FakeStorage()
@@ -130,7 +134,7 @@ def _build(
         storage.save_context(context)
     llm = FakeLLM(reply=llm_reply)
     config = _make_config(enabled=enabled, min_eligible=min_eligible, schema_cap=schema_cap)
-    agent = FakeAgent(allowed_tools=allowed)
+    agent = FakeAgent(allowed_tools=allowed, max_handler_schema_tokens=agent_schema_cap)
     pipeline = ToolSelectionPipeline(
         registry=registry,
         storage=storage,
@@ -149,6 +153,7 @@ def _resolve(
     enabled: bool = True,
     min_eligible: int = 1,
     schema_cap: Optional[int] = None,
+    agent_schema_cap: Optional[int] = None,
     prompt_text: str = "do something",
     context_name: str = CONTEXT_ID,
 ) -> Tuple[ToolSelection, FakeLLM]:
@@ -160,6 +165,7 @@ def _resolve(
         enabled=enabled,
         min_eligible=min_eligible,
         schema_cap=schema_cap,
+        agent_schema_cap=agent_schema_cap,
     )
     result = pipeline.resolve(
         agent=agent,
@@ -490,6 +496,57 @@ def test_budget_cap_zero_or_negative_disables(cap):
         allowed=["t1", "t2"],
         enabled=False,
         schema_cap=cap,
+    )
+
+    assert result.meta["schema_cap"] is None
+    assert result.active == ["t1", "t2"]
+
+# ---------------------------------------------------------------------------
+# Step 8b — per-agent schema cap override applies at resolve time (agent > config)
+# ---------------------------------------------------------------------------
+
+
+def test_budget_agent_small_cap_beats_large_config_cap():
+    """A small per-agent cap outranks a large config cap ⇒ ``budget_exceeded``."""
+    pipeline, _, agent = _build(
+        tool_names=["t1", "t2"],
+        allowed=["t1", "t2"],
+        enabled=False,
+        schema_cap=10_000_000,
+        agent_schema_cap=2,
+    )
+
+    with pytest.raises(ToolSelectionError) as excinfo:
+        pipeline.resolve(agent=agent, account_name=ACCOUNT, context_name="none", prompt_text="hi")
+
+    err = excinfo.value
+    assert err.code == "budget_exceeded"
+    assert err.offending_tools == ["t1", "t2"]
+
+
+def test_budget_meta_schema_cap_reports_agent_not_config():
+    """``meta["schema_cap"]`` mirrors the agent override, not the config value."""
+    result, _ = _resolve(
+        tool_names=["t1"],
+        allowed=["t1"],
+        enabled=False,
+        schema_cap=9000,
+        agent_schema_cap=321,
+    )
+
+    assert result.meta["schema_cap"] == 321
+    assert result.active == ["t1"]
+
+
+@pytest.mark.parametrize("agent_cap", [0, -1])
+def test_budget_agent_non_positive_disables_despite_tiny_config_cap(agent_cap):
+    """A non-positive agent cap disables the check even when the config cap is tiny."""
+    result, _ = _resolve(
+        tool_names=["t1", "t2"],
+        allowed=["t1", "t2"],
+        enabled=False,
+        schema_cap=2,
+        agent_schema_cap=agent_cap,
     )
 
     assert result.meta["schema_cap"] is None

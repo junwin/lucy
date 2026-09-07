@@ -26,6 +26,7 @@ from src.prompt_builders.prompt_builder_interface import PromptBuilderInterface
 from src.handlers.handler_registry import HandlerRegistry, filter_eligible_tool_defs
 from src.agent import Agent
 from src.agent.agent_manager import AgentManager
+from src.agent.caps import resolve_effective_cap
 
 from galet.adapter_interface import LLMAdapter
 from galet.provider_registry import ProviderRegistry
@@ -191,35 +192,10 @@ def _handler_schema_tokens(function_defs: List[Dict[str, Any]]) -> int:
     return estimate_tokens_from_text(text)
 
 
-def resolve_handler_schema_cap(config: Any) -> Optional[int]:
-    """Resolve the effective max_handler_schema_tokens cap from config.
-
-    Returns None when the guardrail is disabled. Resolution order:
-      1. config['max_handler_schema_tokens'] > 0  -> that value
-      2. config['max_handler_schema_tokens'] <= 0 -> None (explicitly disabled)
-      3. key missing / invalid / no config         -> DEFAULT_MAX_HANDLER_SCHEMA_TOKENS
-    """
-    if config is not None:
-        try:
-            raw = config.get("max_handler_schema_tokens", None)
-            if raw is not None:
-                value = int(raw)
-                if value > 0:
-                    return value
-                if value <= 0:
-                    return None
-        except Exception:
-            logging.warning(
-                "FunctionCallingProcessor: invalid max_handler_schema_tokens=%r; using default %d",
-                raw,
-                DEFAULT_MAX_HANDLER_SCHEMA_TOKENS,
-            )
-    return DEFAULT_MAX_HANDLER_SCHEMA_TOKENS
-
-
 def apply_handler_schema_budget(
     function_defs: List[Dict[str, Any]],
     config: Any,
+    agent: Optional[Any] = None,
     *,
     agent_name: str = "<unknown>",
 ) -> List[Dict[str, Any]]:
@@ -238,7 +214,7 @@ def apply_handler_schema_budget(
     if not function_defs:
         return function_defs
 
-    cap = resolve_handler_schema_cap(config)
+    cap = resolve_effective_cap("max_handler_schema_tokens", agent, config, DEFAULT_MAX_HANDLER_SCHEMA_TOKENS, disable_on_non_positive=True)
     if cap is None:
         return function_defs
 

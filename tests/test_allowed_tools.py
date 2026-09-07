@@ -1,5 +1,8 @@
 from __future__ import annotations
 import logging
+
+import pytest
+
 from src.agent.agent import Agent
 
 
@@ -484,3 +487,97 @@ def test_streaming_handler_schema_cap_over_budget_emits_error(make_proc, registr
     # budget_exceeded is surfaced as an SSE error event, not a silent trim.
     assert any('"type":"error"' in e and "max_handler_schema_tokens" in e for e in events)
     llm_adapter.call_model.assert_not_called()
+
+def test_handler_schema_budget_agent_without_override_uses_config_cap():
+    """An agent without a schema-cap override falls through to the config cap."""
+    from src.message_processors.function_calling_processor import apply_handler_schema_budget
+    from tests.conftest import FakeConfig
+
+    defs = [_big_tool_def("t1"), _big_tool_def("t2"), _big_tool_def("t3")]
+    config = FakeConfig(values={"max_handler_schema_tokens": _schema_tokens(defs[:2])})
+    agent = Agent(name="a", allowed_tools=["t1", "t2", "t3"], save_responses=False)
+
+    result = apply_handler_schema_budget(defs, config, agent=agent, agent_name="a")
+
+    assert [fd["name"] for fd in result] == ["t1", "t2"]
+
+
+def test_handler_schema_budget_agent_small_cap_trims_before_config_cap():
+    """A small per-agent cap trims the tool set even when the config cap alone would not."""
+    from src.message_processors.function_calling_processor import apply_handler_schema_budget
+    from tests.conftest import FakeConfig
+
+    defs = [_big_tool_def("t1"), _big_tool_def("t2"), _big_tool_def("t3")]
+    config = FakeConfig(values={"max_handler_schema_tokens": _schema_tokens(defs) * 10})
+    agent = Agent(
+        name="a",
+        allowed_tools=["t1", "t2", "t3"],
+        save_responses=False,
+        max_handler_schema_tokens=_schema_tokens(defs[:2]),
+    )
+
+    result = apply_handler_schema_budget(defs, config, agent=agent, agent_name="a")
+
+    assert [fd["name"] for fd in result] == ["t1", "t2"]
+
+
+@pytest.mark.parametrize("agent_cap", [0, -1])
+def test_handler_schema_budget_agent_non_positive_disables_despite_config_cap(agent_cap, caplog):
+    """A non-positive agent cap disables the guardrail even when the config cap would trim."""
+    from src.message_processors.function_calling_processor import apply_handler_schema_budget
+    from tests.conftest import FakeConfig
+
+    caplog.set_level(logging.WARNING)
+    defs = [_big_tool_def("t1"), _big_tool_def("t2"), _big_tool_def("t3")]
+    config = FakeConfig(values={"max_handler_schema_tokens": _schema_tokens(defs[:2])})
+    agent = Agent(
+        name="a",
+        allowed_tools=["t1", "t2", "t3"],
+        save_responses=False,
+        max_handler_schema_tokens=agent_cap,
+    )
+
+    result = apply_handler_schema_budget(defs, config, agent=agent, agent_name="a")
+
+    assert [fd["name"] for fd in result] == ["t1", "t2", "t3"]
+    assert not any("handler schema tokens" in r.getMessage() for r in caplog.records)
+
+
+def test_handler_schema_cap_agent_override_tighter_than_config_returns_error(make_proc, registry, llm_adapter, config):
+    """A per-agent cap tighter than the config cap raises budget_exceeded end to end."""
+    defs = [_big_tool_def("t1"), _big_tool_def("t2"), _big_tool_def("t3")]
+    registry._tool_defs = defs
+    config.values["max_handler_schema_tokens"] = _schema_tokens(defs) * 10
+    agent = Agent(
+        name="a",
+        allowed_tools=["t1", "t2", "t3"],
+        save_responses=False,
+        max_handler_schema_tokens=_schema_tokens(defs[:2]),
+    )
+
+    proc = make_proc(registry=registry, llm_adapter=llm_adapter)
+    resp = proc.process_message(primary_agent=agent, account={"accountId": "acct"}, message="hi").text
+
+    assert "max_handler_schema_tokens" in resp
+    llm_adapter.call_model.assert_not_called()
+
+
+@pytest.mark.parametrize("agent_cap", [0, -1])
+def test_handler_schema_cap_agent_non_positive_disables_despite_config_cap(make_proc, registry, llm_adapter, config, agent_cap):
+    """A non-positive agent cap disables the guardrail even when the config cap is tiny."""
+    defs = [_big_tool_def("t1"), _big_tool_def("t2"), _big_tool_def("t3")]
+    registry._tool_defs = defs
+    config.values["max_handler_schema_tokens"] = _schema_tokens(defs[:2])
+    agent = Agent(
+        name="a",
+        allowed_tools=["t1", "t2", "t3"],
+        save_responses=False,
+        max_handler_schema_tokens=agent_cap,
+    )
+
+    proc = make_proc(registry=registry, llm_adapter=llm_adapter)
+    resp = proc.process_message(primary_agent=agent, account={"accountId": "acct"}, message="hi")
+
+    called_tools = llm_adapter.call_model.call_args.kwargs.get("tools")
+    assert [fd["name"] for fd in called_tools] == ["t1", "t2", "t3"]
+    assert "max_handler_schema_tokens" not in resp.text

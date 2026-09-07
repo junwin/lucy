@@ -7,6 +7,8 @@ When strict=False, unknown fields log a warning and are stripped.
 import json
 import logging
 
+import pytest
+
 from src.agent.agent import Agent
 from src.agent.agent_manager import AgentManager
 
@@ -69,6 +71,31 @@ class TestAgentFromDictStrict:
         assert agent.context_type == "keyword"
         # Unknown key should have been stripped
         assert not hasattr(agent, "x_custom")
+
+    def test_four_cap_keys_are_known_fields_when_strict(self):
+        """The four per-agent cap keys are known fields, not unknown-field errors."""
+        agent = Agent.from_dict(
+            {
+                "name": "caps",
+                "max_tool_result_chars": 100,
+                "max_handler_schema_tokens": 200,
+                "context_text_soft_max_tokens": 300,
+                "prompt_budget_max_tokens": 400,
+            }
+        )
+        assert isinstance(agent, Agent)
+        assert agent.max_tool_result_chars == 100
+        assert agent.max_handler_schema_tokens == 200
+        assert agent.context_text_soft_max_tokens == 300
+        assert agent.prompt_budget_max_tokens == 400
+
+    def test_strict_still_rejects_unknown_keys_alongside_cap_keys(self):
+        """Genuinely unknown keys still fail in strict mode next to cap keys."""
+        with pytest.raises(ValueError) as excinfo:
+            Agent.from_dict(
+                {"name": "caps", "max_tool_result_chars": 100, "unknown_cap_key": 5}
+            )
+        assert "unknown_cap_key" in str(excinfo.value)
 
 
 class TestAgentManagerStrictFields:

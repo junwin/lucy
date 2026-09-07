@@ -11,6 +11,7 @@ from injector import inject
 
 from src.config_manager import ConfigManager
 from src.agent import AgentManager, Agent
+from src.agent.caps import resolve_effective_cap
 from src.storage.base import Storage
 from src.storage.interfaces import ContextStore, DocumentStore, EmbeddingStore
 from src.prompt_builders.prompt_builder_interface import PromptBuilderInterface
@@ -160,8 +161,7 @@ class PromptBuilder(PromptBuilderInterface):
         # exceeds the configured soft maximum. This reduces prompt size early and
         # prevents huge contexts from pushing history out of the budget.
         try:
-            soft_max = self.config.get("context_text_soft_max_tokens", None)
-            soft_max = int(soft_max) if soft_max is not None else CONTEXT_TEXT_SOFT_MAX_TOKENS
+            soft_max = resolve_effective_cap("context_text_soft_max_tokens", agent, self.config, CONTEXT_TEXT_SOFT_MAX_TOKENS)
             ctx_tokens = estimate_tokens_from_text(context_text or "")
             if ctx_tokens > soft_max:
                 # Approximate character budget (estimate_tokens uses len//4)
@@ -301,8 +301,7 @@ class PromptBuilder(PromptBuilderInterface):
 
             # Soft-max warning for front-loaded context
             try:
-                soft_max = self.config.get("context_text_soft_max_tokens", None)
-                soft_max = int(soft_max) if soft_max is not None else CONTEXT_TEXT_SOFT_MAX_TOKENS
+                soft_max = resolve_effective_cap("context_text_soft_max_tokens", agent, self.config, CONTEXT_TEXT_SOFT_MAX_TOKENS)
                 if context_tokens > soft_max:
                     logging.warning(
                         "PromptBuilder: context text (%d tokens) exceeds soft max (%d tokens) \\u2014 "
@@ -316,27 +315,7 @@ class PromptBuilder(PromptBuilderInterface):
             except Exception:
                 logging.exception("PromptBuilder: failed to check context soft max")
 
-            # Resolve ceiling (order: env, config, module default)
-            ceiling = None
-            env_val = os.getenv("PROMPT_BUDGET_MAX_TOKENS")
-            if env_val:
-                try:
-                    ceiling = int(env_val)
-                except Exception:
-                    logging.warning("PromptBuilder: invalid PROMPT_BUDGET_MAX_TOKENS=%s; ignoring", env_val)
-
-            if ceiling is None:
-                try:
-                    cfg_val = None
-                    if hasattr(self.config, "get"):
-                        cfg_val = self.config.get("prompt_budget_max_tokens", None)
-                    if cfg_val is not None:
-                        ceiling = int(cfg_val)
-                except Exception:
-                    logging.debug("PromptBuilder: failed to read prompt budget ceiling from config; using default")
-
-            if ceiling is None:
-                ceiling = DEFAULT_PROMPT_BUDGET_TOKENS
+            ceiling = resolve_effective_cap("prompt_budget_max_tokens", agent, self.config, DEFAULT_PROMPT_BUDGET_TOKENS)
 
             # Safety margin: module constant (not configurable)
             safety_margin = PROMPT_BUDGET_SAFETY_MARGIN
