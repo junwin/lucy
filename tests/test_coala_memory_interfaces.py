@@ -1,6 +1,8 @@
 from src.coala_memory import (
+    EpisodicCurationRequest,
     EpisodicMemoryRequest,
     EpisodicMemoryResult,
+    EpisodicSessionQuery,
     ProceduralMemoryRequest,
     ProceduralMemoryResult,
     SemanticMemoryRequest,
@@ -32,6 +34,30 @@ def test_episodic_request_matches_prompt_history_and_digest_inputs():
     assert result.digests[0].score == 0.4
 
 
+def test_episodic_management_contract_covers_session_search_and_curation():
+    query = EpisodicSessionQuery(
+        account_name="junwin",
+        agent_name="peace",
+        query="memory design",
+        limit=20,
+    )
+    curation = EpisodicCurationRequest(
+        account_name="junwin",
+        session_id="session-1",
+        mode="archive",
+        preview=False,
+        publish=True,
+        template_name="default",
+        curation_rules={"remove_kinds": ["tool"]},
+        max_chars=32000,
+    )
+
+    assert query.query == "memory design"
+    assert curation.mode == "archive"
+    assert curation.publish is True
+    assert curation.curation_rules["remove_kinds"] == ["tool"]
+
+
 def test_semantic_request_supports_embedding_and_document_modes():
     request = SemanticMemoryRequest(
         account_name="junwin",
@@ -40,13 +66,25 @@ def test_semantic_request_supports_embedding_and_document_modes():
         namespaces=["external"],
         docs_tag="lucy",
         top_k=3,
+        embedding_model="text-embedding-3-small",
+        source_type="obsidian_note",
     )
     result = SemanticMemoryResult(
-        documents=[SemanticDocument(source_id="note-1", title="Memory", snippet="text", score=0.7)]
+        documents=[
+            SemanticDocument(
+                source_id="note-1",
+                title="Memory",
+                snippet="text",
+                score=0.7,
+                source_type="obsidian_note",
+            )
+        ]
     )
 
     assert request.use_embeddings is True
     assert request.docs_tag == "lucy"
+    assert request.embedding_model == "text-embedding-3-small"
+    assert request.source_type == "obsidian_note"
     assert result.documents[0].source_id == "note-1"
 
 
