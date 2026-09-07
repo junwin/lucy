@@ -5,8 +5,8 @@ work primitive; workflows own hierarchy, branching, retry, and exit semantics.
 """
 
 from .executor import (
+    AskWorkflowExecutor,
     FakeWorkflowExecutor,
-    TaskListWorkflowExecutor,
     WorkflowExecutor,
     classify_semantic_outcome,
 )
@@ -16,8 +16,8 @@ from .result import WorkflowResult
 from .runner import WorkflowRunner
 
 __all__ = [
+    "AskWorkflowExecutor",
     "FakeWorkflowExecutor",
-    "TaskListWorkflowExecutor",
     "WorkflowExecutor",
     "WorkflowLoader",
     "WorkflowNode",
