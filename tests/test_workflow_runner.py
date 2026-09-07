@@ -1,4 +1,4 @@
-import json
+import json as jsonlib
 
 from src.workflows.executor import (
     AskWorkflowExecutor,
@@ -145,12 +145,13 @@ class FakeResponse:
 def test_ask_executor_writes_tasklist_calls_ask_and_reads_new_jsonl_record(tmp_path):
     calls = []
 
-    def fake_post(url, *, json: payload, timeout):
+    def fake_post(url, *, json, timeout):
+        payload = json
         calls.append((url, payload, timeout))
         tasklist_id = payload["question"].split('tasklist "', 1)[1].split('"', 1)[0]
         history = tmp_path / f"{tasklist_id}.jsonl"
         history.write_text(
-            json.dumps(
+            jsonlib.dumps(
                 {
                     "state": "completed",
                     "result": {
@@ -223,7 +224,7 @@ instructions: Assess requirement clarity.
 def test_ask_executor_requires_new_jsonl_record_even_when_ask_returns_200(tmp_path):
     existing = tmp_path / "xyz.jsonl"
     existing.write_text(
-        json.dumps({"state": "completed", "result": {"output": '{"outcome":"success"}'}}) + "\n",
+        jsonlib.dumps({"state": "completed", "result": {"output": '{"outcome":"success"}'}}) + "\n",
         encoding="utf-8",
     )
 
