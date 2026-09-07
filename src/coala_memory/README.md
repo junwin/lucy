@@ -27,12 +27,28 @@ Lifecycle and curation sources:
 - `app.py` wires those operations into `/chats` and also resolves or creates
   sessions for `/ask` via `resolve_or_create_session()`.
 
+Storage/facade structure:
+
+- `src/chat2/facade.py` is the high-level session/event API and is the natural
+  adaptation point for CoALA episodic memory.
+- `src/chat2/sqlite/backend.py` implements the generic Chat2 document/log
+  primitives using SQLite (`kv` + append-only `logs`, WAL mode). It should stay
+  in `src/chat2`; CoALA should not duplicate its storage mechanics.
+- `Chat2EpisodicMemory` wraps `Chat2Store`, so it works with SQLite, JSONL or
+  other Chat2 primitive backends.
+- `Chat2EpisodicMemory.from_sqlite(db_path)` is a convenience constructor using
+  `SqliteChat2Primitives` for the concrete SQLite deployment.
+- Archived digest similarity search is optional/injected because those digests
+  currently live in Lucy's embedding subsystem, not in the Chat2 SQLite store.
+
 Contracts:
 
 - `EpisodicMemory.recall(EpisodicMemoryRequest)` is the prompt-time read seam.
 - `EpisodicMemory.save_overflow_digest(...)` owns prompt overflow persistence.
 - `EpisodicMemoryManager` owns session lifecycle plus filter/summarize/archive
   curation. It is deliberately separate from HTTP and handler schemas.
+- `Chat2EpisodicMemory` implements both contracts over the existing Chat2
+  facade; curation can be supplied by injecting the existing curation engine.
 
 ### Semantic memory
 
@@ -52,6 +68,8 @@ Embedding infrastructure:
 - The handler confirms that embedding model, namespace, account, top-k and
   source_type are real vector-search parameters, so the semantic request keeps
   those retrieval-relevant fields explicit.
+- `SqliteVecSemanticMemory` adapts the existing `EmbeddingStore`; production can
+  supply `Vec0EmbeddingStore` without moving sqlite-vec persistence into CoALA.
 
 Contract: `SemanticMemory.recall(SemanticMemoryRequest)`.
 
@@ -86,7 +104,6 @@ Expected direction:
 
 ## Next step
 
-Implement adapters around Lucy's current `Chat2Store`, curation engine,
-`DocumentStore` / `EmbeddingStore`, and `ContextStore`. Test those adapters
-against the current behaviour before replacing direct calls inside
-PromptBuilder or handlers.
+Wire the concrete adapters through Lucy's dependency/container setup and compare
+PromptBuilder output against the current direct Chat2/document/context reads
+before replacing those calls.
