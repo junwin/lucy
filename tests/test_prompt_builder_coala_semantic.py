@@ -1,7 +1,9 @@
 from types import SimpleNamespace
 from unittest.mock import Mock
 
+from src.coala_memory.procedural import ProceduralMemoryResult
 from src.coala_memory.semantic import SemanticDocument, SemanticMemoryResult
+from src.prompt_builders.coala_prompt_builder import CoALAPromptBuilder
 from src.prompt_builders.prompt_builder import PromptBuilder
 
 
@@ -28,6 +30,17 @@ class RecordingSemanticMemory:
         )
 
 
+class FakeProceduralMemory:
+    def recall(self, request):
+        return ProceduralMemoryResult(
+            context_id=request.context_name,
+            account_name=request.account_name,
+            tag="lucyproject",
+            resolved_text="",
+            search_namespaces=["documents"],
+        )
+
+
 class FakeAgentManager:
     def __init__(self, agent) -> None:
         self.agent = agent
@@ -39,23 +52,6 @@ class FakeAgentManager:
 class FakeConfig:
     def get(self, key, default=None):
         return default
-
-
-class FakeStorage:
-    def __init__(self) -> None:
-        self.context = SimpleNamespace(
-            id="lucy_design",
-            account_name="junwin",
-            tag="lucyproject",
-            resolved_text="",
-            search_namespaces=["documents"],
-            extra={},
-        )
-
-    def get_or_create_context(self, account_name, context_name):
-        assert account_name == "junwin"
-        assert context_name == "lucy_design"
-        return self.context
 
 
 def _agent():
@@ -75,14 +71,12 @@ def _agent():
 
 def test_prompt_builder_uses_coala_semantic_memory_and_context_namespaces():
     memory = RecordingSemanticMemory()
-    pb = PromptBuilder(
+    pb = CoALAPromptBuilder(
         agent_manager=FakeAgentManager(_agent()),
         config=FakeConfig(),
-        storage=FakeStorage(),
-        chat2_store=None,
-        embedding_facade=None,
-        embedding_store=None,
+        storage=Mock(),
         semantic_memory=memory,
+        procedural_memory=FakeProceduralMemory(),
     )
     pb._get_digest_context = Mock(return_value=[])
 
@@ -105,10 +99,7 @@ def test_prompt_builder_uses_coala_semantic_memory_and_context_namespaces():
     assert request.score_threshold == 0.25
     assert request.use_embeddings is True
 
-    prompt_text = "\n".join(
-        str(message.get("content", ""))
-        for message in messages
-    )
+    prompt_text = "\n".join(str(message.get("content", "")) for message in messages)
     assert "src_prompt_builders.md" in prompt_text
     assert "PromptBuilder semantic memory integration works." in prompt_text
     assert "Tags: lucy" in prompt_text
@@ -119,7 +110,7 @@ def test_prompt_builder_semantic_helper_preserves_legacy_doc_context_shape():
     pb = PromptBuilder(
         agent_manager=FakeAgentManager(_agent()),
         config=FakeConfig(),
-        storage=FakeStorage(),
+        storage=Mock(),
         semantic_memory=memory,
     )
 
