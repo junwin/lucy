@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 from src.storage.interfaces import EmbeddingStore
@@ -31,45 +32,53 @@ class EmbeddingDigestRecall:
         if not query:
             return []
 
-        response = self.embedding_facade.embed(
-            [query],
-            model=self.embedding_model,
-        )
-        raw_results = self.embedding_store.query_embeddings(
-            namespaces=self.namespaces,
-            account_name=request.account_name,
-            query_vector=response.embeddings[0],
-            top_k=request.digest_top_k,
-        )
+        try:
+            response = self.embedding_facade.embed(
+                [query],
+                model=self.embedding_model,
+            )
+            raw_results = self.embedding_store.query_embeddings(
+                namespaces=self.namespaces,
+                account_name=request.account_name,
+                query_vector=response.embeddings[0],
+                top_k=request.digest_top_k,
+            )
 
-        digests: list[EpisodicDigest] = []
-        for record, score in raw_results:
-            if score < self.score_threshold:
-                continue
-            metadata = dict(record.source_metadata or {})
-            path = metadata.get("path")
-            if not path:
-                continue
-            snippet, truncated = load_text_snippet(
-                path,
-                max_chars=request.digest_max_chars,
-            )
-            if not snippet.strip():
-                continue
-            digests.append(
-                EpisodicDigest(
-                    session_id=record.source_id,
-                    snippet=snippet,
-                    score=float(score),
-                    truncated=truncated,
-                    metadata={
-                        **metadata,
-                        "namespace": "digests",
-                        "embedding_model": self.embedding_model,
-                    },
+            digests: list[EpisodicDigest] = []
+            for record, score in raw_results:
+                if score < self.score_threshold:
+                    continue
+                metadata = dict(record.source_metadata or {})
+                path = metadata.get("path")
+                if not path:
+                    continue
+                snippet, truncated = load_text_snippet(
+                    path,
+                    max_chars=request.digest_max_chars,
                 )
+                if not snippet.strip():
+                    continue
+                digests.append(
+                    EpisodicDigest(
+                        session_id=record.source_id,
+                        snippet=snippet,
+                        score=float(score),
+                        truncated=truncated,
+                        metadata={
+                            **metadata,
+                            "namespace": "digests",
+                            "embedding_model": self.embedding_model,
+                        },
+                    )
+                )
+            return digests
+        except Exception as exc:
+            logging.warning(
+                "EmbeddingDigestRecall: failed for account=%s: %s",
+                request.account_name,
+                exc,
             )
-        return digests
+            return []
 
 
 __all__ = ["EmbeddingDigestRecall"]
