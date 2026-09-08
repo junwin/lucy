@@ -13,10 +13,10 @@ from src.config_manager import ConfigManager
 from src.agent import AgentManager, Agent
 from src.agent.caps import resolve_effective_cap
 from src.storage.base import Storage
-from src.storage.interfaces import ContextStore, DocumentStore, EmbeddingStore
+from src.storage.interfaces import ContextStore, EmbeddingStore
 from src.prompt_builders.prompt_builder_interface import PromptBuilderInterface
-from src.utils.document_context import get_document_context
 from src.utils.text_snippet_loader import load_text_snippet
+from src.coala_memory.semantic import SemanticMemory, SemanticMemoryRequest
 
 from src.chat2.facade import Chat2Store
 from src.chat2.prompt_slice import get_last_n_events, _CONVERSATION_KINDS
@@ -59,8 +59,9 @@ class PromptBuilder(PromptBuilderInterface):
         config: ConfigManager,
         storage: Storage,
         chat2_store: Optional[Chat2Store] = None,
-        embedding_facade=None,  # Optional[EmbeddingFacade] — lazy import
+        embedding_facade=None,  # Optional[EmbeddingFacade] — retained for digest retrieval
         embedding_store: Optional[EmbeddingStore] = None,
+        semantic_memory: Optional[SemanticMemory] = None,
     ):
         self.agent_manager = agent_manager
         self.config = config
@@ -68,6 +69,7 @@ class PromptBuilder(PromptBuilderInterface):
         self.chat2_store = chat2_store
         self.embedding_facade = embedding_facade
         self.embedding_store = embedding_store
+        self.semantic_memory = semantic_memory
         # last prompt breakdown for instrumentation by processors
         self._last_prompt_token_breakdown: Dict[str, int] = {}
 
@@ -186,14 +188,11 @@ class PromptBuilder(PromptBuilderInterface):
                 }
             )
 
-        # --- Read context data for search_namespaces and docs_tag ---
+        # --- Read context data for semantic-memory search namespaces ---
         context_data: Dict[str, Any] = {}
         if context_name and context_name != "none":
             ctx = self._get_context_state(account_name=account_name, context_name=context_name)
             if ctx is not None:
-                tag_val = getattr(ctx, "tag", None)
-                if isinstance(tag_val, str):
-                    context_data["tag"] = tag_val
                 namespaces = getattr(ctx, "search_namespaces", None)
                 if isinstance(namespaces, list):
                     context_data["search_namespaces"] = namespaces
@@ -204,24 +203,20 @@ class PromptBuilder(PromptBuilderInterface):
                     for key, value in extra.items():
                         context_data.setdefault(key, value)
 
-        # --- External documents ---
+        # --- Semantic memory / external documents ---
         doc_contexts: List[Dict[str, Any]] = []
         if context_type in ("documents", "hybrid"):
             try:
-                # Read optional docs_tag from the context state if available.
-                docs_tag: Optional[str] = None
-                if isinstance(context_data.get("tag"), str) and context_data["tag"].strip():
-                    docs_tag = context_data["tag"].strip()
-
-                logging.info("PromptBuilder.build_prompt: docs_tag=%s", docs_tag)
-
-                # Read search_namespaces from context, fall back to default
+                # Read search_namespaces from context, fall back to default.
                 search_namespaces = context_data.get("search_namespaces")
                 if not search_namespaces:
                     search_namespaces = DEFAULT_SEARCH_NAMESPACES
 
+                # CoALA semantic memory is the supported document-retrieval path.
+                # The legacy embedding helper is retained only as a construction
+                # fallback for older tests/callers that do not inject SemanticMemory.
                 if use_embeddings:
-                    doc_contexts = self._get_document_embedding_context(
+                    doc_contexts = self._get_semantic_memory_context(
                         query=content_text,
                         account_name=account_name,
                         namespaces=search_namespaces,
@@ -229,20 +224,15 @@ class PromptBuilder(PromptBuilderInterface):
                         max_chars=9000,
                     )
                 else:
-                    doc_store: DocumentStore = self.storage
-                    doc_contexts = get_document_context(
-                        storage=doc_store,
-                        account_name=account_name,
-                        query=content_text,
-                        kind="obsidian_note",
-                        docs_tag=docs_tag,
-                        limit=agent.max_prompt_documents if agent else 3,
-                        max_chars=9000,
+                    logging.info(
+                        "PromptBuilder: agent=%s has use_embeddings disabled; "
+                        "semantic document recall skipped",
+                        agent_name,
                     )
 
             except Exception as ex:
                 logging.warning(
-                    "PromptBuilder: failed to load document context for %s/%s: %s",
+                    "PromptBuilder: failed to load semantic document context for %s/%s: %s",
                     account_name,
                     agent_name,
                     ex,
@@ -562,6 +552,76 @@ class PromptBuilder(PromptBuilderInterface):
 
         return "\n\n".join(parts)
 
+    def _get_semantic_memory_context(
+        self,
+        *,
+        query: str,
+        account_name: str,
+        namespaces: Optional[List[str]] = None,
+        top_k: int = 3,
+        max_chars: int = 9000,
+        score_threshold: float = DOC_EMBEDDING_SCORE_THRESHOLD,
+    ) -> List[Dict[str, Any]]:
+        """Recall document context through the CoALA semantic-memory interface.
+
+        The returned dictionaries intentionally preserve PromptBuilder's legacy
+        ``doc_contexts`` shape so prompt formatting and token accounting remain
+        unchanged while retrieval moves behind ``SemanticMemory``.
+
+        ``_get_document_embedding_context`` remains as a compatibility fallback
+        for direct PromptBuilder constructions that have not yet been migrated to
+        inject ``SemanticMemory``. The application container always injects it.
+        """
+        if namespaces is None:
+            namespaces = DEFAULT_SEARCH_NAMESPACES
+
+        if self.semantic_memory is None:
+            logging.info(
+                "PromptBuilder._get_semantic_memory_context: no SemanticMemory "
+                "injected; using legacy embedding retrieval fallback"
+            )
+            return self._get_document_embedding_context(
+                query=query,
+                account_name=account_name,
+                namespaces=namespaces,
+                top_k=top_k,
+                max_chars=max_chars,
+                score_threshold=score_threshold,
+            )
+
+        result = self.semantic_memory.recall(
+            SemanticMemoryRequest(
+                account_name=account_name,
+                query=query,
+                use_embeddings=True,
+                namespaces=list(namespaces),
+                top_k=top_k,
+                max_chars=max_chars,
+                score_threshold=score_threshold,
+                embedding_model="text-embedding-3-small",
+            )
+        )
+
+        contexts = [
+            {
+                "title": doc.title,
+                "tags": list(doc.tags),
+                "snippet": doc.snippet,
+                "truncated": doc.truncated,
+                "score": doc.score,
+                "source_id": doc.source_id,
+            }
+            for doc in result.documents
+        ]
+
+        logging.info(
+            "PromptBuilder._get_semantic_memory_context: namespaces=%s selected=%d backend=%s",
+            namespaces,
+            len(contexts),
+            result.metadata.get("backend", "unknown"),
+        )
+        return contexts
+
     def _get_document_embedding_context(
         self,
         *,
@@ -572,13 +632,10 @@ class PromptBuilder(PromptBuilderInterface):
         max_chars: int = 9000,
         score_threshold: float = DOC_EMBEDDING_SCORE_THRESHOLD,
     ) -> List[Dict[str, Any]]:
-        """Search embedding store for relevant documents using semantic similarity.
+        """Legacy direct embedding retrieval retained as a compatibility fallback.
 
-        Similar to _get_digest_context but tuned for document retrieval:
-        larger max_chars, different default threshold, and includes title/tags.
-
-        Namespaces must be provided explicitly. If not, falls back to
-        DEFAULT_SEARCH_NAMESPACES (["external"]).
+        New application wiring routes document recall through
+        ``_get_semantic_memory_context`` and ``SemanticMemory``.
         """
         if self.embedding_facade is None:
             logging.info(
