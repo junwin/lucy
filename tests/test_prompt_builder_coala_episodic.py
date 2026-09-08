@@ -1,3 +1,4 @@
+from datetime import datetime
 from types import SimpleNamespace
 
 from src.chat2.facade import Chat2Store
@@ -49,6 +50,7 @@ class _FakeEpisodicMemory(EpisodicMemory):
             session_agent_name="peace",
             session_context_name="lucyproject",
             session_friendly_name="lucy_design",
+            session_updated_at=datetime(2026, 9, 7, 20, 0, 0),
             events=[
                 EpisodicEvent(
                     role="user",
