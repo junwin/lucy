@@ -3,7 +3,6 @@
 This package separates prompt-time memory access into episodic, semantic and
 procedural concerns. It also defines episodic lifecycle/curation contracts so
 PromptBuilder, handlers and HTTP endpoints can converge on the same domain seam.
-Existing behaviour remains unchanged until adapters are introduced.
 """
 
 from .episodic import (
@@ -23,7 +22,12 @@ from .semantic import (
     SemanticMemoryResult,
     SqliteVecSemanticMemory,
 )
-from .procedural import ProceduralMemory, ProceduralMemoryRequest, ProceduralMemoryResult
+from .procedural import (
+    ProceduralMemory,
+    ProceduralMemoryRequest,
+    ProceduralMemoryResult,
+    ContextProceduralMemory,
+)
 
 __all__ = [
     "EpisodicMemory",
@@ -42,4 +46,5 @@ __all__ = [
     "ProceduralMemory",
     "ProceduralMemoryRequest",
     "ProceduralMemoryResult",
+    "ContextProceduralMemory",
 ]
