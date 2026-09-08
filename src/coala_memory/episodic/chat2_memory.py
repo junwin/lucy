@@ -93,6 +93,10 @@ class Chat2EpisodicMemory(EpisodicMemory, EpisodicMemoryManager):
 
         if request.include_recent_history and request.conversation_id:
             events = list(self.chat2_store.stream_events(request.conversation_id))
+            if request.event_kinds:
+                allowed_kinds = set(request.event_kinds)
+                events = [event for event in events if event.kind in allowed_kinds]
+
             if request.max_events <= 0:
                 selected: List[ChatEvent] = []
             else:
