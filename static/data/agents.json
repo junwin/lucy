@@ -188,6 +188,7 @@
     "allowed_tools": [
       "embeddings",
       "semantic_memory",
+      "episodic_memory",
       "execute_command",
       "file_load",
       "file_save",
