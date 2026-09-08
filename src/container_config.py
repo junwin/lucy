@@ -1,5 +1,7 @@
 # container_config.py
 
+from pathlib import Path
+
 # injector is optional for unit tests that only exercise Flask endpoints.
 try:
     from injector import Injector
@@ -21,7 +23,11 @@ from src.storage.interfaces import ContextStore, DocumentStore, EmbeddingStore, 
 from src.storage.json_file_storage import JsonFileStorage
 from src.storage.primitives_embedding_store import build_primitives_embedding_store
 from src.coala_memory.semantic import SemanticMemory, SqliteVecSemanticMemory
-from src.coala_memory.episodic import EpisodicMemory, Chat2EpisodicMemory
+from src.coala_memory.episodic import (
+    EpisodicMemory,
+    Chat2EpisodicMemory,
+    EmbeddingDigestRecall,
+)
 from src.coala_memory.procedural import ProceduralMemory, ContextProceduralMemory
 
 from src.handlers.handler_registry import HandlerRegistry
@@ -116,7 +122,6 @@ class StorageModule(Module):
     def provide_chat2_store(self, storage: Storage) -> Chat2Store:
         backend = str(config.get("chat2_store_backend", "") or "").strip().lower()
         if backend == "sqlite":
-            from pathlib import Path
             from src.chat2.sqlite import SqliteChat2Primitives
 
             db_path = config.get("chat2_store_db_path")
@@ -185,8 +190,17 @@ class CoALAMemoryModule(Module):
     def provide_episodic_memory(
         self,
         chat2_store: Chat2Store,
+        embedding_facade: EmbeddingFacade,
+        embedding_store: EmbeddingStore,
     ) -> EpisodicMemory:
-        return Chat2EpisodicMemory(chat2_store)
+        return Chat2EpisodicMemory(
+            chat2_store,
+            digests_root=Path("data") / "digests",
+            digest_recall=EmbeddingDigestRecall(
+                embedding_facade=embedding_facade,
+                embedding_store=embedding_store,
+            ),
+        )
 
     @provider
     @singleton
@@ -212,8 +226,6 @@ class PromptBuilderModule(Module):
         agent_manager: AgentManager,
         config: ConfigManager,
         storage: Storage,
-        embedding_facade: EmbeddingFacade,
-        embedding_store: EmbeddingStore,
         semantic_memory: SemanticMemory,
         episodic_memory: EpisodicMemory,
         procedural_memory: ProceduralMemory,
@@ -222,8 +234,6 @@ class PromptBuilderModule(Module):
             agent_manager=agent_manager,
             config=config,
             storage=storage,
-            embedding_facade=embedding_facade,
-            embedding_store=embedding_store,
             semantic_memory=semantic_memory,
             episodic_memory=episodic_memory,
             procedural_memory=procedural_memory,
