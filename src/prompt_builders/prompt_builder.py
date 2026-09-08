@@ -7,36 +7,28 @@ import os
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
+
 from injector import inject
 
-from src.config_manager import ConfigManager
-from src.agent import AgentManager, Agent
+from src.agent import Agent, AgentManager
 from src.agent.caps import resolve_effective_cap
-from src.storage.base import Storage
-from src.storage.interfaces import ContextStore, EmbeddingStore
-from src.prompt_builders.prompt_builder_interface import PromptBuilderInterface
-from src.utils.text_snippet_loader import load_text_snippet
-from src.coala_memory.semantic import SemanticMemory, SemanticMemoryRequest
 from src.coala_memory.episodic import EpisodicMemory, EpisodicMemoryRequest, EpisodicMemoryResult
-
-from src.chat2.facade import Chat2Store
-from src.chat2.prompt_slice import get_last_n_events, _CONVERSATION_KINDS
+from src.coala_memory.semantic import SemanticMemory, SemanticMemoryRequest
+from src.config_manager import ConfigManager
+from src.prompt_builders.prompt_builder_interface import PromptBuilderInterface
+from src.storage.base import Storage
+from src.storage.interfaces import EmbeddingStore
+from src.utils.text_snippet_loader import load_text_snippet
 
 DEFAULT_PROMPT_BUDGET_TOKENS = 12000
 PROMPT_BUDGET_SAFETY_MARGIN = 500
 
-# Minimum cosine similarity score for a digest to be included as context.
 DIGEST_SCORE_THRESHOLD = 0.25
 DIGEST_SEARCH_NAMESPACES = ["digests"]
-
-# Score threshold for embedding-based document retrieval.
 DOC_EMBEDDING_SCORE_THRESHOLD = 0.25
-
-# Soft max tokens for front-loaded context.
 CONTEXT_TEXT_SOFT_MAX_TOKENS = 2000
-
-# Default semantic namespaces when the active context does not specify any.
 DEFAULT_SEARCH_NAMESPACES = ["external"]
+CONVERSATION_EVENT_KINDS = ["user_message", "assistant_message"]
 
 
 def estimate_tokens_from_text(text: str) -> int:
@@ -46,13 +38,19 @@ def estimate_tokens_from_text(text: str) -> int:
 
 
 class PromptBuilder(PromptBuilderInterface):
+    """Compose model prompts from agent configuration and CoALA memory results.
+
+    PromptBuilder owns composition, token budgeting, attachment handling and
+    overflow summarization. It does not read Chat2 or ContextStore directly;
+    episodic, semantic and procedural retrieval live behind CoALA interfaces.
+    """
+
     @inject
     def __init__(
         self,
         agent_manager: AgentManager,
         config: ConfigManager,
         storage: Storage,
-        chat2_store: Optional[Chat2Store] = None,
         embedding_facade=None,  # retained for archived-digest retrieval
         embedding_store: Optional[EmbeddingStore] = None,
         semantic_memory: Optional[SemanticMemory] = None,
@@ -61,7 +59,6 @@ class PromptBuilder(PromptBuilderInterface):
         self.agent_manager = agent_manager
         self.config = config
         self.storage = storage
-        self.chat2_store = chat2_store
         self.embedding_facade = embedding_facade
         self.embedding_store = embedding_store
         self.semantic_memory = semantic_memory
@@ -110,48 +107,13 @@ class PromptBuilder(PromptBuilderInterface):
             agent_name=agent_name,
             max_events=max_convs,
         )
-
-        if conversation_id not in ("none", "new", ""):
-            try:
-                meta_agent_name = ""
-                meta_context_name = ""
-                meta_friendly_name = ""
-                meta_updated_at = None
-
-                if episodic_result is not None and episodic_result.session_id:
-                    meta_agent_name = episodic_result.session_agent_name
-                    meta_context_name = episodic_result.session_context_name
-                    meta_friendly_name = episodic_result.session_friendly_name
-                    meta_updated_at = episodic_result.session_updated_at
-                elif self.chat2_store is not None:
-                    meta = self.chat2_store.get_session(conversation_id)
-                    if meta is not None:
-                        meta_agent_name = meta.agent_name
-                        meta_context_name = meta.context_name or ""
-                        meta_friendly_name = meta.friendly_name or ""
-                        meta_updated_at = meta.updated_at
-
-                if meta_updated_at is not None:
-                    now = datetime.now(timezone.utc).replace(tzinfo=None)
-                    secs = (now - meta_updated_at).total_seconds()
-                    if secs < 60:
-                        elapsed = f"{int(secs)}s ago"
-                    elif secs < 3600:
-                        elapsed = f"{int(secs / 60)}m ago"
-                    elif secs < 86400:
-                        elapsed = f"{int(secs / 3600)}h ago"
-                    else:
-                        elapsed = f"{int(secs / 86400)}d ago"
-
-                    info = f"Session: agent={meta_agent_name or agent_name}"
-                    ctx_name = meta_context_name or meta_friendly_name
-                    if ctx_name:
-                        info += f", context={ctx_name}"
-                    info += f", last activity {elapsed} (timestamp: {meta_updated_at.isoformat()}Z)"
-                    messages.append({"role": "system", "content": info})
-                    system_text_parts.append(info)
-            except Exception:
-                pass
+        self._append_session_info(
+            messages=messages,
+            system_text_parts=system_text_parts,
+            episodic_result=episodic_result,
+            conversation_id=conversation_id,
+            agent_name=agent_name,
+        )
 
         for extra in (extra_system_messages or []):
             if extra and extra.strip():
@@ -162,28 +124,13 @@ class PromptBuilder(PromptBuilderInterface):
             account_name=account_name,
             context_name=context_name,
         )
-
-        try:
-            soft_max = resolve_effective_cap(
-                "context_text_soft_max_tokens",
-                agent,
-                self.config,
-                CONTEXT_TEXT_SOFT_MAX_TOKENS,
-            )
-            ctx_tokens = estimate_tokens_from_text(context_text or "")
-            if ctx_tokens > soft_max:
-                allowed_chars = max(0, soft_max * 4)
-                context_text = (context_text or "")[:allowed_chars]
-                context_text += "\n\n[Context truncated due to token budget]"
-                logging.info(
-                    "PromptBuilder: truncated context_text to %d chars (soft_max=%d tokens) for account=%s context=%s",
-                    len(context_text),
-                    soft_max,
-                    account_name,
-                    context_name or "(none)",
-                )
-        except Exception:
-            logging.exception("PromptBuilder: failed while enforcing context soft max")
+        context_text = self._apply_context_soft_max(
+            context_text=context_text,
+            agent=agent,
+            account_name=account_name,
+            context_name=context_name,
+            agent_name=agent_name,
+        )
 
         if context_text:
             messages.append(
@@ -193,85 +140,41 @@ class PromptBuilder(PromptBuilderInterface):
                 }
             )
 
-        context_data: Dict[str, Any] = {}
-        if context_name and context_name != "none":
-            ctx = self._get_context_state(
-                account_name=account_name,
-                context_name=context_name,
-            )
-            if ctx is not None:
-                namespaces = getattr(ctx, "search_namespaces", None)
-                if isinstance(namespaces, list):
-                    context_data["search_namespaces"] = namespaces
-                extra = getattr(ctx, "extra", None)
-                if isinstance(extra, dict):
-                    for key, value in extra.items():
-                        context_data.setdefault(key, value)
+        context_data = self._get_context_data(
+            account_name=account_name,
+            context_name=context_name,
+        )
 
-        doc_contexts: List[Dict[str, Any]] = []
-        if context_type in ("documents", "hybrid"):
-            try:
-                search_namespaces = context_data.get("search_namespaces") or DEFAULT_SEARCH_NAMESPACES
-                if use_embeddings:
-                    doc_contexts = self._get_semantic_memory_context(
-                        query=content_text,
-                        account_name=account_name,
-                        namespaces=search_namespaces,
-                        top_k=agent.max_prompt_documents if agent else 3,
-                        max_chars=9000,
-                    )
-                else:
-                    logging.info(
-                        "PromptBuilder: agent=%s has use_embeddings disabled; semantic document recall skipped",
-                        agent_name,
-                    )
-            except Exception as ex:
-                logging.warning(
-                    "PromptBuilder: failed to load semantic document context for %s/%s: %s",
-                    account_name,
-                    agent_name,
-                    ex,
-                )
-
+        doc_contexts = self._load_semantic_contexts(
+            content_text=content_text,
+            account_name=account_name,
+            agent_name=agent_name,
+            agent=agent,
+            context_type=context_type,
+            context_data=context_data,
+            use_embeddings=use_embeddings,
+        )
         obsidian_text = "\n\n".join(
             (ctx.get("snippet") or "") for ctx in doc_contexts
         ) if doc_contexts else ""
 
-        digest_contexts: List[Dict[str, Any]] = []
-        try:
-            digest_contexts = self._get_digest_context(
-                query=content_text,
-                account_name=account_name,
-                top_k=3,
-                max_chars=3000,
-            )
-        except Exception as ex:
-            logging.warning(
-                "PromptBuilder: failed to load digest context for %s/%s: %s",
-                account_name,
-                agent_name,
-                ex,
-            )
-
+        digest_contexts = self._load_digest_contexts(
+            content_text=content_text,
+            account_name=account_name,
+            agent_name=agent_name,
+        )
         digest_text = "\n\n".join(
             (d.get("snippet") or "") for d in digest_contexts
         ) if digest_contexts else ""
 
-        has_attachments = bool(image_ids or file_ids)
-        if has_attachments:
-            content_parts: List[Dict[str, Any]] = [{"type": "text", "text": content_text}]
-            content_parts.extend(
-                self._resolve_attachments(
-                    account_name=account_name,
-                    image_ids=image_ids,
-                    file_ids=file_ids,
-                    agent_allowed_tools=agent.allowed_tools if agent else None,
-                    supports_images=supports_images,
-                )
-            )
-            user_message = {"role": "user", "content": content_parts}
-        else:
-            user_message = {"role": "user", "content": content_text}
+        user_message = self._build_user_message(
+            content_text=content_text,
+            account_name=account_name,
+            image_ids=image_ids,
+            file_ids=file_ids,
+            agent=agent,
+            supports_images=supports_images,
+        )
 
         try:
             system_tokens = estimate_tokens_from_text("\n\n".join(system_text_parts))
@@ -308,91 +211,15 @@ class PromptBuilder(PromptBuilderInterface):
                 history_budget,
             )
 
-            history_messages: List[Dict[str, str]] = []
-            overflow_digest_text = ""
-            try:
-                matching: List[Any] = []
-                original_match_count = 0
-
-                if episodic_result is not None:
-                    matching = list(episodic_result.events)
-                    original_match_count = len(matching) + episodic_result.dropped_event_count
-                elif self.chat2_store is not None and conversation_id not in ("none", "new", ""):
-                    if self.chat2_store.session_exists(conversation_id):
-                        events = list(self.chat2_store.stream_events(conversation_id))
-                        matching = [e for e in events if e.kind in _CONVERSATION_KINDS]
-                        original_match_count = len(matching)
-
-                matching = [] if max_convs <= 0 else matching[-max_convs:]
-
-                if max_convs <= 0:
-                    logging.info(
-                        "PromptBuilder.history: max_prompt_conversations=%d — skipping all chat history for agent=%s",
-                        max_convs,
-                        agent_name,
-                    )
-                elif len(matching) < original_match_count:
-                    logging.info(
-                        "PromptBuilder.history: max_prompt_conversations=%d capped %d events down to %d for agent=%s",
-                        max_convs,
-                        original_match_count,
-                        len(matching),
-                        agent_name,
-                    )
-
-                remaining = history_budget
-                included: List[Any] = []
-                for event in reversed(matching):
-                    payload = self._event_content(event)
-                    tok = estimate_tokens_from_text(payload)
-                    if remaining >= tok:
-                        included.insert(0, event)
-                        remaining -= tok
-                    else:
-                        if not included:
-                            included.insert(0, event)
-                        break
-
-                included_set = {id(item) for item in included}
-                dropped = [event for event in matching if id(event) not in included_set]
-
-                if dropped:
-                    try:
-                        digest_snippet = self._summarize_overflow(
-                            [self._event_content(event) for event in dropped]
-                        )
-                        saved_digest = self._save_overflow_digest(
-                            account_name=account_name,
-                            conversation_id=conversation_id,
-                            new_snippet=digest_snippet,
-                        )
-                        overflow_digest_text = saved_digest or digest_snippet
-                        messages.append(
-                            {
-                                "role": "system",
-                                "content": f"Earlier in this session:\n{overflow_digest_text}",
-                            }
-                        )
-                    except Exception as ex:
-                        logging.warning(
-                            "PromptBuilder: failed to persist session digest for %s: %s",
-                            conversation_id,
-                            ex,
-                        )
-
-                history_messages = [
-                    {"role": event.role, "content": self._event_content(event)}
-                    for event in included
-                ]
-            except Exception as ex:
-                logging.warning(
-                    "PromptBuilder: episodic history failed for session %s account=%s agent=%s: %s; returning empty history",
-                    conversation_id,
-                    account_name,
-                    agent_name,
-                    ex,
-                )
-
+            history_messages, overflow_digest_text = self._select_history(
+                episodic_result=episodic_result,
+                max_convs=max_convs,
+                history_budget=history_budget,
+                messages=messages,
+                account_name=account_name,
+                conversation_id=conversation_id,
+                agent_name=agent_name,
+            )
             messages.extend(history_messages)
 
             history_tokens = sum(
@@ -423,42 +250,8 @@ class PromptBuilder(PromptBuilderInterface):
                 "total_without_handlers": total_without_handlers,
             }
 
-            if doc_contexts:
-                doc_lines: List[str] = [
-                    "The following Obsidian notes may be relevant to the user's question:"
-                ]
-                for idx, ctx in enumerate(doc_contexts, start=1):
-                    title = ctx.get("title") or "(untitled)"
-                    tags = ctx.get("tags") or []
-                    snippet = ctx.get("snippet") or ""
-                    truncated = ctx.get("truncated") or False
-                    header = f"{idx}. Title: {title}"
-                    if tags:
-                        header += f" | Tags: {', '.join(tags)}"
-                    doc_lines.append(header)
-                    doc_lines.append(snippet)
-                    if truncated:
-                        doc_lines.append("[Note: content truncated]")
-                    doc_lines.append("")
-                messages.append({"role": "system", "content": "\n".join(doc_lines).strip()})
-
-            if digest_contexts:
-                digest_lines: List[str] = [
-                    "The following archived chat session digests may be relevant:"
-                ]
-                for idx, dctx in enumerate(digest_contexts, start=1):
-                    digest_lines.append(
-                        f"{idx}. Session {dctx.get('session_id') or 'unknown'} "
-                        f"(score: {dctx.get('score', 0):.3f})"
-                    )
-                    digest_lines.append(dctx.get("snippet") or "")
-                    if dctx.get("truncated") or False:
-                        digest_lines.append("[Digest truncated]")
-                    digest_lines.append("")
-                messages.append(
-                    {"role": "system", "content": "\n".join(digest_lines).strip()}
-                )
-
+            self._append_document_contexts(messages, doc_contexts)
+            self._append_digest_contexts(messages, digest_contexts)
             messages = self._ensure_current_query(messages, user_message["content"])
 
             logging.info(
@@ -480,12 +273,318 @@ class PromptBuilder(PromptBuilderInterface):
 
         return messages
 
+    def _append_session_info(
+        self,
+        *,
+        messages: List[Dict[str, Any]],
+        system_text_parts: List[str],
+        episodic_result: Optional[EpisodicMemoryResult],
+        conversation_id: str,
+        agent_name: str,
+    ) -> None:
+        if conversation_id in ("none", "new", "") or episodic_result is None:
+            return
+        if not episodic_result.session_id or episodic_result.session_updated_at is None:
+            return
+
+        try:
+            updated_at = episodic_result.session_updated_at
+            now = datetime.now(timezone.utc).replace(tzinfo=None)
+            secs = (now - updated_at).total_seconds()
+            if secs < 60:
+                elapsed = f"{int(secs)}s ago"
+            elif secs < 3600:
+                elapsed = f"{int(secs / 60)}m ago"
+            elif secs < 86400:
+                elapsed = f"{int(secs / 3600)}h ago"
+            else:
+                elapsed = f"{int(secs / 86400)}d ago"
+
+            info = f"Session: agent={episodic_result.session_agent_name or agent_name}"
+            ctx_name = (
+                episodic_result.session_context_name
+                or episodic_result.session_friendly_name
+            )
+            if ctx_name:
+                info += f", context={ctx_name}"
+            info += f", last activity {elapsed} (timestamp: {updated_at.isoformat()}Z)"
+            messages.append({"role": "system", "content": info})
+            system_text_parts.append(info)
+        except Exception:
+            return
+
+    def _apply_context_soft_max(
+        self,
+        *,
+        context_text: str,
+        agent: Optional[Agent],
+        account_name: str,
+        context_name: str,
+        agent_name: str,
+    ) -> str:
+        try:
+            soft_max = resolve_effective_cap(
+                "context_text_soft_max_tokens",
+                agent,
+                self.config,
+                CONTEXT_TEXT_SOFT_MAX_TOKENS,
+            )
+            ctx_tokens = estimate_tokens_from_text(context_text or "")
+            if ctx_tokens <= soft_max:
+                return context_text
+
+            logging.warning(
+                "PromptBuilder: context text (%d tokens) exceeds soft max (%d tokens) — agent=%s account=%s context=%s; truncating",
+                ctx_tokens,
+                soft_max,
+                agent_name,
+                account_name,
+                context_name or "(none)",
+            )
+            allowed_chars = max(0, soft_max * 4)
+            truncated = (context_text or "")[:allowed_chars]
+            truncated += "\n\n[Context truncated due to token budget]"
+            logging.info(
+                "PromptBuilder: truncated context_text to %d chars (soft_max=%d tokens) for account=%s context=%s",
+                len(truncated),
+                soft_max,
+                account_name,
+                context_name or "(none)",
+            )
+            return truncated
+        except Exception:
+            logging.exception("PromptBuilder: failed while enforcing context soft max")
+            return context_text
+
+    def _get_context_data(self, *, account_name: str, context_name: str) -> Dict[str, Any]:
+        if not context_name or context_name == "none":
+            return {}
+        ctx = self._get_context_state(account_name=account_name, context_name=context_name)
+        if ctx is None:
+            return {}
+
+        data: Dict[str, Any] = {}
+        namespaces = getattr(ctx, "search_namespaces", None)
+        if isinstance(namespaces, list):
+            data["search_namespaces"] = namespaces
+        extra = getattr(ctx, "extra", None)
+        if isinstance(extra, dict):
+            for key, value in extra.items():
+                data.setdefault(key, value)
+        return data
+
+    def _load_semantic_contexts(
+        self,
+        *,
+        content_text: str,
+        account_name: str,
+        agent_name: str,
+        agent: Optional[Agent],
+        context_type: str,
+        context_data: Dict[str, Any],
+        use_embeddings: bool,
+    ) -> List[Dict[str, Any]]:
+        if context_type not in ("documents", "hybrid"):
+            return []
+        if not use_embeddings:
+            logging.info(
+                "PromptBuilder: agent=%s has use_embeddings disabled; semantic document recall skipped",
+                agent_name,
+            )
+            return []
+
+        try:
+            return self._get_semantic_memory_context(
+                query=content_text,
+                account_name=account_name,
+                namespaces=context_data.get("search_namespaces") or DEFAULT_SEARCH_NAMESPACES,
+                top_k=agent.max_prompt_documents if agent else 3,
+                max_chars=9000,
+            )
+        except Exception as ex:
+            logging.warning(
+                "PromptBuilder: failed to load semantic document context for %s/%s: %s",
+                account_name,
+                agent_name,
+                ex,
+            )
+            return []
+
+    def _load_digest_contexts(
+        self,
+        *,
+        content_text: str,
+        account_name: str,
+        agent_name: str,
+    ) -> List[Dict[str, Any]]:
+        try:
+            return self._get_digest_context(
+                query=content_text,
+                account_name=account_name,
+                top_k=3,
+                max_chars=3000,
+            )
+        except Exception as ex:
+            logging.warning(
+                "PromptBuilder: failed to load digest context for %s/%s: %s",
+                account_name,
+                agent_name,
+                ex,
+            )
+            return []
+
+    def _build_user_message(
+        self,
+        *,
+        content_text: str,
+        account_name: str,
+        image_ids: Optional[List[str]],
+        file_ids: Optional[List[str]],
+        agent: Optional[Agent],
+        supports_images: bool,
+    ) -> Dict[str, Any]:
+        if not (image_ids or file_ids):
+            return {"role": "user", "content": content_text}
+
+        content_parts: List[Dict[str, Any]] = [{"type": "text", "text": content_text}]
+        content_parts.extend(
+            self._resolve_attachments(
+                account_name=account_name,
+                image_ids=image_ids,
+                file_ids=file_ids,
+                agent_allowed_tools=agent.allowed_tools if agent else None,
+                supports_images=supports_images,
+            )
+        )
+        return {"role": "user", "content": content_parts}
+
+    def _select_history(
+        self,
+        *,
+        episodic_result: Optional[EpisodicMemoryResult],
+        max_convs: int,
+        history_budget: int,
+        messages: List[Dict[str, Any]],
+        account_name: str,
+        conversation_id: str,
+        agent_name: str,
+    ) -> tuple[List[Dict[str, str]], str]:
+        matching = list(episodic_result.events) if episodic_result is not None else []
+        original_match_count = (
+            len(matching) + episodic_result.dropped_event_count
+            if episodic_result is not None
+            else 0
+        )
+        matching = [] if max_convs <= 0 else matching[-max_convs:]
+
+        if max_convs <= 0:
+            logging.info(
+                "PromptBuilder.history: max_prompt_conversations=%d — skipping all chat history for agent=%s",
+                max_convs,
+                agent_name,
+            )
+        elif len(matching) < original_match_count:
+            logging.info(
+                "PromptBuilder.history: max_prompt_conversations=%d capped %d events down to %d for agent=%s",
+                max_convs,
+                original_match_count,
+                len(matching),
+                agent_name,
+            )
+
+        remaining = history_budget
+        included: List[Any] = []
+        for event in reversed(matching):
+            payload = self._event_content(event)
+            tok = estimate_tokens_from_text(payload)
+            if remaining >= tok:
+                included.insert(0, event)
+                remaining -= tok
+            else:
+                if not included:
+                    included.insert(0, event)
+                break
+
+        included_set = {id(item) for item in included}
+        dropped = [event for event in matching if id(event) not in included_set]
+        overflow_digest_text = ""
+
+        if dropped:
+            try:
+                digest_snippet = self._summarize_overflow(
+                    [self._event_content(event) for event in dropped]
+                )
+                saved_digest = self._save_overflow_digest(
+                    account_name=account_name,
+                    conversation_id=conversation_id,
+                    new_snippet=digest_snippet,
+                )
+                overflow_digest_text = saved_digest or digest_snippet
+                messages.append(
+                    {
+                        "role": "system",
+                        "content": f"Earlier in this session:\n{overflow_digest_text}",
+                    }
+                )
+            except Exception as ex:
+                logging.warning(
+                    "PromptBuilder: failed to persist session digest for %s: %s",
+                    conversation_id,
+                    ex,
+                )
+
+        history_messages = [
+            {"role": event.role, "content": self._event_content(event)}
+            for event in included
+        ]
+        return history_messages, overflow_digest_text
+
+    def _append_document_contexts(
+        self,
+        messages: List[Dict[str, Any]],
+        doc_contexts: List[Dict[str, Any]],
+    ) -> None:
+        if not doc_contexts:
+            return
+        lines = ["The following Obsidian notes may be relevant to the user's question:"]
+        for idx, ctx in enumerate(doc_contexts, start=1):
+            header = f"{idx}. Title: {ctx.get('title') or '(untitled)'}"
+            tags = ctx.get("tags") or []
+            if tags:
+                header += f" | Tags: {', '.join(tags)}"
+            lines.append(header)
+            lines.append(ctx.get("snippet") or "")
+            if ctx.get("truncated"):
+                lines.append("[Note: content truncated]")
+            lines.append("")
+        messages.append({"role": "system", "content": "\n".join(lines).strip()})
+
+    def _append_digest_contexts(
+        self,
+        messages: List[Dict[str, Any]],
+        digest_contexts: List[Dict[str, Any]],
+    ) -> None:
+        if not digest_contexts:
+            return
+        lines = ["The following archived chat session digests may be relevant:"]
+        for idx, dctx in enumerate(digest_contexts, start=1):
+            lines.append(
+                f"{idx}. Session {dctx.get('session_id') or 'unknown'} "
+                f"(score: {dctx.get('score', 0):.3f})"
+            )
+            lines.append(dctx.get("snippet") or "")
+            if dctx.get("truncated"):
+                lines.append("[Digest truncated]")
+            lines.append("")
+        messages.append({"role": "system", "content": "\n".join(lines).strip()})
+
     def _build_agent_system_message(self, agent_name: str, agent: Optional[Agent]) -> str:
         if agent is None:
             return f"You are {agent_name}, a helpful assistant."
 
-        parts: List[str] = []
-        parts.append(agent.system_prompt or f"You are {agent_name}, a helpful assistant.")
+        parts: List[str] = [
+            agent.system_prompt or f"You are {agent_name}, a helpful assistant."
+        ]
         if agent.persona:
             parts.append(agent.persona)
         if agent.style_prompt:
@@ -512,7 +611,7 @@ class PromptBuilder(PromptBuilderInterface):
                     agent_name=agent_name,
                     conversation_id=conversation_id,
                     max_events=max_events,
-                    event_kinds=list(_CONVERSATION_KINDS),
+                    event_kinds=list(CONVERSATION_EVENT_KINDS),
                     include_session_metadata=True,
                     include_recent_history=True,
                     include_archived_digests=False,
@@ -520,7 +619,7 @@ class PromptBuilder(PromptBuilderInterface):
             )
         except Exception as ex:
             logging.warning(
-                "PromptBuilder: episodic recall failed for session %s account=%s agent=%s: %s; falling back to Chat2",
+                "PromptBuilder: episodic recall failed for session %s account=%s agent=%s: %s; returning empty history",
                 conversation_id,
                 account_name,
                 agent_name,
@@ -531,8 +630,6 @@ class PromptBuilder(PromptBuilderInterface):
     @staticmethod
     def _event_content(event: Any) -> str:
         value = getattr(event, "content", None)
-        if value is None and hasattr(event, "payload"):
-            value = event.payload
         return value if isinstance(value, str) else str(value)
 
     def _get_semantic_memory_context(
@@ -650,7 +747,6 @@ class PromptBuilder(PromptBuilderInterface):
     ) -> List[Dict[str, Any]]:
         parts: List[Dict[str, Any]] = []
         images_dir = self._build_images_dir()
-        use_markers = not supports_images
         any_image_marked = False
 
         for img_id in (image_ids or []):
@@ -664,7 +760,7 @@ class PromptBuilder(PromptBuilderInterface):
                     )
                     continue
 
-                if use_markers:
+                if not supports_images:
                     parts.append(
                         {
                             "type": "text",
@@ -814,61 +910,13 @@ class PromptBuilder(PromptBuilderInterface):
             ".webp": "image/webp",
         }.get(os.path.splitext(path)[1].lower(), "application/octet-stream")
 
-    def _get_chat_history_messages(
-        self,
-        conversation_id: str,
-        account_name: str,
-        agent_name: str,
-        max_conversations: int,
-    ) -> List[Dict[str, str]]:
-        """Compatibility helper for older direct PromptBuilder callers/tests."""
-        if not conversation_id or conversation_id in ("none", "new") or max_conversations <= 0:
-            return []
-        if self.chat2_store is None:
-            return []
-        try:
-            if not self.chat2_store.session_exists(conversation_id):
-                return []
-            selected = get_last_n_events(
-                self.chat2_store.stream_events(conversation_id),
-                max_conversations,
-            )
-            return [
-                {
-                    "role": event.role,
-                    "content": event.payload if isinstance(event.payload, str) else str(event.payload),
-                }
-                for event in selected
-            ]
-        except Exception as ex:
-            logging.warning(
-                "PromptBuilder: chat2 history failed for session %s account=%s agent=%s: %s; returning empty history",
-                conversation_id,
-                account_name,
-                agent_name,
-                ex,
-            )
-            return []
-
     def _get_context_state(
         self,
         account_name: str,
         context_name: str,
     ) -> Optional[Any]:
-        """Compatibility context accessor; CoALAPromptBuilder overrides this."""
-        if not context_name or context_name == "none":
-            return None
-        try:
-            store: ContextStore = self.storage
-            return store.get_or_create_context(account_name, context_name)
-        except Exception as ex:
-            logging.warning(
-                "PromptBuilder: failed to load/create context %s for %s: %s",
-                context_name,
-                account_name,
-                ex,
-            )
-            return None
+        """Memory seam overridden by CoALAPromptBuilder."""
+        return None
 
     def _get_context_text(self, account_name: str, context_name: str) -> str:
         ctx = self._get_context_state(account_name, context_name)
