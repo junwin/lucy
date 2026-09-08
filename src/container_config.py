@@ -20,6 +20,7 @@ from src.storage.base import Storage
 from src.storage.interfaces import ContextStore, DocumentStore, EmbeddingStore, TasklistStore
 from src.storage.json_file_storage import JsonFileStorage
 from src.storage.primitives_embedding_store import build_primitives_embedding_store
+from src.coala_memory.semantic import SemanticMemory, SqliteVecSemanticMemory
 
 from src.handlers.handler_registry import HandlerRegistry
 from src.handlers.registry_bootstrap import build_registry
@@ -174,7 +175,6 @@ class StorageModule(Module):
         )
 
 
-
 class MetricsModule(Module):
     @provider
     @singleton
@@ -217,6 +217,21 @@ class EmbeddingModule(Module):
         )
 
 
+class CoALAMemoryModule(Module):
+    @provider
+    @singleton
+    def provide_semantic_memory(
+        self,
+        embedding_facade: EmbeddingFacade,
+        embedding_store: EmbeddingStore,
+    ) -> SemanticMemory:
+        """Provide prompt-time semantic memory over Lucy's configured vector store."""
+        return SqliteVecSemanticMemory(
+            embedding_facade=embedding_facade,
+            embedding_store=embedding_store,
+        )
+
+
 class HandlerRegistryModule(Module):
     @provider
     @singleton
@@ -235,6 +250,7 @@ class PromptBuilderModule(Module):
         chat2_store: Chat2Store,
         embedding_facade: EmbeddingFacade,
         embedding_store: EmbeddingStore,
+        semantic_memory: SemanticMemory,
     ) -> PromptBuilderInterface:
         return PromptBuilder(
             agent_manager=agent_manager,
@@ -243,6 +259,7 @@ class PromptBuilderModule(Module):
             chat2_store=chat2_store,
             embedding_facade=embedding_facade,
             embedding_store=embedding_store,
+            semantic_memory=semantic_memory,
         )
 
 
@@ -331,6 +348,7 @@ def configure_container():
             StorageModule(),
             MetricsModule(),
             EmbeddingModule(),
+            CoALAMemoryModule(),
             HandlerRegistryModule(),
             ProcessorFactoryModule(),
             PromptBuilderModule(),
