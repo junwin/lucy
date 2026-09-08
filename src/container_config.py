@@ -21,6 +21,7 @@ from src.storage.interfaces import ContextStore, DocumentStore, EmbeddingStore, 
 from src.storage.json_file_storage import JsonFileStorage
 from src.storage.primitives_embedding_store import build_primitives_embedding_store
 from src.coala_memory.semantic import SemanticMemory, SqliteVecSemanticMemory
+from src.coala_memory.episodic import EpisodicMemory, Chat2EpisodicMemory
 
 from src.handlers.handler_registry import HandlerRegistry
 from src.handlers.registry_bootstrap import build_registry
@@ -231,6 +232,15 @@ class CoALAMemoryModule(Module):
             embedding_store=embedding_store,
         )
 
+    @provider
+    @singleton
+    def provide_episodic_memory(
+        self,
+        chat2_store: Chat2Store,
+    ) -> EpisodicMemory:
+        """Provide prompt-time episodic memory over the configured Chat2 store."""
+        return Chat2EpisodicMemory(chat2_store)
+
 
 class HandlerRegistryModule(Module):
     @provider
@@ -251,6 +261,7 @@ class PromptBuilderModule(Module):
         embedding_facade: EmbeddingFacade,
         embedding_store: EmbeddingStore,
         semantic_memory: SemanticMemory,
+        episodic_memory: EpisodicMemory,
     ) -> PromptBuilderInterface:
         return PromptBuilder(
             agent_manager=agent_manager,
@@ -260,6 +271,7 @@ class PromptBuilderModule(Module):
             embedding_facade=embedding_facade,
             embedding_store=embedding_store,
             semantic_memory=semantic_memory,
+            episodic_memory=episodic_memory,
         )
 
 
