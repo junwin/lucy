@@ -13,6 +13,8 @@ class EpisodicMemoryRequest:
     Derived from PromptBuilder's current Chat2 and digest access patterns.
     ``query`` is used for archived digest similarity search; ``conversation_id``
     selects the active session; event/token caps constrain recent-history reads.
+    ``event_kinds`` optionally narrows recent history before ``max_events`` is
+    applied, preserving PromptBuilder's conversation-kind filtering semantics.
     """
 
     account_name: str
@@ -23,6 +25,7 @@ class EpisodicMemoryRequest:
     token_budget: Optional[int] = None
     digest_top_k: int = 3
     digest_max_chars: int = 3000
+    event_kinds: Optional[List[str]] = None
     include_session_metadata: bool = True
     include_recent_history: bool = True
     include_archived_digests: bool = True
