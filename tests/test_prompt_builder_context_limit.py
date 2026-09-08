@@ -2,41 +2,54 @@ import logging
 from datetime import datetime, timezone
 
 from src.agent.agent import Agent
-from src.prompt_builders.prompt_builder import PromptBuilder
+from src.coala_memory.procedural import ContextProceduralMemory
+from src.prompt_builders.coala_prompt_builder import CoALAPromptBuilder
 from src.storage.models import Context
+
+
+class FakeAgentManager:
+    def __init__(self, agent=None):
+        self._agent = agent
+
+    def get_agent(self, name):
+        return self._agent
+
+
+class FakeConfig:
+    def __init__(self, values=None):
+        self._values = values or {}
+
+    def get(self, key, default=None):
+        return self._values.get(key, default)
+
+
+class FakeStorage:
+    def __init__(self, text):
+        self._text = text
+
+    def get_or_create_context(self, account_name, context_name):
+        return Context(
+            id=context_name,
+            account_name=account_name,
+            text=self._text,
+            updated_at=datetime.now(timezone.utc),
+        )
+
+
+def _builder(agent, config_values, context_text):
+    storage = FakeStorage(context_text)
+    return CoALAPromptBuilder(
+        agent_manager=FakeAgentManager(agent),
+        config=FakeConfig(config_values),
+        storage=storage,
+        procedural_memory=ContextProceduralMemory(storage),
+    )
 
 
 def test_context_soft_maximum_triggers_warning(caplog):
     caplog.set_level(logging.WARNING)
+    pb = _builder(None, {}, "x" * 10000)
 
-    # Fake agent manager: returns None for any agent (agent-less defaults)
-    class FakeAgentManager:
-        def get_agent(self, name):
-            return None
-
-    # Fake config: no explicit setting -> use default fallback (2000)
-    class FakeConfig:
-        def get(self, key, default=None):
-            return default
-
-    # Fake storage: returns a context with a very large text body
-    class FakeStorage:
-        def get_or_create_context(self, account_name, context_name):
-            return Context(
-                id=context_name,
-                account_name=account_name,
-                text="x" * 10000,
-                updated_at=datetime.now(timezone.utc),
-            )
-
-    pb = PromptBuilder(
-        agent_manager=FakeAgentManager(),
-        config=FakeConfig(),
-        storage=FakeStorage(),
-        chat2_store=None,
-    )
-
-    # Call build_prompt with a named context — should trigger the soft-max warning
     pb.build_prompt(
         content_text="hello",
         conversation_id="new",
@@ -46,46 +59,11 @@ def test_context_soft_maximum_triggers_warning(caplog):
         context_name="bigctx",
     )
 
-    assert any("exceeds soft max" in rec.message for rec in caplog.records), (
-        "Expected a warning log about soft max being exceeded"
-    )
+    assert any("exceeds soft max" in rec.message for rec in caplog.records)
 
 
 def _build_prompt_with(agent, config_values, context_text):
-    class FakeAgentManager:
-        def __init__(self, agent):
-            self._agent = agent
-
-        def get_agent(self, name):
-            return self._agent
-
-    class FakeConfig:
-        def __init__(self, values):
-            self._values = values
-
-        def get(self, key, default=None):
-            return self._values.get(key, default)
-
-    class FakeStorage:
-        def __init__(self, text):
-            self._text = text
-
-        def get_or_create_context(self, account_name, context_name):
-            return Context(
-                id=context_name,
-                account_name=account_name,
-                text=self._text,
-                updated_at=datetime.now(timezone.utc),
-            )
-
-    pb = PromptBuilder(
-        agent_manager=FakeAgentManager(agent),
-        config=FakeConfig(config_values),
-        storage=FakeStorage(context_text),
-        chat2_store=None,
-    )
-
-    return pb.build_prompt(
+    return _builder(agent, config_values, context_text).build_prompt(
         content_text="hello",
         conversation_id="new",
         agent_name="test",
@@ -97,8 +75,8 @@ def _build_prompt_with(agent, config_values, context_text):
 
 def _additional_context_content(messages):
     prefix = "Additional context for this conversation:"
-    for m in messages:
-        content = m.get("content")
+    for message in messages:
+        content = message.get("content")
         if isinstance(content, str) and content.startswith(prefix):
             return content[len(prefix):]
     return None
