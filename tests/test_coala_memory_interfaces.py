@@ -58,13 +58,12 @@ def test_episodic_management_contract_covers_session_search_and_curation():
     assert curation.curation_rules["remove_kinds"] == ["tool"]
 
 
-def test_semantic_request_supports_embedding_and_document_modes():
+def test_semantic_request_supports_embedding_recall():
     request = SemanticMemoryRequest(
         account_name="junwin",
         query="CoALA memory",
         use_embeddings=True,
-        namespaces=["external"],
-        docs_tag="lucy",
+        namespaces=["documents"],
         top_k=3,
         embedding_model="text-embedding-3-small",
         source_type="obsidian_note",
@@ -82,7 +81,7 @@ def test_semantic_request_supports_embedding_and_document_modes():
     )
 
     assert request.use_embeddings is True
-    assert request.docs_tag == "lucy"
+    assert request.namespaces == ["documents"]
     assert request.embedding_model == "text-embedding-3-small"
     assert request.source_type == "obsidian_note"
     assert result.documents[0].source_id == "note-1"
