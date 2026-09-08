@@ -1,9 +1,8 @@
 #!/usr/bin/env python3
-"""Probe C — live document retrieval through the container PromptBuilder.
+"""Probe C — live document retrieval through CoALA semantic memory.
 
-Issue #165 diagnostic: embeds the fixed query via the same singleton
-PromptBuilder and _get_document_embedding_context call the /ask chain uses,
-then prints each hit (source_id, score).
+Issue #165 diagnostic: embeds the fixed query through the same SemanticMemory
+singleton used by PromptBuilder, then prints each hit (source_id, score).
 
 Exit 0 when >= 1 context is returned with score > 0.25; exits non-zero with a
 clear message when no context passes or retrieval fails. First-hit identity is
@@ -20,6 +19,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from src.config_manager import ConfigManager
+from src.coala_memory.semantic import SemanticMemory, SemanticMemoryRequest
 
 QUERY = "What does the obsidian importer do and how does it create DocumentRef records?"
 ACCOUNT_NAME = "junwin"
@@ -37,28 +37,32 @@ def main() -> int:
     print(f"query: {QUERY!r}")
 
     from src.container_config import container
-    from src.prompt_builders.prompt_builder_interface import PromptBuilderInterface
 
-    prompt_builder = container.get(PromptBuilderInterface)
-    contexts = prompt_builder._get_document_embedding_context(
-        query=QUERY,
-        account_name=ACCOUNT_NAME,
-        namespaces=NAMESPACES,
-        top_k=TOP_K,
+    semantic_memory = container.get(SemanticMemory)
+    result = semantic_memory.recall(
+        SemanticMemoryRequest(
+            account_name=ACCOUNT_NAME,
+            query=QUERY,
+            namespaces=NAMESPACES,
+            top_k=TOP_K,
+            score_threshold=SCORE_THRESHOLD,
+        )
     )
+    contexts = result.documents
 
     print(f"document contexts: {len(contexts)}")
     for context in contexts:
-        print(f"{context['source_id']} {context['score']:.3f}")
+        score = context.score or 0.0
+        print(f"{context.source_id} {score:.3f}")
 
     if contexts:
         first = contexts[0]
         print(
-            f"first hit: {first['source_id']} "
+            f"first hit: {first.source_id} "
             f"(expected {EXPECTED_FIRST_HIT} — informational, not a gate)"
         )
 
-    passing = [context for context in contexts if context["score"] > SCORE_THRESHOLD]
+    passing = [context for context in contexts if (context.score or 0.0) > SCORE_THRESHOLD]
     if not passing:
         print(
             f"FAIL: no context scored above {SCORE_THRESHOLD} "
