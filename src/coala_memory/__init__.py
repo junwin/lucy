@@ -15,6 +15,7 @@ from .episodic import (
     EpisodicCurationRequest,
     EpisodicCurationResult,
     Chat2EpisodicMemory,
+    EmbeddingDigestRecall,
 )
 from .semantic import (
     SemanticMemory,
@@ -39,6 +40,7 @@ __all__ = [
     "EpisodicCurationRequest",
     "EpisodicCurationResult",
     "Chat2EpisodicMemory",
+    "EmbeddingDigestRecall",
     "SemanticMemory",
     "SemanticMemoryRequest",
     "SemanticMemoryResult",
