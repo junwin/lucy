@@ -25,6 +25,7 @@ from src.storage.primitives_embedding_store import build_primitives_embedding_st
 from src.coala_memory.semantic import SemanticMemory, SqliteVecSemanticMemory
 from src.coala_memory.episodic import (
     EpisodicMemory,
+    EpisodicMemoryManager,
     Chat2EpisodicMemory,
     EmbeddingDigestRecall,
 )
@@ -201,6 +202,15 @@ class CoALAMemoryModule(Module):
                 embedding_store=embedding_store,
             ),
         )
+
+    @provider
+    @singleton
+    def provide_episodic_memory_manager(
+        self,
+        episodic_memory: EpisodicMemory,
+    ) -> EpisodicMemoryManager:
+        assert isinstance(episodic_memory, EpisodicMemoryManager)
+        return episodic_memory
 
     @provider
     @singleton
