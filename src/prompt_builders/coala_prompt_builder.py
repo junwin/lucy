@@ -13,17 +13,7 @@ from src.prompt_builders.prompt_builder import PromptBuilder
 
 
 class CoALAPromptBuilder(PromptBuilder):
-    """PromptBuilder with procedural context retrieval routed through CoALA.
-
-    The base PromptBuilder already routes semantic and episodic retrieval through
-    CoALA interfaces. This subclass completes the prompt-time memory boundary for
-    named contexts while deliberately reusing the existing prompt composition,
-    formatting, and token-budget code unchanged.
-
-    A procedural recall is cached for the duration of one ``build_prompt`` call
-    because the legacy builder asks for context text and context metadata in two
-    separate helper calls.
-    """
+    """PromptBuilder with named-context retrieval routed through procedural memory."""
 
     def __init__(
         self,
@@ -36,14 +26,12 @@ class CoALAPromptBuilder(PromptBuilder):
         self._procedural_cache: Dict[Tuple[str, str], Optional[Any]] = {}
 
     def build_prompt(self, *args: Any, **kwargs: Any):
-        # Scope procedural recall caching to a single prompt build so a context
-        # changed between requests is reloaded on the next request.
         self._procedural_cache = {}
         return super().build_prompt(*args, **kwargs)
 
     def _get_context_state(self, account_name: str, context_name: str) -> Optional[Any]:
         if self.procedural_memory is None:
-            return super()._get_context_state(account_name, context_name)
+            return None
         if not context_name or context_name == "none":
             return None
 
@@ -67,15 +55,13 @@ class CoALAPromptBuilder(PromptBuilder):
             return state
         except Exception as ex:
             logging.warning(
-                "CoALAPromptBuilder: procedural recall failed for context %s account=%s: %s; "
-                "falling back to ContextStore",
+                "CoALAPromptBuilder: procedural recall failed for context %s account=%s: %s; returning no context",
                 context_name,
                 account_name,
                 ex,
             )
-            state = super()._get_context_state(account_name, context_name)
-            self._procedural_cache[key] = state
-            return state
+            self._procedural_cache[key] = None
+            return None
 
     @staticmethod
     def _result_to_context_state(result: ProceduralMemoryResult) -> Optional[Any]:
@@ -96,10 +82,6 @@ class CoALAPromptBuilder(PromptBuilder):
             for skill in result.skills
         ]
 
-        # Present the same small surface PromptBuilder historically consumed
-        # from storage.Context. The procedural result remains the canonical
-        # retrieval contract; this proxy is only a compatibility seam for the
-        # unchanged prompt-rendering code.
         return SimpleNamespace(
             id=result.context_id,
             account_name=result.account_name,
