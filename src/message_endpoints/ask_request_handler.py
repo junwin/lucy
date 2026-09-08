@@ -17,6 +17,7 @@ def resolve_or_create_session(
     account_name: str,
     agent_name: str,
     friendly_name: Optional[str],
+    context_name: Optional[str] = None,
     limit: int = 500,
 ) -> str:
     """Resolve an existing chat2 session by friendly name or create a new one.
@@ -25,6 +26,10 @@ def resolve_or_create_session(
     scoped to account+agent, with an explicit limit so sessions beyond the
     default 50 are not missed. Creation uses a stable session_id so IDs stay
     consistent across storage layers.
+
+    When a context is known, it is stored on newly-created sessions. Existing
+    matched sessions are backfilled only when their context_name is empty;
+    an established context is never overwritten implicitly.
     """
     if chat2_store is None:
         logging.warning(
@@ -46,7 +51,10 @@ def resolve_or_create_session(
             if (meta.friendly_name or "").strip().lower().find(q) != -1
         ]
         if matches:
-            return matches[0].session_id
+            match = matches[0]
+            if context_name and not match.context_name:
+                chat2_store.update_session(match.session_id, context_name=context_name)
+            return match.session_id
 
     session_id = str(uuid.uuid4())
     chat2_store.create_session(
@@ -55,8 +63,22 @@ def resolve_or_create_session(
         agent_name=agent_name,
         session_id=session_id,
         friendly_name=friendly_name or f"Chat {session_id[:8]}",
+        context_name=context_name,
     )
     return session_id
+
+
+def _backfill_session_context(
+    chat2_store: Optional[Chat2Store],
+    conversation_id: str,
+    context_name: Optional[str],
+) -> None:
+    """Best-effort context backfill for sessions resolved before context lookup."""
+    if chat2_store is None or not conversation_id or not context_name:
+        return
+    meta = chat2_store.get_session(conversation_id)
+    if meta is not None and not meta.context_name:
+        chat2_store.update_session(conversation_id, context_name=context_name)
 
 
 class AskRequestHandler:
@@ -237,6 +259,7 @@ class AskRequestHandler:
                     account_name=accountName,
                     agent_name=agentName,
                     friendly_name=friendly_name,
+                    context_name=context_name,
                 )
                 self.logger.info(
                     "/ask: resolved session account=%s agent=%s friendlyName=%s session_id=%s",
@@ -245,6 +268,10 @@ class AskRequestHandler:
                     friendly_name,
                     conversationId,
                 )
+
+            # app.py may have resolved a friendly-name session before the agent's
+            # default context was known. Backfill that missing metadata now.
+            _backfill_session_context(self.chat2_store, conversationId, context_name)
 
         except Exception:
             self.logger.exception(
@@ -411,6 +438,7 @@ class AskRequestHandler:
                     account_name=accountName,
                     agent_name=agentName,
                     friendly_name=friendly_name,
+                    context_name=context_name,
                 )
                 self.logger.info(
                     "/ask(streaming): resolved session account=%s agent=%s friendlyName=%s session_id=%s",
@@ -426,6 +454,14 @@ class AskRequestHandler:
                 yield SSEEvent(type="error", message="Failed to create chat session").to_sse()
                 yield SSEEvent(type="done").to_sse()
                 return
+
+        try:
+            _backfill_session_context(self.chat2_store, conversationId, context_name)
+        except Exception:
+            self.logger.exception(
+                "/ask(streaming): failed to backfill session context session_id=%s",
+                conversationId,
+            )
 
         # Check if processor supports streaming
         if not hasattr(processor, "process_message_streaming"):
