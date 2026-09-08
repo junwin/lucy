@@ -77,6 +77,11 @@ def test_get_last_n_events_zero_returns_empty(seeded_session, chat2_store):
     assert get_last_n_events(events, -1) == []
 
 
+def test_get_last_n_events_fewer_than_n(seeded_session, chat2_store):
+    result = get_last_n_events(list(chat2_store.stream_events(seeded_session)), 100)
+    assert len(result) == 4
+
+
 def _make_prompt_builder(chat2_store=None, max_prompt_conversations=10):
     agent_manager = Mock()
     agent = Mock()
@@ -111,6 +116,14 @@ def _find_session_info_message(messages):
     )
 
 
+def _history(messages, current):
+    return [
+        m["content"]
+        for m in messages
+        if m["role"] in ("user", "assistant") and m["content"] != current
+    ]
+
+
 def test_build_prompt_includes_history_from_episodic_memory(seeded_session, chat2_store):
     pb = _make_prompt_builder(chat2_store)
     prompt = pb.build_prompt(
@@ -139,12 +152,7 @@ def test_prompt_builder_respects_max_conversations(seeded_session, chat2_store):
         account_name="test_acct",
         context_type="none",
     )
-    history = [
-        m["content"]
-        for m in prompt
-        if m["role"] in ("user", "assistant") and m["content"] != "current"
-    ]
-    assert history == ["It's 22C"]
+    assert _history(prompt, "current") == ["It's 22C"]
 
 
 def test_prompt_builder_zero_max_conversations(seeded_session, chat2_store):
@@ -156,12 +164,38 @@ def test_prompt_builder_zero_max_conversations(seeded_session, chat2_store):
         account_name="test_acct",
         context_type="none",
     )
-    history = [
-        m
-        for m in prompt
-        if m["role"] in ("user", "assistant") and m["content"] != "current"
-    ]
-    assert history == []
+    assert _history(prompt, "current") == []
+
+
+def test_tool_only_session_produces_no_prompt_history(chat2_store):
+    meta = chat2_store.create_session(
+        user_id="test_user",
+        account_name="test_acct",
+        agent_name="lucy",
+    )
+    chat2_store.add_event(
+        meta.session_id,
+        ChatEvent(role="assistant", actor="lucy", kind="tool_result", payload="{}"),
+    )
+    prompt = _make_prompt_builder(chat2_store).build_prompt(
+        content_text="current",
+        conversation_id=meta.session_id,
+        agent_name="lucy",
+        account_name="test_acct",
+        context_type="none",
+    )
+    assert _history(prompt, "current") == []
+
+
+def test_missing_session_produces_no_prompt_history(chat2_store):
+    prompt = _make_prompt_builder(chat2_store).build_prompt(
+        content_text="current",
+        conversation_id="missing",
+        agent_name="lucy",
+        account_name="test_acct",
+        context_type="none",
+    )
+    assert _history(prompt, "current") == []
 
 
 def test_session_info_includes_context_name(session_with_context, chat2_store):
@@ -178,6 +212,8 @@ def test_session_info_includes_context_name(session_with_context, chat2_store):
     assert "agent=lucy" in info["content"]
     assert "context=lucyproject" in info["content"]
     assert "last activity" in info["content"]
+    assert "ago (timestamp:" in info["content"]
+    assert info["content"].rstrip().endswith("Z)")
 
 
 def test_session_info_context_falls_back_to_friendly_name(
@@ -197,11 +233,47 @@ def test_session_info_context_falls_back_to_friendly_name(
     assert "context=my-friendly-session" in info["content"]
 
 
+def test_session_info_omits_context_when_metadata_has_none(seeded_session, chat2_store):
+    prompt = _make_prompt_builder(chat2_store).build_prompt(
+        content_text="Hello",
+        conversation_id=seeded_session,
+        agent_name="lucy",
+        account_name="test_acct",
+        context_type="none",
+    )
+    info = _find_session_info_message(prompt)
+    assert info is not None
+    assert ", context=" not in info["content"]
+
+
 def test_missing_episode_does_not_add_session_info():
     pb = _make_prompt_builder(None)
     prompt = pb.build_prompt(
         content_text="Hello",
         conversation_id="some-session",
+        agent_name="lucy",
+        account_name="test_acct",
+        context_type="none",
+    )
+    assert _find_session_info_message(prompt) is None
+
+
+def test_nonexistent_session_does_not_add_session_info(chat2_store):
+    prompt = _make_prompt_builder(chat2_store).build_prompt(
+        content_text="Hello",
+        conversation_id="nonexistent-session",
+        agent_name="lucy",
+        account_name="test_acct",
+        context_type="none",
+    )
+    assert _find_session_info_message(prompt) is None
+
+
+@pytest.mark.parametrize("conversation_id", ["none", "new"])
+def test_special_conversation_ids_do_not_add_session_info(conversation_id, chat2_store):
+    prompt = _make_prompt_builder(chat2_store).build_prompt(
+        content_text="Hello",
+        conversation_id=conversation_id,
         agent_name="lucy",
         account_name="test_acct",
         context_type="none",
