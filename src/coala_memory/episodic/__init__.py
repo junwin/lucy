@@ -7,6 +7,7 @@ from .management import (
     EpisodicCurationResult,
 )
 from .chat2_memory import Chat2EpisodicMemory
+from .embedding_digest_recall import EmbeddingDigestRecall
 
 __all__ = [
     "EpisodicMemory",
@@ -20,4 +21,5 @@ __all__ = [
     "EpisodicCurationRequest",
     "EpisodicCurationResult",
     "Chat2EpisodicMemory",
+    "EmbeddingDigestRecall",
 ]
