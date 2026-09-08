@@ -22,13 +22,14 @@ from src.storage.json_file_storage import JsonFileStorage
 from src.storage.primitives_embedding_store import build_primitives_embedding_store
 from src.coala_memory.semantic import SemanticMemory, SqliteVecSemanticMemory
 from src.coala_memory.episodic import EpisodicMemory, Chat2EpisodicMemory
+from src.coala_memory.procedural import ProceduralMemory, ContextProceduralMemory
 
 from src.handlers.handler_registry import HandlerRegistry
 from src.handlers.registry_bootstrap import build_registry
 from src.message_processors.processor_factory import ProcessorFactory
 from src.message_processors.message_processor_interface import ProcessorFactoryInterface        
 from src.prompt_builders.prompt_builder_interface import PromptBuilderInterface
-from src.prompt_builders.prompt_builder import PromptBuilder
+from src.prompt_builders.coala_prompt_builder import CoALAPromptBuilder
 
 from src.message_endpoints.ask_request_handler import AskRequestHandler
 
@@ -241,6 +242,15 @@ class CoALAMemoryModule(Module):
         """Provide prompt-time episodic memory over the configured Chat2 store."""
         return Chat2EpisodicMemory(chat2_store)
 
+    @provider
+    @singleton
+    def provide_procedural_memory(
+        self,
+        context_store: ContextStore,
+    ) -> ProceduralMemory:
+        """Provide prompt-time procedural memory over the configured ContextStore."""
+        return ContextProceduralMemory(context_store)
+
 
 class HandlerRegistryModule(Module):
     @provider
@@ -262,8 +272,9 @@ class PromptBuilderModule(Module):
         embedding_store: EmbeddingStore,
         semantic_memory: SemanticMemory,
         episodic_memory: EpisodicMemory,
+        procedural_memory: ProceduralMemory,
     ) -> PromptBuilderInterface:
-        return PromptBuilder(
+        return CoALAPromptBuilder(
             agent_manager=agent_manager,
             config=config,
             storage=storage,
@@ -272,6 +283,7 @@ class PromptBuilderModule(Module):
             embedding_store=embedding_store,
             semantic_memory=semantic_memory,
             episodic_memory=episodic_memory,
+            procedural_memory=procedural_memory,
         )
 
 
