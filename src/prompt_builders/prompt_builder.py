@@ -17,6 +17,7 @@ from src.storage.interfaces import ContextStore, EmbeddingStore
 from src.prompt_builders.prompt_builder_interface import PromptBuilderInterface
 from src.utils.text_snippet_loader import load_text_snippet
 from src.coala_memory.semantic import SemanticMemory, SemanticMemoryRequest
+from src.coala_memory.episodic import EpisodicMemory, EpisodicMemoryRequest, EpisodicMemoryResult
 
 from src.chat2.facade import Chat2Store
 from src.chat2.prompt_slice import get_last_n_events, _CONVERSATION_KINDS
@@ -62,6 +63,7 @@ class PromptBuilder(PromptBuilderInterface):
         embedding_facade=None,  # Optional[EmbeddingFacade] — retained for digest retrieval
         embedding_store: Optional[EmbeddingStore] = None,
         semantic_memory: Optional[SemanticMemory] = None,
+        episodic_memory: Optional[EpisodicMemory] = None,
     ):
         self.agent_manager = agent_manager
         self.config = config
@@ -70,6 +72,7 @@ class PromptBuilder(PromptBuilderInterface):
         self.embedding_facade = embedding_facade
         self.embedding_store = embedding_store
         self.semantic_memory = semantic_memory
+        self.episodic_memory = episodic_memory
         # last prompt breakdown for instrumentation by processors
         self._last_prompt_token_breakdown: Dict[str, int] = {}
 
@@ -99,6 +102,7 @@ class PromptBuilder(PromptBuilderInterface):
 
         agent: Optional[Agent] = self.agent_manager.get_agent(agent_name)
         use_embeddings: bool = bool(agent and agent.use_embeddings)
+        max_convs = agent.max_prompt_conversations if agent else 6
 
         # Resolve context name: runtime override wins, otherwise use agent default
         if not context_name and agent is not None:
@@ -121,13 +125,40 @@ class PromptBuilder(PromptBuilderInterface):
             messages.append({"role": "system", "content": session_info_msg})
             system_text_parts.append(session_info_msg)
 
+        # --- Recall current episode once for session metadata + recent history ---
+        episodic_result = self._recall_current_episode(
+            conversation_id=conversation_id,
+            account_name=account_name,
+            agent_name=agent_name,
+            max_events=max_convs,
+        )
+
         # --- Session info: agent, context, elapsed time ---
-        if self.chat2_store is not None and conversation_id not in ("none", "new", ""):
+        if conversation_id not in ("none", "new", ""):
             try:
-                meta = self.chat2_store.get_session(conversation_id)
-                if meta is not None:
+                meta_agent_name = ""
+                meta_context_name = ""
+                meta_friendly_name = ""
+                meta_updated_at = None
+
+                if episodic_result is not None and episodic_result.session_id:
+                    meta_agent_name = episodic_result.session_agent_name
+                    meta_context_name = episodic_result.session_context_name
+                    meta_friendly_name = episodic_result.session_friendly_name
+                    meta_updated_at = episodic_result.session_updated_at
+                elif self.chat2_store is not None:
+                    # Compatibility fallback for direct PromptBuilder constructions
+                    # that do not yet inject EpisodicMemory.
+                    meta = self.chat2_store.get_session(conversation_id)
+                    if meta is not None:
+                        meta_agent_name = meta.agent_name
+                        meta_context_name = meta.context_name or ""
+                        meta_friendly_name = meta.friendly_name or ""
+                        meta_updated_at = meta.updated_at
+
+                if meta_updated_at is not None:
                     now = datetime.now(timezone.utc).replace(tzinfo=None)
-                    delta = now - meta.updated_at
+                    delta = now - meta_updated_at
                     secs = delta.total_seconds()
 
                     if secs < 60:
@@ -139,11 +170,11 @@ class PromptBuilder(PromptBuilderInterface):
                     else:
                         elapsed = f"{int(secs / 86400)}d ago"
 
-                    info = f"Session: agent={meta.agent_name}"
-                    ctx_name = meta.context_name or meta.friendly_name
+                    info = f"Session: agent={meta_agent_name or agent_name}"
+                    ctx_name = meta_context_name or meta_friendly_name
                     if ctx_name:
                         info += f", context={ctx_name}"
-                    info += f", last activity {elapsed} (timestamp: {meta.updated_at.isoformat()}Z)"
+                    info += f", last activity {elapsed} (timestamp: {meta_updated_at.isoformat()}Z)"
 
                     messages.append({"role": "system", "content": info})
                     system_text_parts.append(info)
@@ -329,83 +360,89 @@ class PromptBuilder(PromptBuilderInterface):
             history_messages: List[Dict[str, str]] = []
             overflow_digest_text: str = ""
             try:
-                if self.chat2_store is not None and conversation_id not in ("none", "new", ""):
+                matching: List[Any] = []
+                original_match_count = 0
+
+                if episodic_result is not None:
+                    matching = list(episodic_result.events)
+                    original_match_count = len(matching) + episodic_result.dropped_event_count
+                elif self.chat2_store is not None and conversation_id not in ("none", "new", ""):
+                    # Compatibility fallback for direct PromptBuilder constructions
+                    # that do not yet inject EpisodicMemory.
                     if self.chat2_store.session_exists(conversation_id):
                         events = list(self.chat2_store.stream_events(conversation_id))
-                        # Filter to conversational kinds (user/assistant)
                         matching = [e for e in events if e.kind in _CONVERSATION_KINDS]
-
-                        # Apply max_prompt_conversations as a hard event-count cap.
-                        # 0 = no history. N = at most the last N events. Token budget
-                        # still applies as a secondary limit within those N events.
-                        max_convs = agent.max_prompt_conversations if agent else 6
                         original_match_count = len(matching)
-                        if max_convs <= 0:
-                            matching = []
-                        else:
-                            matching = matching[-max_convs:]
 
-                        if max_convs <= 0:
-                            logging.info(
-                                "PromptBuilder.history: max_prompt_conversations=%d — skipping all chat history for agent=%s",
-                                max_convs,
-                                agent_name,
-                            )
-                        elif len(matching) < original_match_count:
-                            logging.info(
-                                "PromptBuilder.history: max_prompt_conversations=%d capped %d events down to %d for agent=%s",
-                                max_convs,
-                                original_match_count,
-                                len(matching),
-                                agent_name,
-                            )
+                # Apply max_prompt_conversations as a hard event-count cap.
+                # 0 = no history. N = at most the last N events. Token budget
+                # still applies as a secondary limit within those N events.
+                if max_convs <= 0:
+                    matching = []
+                else:
+                    matching = matching[-max_convs:]
 
-                        # Walk from most recent backward and pick messages until budget exhausted.
-                        remaining = history_budget
-                        included: List = []
-                        for e in reversed(matching):
-                            payload = e.payload if isinstance(e.payload, str) else str(e.payload)
-                            tok = estimate_tokens_from_text(payload)
-                            if remaining >= tok:
-                                included.insert(0, e)
-                                remaining -= tok
-                            else:
-                                # If nothing has been included yet, include the single large message
-                                if not included:
-                                    included.insert(0, e)
-                                break
+                if max_convs <= 0:
+                    logging.info(
+                        "PromptBuilder.history: max_prompt_conversations=%d — skipping all chat history for agent=%s",
+                        max_convs,
+                        agent_name,
+                    )
+                elif len(matching) < original_match_count:
+                    logging.info(
+                        "PromptBuilder.history: max_prompt_conversations=%d capped %d events down to %d for agent=%s",
+                        max_convs,
+                        original_match_count,
+                        len(matching),
+                        agent_name,
+                    )
 
-                        # Any messages in `matching` that are not in `included` are older and were dropped
-                        included_set = set(id(x) for x in included)
-                        dropped = [e for e in matching if id(e) not in included_set]
+                # Walk from most recent backward and pick messages until budget exhausted.
+                remaining = history_budget
+                included: List[Any] = []
+                for e in reversed(matching):
+                    payload = self._event_content(e)
+                    tok = estimate_tokens_from_text(payload)
+                    if remaining >= tok:
+                        included.insert(0, e)
+                        remaining -= tok
+                    else:
+                        # If nothing has been included yet, include the single large message
+                        if not included:
+                            included.insert(0, e)
+                        break
 
-                        if dropped:
-                            try:
-                                dropped_texts = [e.payload if isinstance(e.payload, str) else str(e.payload) for e in dropped]
-                                digest_snippet = self._summarize_overflow(dropped_texts)
+                # Any messages in `matching` that are not in `included` are older and were dropped
+                included_set = set(id(x) for x in included)
+                dropped = [e for e in matching if id(e) not in included_set]
 
-                                saved_digest = self._save_overflow_digest(
-                                    account_name=account_name,
-                                    conversation_id=conversation_id,
-                                    new_snippet=digest_snippet,
-                                )
+                if dropped:
+                    try:
+                        dropped_texts = [self._event_content(e) for e in dropped]
+                        digest_snippet = self._summarize_overflow(dropped_texts)
 
-                                overflow_digest_text = saved_digest if saved_digest else digest_snippet
-                                messages.append({"role": "system", "content": f"Earlier in this session:\n{overflow_digest_text}"})
-                            except Exception as ex:
-                                logging.warning(
-                                    "PromptBuilder: failed to persist session digest for %s: %s",
-                                    conversation_id,
-                                    ex,
-                                )
+                        saved_digest = self._save_overflow_digest(
+                            account_name=account_name,
+                            conversation_id=conversation_id,
+                            new_snippet=digest_snippet,
+                        )
 
-                        history_messages = [
-                            {"role": e.role, "content": e.payload if isinstance(e.payload, str) else str(e.payload)}
-                            for e in included
-                        ]
+                        overflow_digest_text = saved_digest if saved_digest else digest_snippet
+                        messages.append({"role": "system", "content": f"Earlier in this session:\n{overflow_digest_text}"})
+                    except Exception as ex:
+                        logging.warning(
+                            "PromptBuilder: failed to persist session digest for %s: %s",
+                            conversation_id,
+                            ex,
+                        )
+
+                history_messages = [
+                    {"role": e.role, "content": self._event_content(e)}
+                    for e in included
+                ]
             except Exception as ex:
                 logging.warning(
-                    "PromptBuilder: chat2 history failed for session %s account=%s agent=%s: %s; returning empty history",
+                    "PromptBuilder: episodic history failed for session %s account=%s agent=%s: %s; returning empty history",
                     conversation_id,
                     account_name,
                     agent_name,
@@ -551,6 +588,57 @@ class PromptBuilder(PromptBuilderInterface):
             parts.append(agent.style_prompt)
 
         return "\n\n".join(parts)
+
+    def _recall_current_episode(
+        self,
+        *,
+        conversation_id: str,
+        account_name: str,
+        agent_name: str,
+        max_events: int,
+    ) -> Optional[EpisodicMemoryResult]:
+        """Recall current-session metadata and bounded conversational history.
+
+        PromptBuilder owns token budgeting and overflow summarization; episodic
+        memory owns retrieval. The application container injects EpisodicMemory,
+        while direct legacy constructions can continue using ``chat2_store``.
+        """
+        if self.episodic_memory is None:
+            return None
+        if not conversation_id or conversation_id in ("none", "new"):
+            return None
+
+        try:
+            return self.episodic_memory.recall(
+                EpisodicMemoryRequest(
+                    account_name=account_name,
+                    agent_name=agent_name,
+                    conversation_id=conversation_id,
+                    max_events=max_events,
+                    event_kinds=list(_CONVERSATION_KINDS),
+                    include_session_metadata=True,
+                    include_recent_history=True,
+                    include_archived_digests=False,
+                )
+            )
+        except Exception as ex:
+            logging.warning(
+                "PromptBuilder: episodic recall failed for session %s account=%s agent=%s: %s; "
+                "falling back to Chat2",
+                conversation_id,
+                account_name,
+                agent_name,
+                ex,
+            )
+            return None
+
+    @staticmethod
+    def _event_content(event: Any) -> str:
+        """Return text content from an EpisodicEvent or legacy ChatEvent."""
+        value = getattr(event, "content", None)
+        if value is None and hasattr(event, "payload"):
+            value = event.payload
+        return value if isinstance(value, str) else str(value)
 
     def _get_semantic_memory_context(
         self,
