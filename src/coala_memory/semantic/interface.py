@@ -7,24 +7,22 @@ from typing import Any, Dict, List, Optional
 
 @dataclass(frozen=True)
 class SemanticMemoryRequest:
-    """Prompt-time request for durable document/knowledge memory.
+    """Prompt-time request for durable knowledge retrieved by embeddings.
 
-    ``use_embeddings`` selects the same two retrieval modes PromptBuilder uses
-    today: semantic vector lookup or document/tag lookup. ``namespaces`` and
-    ``docs_tag`` are supplied by the active procedural context.
+    Semantic memory is vector-based in the CoALA layer. ``namespaces`` are
+    supplied by the active procedural context (for example ``documents`` or
+    ``external``). ``embedding_model`` and ``source_type`` remain explicit
+    retrieval parameters because they are part of Lucy's vector-search layer.
 
-    ``embedding_model`` and ``source_type`` are explicit because the embeddings
-    handler shows these are real search parameters in Lucy's vector layer.  They
-    remain retrieval concerns here; raw embed/compare/rank operations are not
-    part of the semantic-memory interface.
+    ``use_embeddings`` remains as an explicit guard for compatibility with
+    existing callers, but embedding recall is the only supported semantic
+    retrieval mode.
     """
 
     account_name: str
     query: str
     use_embeddings: bool = True
     namespaces: List[str] = field(default_factory=lambda: ["external"])
-    docs_tag: Optional[str] = None
-    document_kind: str = "obsidian_note"
     top_k: int = 3
     max_chars: int = 9000
     score_threshold: float = 0.25
@@ -52,7 +50,7 @@ class SemanticMemoryResult:
 
 
 class SemanticMemory(ABC):
-    """Interface for Obsidian/document retrieval used as semantic memory."""
+    """Interface for embedding-backed durable knowledge retrieval."""
 
     @abstractmethod
     def recall(self, request: SemanticMemoryRequest) -> SemanticMemoryResult:
