@@ -50,6 +50,7 @@ from src.http_endpoints.chats_endpoints import (
 )
 from src.http_endpoints.upload_endpoints import post_upload_image_impl
 from src.chat2.facade import Chat2Store
+from src.coala_memory.semantic import SemanticMemory
 from src.coala_memory.episodic import EpisodicMemoryManager
 from src.api_key import validate_api_key
 
@@ -153,8 +154,8 @@ agents_path = config.get("agents_path", "static/data/agents.json")
 
 
 storage = container.get(Storage)
-chat2_store = container.get(Chat2Store)
 episodic_memory_manager = container.get(EpisodicMemoryManager)
+semantic_memory = container.get(SemanticMemory)
 
 
 # Get the AgentManager instance
@@ -467,7 +468,7 @@ def update_chat(session_id: str):
 @app.route("/documents/search", methods=["POST"])
 def search_documents():
     data = request.get_json(silent=True) or {}
-    body, status = search_documents_impl(storage, data)
+    body, status = search_documents_impl(semantic_memory, data)
     return jsonify(body), status
 
 
