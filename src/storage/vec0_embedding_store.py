@@ -14,6 +14,11 @@ DEFAULT_SQLITE_VEC_EXTENSION_PATH = "/usr/local/lib/sqlite-vec/vec0.so"
 
 _EMBEDDING_DIM = 1536
 
+
+class EmbeddingCompatibilityError(ValueError, AssertionError):
+    """Raised when a stored or query vector is incompatible with this vec0 store."""
+
+
 # account_name + namespace are partition keys because every semantic recall is
 # scoped by both. source_type remains in vec0 as a filterable metadata column so
 # source_type filtering participates in the KNN query before final top-k.
@@ -127,7 +132,7 @@ def _decode_vector(blob: bytes) -> List[float]:
 
 def _validate_vector_dimensions(vector: List[float], *, context: str) -> None:
     if len(vector) != _EMBEDDING_DIM:
-        raise ValueError(
+        raise EmbeddingCompatibilityError(
             f"{context} embedding dimension must be {_EMBEDDING_DIM}, got {len(vector)}"
         )
 
@@ -157,7 +162,7 @@ class Vec0EmbeddingStore(EmbeddingStore):
     def upsert_embedding(self, record: EmbeddingRecord) -> None:
         _validate_vector_dimensions(record.vector, context="stored")
         if record.dimensions != len(record.vector):
-            raise ValueError(
+            raise EmbeddingCompatibilityError(
                 "embedding provenance dimensions do not match vector length: "
                 f"metadata={record.dimensions}, vector={len(record.vector)}"
             )
@@ -374,5 +379,6 @@ class Vec0EmbeddingStore(EmbeddingStore):
 
 __all__ = [
     "Vec0EmbeddingStore",
+    "EmbeddingCompatibilityError",
     "DEFAULT_SQLITE_VEC_EXTENSION_PATH",
 ]
