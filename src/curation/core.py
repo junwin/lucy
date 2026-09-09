@@ -1,7 +1,8 @@
-"""CurationEngine — high-level orchestration for chat curation.
+"""CurationEngine — application service for episodic memory curation.
 
-Wraps the resolver, summarizer, archiver, and template renderer into a
-single callable interface used by the curate_chat handler and CLI.
+The engine orchestrates session resolution, filtering, summarization, archive
+artifacts and digest publication. It depends on provider-neutral interfaces;
+concrete Chat2/JFS/SQLite details stay behind the episodic adapter.
 """
 
 from __future__ import annotations
@@ -12,14 +13,14 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from src.chat2.facade import Chat2Store
-from src.chat2.models import ChatEvent
-from src.curation.resolver import resolve_session
-from src.curation.templates import render_template, resolve_template
-from src.curation.summarizer import summarize_session
-from src.curation.archiver import archive_session
-from src.embeddings.facade import EmbeddingFacade
 from galet.interface import LLMApi
+
+from src.coala_memory.episodic import EpisodicEvent, EpisodicMemoryManager
+from src.curation.archiver import archive_session
+from src.curation.resolver import resolve_session
+from src.curation.summarizer import summarize_session
+from src.curation.templates import render_template, resolve_template
+from src.embeddings.facade import EmbeddingFacade
 from src.storage.interfaces import EmbeddingStore
 from src.storage.models import EmbeddingRecord
 
@@ -27,22 +28,11 @@ logger = logging.getLogger(__name__)
 
 
 class CurationEngine:
-    """High-level curation orchestrator.
-
-    Args:
-        chat2_store: Chat2Store instance.
-        llm_api: LLM API instance (for summarize mode).
-        llm_model: Model name for summarization.
-        digests_root: Base path for digest output (e.g. Path("data/digests")).
-        archives_root: Base path for archive output (e.g. Path("data/archives")).
-        chats_index_path: Optional path to index.json for friendly-name resolution.
-        embedding_facade: Optional EmbeddingFacade to embed digests at creation time.
-        storage: Optional EmbeddingStore to persist embedding records.
-    """
+    """High-level curation service over provider-neutral memory interfaces."""
 
     def __init__(
         self,
-        chat2_store: Chat2Store,
+        episodic_store: EpisodicMemoryManager,
         llm_api: LLMApi,
         llm_model: str = "gpt-4o-mini",
         digests_root: Optional[Path] = None,
@@ -51,7 +41,7 @@ class CurationEngine:
         embedding_facade: Optional[EmbeddingFacade] = None,
         storage: Optional[EmbeddingStore] = None,
     ) -> None:
-        self.chat2_store = chat2_store
+        self.episodic_store = episodic_store
         self.llm_api = llm_api
         self.llm_model = llm_model
         self.digests_root = digests_root or Path("data/digests")
@@ -74,54 +64,39 @@ class CurationEngine:
         curation_rules: Optional[Dict[str, Any]] = None,
         max_chars: int = 32000,
     ) -> Dict[str, Any]:
-        """Run curation on a session.
-
-        Args:
-            session_id: Direct session UUID.
-            friendly_name: Friendly name to resolve.
-            account: Account name.
-            mode: "filter", "summarize", or "archive".
-            preview: If True, return note_text without writing.
-            publish: If True, write digest to disk.
-            template_name: Named template to use.
-            context_state_template: Optional template override from Context.
-            curation_rules: Rules dict for filter mode (remove_kinds, keep_roles, deduplicate).
-            max_chars: Max characters for the events text block fed to the LLM.
-
-        Returns:
-            Result dict with status, note_text, output_path, etc.
-        """
-        # --- Resolve session ---
-        meta = resolve_session(
+        session = resolve_session(
             session_id=session_id,
             friendly_name=friendly_name,
             account=account,
-            chat2_store=self.chat2_store,
+            episodic_store=self.episodic_store,
             chats_index_path=self.chats_index_path,
         )
-        if meta is None:
+        if session is None:
             return {
                 "status": "error",
                 "error": f"Session not found: friendly_name={friendly_name}, session_id={session_id}",
             }
 
-        sid = meta.session_id
-        fn = meta.friendly_name or sid
+        full_session = self.episodic_store.get_session(
+            session.session_id, include_events=True
+        )
+        if full_session is None:
+            return {
+                "status": "error",
+                "error": f"Session disappeared during curation: {session.session_id}",
+            }
 
-        # --- Read events ---
-        events: List[ChatEvent] = list(self.chat2_store.stream_events(sid))
+        sid = full_session.session_id
+        fn = full_session.friendly_name or sid
+        events = list(full_session.events)
 
-        # --- Execute mode ---
         if mode == "filter":
             return self._mode_filter(
                 sid=sid,
                 events=events,
                 rules=curation_rules or {},
-                account=account,
-                friendly_name=fn,
             )
-
-        elif mode == "summarize":
+        if mode == "summarize":
             return self._mode_summarize(
                 sid=sid,
                 events=events,
@@ -133,8 +108,7 @@ class CurationEngine:
                 publish=publish,
                 max_chars=max_chars,
             )
-
-        elif mode == "archive":
+        if mode == "archive":
             return self._mode_archive(
                 sid=sid,
                 events=events,
@@ -146,58 +120,45 @@ class CurationEngine:
                 publish=publish,
                 max_chars=max_chars,
             )
-
-        else:
-            return {
-                "status": "error",
-                "error": f"Unknown mode: {mode}",
-            }
-
-    # ------------------------------------------------------------------
-    # Mode implementations
-    # ------------------------------------------------------------------
+        return {"status": "error", "error": f"Unknown mode: {mode}"}
 
     def _mode_filter(
         self,
+        *,
         sid: str,
-        events: List[ChatEvent],
+        events: List[EpisodicEvent],
         rules: Dict[str, Any],
-        account: str,
-        friendly_name: str,
     ) -> Dict[str, Any]:
-        """Apply rule-based filtering (same as existing curate_session behavior)."""
         remove_kinds: List[str] = rules.get("remove_kinds", [])
         keep_roles: List[str] = rules.get("keep_roles", [])
         deduplicate: bool = rules.get("deduplicate", False)
 
-        original_count = len(events)
-        filtered: List[ChatEvent] = []
+        filtered: List[EpisodicEvent] = []
         removed: Dict[str, int] = {"by_kind": 0, "by_role": 0, "duplicates": 0}
-        seen_payloads: set = set()
+        seen_payloads: set[str] = set()
 
-        for e in events:
-            if remove_kinds and e.kind in remove_kinds:
+        for event in events:
+            if remove_kinds and event.kind in remove_kinds:
                 removed["by_kind"] += 1
                 continue
-            if keep_roles and e.role not in keep_roles:
+            if keep_roles and event.role not in keep_roles:
                 removed["by_role"] += 1
                 continue
             if deduplicate:
                 payload_key = (
-                    str(e.payload)
-                    if isinstance(e.payload, str)
-                    else json.dumps(e.payload, sort_keys=True)
+                    event.content
+                    if isinstance(event.content, str)
+                    else json.dumps(event.content, sort_keys=True)
                 )
                 if payload_key in seen_payloads:
                     removed["duplicates"] += 1
                     continue
                 seen_payloads.add(payload_key)
-            filtered.append(e)
+            filtered.append(event)
 
-        # Rewrite events
-        self.chat2_store.reset_events(sid)
-        for e in filtered:
-            self.chat2_store.add_event(sid, e)
+        self.episodic_store.reset_session(sid)
+        for event in filtered:
+            self.episodic_store.append_event(sid, event)
 
         return {
             "status": "published",
@@ -205,27 +166,26 @@ class CurationEngine:
             "output_path": None,
             "session_id": sid,
             "summary": {
-                "original_count": original_count,
+                "original_count": len(events),
                 "kept_count": len(filtered),
-                "removed_count": original_count - len(filtered),
+                "removed_count": len(events) - len(filtered),
                 "removed": removed,
             },
         }
 
     def _mode_summarize(
         self,
+        *,
         sid: str,
-        events: List[ChatEvent],
+        events: List[EpisodicEvent],
         account: str,
         friendly_name: str,
         template_name: str,
         context_state_template: Optional[str],
         preview: bool,
         publish: bool,
-        max_chars: int = 32000,
+        max_chars: int,
     ) -> Dict[str, Any]:
-        """Generate an LLM digest and optionally write it."""
-        # Generate digest
         digest = summarize_session(
             events,
             llm_api=self.llm_api,
@@ -235,8 +195,6 @@ class CurationEngine:
             account=account,
             max_chars=max_chars,
         )
-
-        # Resolve and render template (no archive for summarize mode)
         template = resolve_template(
             template_name,
             context_state_override=context_state_template,
@@ -251,7 +209,7 @@ class CurationEngine:
             summary_text=digest,
         )
 
-        if preview:
+        if preview or not publish:
             return {
                 "status": "preview",
                 "note_text": note_text,
@@ -259,37 +217,28 @@ class CurationEngine:
                 "session_id": sid,
             }
 
-        if publish:
-            output_path = self._write_digest(sid, account, note_text)
-            self._maybe_embed_digest(note_text, output_path, sid, account)
-            return {
-                "status": "published",
-                "note_text": note_text,
-                "output_path": str(output_path),
-                "session_id": sid,
-            }
-
+        output_path = self._write_digest(sid, account, note_text)
+        self._maybe_embed_digest(note_text, output_path, sid, account)
         return {
-            "status": "preview",
+            "status": "published",
             "note_text": note_text,
-            "output_path": None,
+            "output_path": str(output_path),
             "session_id": sid,
         }
 
     def _mode_archive(
         self,
+        *,
         sid: str,
-        events: List[ChatEvent],
+        events: List[EpisodicEvent],
         account: str,
         friendly_name: str,
         template_name: str,
         context_state_template: Optional[str],
         preview: bool,
         publish: bool,
-        max_chars: int = 32000,
+        max_chars: int,
     ) -> Dict[str, Any]:
-        """Summarize, archive original events, replace with digest."""
-        # Generate digest
         digest = summarize_session(
             events,
             llm_api=self.llm_api,
@@ -299,12 +248,7 @@ class CurationEngine:
             account=account,
             max_chars=max_chars,
         )
-
-        # Compute archive path for the template reference.
-        # Use a glob since the exact timestamp is assigned at archive time.
         archive_ref = str(self.archives_root / account / f"{sid}_*.jsonl")
-
-        # Resolve and render template
         template = resolve_template(
             template_name,
             context_state_override=context_state_template,
@@ -327,21 +271,18 @@ class CurationEngine:
                 "session_id": sid,
             }
 
-        # Write digest (timestamped)
         output_path = None
         if publish:
             output_path = self._write_digest(sid, account, note_text)
             self._maybe_embed_digest(note_text, output_path, sid, account)
 
-        # Archive original events (timestamped) and replace with digest
         archived = archive_session(
             sid,
             digest,
-            chat2_store=self.chat2_store,
+            episodic_store=self.episodic_store,
             archive_dir=self.archives_root,
             account=account,
         )
-
         if not archived:
             return {
                 "status": "error",
@@ -357,21 +298,14 @@ class CurationEngine:
             "session_id": sid,
         }
 
-    # ------------------------------------------------------------------
-    # Helpers
-    # ------------------------------------------------------------------
-
     @staticmethod
     def _timestamp() -> str:
-        """Return a compact UTC timestamp string for filenames."""
         return datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
 
     def _write_digest(self, session_id: str, account: str, note_text: str) -> Path:
-        """Write digest to <digests_root>/<account>/<session_id>_<timestamp>.md."""
         digest_dir = self.digests_root / account
         digest_dir.mkdir(parents=True, exist_ok=True)
-        ts = self._timestamp()
-        output_path = digest_dir / f"{session_id}_{ts}.md"
+        output_path = digest_dir / f"{session_id}_{self._timestamp()}.md"
         output_path.write_text(note_text, encoding="utf-8")
         logger.info(
             "curation: wrote digest to %s (session=%s account=%s)",
@@ -388,39 +322,25 @@ class CurationEngine:
         session_id: str,
         account: str,
     ) -> None:
-        """Embed the digest text for semantic search, if embedding deps are available.
-
-        Gracefully skips if embedding_facade or storage is not configured,
-        or if the digest is too short to be useful.
-        """
         if self.embedding_facade is None or self.storage is None:
             return
-
         if len(note_text.strip()) < 100:
-            logger.debug("curation: skipping embed — digest too short (%d chars)", len(note_text))
             return
 
         try:
-            # Before upserting, delete any existing embeddings for this session.
-            # This prevents duplicate near-identical vectors when a session is
-            # re-curated (summarize/archive with publish) multiple times.
             self.storage.delete_embeddings(
                 namespace="digests",
                 account_name=account,
                 source_id=session_id,
             )
-
-            # Truncate to a safe limit (most embedding models handle ~8k tokens)
-            text = note_text[:32000]
-
-            resp = self.embedding_facade.embed([text], model="text-embedding-3-small")
-            vector = resp.embeddings[0]
-
+            response = self.embedding_facade.embed(
+                [note_text[:32000]], model="text-embedding-3-small"
+            )
             record = EmbeddingRecord(
                 id=note_path.stem,
                 namespace="digests",
                 account_name=account,
-                vector=vector,
+                vector=response.embeddings[0],
                 source_type="digest",
                 source_id=session_id,
                 source_metadata={
@@ -429,10 +349,5 @@ class CurationEngine:
                 },
             )
             self.storage.upsert_embedding(record)
-            logger.info(
-                "curation: embedded digest %s (session=%s)",
-                note_path.stem,
-                session_id,
-            )
-        except Exception as e:
-            logger.warning("curation: failed to embed digest %s: %s", note_path.stem, e)
+        except Exception as exc:
+            logger.warning("curation: failed to embed digest %s: %s", note_path.stem, exc)
