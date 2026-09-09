@@ -1,7 +1,7 @@
-"""Archive function for curation.
+"""Archive support for curation.
 
-Moves a session's original events to an archive location and replaces
-the active session with a single digest event.
+The curation layer owns the archive artifact, but reads and rewrites the active
+session only through the provider-neutral episodic interface.
 """
 
 from __future__ import annotations
@@ -10,105 +10,81 @@ import json
 import logging
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import List, Optional
+from typing import Any, Dict, List
 
-from src.chat2.facade import Chat2Store
-from src.chat2.models import ChatEvent
+from src.coala_memory.episodic import EpisodicEvent, EpisodicMemoryManager
 
 logger = logging.getLogger(__name__)
 
 
 def _next_archive_path(archive_account_dir: Path, session_id: str) -> Path:
-    """Find the next sequential archive number for a session.
-
-    Scans for existing <session_id>_<N>.jsonl files and returns
-    <session_id>_<N+1>.jsonl (or <session_id>_1.jsonl if none exist).
-
-    Non-numeric suffixes (e.g. old timestamp-format files) are ignored
-    in the count — only number-suffixed files contribute.
-    """
     existing = sorted(archive_account_dir.glob(f"{session_id}_*.jsonl"))
     if not existing:
         return archive_account_dir / f"{session_id}_1.jsonl"
 
     max_n = 0
-    for p in existing:
-        stem = p.stem  # e.g. "abc-123_1" or "abc-123_20240801T120000Z"
+    for path in existing:
         try:
-            n = int(stem.rsplit("_", 1)[-1])
-            if n > max_n:
-                max_n = n
+            max_n = max(max_n, int(path.stem.rsplit("_", 1)[-1]))
         except ValueError:
-            # Non-numeric suffix (old timestamp format) — skip
             pass
-
     return archive_account_dir / f"{session_id}_{max_n + 1}.jsonl"
+
+
+def _archive_record(event: EpisodicEvent) -> Dict[str, Any]:
+    """Return a stable JSONL representation without depending on Chat2 models.
+
+    Field names intentionally match the existing ChatEvent archive shape where
+    possible so existing archives remain easy to inspect and migrate.
+    """
+    return {
+        "event_id": event.event_id or None,
+        "ts": event.created_at.isoformat() if event.created_at else None,
+        "role": event.role,
+        "actor": event.actor,
+        "kind": event.kind,
+        "payload": event.content,
+        "metadata": dict(event.metadata or {}),
+    }
 
 
 def archive_session(
     session_id: str,
     digest_text: str,
     *,
-    chat2_store: Chat2Store,
+    episodic_store: EpisodicMemoryManager,
     archive_dir: Path,
     account: str,
 ) -> bool:
-    """Archive a session: move original events to archive, replace with digest event.
-
-    Steps:
-    1. Read all events from the session.
-    2. Write them to <archive_dir>/<account>/<session_id>_<N>.jsonl
-       where N is the next sequential number for this session.
-    3. Reset the session events.
-    4. Add a single digest event with the digest text.
-
-    Args:
-        session_id: Session UUID.
-        digest_text: The digest Markdown text to store as the replacement event.
-        chat2_store: Chat2Store instance.
-        archive_dir: Base archive directory (e.g. Path("data/archives")).
-        account: Account name.
-
-    Returns:
-        True if successful, False otherwise.
-    """
-    meta = chat2_store.get_session(session_id)
-    if meta is None:
+    """Archive original events and replace the active session with a digest."""
+    session = episodic_store.get_session(session_id, include_events=True)
+    if session is None:
         logger.warning("archive_session: session not found: %s", session_id)
         return False
 
-    # 1) Read all events
-    events: List[ChatEvent] = list(chat2_store.stream_events(session_id))
-    if not events:
-        logger.info("archive_session: no events to archive for session=%s", session_id)
-        # Still write the digest event
-        _replace_with_digest(chat2_store, session_id, digest_text)
-        return True
+    events: List[EpisodicEvent] = list(session.events)
+    if events:
+        archive_account_dir = archive_dir / account
+        archive_account_dir.mkdir(parents=True, exist_ok=True)
+        archive_path = _next_archive_path(archive_account_dir, session_id)
+        try:
+            with archive_path.open("w", encoding="utf-8") as handle:
+                for event in events:
+                    handle.write(
+                        json.dumps(_archive_record(event), ensure_ascii=False) + "\n"
+                    )
+            logger.info(
+                "archive_session: wrote %d events to %s",
+                len(events),
+                archive_path,
+            )
+        except Exception:
+            logger.exception(
+                "archive_session: failed to write archive file %s", archive_path
+            )
+            return False
 
-    # 2) Write archive file with next sequential number
-    archive_account_dir = archive_dir / account
-    archive_account_dir.mkdir(parents=True, exist_ok=True)
-    archive_path = _next_archive_path(archive_account_dir, session_id)
-
-    try:
-        with open(archive_path, "w", encoding="utf-8") as f:
-            for e in events:
-                f.write(e.model_dump_json() + "\n")
-        logger.info(
-            "archive_session: wrote %d events to %s",
-            len(events),
-            archive_path,
-        )
-    except Exception:
-        logger.exception(
-            "archive_session: failed to write archive file %s",
-            archive_path,
-        )
-        return False
-
-    # 3) Replace session events with digest
-    _replace_with_digest(chat2_store, session_id, digest_text)
-
+    _replace_with_digest(episodic_store, session_id, digest_text)
     logger.info(
         "archive_session: completed for session=%s account=%s",
         session_id,
@@ -118,18 +94,22 @@ def archive_session(
 
 
 def _replace_with_digest(
-    chat2_store: Chat2Store,
+    episodic_store: EpisodicMemoryManager,
     session_id: str,
     digest_text: str,
 ) -> None:
-    """Reset session events and add a single digest event."""
-    chat2_store.reset_events(session_id)
-    digest_event = ChatEvent(
-        role="system",
-        actor="curation",
-        kind="summary",
-        payload=digest_text,
-        metadata={"curation_mode": "archive", "archived_at": datetime.now(timezone.utc).isoformat()},
+    episodic_store.reset_session(session_id)
+    episodic_store.append_event(
+        session_id,
+        EpisodicEvent(
+            role="system",
+            actor="curation",
+            kind="summary",
+            content=digest_text,
+            metadata={
+                "curation_mode": "archive",
+                "archived_at": datetime.now(timezone.utc).isoformat(),
+            },
+        ),
     )
-    chat2_store.add_event(session_id, digest_event)
     logger.info("archive_session: replaced events with digest for session=%s", session_id)

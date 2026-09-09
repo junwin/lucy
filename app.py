@@ -50,6 +50,8 @@ from src.http_endpoints.chats_endpoints import (
 )
 from src.http_endpoints.upload_endpoints import post_upload_image_impl
 from src.chat2.facade import Chat2Store
+from src.coala_memory.semantic import SemanticMemory
+from src.coala_memory.episodic import EpisodicMemoryManager
 from src.api_key import validate_api_key
 
 
@@ -152,7 +154,8 @@ agents_path = config.get("agents_path", "static/data/agents.json")
 
 
 storage = container.get(Storage)
-chat2_store = container.get(Chat2Store)
+episodic_memory_manager = container.get(EpisodicMemoryManager)
+semantic_memory = container.get(SemanticMemory)
 
 
 # Get the AgentManager instance
@@ -421,7 +424,7 @@ def metrics_runs():
 
 @app.route("/chats", methods=["POST"])
 def post_chat():
-    body, status = post_chat_impl(chat2_store, agent_manager, request.json or {})
+    body, status = post_chat_impl(episodic_memory_manager, agent_manager, request.json or {})
     return jsonify(body), status
 
 
@@ -431,41 +434,41 @@ def get_chats():
     accountName = (request.args.get("accountName", "") or "").lower()
     limit = int(request.args.get("limit", "50"))
 
-    body, status = get_chats_impl(chat2_store, agent_manager, agentName, accountName, limit)
+    body, status = get_chats_impl(episodic_memory_manager, agent_manager, agentName, accountName, limit)
     return jsonify(body), status
 
 
 @app.route("/chats/<session_id>", methods=["GET"])
 def get_chat(session_id: str):
-    body, status = get_chat_impl(chat2_store, session_id)
+    body, status = get_chat_impl(episodic_memory_manager, session_id)
     return jsonify(body), status
 
 
 @app.route("/chats/<session_id>/messages", methods=["POST"])
 def post_chat_message(session_id: str):
     data = request.get_json() or {}
-    body, status = post_chat_message_impl(chat2_store, session_id, data)
+    body, status = post_chat_message_impl(episodic_memory_manager, session_id, data)
     return jsonify(body), status
 
 
 # New stubs for future chat management
 @app.route("/chats/<session_id>", methods=["DELETE"])
 def delete_chat(session_id: str):
-    body, status = delete_chat_impl(chat2_store, session_id)
+    body, status = delete_chat_impl(episodic_memory_manager, session_id)
     return jsonify(body), status
 
 
 @app.route("/chats/<session_id>", methods=["PATCH"])
 def update_chat(session_id: str):
     payload = request.get_json(silent=True) or {}
-    body, status = update_chat_impl(chat2_store, session_id, payload)
+    body, status = update_chat_impl(episodic_memory_manager, session_id, payload)
     return jsonify(body), status
 
 
 @app.route("/documents/search", methods=["POST"])
 def search_documents():
     data = request.get_json(silent=True) or {}
-    body, status = search_documents_impl(storage, data)
+    body, status = search_documents_impl(semantic_memory, data)
     return jsonify(body), status
 
 
