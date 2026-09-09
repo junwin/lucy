@@ -18,8 +18,9 @@ Prompt-time sources:
 
 Lifecycle and curation sources:
 
-- `src/handlers/chat2_handler.py` exposes reset, search, curate, get, list,
-  delete and update operations over Chat2 sessions.
+- `src/handlers/episodic_memory_handler.py` exposes session lifecycle
+  operations (create, get, list, update, reset, delete), append_event and
+  recall over episodic memory, via the CoALA `Chat2EpisodicMemory` adapter.
 - `src/handlers/curate_chat_handler.py` adds summarize/archive workflows,
   preview/publish controls, templates and digest embedding publication.
 - `src/http_endpoints/chats_endpoints.py` exposes session create/get/list,
@@ -60,11 +61,13 @@ Prompt-time sources:
 
 Embedding infrastructure:
 
-- `src/handlers/embedding_handler.py` exposes raw embed, compare, rank and
-  stored-vector search operations.
-- The memory boundary should *not* absorb all of those vector utilities.
-  Embedding generation/comparison is infrastructure; semantic memory owns the
-  higher-level operation "retrieve durable knowledge relevant to this query".
+- `src/handlers/semantic_memory_handler.py` exposes recall over semantic
+  memory plus the embed, compare, rank and models utilities (absorbed from the
+  retired embedding_handler).
+- The memory boundary absorbed those vector utilities: semantic memory owns the
+  higher-level operation "retrieve durable knowledge relevant to this query"
+  (recall) alongside the embed, compare, rank and models utilities, while the
+  raw stored-vector search operation was retired in favour of recall.
 - The handler confirms that embedding model, namespace, account, top-k and
   source_type are real vector-search parameters, so the semantic request keeps
   those retrieval-relevant fields explicit.

@@ -20,14 +20,12 @@ from src.handlers.scrape_web_page_handler2 import ScrapeWebPageHandler2
 from src.handlers.web_search_handler2 import WebSearchHandler2
 from src.handlers.tasklists_manage_handler import TasklistsManageHandler
 from src.handlers.tasklists_run_handler import TasklistsRunHandler
-from src.handlers.chat2_handler import Chat2Handler
 from src.handlers.curate_chat_handler import CurateChatHandler
 from src.handlers.generate_doc_handler import GenerateDocHandler
 from src.handlers.sandbox_execute_handler import SandboxExecuteHandler
 from src.handlers.reset_session_handler import ResetSessionHandler
 from src.handlers.serve_image_handler import ServeImageHandler
 from src.handlers.generate_svg_handler import GenerateSvgHandler
-from src.handlers.embedding_handler import EmbeddingHandler
 from src.handlers.semantic_memory_handler import SemanticMemoryHandler
 from src.handlers.episodic_memory_handler import EpisodicMemoryHandler
 from src.handlers.remote_execute_handler import RemoteExecuteHandler
@@ -90,8 +88,6 @@ def build_registry() -> HandlerRegistry:
     reg.register(TasklistsManageHandler)
     # Tasklist execution (run)
     reg.register(TasklistsRunHandler)
-    # Chat2 session management
-    reg.register(Chat2Handler)
     # Chat curation (summarize, archive, filter)
     reg.register(CurateChatHandler)
     # Doc generation (LLM-powered module documentation)
@@ -111,8 +107,6 @@ def build_registry() -> HandlerRegistry:
             "Install with: pip install Pillow"
         )
 
-    # Embeddings — vector generation and comparison
-    reg.register(EmbeddingHandler)
     # CoALA semantic memory recall — integration-test seam for Lucy agents
     reg.register(SemanticMemoryHandler)
     # CoALA episodic memory — integration-test seam over Chat2

@@ -44,7 +44,10 @@ def test_tool_def_exposes_expected_integration_actions():
     tool = EpisodicMemoryHandler.tool_def()
     assert tool["name"] == "episodic_memory"
     enum = tool["parameters"]["properties"]["action"]["enum"]
-    assert enum == ["recall", "get_session", "list_sessions", "append_event"]
+    assert enum == [
+        "recall", "get_session", "list_sessions", "append_event",
+        "create_session", "update_session", "reset_session", "delete_session",
+    ]
 
 
 def test_handler_recall_uses_sqlite_chat2_and_returns_recent_events(tmp_path):

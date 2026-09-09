@@ -7,6 +7,7 @@ from typing import Any, Dict, List
 
 from src.chat2.adapters.jfs_adapter import JfsChat2Primitives
 from src.chat2.facade import Chat2Store
+from src.chat2.models import SessionLinks
 from src.chat2.sqlite import SqliteChat2Primitives
 from src.coala_memory.episodic import (
     Chat2EpisodicMemory,
@@ -77,7 +78,10 @@ class EpisodicMemoryHandler(HandlerV2):
                 "properties": {
                     "action": {
                         "type": "string",
-                        "enum": ["recall", "get_session", "list_sessions", "append_event"],
+                        "enum": [
+                            "recall", "get_session", "list_sessions", "append_event",
+                            "create_session", "update_session", "reset_session", "delete_session",
+                        ],
                     },
                     "session_id": {"type": "string", "default": ""},
                     "account_name": {"type": "string", "default": ""},
@@ -204,6 +208,74 @@ class EpisodicMemoryHandler(HandlerV2):
                     ),
                 )
                 return {"ok": True, "tool": self.NAME, "action": action, "event": self._event_dict(stored)}
+
+            if action == "create_session":
+                agent_name = str(args.get("agent_name") or "").strip()
+                if not agent_name:
+                    return self._error(action, "agent_name is required")
+                kwargs: Dict[str, Any] = {}
+                if str(args.get("session_id") or "").strip():
+                    kwargs["session_id"] = str(args.get("session_id") or "").strip()
+                if str(args.get("user_id") or "").strip():
+                    kwargs["user_id"] = str(args.get("user_id") or "").strip()
+                if str(args.get("friendly_name") or "").strip():
+                    kwargs["friendly_name"] = str(args.get("friendly_name") or "").strip()
+                if str(args.get("context_name") or "").strip():
+                    kwargs["context_name"] = str(args.get("context_name") or "").strip()
+                if str(args.get("session_type") or "").strip():
+                    kwargs["session_type"] = str(args.get("session_type") or "").strip()
+                if args.get("tags"):
+                    kwargs["tags"] = list(args.get("tags"))
+                if args.get("participants"):
+                    kwargs["participants"] = list(args.get("participants"))
+                if args.get("links"):
+                    raw_links = dict(args.get("links") or {})
+                    allowed = {"user_session_id", "internal_session_id"}
+                    filtered = {k: v for k, v in raw_links.items() if k in allowed}
+                    if filtered:
+                        kwargs["links"] = filtered
+                if args.get("metadata"):
+                    kwargs["metadata"] = dict(args.get("metadata") or {})
+
+                created = self.memory.create_session(
+                    account_name=resolved_account,
+                    agent_name=agent_name,
+                    **kwargs,
+                )
+                return {"ok": True, "tool": self.NAME, "action": action, "session": self._session_dict(created)}
+
+            if action == "update_session":
+                if not session_id:
+                    return self._error(action, "session_id is required")
+                patch: Dict[str, Any] = {}
+                for key in ("friendly_name", "context_name", "session_type"):
+                    v = args.get(key)
+                    if v is not None and (not isinstance(v, str) or str(v).strip() != ""):
+                        patch[key] = v
+                for key in ("tags", "participants", "metadata"):
+                    if args.get(key) is not None:
+                        patch[key] = args.get(key)
+                if args.get("links") is not None:
+                    raw_links = dict(args.get("links") or {})
+                    allowed = {"user_session_id", "internal_session_id"}
+                    filtered = {k: v for k, v in raw_links.items() if k in allowed}
+                    if filtered:
+                        patch["links"] = SessionLinks(**filtered)
+
+                updated = self.memory.update_session(session_id, patch)
+                return {"ok": True, "tool": self.NAME, "action": action, "session": self._session_dict(updated)}
+
+            if action == "reset_session":
+                if not session_id:
+                    return self._error(action, "session_id is required")
+                self.memory.reset_session(session_id)
+                return {"ok": True, "tool": self.NAME, "action": action, "session_id": session_id}
+
+            if action == "delete_session":
+                if not session_id:
+                    return self._error(action, "session_id is required")
+                self.memory.delete_session(session_id)
+                return {"ok": True, "tool": self.NAME, "action": action, "session_id": session_id}
 
             return self._error(action, f"Unknown action: {action!r}")
         except Exception as exc:
