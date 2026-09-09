@@ -15,8 +15,6 @@ from .interface import (
     EpisodicMemoryResult,
 )
 from .management import (
-    EpisodicCurationRequest,
-    EpisodicCurationResult,
     EpisodicMemoryManager,
     EpisodicSession,
     EpisodicSessionQuery,
@@ -35,6 +33,10 @@ class Chat2EpisodicMemory(EpisodicMemory, EpisodicMemoryManager):
     Chat2 owns session/event persistence. Archived digest similarity search is
     intentionally optional because it is currently backed by Lucy's embedding
     subsystem rather than the Chat2 SQLite database.
+
+    Curation is deliberately not implemented here. ``CurationEngine`` is an
+    application service that consumes the neutral ``EpisodicMemoryManager``
+    operations exposed by this adapter.
     """
 
     def __init__(
@@ -43,12 +45,10 @@ class Chat2EpisodicMemory(EpisodicMemory, EpisodicMemoryManager):
         *,
         digests_root: str | Path | None = None,
         digest_recall: DigestRecall | None = None,
-        curation_engine: Any | None = None,
     ) -> None:
         self.chat2_store = chat2_store
         self.digests_root = Path(digests_root) if digests_root is not None else None
         self.digest_recall = digest_recall
-        self.curation_engine = curation_engine
 
     @classmethod
     def from_sqlite(
@@ -57,7 +57,6 @@ class Chat2EpisodicMemory(EpisodicMemory, EpisodicMemoryManager):
         *,
         digests_root: str | Path | None = None,
         digest_recall: DigestRecall | None = None,
-        curation_engine: Any | None = None,
     ) -> "Chat2EpisodicMemory":
         from src.chat2.sqlite.backend import SqliteChat2Primitives
 
@@ -66,7 +65,6 @@ class Chat2EpisodicMemory(EpisodicMemory, EpisodicMemoryManager):
             Chat2Store(primitives),
             digests_root=digests_root,
             digest_recall=digest_recall,
-            curation_engine=curation_engine,
         )
 
     # ------------------------------------------------------------------
@@ -147,7 +145,7 @@ class Chat2EpisodicMemory(EpisodicMemory, EpisodicMemoryManager):
         return combined
 
     # ------------------------------------------------------------------
-    # Session lifecycle
+    # Session lifecycle / storage primitives
     # ------------------------------------------------------------------
 
     def create_session(
@@ -234,40 +232,6 @@ class Chat2EpisodicMemory(EpisodicMemory, EpisodicMemoryManager):
 
     def delete_session(self, session_id: str) -> None:
         self.chat2_store.delete_session(session_id)
-
-    def curate(self, request: EpisodicCurationRequest) -> EpisodicCurationResult:
-        if self.curation_engine is None:
-            return EpisodicCurationResult(
-                status="error",
-                session_id=request.session_id,
-                error="curation_engine_not_configured",
-            )
-        try:
-            raw = self.curation_engine.curate(
-                session_id=request.session_id or None,
-                friendly_name=request.friendly_name or None,
-                account=request.account_name,
-                mode=request.mode,
-                preview=request.preview,
-                publish=request.publish,
-                template_name=request.template_name,
-                curation_rules=request.curation_rules,
-                max_chars=request.max_chars,
-            )
-            return EpisodicCurationResult(
-                status=str(raw.get("status") or "ok"),
-                session_id=str(raw.get("session_id") or request.session_id),
-                note_text=str(raw.get("note_text") or ""),
-                output_path=str(raw.get("output_path") or ""),
-                summary=dict(raw.get("summary") or {}),
-                error=str(raw.get("error") or ""),
-            )
-        except Exception as exc:
-            return EpisodicCurationResult(
-                status="error",
-                session_id=request.session_id,
-                error=f"{type(exc).__name__}: {exc}",
-            )
 
     # ------------------------------------------------------------------
     # Mapping helpers
