@@ -30,6 +30,9 @@ class SqliteVecSemanticMemory(SemanticMemory):
         self.embedding_facade = embedding_facade
         self.embedding_store = embedding_store
 
+    def list_namespaces(self, account_name: str) -> list[str]:
+        return list(self.embedding_store.list_embedding_namespaces(account_name))
+
     def recall(self, request: SemanticMemoryRequest) -> SemanticMemoryResult:
         if not request.query or not request.query.strip():
             return SemanticMemoryResult(

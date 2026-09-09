@@ -8,7 +8,8 @@ rather than calling the LLM or storage layer directly.
 from __future__ import annotations
 
 import logging
-from typing import List, Optional, Tuple
+from dataclasses import asdict
+from typing import Any, Dict, List, Optional, Tuple
 
 from galet.embedding_dto import EmbeddingResponse
 from galet.embedding_interface import EmbeddingApi
@@ -20,7 +21,7 @@ from .comparison import (
     rank,
     top_k,
 )
-from .registry import EmbeddingModelInfo, get_model_info
+from .registry import EmbeddingModelInfo, get_model_info, known_models
 
 logger = logging.getLogger(__name__)
 
@@ -92,3 +93,7 @@ class EmbeddingFacade:
     def model_info(self, model: str) -> Optional[EmbeddingModelInfo]:
         """Look up known dimensions and provider for a model."""
         return get_model_info(model)
+
+    def models(self) -> List[Dict[str, Any]]:
+        infos = sorted(known_models().values(), key=lambda info: info.name)
+        return [asdict(info) for info in infos]
