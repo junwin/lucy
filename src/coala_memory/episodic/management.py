@@ -38,7 +38,12 @@ class EpisodicSession:
 
 @dataclass(frozen=True)
 class EpisodicCurationRequest:
-    """Lifecycle/curation request derived from Chat2 and curate_chat handlers."""
+    """Compatibility DTO for callers migrating to ``CurationEngine``.
+
+    Curation is intentionally not an operation on ``EpisodicMemoryManager``;
+    the application-level curation service consumes this manager as a neutral
+    session/event store.
+    """
 
     account_name: str
     session_id: str = ""
@@ -53,6 +58,8 @@ class EpisodicCurationRequest:
 
 @dataclass(frozen=True)
 class EpisodicCurationResult:
+    """Compatibility DTO for existing handler/API result mappings."""
+
     status: str
     session_id: str = ""
     note_text: str = ""
@@ -62,11 +69,11 @@ class EpisodicCurationResult:
 
 
 class EpisodicMemoryManager(ABC):
-    """Domain seam for episodic session lifecycle and curation.
+    """Provider-neutral episodic session/event store.
 
-    This is intentionally separate from prompt-time ``EpisodicMemory.recall``.
-    Existing HTTP endpoints and agent handlers can eventually share an adapter
-    implementing this interface without making the CoALA package an HTTP layer.
+    This interface owns persistence and lifecycle primitives only. Higher-level
+    workflows such as curation are application services that depend on this
+    interface; they are deliberately not methods on the storage abstraction.
     """
 
     @abstractmethod
@@ -110,9 +117,4 @@ class EpisodicMemoryManager(ABC):
 
     @abstractmethod
     def delete_session(self, session_id: str) -> None:
-        raise NotImplementedError
-
-    @abstractmethod
-    def curate(self, request: EpisodicCurationRequest) -> EpisodicCurationResult:
-        """Filter, summarize or archive a session."""
         raise NotImplementedError
