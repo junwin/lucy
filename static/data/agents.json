@@ -122,6 +122,7 @@
       "execute_command",
       "file_load",
       "file_save",
+      "semantic_memory",
       "get_keywords",
       "scrape_web_page",
       "web_search_handler"
