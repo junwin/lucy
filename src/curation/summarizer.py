@@ -1,24 +1,20 @@
 """LLM-based summarization for curation digest mode.
 
-Takes session events and asks the LLM to distill them into a structured
-Markdown digest.
+Takes provider-neutral episodic events and asks the LLM to distill them into a
+structured Markdown digest.
 """
 
 from __future__ import annotations
 
 import json
 import logging
-from typing import Any, Dict, List, Optional
+from typing import List
 
-from src.chat2.models import ChatEvent
+from src.coala_memory.episodic import EpisodicEvent
 from galet.dto import LLMResponse
 from galet.interface import LLMApi
 
 logger = logging.getLogger(__name__)
-
-# ---------------------------------------------------------------------------
-# System prompt for summarization
-# ---------------------------------------------------------------------------
 
 SUMMARIZE_SYSTEM_PROMPT = """You are a chat session summarizer. Your job is to distill a conversation into a structured Markdown digest.
 
@@ -51,21 +47,19 @@ Output format (Markdown):
 If a section has no content, write "None." for that section."""
 
 
-def _build_events_text(events: List[ChatEvent], max_chars: int = 32000) -> str:
-    """Build a text representation of events for the LLM.
-
-    Truncates to max_chars to avoid blowing the context window.
-    """
+def _build_events_text(events: List[EpisodicEvent], max_chars: int = 32000) -> str:
+    """Build a text representation of events for the LLM."""
     lines: List[str] = []
     total = 0
 
     for e in events:
-        payload_str = (
-            json.dumps(e.payload, ensure_ascii=False)
-            if isinstance(e.payload, dict)
-            else str(e.payload)
+        content_str = (
+            json.dumps(e.content, ensure_ascii=False)
+            if isinstance(e.content, (dict, list))
+            else str(e.content)
         )
-        line = f"[{e.ts.isoformat()}] {e.role}/{e.actor} ({e.kind}): {payload_str[:500]}"
+        timestamp = e.created_at.isoformat() if e.created_at is not None else ""
+        line = f"[{timestamp}] {e.role}/{e.actor} ({e.kind}): {content_str[:500]}"
         total += len(line) + 1
         if total > max_chars:
             lines.append("... (truncated)")
@@ -76,7 +70,7 @@ def _build_events_text(events: List[ChatEvent], max_chars: int = 32000) -> str:
 
 
 def summarize_session(
-    events: List[ChatEvent],
+    events: List[EpisodicEvent],
     *,
     llm_api: LLMApi,
     model: str = "gpt-4o-mini",
@@ -86,21 +80,7 @@ def summarize_session(
     temperature: float = 0.0,
     max_chars: int = 32000,
 ) -> str:
-    """Summarize session events into a structured Markdown digest.
-
-    Args:
-        events: List of ChatEvent objects to summarize.
-        llm_api: LLM API instance.
-        model: Model name to use for summarization.
-        friendly_name: Session friendly name (for context).
-        session_id: Session UUID (for context).
-        account: Account name (for context).
-        temperature: LLM temperature.
-        max_chars: Max characters for the events text block fed to the LLM.
-
-    Returns:
-        Structured Markdown digest string.
-    """
+    """Summarize session events into a structured Markdown digest."""
     events_text = _build_events_text(events, max_chars=max_chars)
 
     user_prompt = f"""Summarize this chat session.
@@ -149,7 +129,7 @@ Produce a structured Markdown digest with these sections:
 
 
 def _fallback_digest(
-    events: List[ChatEvent],
+    events: List[EpisodicEvent],
     *,
     friendly_name: str = "",
     session_id: str = "",
@@ -158,11 +138,11 @@ def _fallback_digest(
     lines = [f"# Session Digest: {friendly_name or session_id}", ""]
     lines.append("## Events")
     for e in events:
-        payload_str = (
-            json.dumps(e.payload, ensure_ascii=False)
-            if isinstance(e.payload, dict)
-            else str(e.payload)
+        content_str = (
+            json.dumps(e.content, ensure_ascii=False)
+            if isinstance(e.content, (dict, list))
+            else str(e.content)
         )
-        snippet = payload_str[:200].replace("\n", " ")
+        snippet = content_str[:200].replace("\n", " ")
         lines.append(f"- **[{e.role}]** ({e.kind}): {snippet}")
     return "\n".join(lines)
