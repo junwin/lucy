@@ -1,114 +1,46 @@
-"""curate_chat handler — HandlerV2-compliant, callable by agents via FCP.
-
-Supports three curation modes:
-- filter: rule-based event removal (existing behavior)
-- summarize: LLM distills session into structured Markdown digest
-- archive: summarize + move original to archive + replace with digest event
-"""
+"""curate_chat handler — thin HandlerV2 facade over ``CurationEngine``."""
 
 from __future__ import annotations
 
 import json
 import logging
-from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Optional
 
 from src.config_manager import ConfigManager
-from src.handlers.handler_v2 import HandlerV2
+from src.curation.container_factory import get_curation_engine
 from src.curation.core import CurationEngine
-from src.curation.resolver import resolve_session
-from src.chat2.facade import Chat2Store
-from src.embeddings.facade import EmbeddingFacade
-from galet.interface import LLMApi
-from galet.router_api import RouterApi
-from galet.settings import Settings
+from src.handlers.handler_v2 import HandlerV2
 
 logger = logging.getLogger(__name__)
 
-# Default max_chars for the events text block fed to the LLM during summarization.
 DEFAULT_MAX_CHARS = 32000
 
 
 class CurateChatHandler(HandlerV2):
     """Handler for chat curation (summarize, archive, filter).
 
-    Invoked by agents via FunctionCallingProcessor.
+    The handler owns request validation only. Storage/provider construction is
+    delegated to the application composition root and the curation algorithm
+    lives in ``CurationEngine``.
     """
 
     NAME = "curate_chat"
 
-    def __init__(self, config: ConfigManager):
+    def __init__(
+        self,
+        config: ConfigManager,
+        engine: Optional[CurationEngine] = None,
+    ) -> None:
         self.config = config
-        self.chat2_store = self._build_store()
-        self.llm_api: LLMApi = RouterApi(
-            settings=Settings(
-                credential_path=config.get("credential_path"),
-                ollama_base_url=config.get("ollama_base_url"),
-            )
-        )
-        self.engine = self._build_engine()
+        self.engine = engine
 
-    def _build_store(self) -> Chat2Store:
-        """Construct a Chat2Store from config."""
-        from pathlib import Path
-
-        from src.chat2.adapters.jfs_adapter import JfsChat2Primitives
-        from src.chat2.sqlite import SqliteChat2Primitives
-        from src.storage.json_file_storage import JsonFileStorage
-        from src.storage_paths.storage_paths import StoragePaths
-
-        config = self.config
-        backend = str(config.get("chat2_store_backend", "") or "").strip().lower()
-        if backend == "sqlite":
-            db_path = config.get("chat2_store_db_path")
-            if not db_path:
-                storage_root = config.get("storage_root_path") or "/home/junwin/lucydata"
-                storage_namespace = config.get("storage_namespace") or "data"
-                db_path = str(Path(storage_root) / storage_namespace / "chat2.sqlite")
-            return Chat2Store(SqliteChat2Primitives(db_path))
-        if not backend or backend == "jsonl":
-            storage_root = config.get("storage_root_path") or "/home/junwin/lucydata"
-            storage_namespace = config.get("storage_namespace") or "data"
-            sp = StoragePaths(storage_root, storage_namespace)
-            storage = JsonFileStorage(sp)
-            return Chat2Store(JfsChat2Primitives(storage))
-        raise ValueError(
-            "Unknown chat2_store_backend %r: expected 'jsonl' or 'sqlite'" % backend
-        )
-
-    def _build_engine(self) -> CurationEngine:
-        """Build the curation engine with paths from config."""
-        from src.storage.json_file_storage import JsonFileStorage
-        from src.storage_paths.storage_paths import StoragePaths
-
-        # Determine external root for lucy_data_files
-        external_roots = self.config.get("external_roots", {})
-        lucy_data_root = external_roots.get("lucy_data_files", "/home/junwin/lucy_storage")
-
-        data_base = Path(lucy_data_root) / "data"
-
-        # Determine account from config or default
-        # The handler receives account_name at runtime, so we use a placeholder
-        # and resolve paths per-call in the engine.
-
-        llm_model = self.config.get("curation_llm_model", "gpt-4o-mini")
-
-        # Build embedding facade and storage for digest embeddings
-        embedding_facade = EmbeddingFacade()
-        storage_root = self.config.get("storage_root_path") or "/home/junwin/lucydata"
-        storage_ns = self.config.get("storage_namespace") or "data"
-        sp = StoragePaths(storage_root, storage_ns)
-        storage = JsonFileStorage(sp)
-
-        return CurationEngine(
-            chat2_store=self.chat2_store,
-            llm_api=self.llm_api,
-            llm_model=llm_model,
-            digests_root=data_base / "digests",
-            archives_root=data_base / "archives",
-            embedding_facade=embedding_facade,
-            storage=storage,
-        )
+    def _engine(self, context: Dict[str, Any]) -> CurationEngine:
+        injected = context.get("curation_engine")
+        if isinstance(injected, CurationEngine):
+            return injected
+        if self.engine is not None:
+            return self.engine
+        return get_curation_engine()
 
     @classmethod
     def name(cls) -> str:
@@ -157,7 +89,7 @@ class CurateChatHandler(HandlerV2):
                     },
                     "publish": {
                         "type": "boolean",
-                        "description": "If true, write the digest to data/digests/<account>/.",
+                        "description": "If true, write the digest to the configured digest store.",
                         "default": False,
                     },
                     "template_name": {
@@ -177,7 +109,7 @@ class CurateChatHandler(HandlerV2):
                         "type": "integer",
                         "description": (
                             "Max characters for the events text block fed to the LLM "
-                            "during summarize/archive modes (default from config or 32000)."
+                            "during summarize/archive modes."
                         ),
                         "default": 32000,
                     },
@@ -216,16 +148,13 @@ class CurateChatHandler(HandlerV2):
             "additionalProperties": True,
         }
 
-    def execute(self, args: Dict[str, Any], *, account_name: str = "auto", **context) -> Dict[str, Any]:
-        """Execute curation.
-
-        Args:
-            args: Tool arguments (friendly_name, session_id, account, mode, etc.)
-            account_name: Injected by FCP (used as fallback for account).
-
-        Returns:
-            Result dict.
-        """
+    def execute(
+        self,
+        args: Dict[str, Any],
+        *,
+        account_name: str = "auto",
+        **context: Any,
+    ) -> Dict[str, Any]:
         friendly_name = (args.get("friendly_name") or "").strip()
         session_id = (args.get("session_id") or "").strip()
         account = (args.get("account") or account_name or "").strip()
@@ -235,7 +164,6 @@ class CurateChatHandler(HandlerV2):
         template_name = (args.get("template_name") or "default").strip()
         curation_rules_raw = args.get("curation_rules") or ""
 
-        # max_chars: caller arg → config.json → module-level default
         config_default = self.config.get("curation_max_chars", DEFAULT_MAX_CHARS)
         max_chars = int(args.get("max_chars", config_default))
 
@@ -246,7 +174,6 @@ class CurateChatHandler(HandlerV2):
                 "status": "error",
                 "error": "account is required",
             }
-
         if not session_id and not friendly_name:
             return {
                 "ok": False,
@@ -255,32 +182,20 @@ class CurateChatHandler(HandlerV2):
                 "error": "Either session_id or friendly_name is required",
             }
 
-        # Parse curation rules
         curation_rules: Dict[str, Any] = {}
         if curation_rules_raw:
             try:
                 curation_rules = json.loads(curation_rules_raw)
-            except json.JSONDecodeError as e:
+            except json.JSONDecodeError as exc:
                 return {
                     "ok": False,
                     "tool": self.NAME,
                     "status": "error",
-                    "error": f"Invalid curation_rules JSON: {e}",
+                    "error": f"Invalid curation_rules JSON: {exc}",
                 }
 
-        logger.info(
-            "curate_chat: account=%s mode=%s friendly_name=%s session_id=%s preview=%s publish=%s max_chars=%d",
-            account,
-            mode,
-            friendly_name,
-            session_id,
-            preview,
-            publish,
-            max_chars,
-        )
-
         try:
-            result = self.engine.curate(
+            result = self._engine(context).curate(
                 session_id=session_id or None,
                 friendly_name=friendly_name or None,
                 account=account,
@@ -291,19 +206,16 @@ class CurateChatHandler(HandlerV2):
                 curation_rules=curation_rules,
                 max_chars=max_chars,
             )
-
-            ok = result.get("status") != "error"
             return {
-                "ok": ok,
+                "ok": result.get("status") != "error",
                 "tool": self.NAME,
                 **result,
             }
-
-        except Exception as e:
+        except Exception as exc:
             logger.exception("curate_chat: unexpected error")
             return {
                 "ok": False,
                 "tool": self.NAME,
                 "status": "error",
-                "error": f"{type(e).__name__}: {e}",
+                "error": f"{type(exc).__name__}: {exc}",
             }
