@@ -158,7 +158,17 @@ class DocumentRef:
 
 @dataclass
 class EmbeddingRecord:
-    """A vector embedding with metadata."""
+    """A vector embedding plus source and embedding provenance metadata.
+
+    ``id`` identifies the embedding record and is independent of namespace.
+    ``document_id`` identifies source content (canonical form: SHA-256 of raw
+    source bytes). ``model``, ``provider`` and ``dimensions`` capture the
+    embedding provenance required for compatibility checks and migration.
+
+    The provenance fields have backward-compatible defaults so non-vec0 stores
+    and existing callers can be migrated independently. Canonical ingestion
+    paths should populate them explicitly.
+    """
     id: str
     namespace: str
     account_name: str
@@ -167,3 +177,7 @@ class EmbeddingRecord:
     source_id: str
     source_metadata: Dict[str, Any] = field(default_factory=dict)
     created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    document_id: str = ""
+    model: str = ""
+    provider: str = ""
+    dimensions: int = 1536
