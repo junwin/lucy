@@ -12,13 +12,9 @@ import logging
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
-from src.chat2.models import ChatEvent
+from src.coala_memory.episodic import EpisodicEvent
 
 logger = logging.getLogger(__name__)
-
-# ---------------------------------------------------------------------------
-# Fallback template (hardcoded last resort)
-# ---------------------------------------------------------------------------
 
 FALLBACK_TEMPLATE = """# Session Digest: {friendly_name}
 - **Session ID**: {session_id}
@@ -35,10 +31,6 @@ FALLBACK_TEMPLATE = """# Session Digest: {friendly_name}
 {events_bullets}
 """
 
-# ---------------------------------------------------------------------------
-# Default config template (shipped with code)
-# ---------------------------------------------------------------------------
-
 DEFAULT_SUMMARIZE_TEMPLATE = """# Session Digest: {friendly_name}
 - **Session ID**: {session_id}
 - **Date**: {date}
@@ -47,10 +39,6 @@ DEFAULT_SUMMARIZE_TEMPLATE = """# Session Digest: {friendly_name}
 
 {summary_text}
 """
-
-# ---------------------------------------------------------------------------
-# Template registry
-# ---------------------------------------------------------------------------
 
 _BUILTIN_TEMPLATES: Dict[str, str] = {
     "default": DEFAULT_SUMMARIZE_TEMPLATE,
@@ -63,20 +51,7 @@ def resolve_template(
     *,
     context_state_override: Optional[str] = None,
 ) -> str:
-    """Resolve a template by name using the resolution order.
-
-    1. Context override (if provided)
-    2. Built-in config templates
-    3. Fallback hardcoded template
-
-    Args:
-        template_name: Name of the template to resolve.
-        context_state_override: Optional template content from Context.
-
-    Returns:
-        Template string.
-    """
-    # 1) Context override
+    """Resolve a template by name using the resolution order."""
     if context_state_override:
         logger.info(
             "template_resolved source=context_state template_name=%s",
@@ -84,7 +59,6 @@ def resolve_template(
         )
         return context_state_override
 
-    # 2) Built-in config templates
     if template_name in _BUILTIN_TEMPLATES:
         logger.info(
             "template_resolved source=config template_name=%s",
@@ -92,7 +66,6 @@ def resolve_template(
         )
         return _BUILTIN_TEMPLATES[template_name]
 
-    # 3) Fallback
     logger.info(
         "template_resolved source=fallback template_name=%s (not found in config)",
         template_name,
@@ -107,7 +80,7 @@ def render_template(
     session_id: str = "",
     account: str = "",
     archive_path: str = "",
-    events: Optional[List[ChatEvent]] = None,
+    events: Optional[List[EpisodicEvent]] = None,
     summary_text: str = "",
     decisions: str = "",
     files: str = "",
@@ -115,37 +88,16 @@ def render_template(
     next_steps: str = "",
     **extra: Any,
 ) -> str:
-    """Render a template with the given values.
-
-    Supports {placeholder} substitution. Unknown placeholders are left as-is.
-
-    Args:
-        template: Template string with {placeholders}.
-        friendly_name: Session friendly name.
-        session_id: Session UUID.
-        account: Account name.
-        archive_path: Path to the archived JSONL source (empty if no archive).
-        events: List of ChatEvent objects (used to build events_bullets).
-        summary_text: Free-text summary (the LLM digest).
-        decisions: Decisions made section content.
-        files: Files created/modified section content.
-        commands: Commands run section content.
-        next_steps: Open questions / next steps.
-        **extra: Additional placeholder values.
-
-    Returns:
-        Rendered Markdown string.
-    """
+    """Render a curation template from provider-neutral episodic events."""
     now = datetime.now(timezone.utc)
 
-    # Build events_bullets from events list
     events_bullets = ""
     if events:
         bullets = []
-        for e in events:
-            payload_str = str(e.payload) if isinstance(e.payload, str) else str(e.payload)
-            snippet = payload_str[:120].replace("\n", " ")
-            bullets.append(f"- **[{e.role}]** ({e.kind}): {snippet}")
+        for event in events:
+            content = str(event.content)
+            snippet = content[:120].replace("\n", " ")
+            bullets.append(f"- **[{event.role}]** ({event.kind}): {snippet}")
         events_bullets = "\n".join(bullets)
 
     context = {
@@ -165,9 +117,11 @@ def render_template(
 
     try:
         return template.format(**context)
-    except KeyError as e:
-        logger.warning("render_template: missing placeholder %s — rendering with partial context", e)
-        # Best-effort: replace known placeholders, leave unknown ones
+    except KeyError as exc:
+        logger.warning(
+            "render_template: missing placeholder %s — rendering with partial context",
+            exc,
+        )
         result = template
         for key, value in context.items():
             result = result.replace("{" + key + "}", str(value))
