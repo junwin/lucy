@@ -59,6 +59,7 @@ class PreparedRecord:
     old_id: str
     id_replaced: bool
     document_id_verified: bool
+    document_id_status: str
     provenance_known: bool
 
 
@@ -213,26 +214,32 @@ def _looks_like_sha256(value: Any) -> bool:
 
 def _resolve_document_id(
     metadata: Dict[str, Any], *, trust_content_hash: bool
-) -> Tuple[str, bool]:
+) -> Tuple[str, bool, str]:
     candidate = metadata.get("content_hash")
+    if candidate in (None, ""):
+        return "", False, "missing_content_hash"
     if not _looks_like_sha256(candidate):
-        return "", False
+        return "", False, "invalid_content_hash"
     candidate = str(candidate).lower()
 
     if trust_content_hash:
-        return candidate, True
+        return candidate, True, "trusted_content_hash"
 
     path_value = metadata.get("path")
     if not path_value:
-        return "", False
+        return "", False, "missing_path"
     source_path = Path(str(path_value)).expanduser()
+    if not source_path.exists():
+        return "", False, "source_file_not_found"
     if not source_path.is_file():
-        return "", False
+        return "", False, "source_path_not_file"
     try:
         actual = _sha256_file(source_path)
     except OSError:
-        return "", False
-    return (candidate, True) if actual == candidate else ("", False)
+        return "", False, "source_read_error"
+    if actual != candidate:
+        return "", False, "hash_mismatch"
+    return candidate, True, "verified"
 
 
 def _first_nonempty(metadata: Dict[str, Any], keys: Sequence[str]) -> str:
@@ -277,7 +284,7 @@ def prepare_records(
             raise ValueError(f"migration would create duplicate id {new_id!r}")
         assigned_ids.add(new_id)
 
-        document_id, document_id_verified = _resolve_document_id(
+        document_id, document_id_verified, document_id_status = _resolve_document_id(
             legacy.source_metadata, trust_content_hash=trust_content_hash
         )
         resolved_model, resolved_provider, provenance_known = _resolve_provenance(
@@ -290,6 +297,7 @@ def prepare_records(
                 old_id=legacy.id,
                 id_replaced=id_replaced,
                 document_id_verified=document_id_verified,
+                document_id_status=document_id_status,
                 provenance_known=provenance_known,
                 record=EmbeddingRecord(
                     id=new_id,
@@ -325,6 +333,19 @@ def _summary(prepared: Sequence[PreparedRecord]) -> Dict[str, Any]:
         for item in prepared
         if item.document_id_verified
     )
+    rescan_reasons = Counter(
+        item.document_id_status
+        for item in prepared
+        if not item.document_id_verified
+    )
+    rescan_reasons_by_namespace: Dict[str, Dict[str, int]] = {}
+    for item in prepared:
+        if item.document_id_verified:
+            continue
+        namespace_key = f"{item.record.account_name}/{item.record.namespace}"
+        bucket = rescan_reasons_by_namespace.setdefault(namespace_key, {})
+        bucket[item.document_id_status] = bucket.get(item.document_id_status, 0) + 1
+
     return {
         "records": len(prepared),
         "valid_uuid_ids": sum(not item.id_replaced for item in prepared),
@@ -346,6 +367,11 @@ def _summary(prepared: Sequence[PreparedRecord]) -> Dict[str, Any]:
         "verified_hashes_by_namespace": {
             f"{account}/{namespace}": count
             for (account, namespace), count in sorted(verified_namespaces.items())
+        },
+        "rescan_reasons": dict(sorted(rescan_reasons.items())),
+        "rescan_reasons_by_namespace": {
+            namespace: dict(sorted(reasons.items()))
+            for namespace, reasons in sorted(rescan_reasons_by_namespace.items())
         },
         "source_types": dict(sorted(source_types.items())),
     }
@@ -520,6 +546,7 @@ def migrate_vec0_canonical(
             f"{invalid_ids} record id(s) are not UUIDs; rerun with "
             "--assign-new-uuids after reviewing the dry-run report"
         )
+
     if dry_run:
         return summary
 
@@ -528,6 +555,19 @@ def migrate_vec0_canonical(
     summary["validation_errors"] = errors
     summary["validated"] = not errors
     return summary
+
+
+def _pretty_reason(reason: str) -> str:
+    labels = {
+        "missing_content_hash": "missing content_hash",
+        "invalid_content_hash": "invalid content_hash",
+        "missing_path": "missing path",
+        "source_file_not_found": "source file not found",
+        "source_path_not_file": "source path is not a file",
+        "source_read_error": "source read error",
+        "hash_mismatch": "hash mismatch",
+    }
+    return labels.get(reason, reason.replace("_", " "))
 
 
 def _print_summary(summary: Dict[str, Any]) -> None:
@@ -541,14 +581,21 @@ def _print_summary(summary: Dict[str, Any]) -> None:
     print("Namespaces:")
     for name, count in summary["namespaces"].items():
         print(f"  {name}: {count}")
-    print("Rescan required by namespace:")
     if summary["rescan_by_namespace"]:
+        print("Rescan required by namespace:")
         for name, count in summary["rescan_by_namespace"].items():
             verified = summary["verified_hashes_by_namespace"].get(name, 0)
             total = summary["namespaces"].get(name, count + verified)
             print(f"  {name}: {count} rescan / {verified} verified / {total} total")
-    else:
-        print("  none")
+    if summary["rescan_reasons"]:
+        print("Rescan reasons:")
+        for reason, count in summary["rescan_reasons"].items():
+            print(f"  {_pretty_reason(reason)}: {count}")
+        print("Rescan reasons by namespace:")
+        for namespace, reasons in summary["rescan_reasons_by_namespace"].items():
+            print(f"  {namespace}:")
+            for reason, count in reasons.items():
+                print(f"    {_pretty_reason(reason)}: {count}")
     print("Source types:")
     for name, count in summary["source_types"].items():
         print(f"  {name or '<empty>'}: {count}")
