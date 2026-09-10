@@ -14,12 +14,20 @@ DEFAULT_SQLITE_VEC_EXTENSION_PATH = "/usr/local/lib/sqlite-vec/vec0.so"
 
 _EMBEDDING_DIM = 1536
 
+
+class EmbeddingCompatibilityError(ValueError, AssertionError):
+    """Raised when a stored or query vector is incompatible with this vec0 store."""
+
+
+# account_name + namespace are partition keys because every semantic recall is
+# scoped by both. source_type remains in vec0 as a filterable metadata column so
+# source_type filtering participates in the KNN query before final top-k.
 _VEC_TABLE_DDL = (
     "CREATE VIRTUAL TABLE IF NOT EXISTS vec_embeddings USING vec0("
-    " id TEXT,"
+    " id TEXT PRIMARY KEY,"
     " embedding float[1536] distance_metric=cosine,"
-    " account_name TEXT,"
-    " namespace TEXT,"
+    " account_name TEXT partition key,"
+    " namespace TEXT partition key,"
     " source_type TEXT)"
 )
 
@@ -30,6 +38,10 @@ _METADATA_TABLE_DDL = (
     " namespace TEXT NOT NULL,"
     " source_type TEXT NOT NULL DEFAULT '',"
     " source_id TEXT NOT NULL DEFAULT '',"
+    " document_id TEXT NOT NULL DEFAULT '',"
+    " model TEXT NOT NULL DEFAULT '',"
+    " provider TEXT NOT NULL DEFAULT '',"
+    " dimensions INTEGER NOT NULL DEFAULT 1536,"
     " source_metadata TEXT NOT NULL DEFAULT '{}',"
     " created_at TEXT NOT NULL)"
 )
@@ -44,30 +56,39 @@ _SOURCE_INDEX_DDL = (
     " ON embedding_metadata(source_type, source_id)"
 )
 
+_DOCUMENT_ID_INDEX_DDL = (
+    "CREATE INDEX IF NOT EXISTS idx_emb_meta_document_id"
+    " ON embedding_metadata(document_id)"
+)
+
 _VEC_INSERT_SQL = (
     "INSERT INTO vec_embeddings(id, account_name, namespace, source_type, embedding)"
     " VALUES (?, ?, ?, ?, ?)"
 )
 
-_VEC_SELECT_ROWIDS_SQL = "SELECT rowid FROM vec_embeddings WHERE id = ?"
-
-_VEC_DELETE_BY_ROWID_SQL = "DELETE FROM vec_embeddings WHERE rowid = ?"
+_VEC_DELETE_BY_ID_SQL = "DELETE FROM vec_embeddings WHERE id = ?"
 
 _METADATA_UPSERT_SQL = (
     "INSERT INTO embedding_metadata("
-    " id, account_name, namespace, source_type, source_id, source_metadata, created_at"
-    ") VALUES (?, ?, ?, ?, ?, ?, ?)"
+    " id, account_name, namespace, source_type, source_id, document_id,"
+    " model, provider, dimensions, source_metadata, created_at"
+    ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
     " ON CONFLICT(id) DO UPDATE SET"
     " account_name = excluded.account_name,"
     " namespace = excluded.namespace,"
     " source_type = excluded.source_type,"
     " source_id = excluded.source_id,"
+    " document_id = excluded.document_id,"
+    " model = excluded.model,"
+    " provider = excluded.provider,"
+    " dimensions = excluded.dimensions,"
     " source_metadata = excluded.source_metadata,"
     " created_at = excluded.created_at"
 )
 
 _METADATA_SELECT_COLUMNS = (
-    "id, account_name, namespace, source_type, source_id, source_metadata, created_at"
+    "id, account_name, namespace, source_type, source_id, document_id,"
+    " model, provider, dimensions, source_metadata, created_at"
 )
 
 _KNN_SELECT_SQL = (
@@ -81,8 +102,9 @@ _NAMESPACE_SELECT_SQL = (
 )
 
 _LIST_METADATA_SQL = (
-    "SELECT id, account_name, namespace, source_type, source_id, source_metadata, created_at"
-    " FROM embedding_metadata WHERE account_name = ? AND namespace = ? ORDER BY id"
+    "SELECT "
+    + _METADATA_SELECT_COLUMNS
+    + " FROM embedding_metadata WHERE account_name = ? AND namespace = ? ORDER BY id"
 )
 
 
@@ -108,6 +130,13 @@ def _decode_vector(blob: bytes) -> List[float]:
     return list(struct.unpack(f"<{len(blob) // 4}f", blob))
 
 
+def _validate_vector_dimensions(vector: List[float], *, context: str) -> None:
+    if len(vector) != _EMBEDDING_DIM:
+        raise EmbeddingCompatibilityError(
+            f"{context} embedding dimension must be {_EMBEDDING_DIM}, got {len(vector)}"
+        )
+
+
 class Vec0EmbeddingStore(EmbeddingStore):
     def __init__(
         self,
@@ -128,21 +157,23 @@ class Vec0EmbeddingStore(EmbeddingStore):
             self._conn.execute(_METADATA_TABLE_DDL)
             self._conn.execute(_ACCOUNT_NS_INDEX_DDL)
             self._conn.execute(_SOURCE_INDEX_DDL)
+            self._conn.execute(_DOCUMENT_ID_INDEX_DDL)
 
     def upsert_embedding(self, record: EmbeddingRecord) -> None:
-        if len(record.vector) != _EMBEDDING_DIM:
-            raise AssertionError(
-                f"embedding dimension must be {_EMBEDDING_DIM}, got {len(record.vector)}"
+        _validate_vector_dimensions(record.vector, context="stored")
+        if record.dimensions != len(record.vector):
+            raise EmbeddingCompatibilityError(
+                "embedding provenance dimensions do not match vector length: "
+                f"metadata={record.dimensions}, vector={len(record.vector)}"
             )
+
         created_at = _to_utc_iso(record.created_at)
         with self._lock:
             self._conn.execute("BEGIN")
             try:
-                rowids = self._conn.execute(
-                    _VEC_SELECT_ROWIDS_SQL, (record.id,)
-                ).fetchall()
-                for (rowid,) in rowids:
-                    self._conn.execute(_VEC_DELETE_BY_ROWID_SQL, (rowid,))
+                # vec0 does not provide a normal SQLite UPSERT contract. Replace
+                # the vector explicitly while keeping metadata in the same tx.
+                self._conn.execute(_VEC_DELETE_BY_ID_SQL, (record.id,))
                 self._conn.execute(
                     _VEC_INSERT_SQL,
                     (
@@ -161,6 +192,10 @@ class Vec0EmbeddingStore(EmbeddingStore):
                         record.namespace,
                         record.source_type,
                         record.source_id,
+                        record.document_id,
+                        record.model,
+                        record.provider,
+                        record.dimensions,
                         json.dumps(record.source_metadata or {}),
                         created_at,
                     ),
@@ -180,6 +215,8 @@ class Vec0EmbeddingStore(EmbeddingStore):
     ) -> List[Tuple[EmbeddingRecord, float]]:
         if top_k <= 0:
             return []
+        _validate_vector_dimensions(query_vector, context="query")
+
         has_source_type = filter is not None and "source_type" in filter
         source_type = filter["source_type"] if has_source_type else None
         match = json.dumps(query_vector)
@@ -207,8 +244,12 @@ class Vec0EmbeddingStore(EmbeddingStore):
                                 namespace=meta[2],
                                 source_type=meta[3],
                                 source_id=meta[4],
-                                source_metadata=json.loads(meta[5] or "{}"),
-                                created_at=_from_utc_iso(meta[6]),
+                                document_id=meta[5],
+                                model=meta[6],
+                                provider=meta[7],
+                                dimensions=meta[8],
+                                source_metadata=json.loads(meta[9] or "{}"),
+                                created_at=_from_utc_iso(meta[10]),
                                 vector=_decode_vector(blob),
                             ),
                             1.0 - distance,
@@ -238,8 +279,12 @@ class Vec0EmbeddingStore(EmbeddingStore):
                     namespace=meta[2],
                     source_type=meta[3],
                     source_id=meta[4],
-                    source_metadata=json.loads(meta[5] or "{}"),
-                    created_at=_from_utc_iso(meta[6]),
+                    document_id=meta[5],
+                    model=meta[6],
+                    provider=meta[7],
+                    dimensions=meta[8],
+                    source_metadata=json.loads(meta[9] or "{}"),
+                    created_at=_from_utc_iso(meta[10]),
                     vector=_decode_vector(blob),
                 )
             )
@@ -285,16 +330,12 @@ class Vec0EmbeddingStore(EmbeddingStore):
                     row[0]
                     for row in self._conn.execute(select_sql, params).fetchall()
                 ]
-                for record_id in record_ids:
-                    rowids = self._conn.execute(
-                        _VEC_SELECT_ROWIDS_SQL, (record_id,)
-                    ).fetchall()
-                    for (rowid,) in rowids:
-                        self._conn.execute(_VEC_DELETE_BY_ROWID_SQL, (rowid,))
-                for record_id in record_ids:
+                for selected_id in record_ids:
+                    self._conn.execute(_VEC_DELETE_BY_ID_SQL, (selected_id,))
+                for selected_id in record_ids:
                     self._conn.execute(
                         "DELETE FROM embedding_metadata WHERE id = ?",
-                        (record_id,),
+                        (selected_id,),
                     )
                 self._conn.execute("COMMIT")
             except BaseException:
@@ -311,7 +352,7 @@ class Vec0EmbeddingStore(EmbeddingStore):
 
     def _fetch_metadata(
         self, record_ids: List[str]
-    ) -> Dict[str, Tuple[str, str, str, str, str, str, str]]:
+    ) -> Dict[str, Tuple[str, str, str, str, str, str, str, str, int, str, str]]:
         if not record_ids:
             return {}
         placeholders = ", ".join("?" for _ in record_ids)
@@ -338,5 +379,6 @@ class Vec0EmbeddingStore(EmbeddingStore):
 
 __all__ = [
     "Vec0EmbeddingStore",
+    "EmbeddingCompatibilityError",
     "DEFAULT_SQLITE_VEC_EXTENSION_PATH",
 ]
