@@ -26,8 +26,6 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from src.config_manager import ConfigManager
-from src.storage_paths.storage_paths import StoragePaths
 from src.workflows import (
     AskWorkflowExecutor,
     FakeWorkflowExecutor,
@@ -72,11 +70,6 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--agent", default=None, help="Fallback agent when a node defines none.")
     parser.add_argument("--context", default=None, help="Fallback context when a node defines none.")
     parser.add_argument("--ask-url", default=DEFAULT_ASK_URL, help="Lucy /ask endpoint.")
-    parser.add_argument(
-        "--tasklist-dir",
-        default=None,
-        help="Directory for generated tasklists. Defaults to the configured storage paths.",
-    )
     parser.add_argument("--max-tokens", type=int, default=None, help="Optional workflow token budget.")
     return parser.parse_args(argv)
 
@@ -84,14 +77,6 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 def resolve_path(raw: str) -> Path:
     path = Path(raw)
     return path if path.is_absolute() else (REPO_ROOT / path)
-
-
-def resolve_tasklist_dir(raw: str | None) -> Path:
-    if raw:
-        return resolve_path(raw)
-    config = ConfigManager("config.json")
-    paths = StoragePaths(config.get("storage_root_path"), config.get("storage_namespace"))
-    return paths.tasklists
 
 
 def parse_fake_script(spec: str) -> tuple[list[str], dict[str, list[str]]]:
@@ -170,10 +155,9 @@ def build_fake_executor(args: argparse.Namespace, root: WorkflowNode) -> tuple[F
     return FakeWorkflowExecutor(scripted), scripted
 
 
-def build_ask_executor(args: argparse.Namespace, tasklist_dir: Path) -> AskWorkflowExecutor:
+def build_ask_executor(args: argparse.Namespace) -> AskWorkflowExecutor:
     return AskWorkflowExecutor(
         account_name=args.account,
-        tasklist_dir=tasklist_dir,
         ask_url=args.ask_url,
         default_agent=args.agent or "peace",
         default_context=args.context or "lucyproject",
@@ -262,20 +246,17 @@ def main(argv: list[str] | None = None) -> int:
 
     print_tree(root)
 
-    tasklist_dir = resolve_tasklist_dir(args.tasklist_dir)
     try:
         if args.executor == "fake":
             executor, scripted = build_fake_executor(args, root)
             print_script(root, scripted)
         else:
-            executor = build_ask_executor(args, tasklist_dir)
+            executor = build_ask_executor(args)
     except ValueError as exc:
         print(f"Executor setup failed: {exc}", file=sys.stderr)
         return 1
 
     print(f"\nExecutor: {type(executor).__name__}")
-    if isinstance(executor, AskWorkflowExecutor):
-        print(f"Tasklist dir: {tasklist_dir}")
 
     runner = WorkflowRunner(executor, max_tokens=args.max_tokens)
     try:

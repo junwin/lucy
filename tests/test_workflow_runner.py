@@ -1,10 +1,6 @@
 import json as jsonlib
 
-from src.workflows.executor import (
-    AskWorkflowExecutor,
-    FakeWorkflowExecutor,
-    classify_semantic_outcome,
-)
+from src.workflows.executor import AskWorkflowExecutor, FakeWorkflowExecutor
 from src.workflows.loader import WorkflowLoader
 from src.workflows.result import WorkflowResult
 from src.workflows.runner import WorkflowRunner
@@ -35,6 +31,15 @@ children:
       success: complete
       failed: design
       blocked: exit
+"""
+
+CLARITY = """
+name: clarity
+id: clarity
+type: condition
+agent: peace
+context: lucyproject
+instructions: Assess requirement clarity.
 """
 
 
@@ -122,17 +127,6 @@ children:
     assert executor.calls == ["review", "review"]
 
 
-def test_execution_completion_is_not_automatically_semantic_success():
-    assert classify_semantic_outcome("Design produced", "completed") == "inconclusive"
-    assert (
-        classify_semantic_outcome(
-            '{"outcome":"success","result":"Design produced"}', "completed"
-        )
-        == "success"
-    )
-    assert classify_semantic_outcome("I could not access the repository", "completed") == "blocked"
-
-
 class FakeResponse:
     def __init__(self, status_code, body):
         self.status_code = status_code
@@ -148,7 +142,6 @@ def test_ask_executor_reads_api_key_from_config_local_json(tmp_path):
 
     executor = AskWorkflowExecutor(
         account_name="junwin",
-        tasklist_dir=tmp_path,
         config_path=config_path,
         post=lambda *args, **kwargs: None,
     )
@@ -156,117 +149,96 @@ def test_ask_executor_reads_api_key_from_config_local_json(tmp_path):
     assert executor.api_key == "sekret"
 
 
-def test_ask_executor_writes_tasklist_calls_ask_and_reads_new_jsonl_record(tmp_path):
+def test_ask_executor_sends_node_instructions_as_the_question():
     calls = []
 
     def fake_post(url, *, json, headers, timeout):
-        payload = json
-        calls.append((url, payload, headers, timeout))
-        tasklist_id = payload["question"].split('tasklist "', 1)[1].split('"', 1)[0]
-        history = tmp_path / f"{tasklist_id}.jsonl"
-        history.write_text(
-            jsonlib.dumps(
-                {
-                    "state": "completed",
-                    "result": {
-                        "output": '{"outcome":"blocked","result":"Repository is not available"}'
-                    },
-                    "metrics": {"total_tokens": 123, "iterations": 4},
-                }
-            )
-            + "\n",
-            encoding="utf-8",
-        )
-        return FakeResponse(200, {"response": "TaskList run requested", "conversation_id": "c1"})
+        calls.append((url, json, headers, timeout))
+        return FakeResponse(200, {"response": "Design produced"})
 
-    node = WorkflowLoader().load_text(
-        """
-name: clarity
-id: clarity
-type: condition
-agent: peace
-context: lucyproject
-instructions: Assess requirement clarity and return structured JSON.
-"""
-    )
-    executor = AskWorkflowExecutor(
-        account_name="junwin",
-        tasklist_dir=tmp_path,
-        api_key="sekret",
-        post=fake_post,
-    )
+    node = WorkflowLoader().load_text(CLARITY)
+    executor = AskWorkflowExecutor(account_name="junwin", api_key="sekret", post=fake_post)
+
+    run = executor.execute(node)
+
+    assert len(calls) == 1
+    url, payload, headers, timeout = calls[0]
+    assert url == executor.ask_url
+    assert headers == {"X-API-Key": "sekret"}
+    assert payload["question"] == "Assess requirement clarity."
+    assert payload["agentName"] == "peace"
+    assert payload["accountName"] == "junwin"
+    assert payload["contextName"] == "lucyproject"
+    assert run.execution_state == "completed"
+    assert run.text == "Design produced"
+    assert run.outcome == "success"
+    assert run.metrics == {}
+
+
+def test_ask_executor_does_not_interpret_response_text():
+    def fake_post(url, *, json, headers, timeout):
+        return FakeResponse(200, {"response": '{"outcome":"failed","result":"ok"}'})
+
+    node = WorkflowLoader().load_text(CLARITY)
+    executor = AskWorkflowExecutor(account_name="junwin", api_key="sekret", post=fake_post)
 
     run = executor.execute(node)
 
     assert run.execution_state == "completed"
-    assert run.outcome == "blocked"
-    assert run.metrics["total_tokens"] == 123
-    assert run.metrics["iterations"] == 4
-    assert len(list(tmp_path.glob("workflow-clarity-*.json"))) == 1
-    assert calls[0][1]["agentName"] == "peace"
-    assert calls[0][1]["accountName"] == "junwin"
-    assert calls[0][1]["contextName"] == "lucyproject"
-    assert calls[0][2] == {"X-API-Key": "sekret"}
-    assert 'worker_agent "peace"' in calls[0][1]["question"]
+    assert run.outcome == "success"
 
 
-def test_ask_executor_reports_http_error_before_reading_history(tmp_path):
+def test_ask_executor_reports_http_error():
     def fake_post(url, *, json, headers, timeout):
-        return FakeResponse(500, {"error": "Tool execution failed: tasklist not found"})
+        return FakeResponse(500, {"error": "boom"})
 
-    node = WorkflowLoader().load_text(
-        """
-name: clarity
-id: clarity
-type: condition
-agent: peace
-instructions: Assess requirement clarity.
-"""
-    )
-    executor = AskWorkflowExecutor(
-        account_name="junwin",
-        tasklist_dir=tmp_path,
-        api_key="sekret",
-        post=fake_post,
-    )
+    node = WorkflowLoader().load_text(CLARITY)
+    executor = AskWorkflowExecutor(account_name="junwin", api_key="sekret", post=fake_post)
 
     run = executor.execute(node)
 
     assert run.execution_state == "error"
     assert run.outcome == "failed"
     assert "HTTP 500" in run.error
-    assert "tasklist not found" in run.error
+    assert "boom" in run.error
 
 
-def test_ask_executor_requires_new_jsonl_record_even_when_ask_returns_200(tmp_path):
-    existing = tmp_path / "xyz.jsonl"
-    existing.write_text(
-        jsonlib.dumps({"state": "completed", "result": {"output": '{"outcome":"success"}'}}) + "\n",
-        encoding="utf-8",
-    )
-
+def test_ask_executor_reports_ask_error_body():
     def fake_post(url, *, json, headers, timeout):
-        return FakeResponse(200, {"response": "I tried to run it", "conversation_id": "c1"})
+        return FakeResponse(200, {"error": "boom"})
 
-    node = WorkflowLoader().load_text(
-        """
-name: existing
-id: existing
-type: tasklist
-tasklist: xyz
-agent: peace
-"""
-    )
-    executor = AskWorkflowExecutor(
-        account_name="junwin",
-        tasklist_dir=tmp_path,
-        api_key="sekret",
-        post=fake_post,
-    )
+    node = WorkflowLoader().load_text(CLARITY)
+    executor = AskWorkflowExecutor(account_name="junwin", api_key="sekret", post=fake_post)
 
     run = executor.execute(node)
 
     assert run.execution_state == "error"
     assert run.outcome == "failed"
-    assert run.text == "I tried to run it"
-    assert "produced no new execution records" in run.error
+    assert "boom" in run.error
+
+
+def test_ask_executor_reports_transport_failure():
+    def fake_post(url, *, json, headers, timeout):
+        raise ConnectionError("connection refused")
+
+    node = WorkflowLoader().load_text(CLARITY)
+    executor = AskWorkflowExecutor(account_name="junwin", api_key="sekret", post=fake_post)
+
+    run = executor.execute(node)
+
+    assert run.execution_state == "error"
+    assert run.outcome == "failed"
+    assert "connection refused" in run.error
+
+
+def test_ask_executor_writes_no_files(tmp_path):
+    def fake_post(url, *, json, headers, timeout):
+        return FakeResponse(200, {"response": "Design produced"})
+
+    node = WorkflowLoader().load_text(CLARITY)
+    executor = AskWorkflowExecutor(account_name="junwin", api_key="sekret", post=fake_post)
+
+    run = executor.execute(node)
+
+    assert run.execution_state == "completed"
+    assert list(tmp_path.iterdir()) == []
