@@ -1,40 +1,9 @@
 #!/usr/bin/env python3
 """Copy a legacy Lucy sqlite-vec store into the canonical vec0 schema.
 
-This migration is deliberately *not* an in-place schema upgrade. The source
-SQLite database is opened read-only and is never modified. Records are copied
-into a new destination database created by ``Vec0EmbeddingStore``.
-
-The script follows the canonical-schema migration rules:
-
-* preserve vectors exactly; never call an embedding provider;
-* preserve account/namespace/source refs/metadata/timestamps;
-* preserve record IDs that are already valid UUIDs;
-* require explicit ``--assign-new-uuids`` before replacing legacy IDs;
-* promote ``source_metadata.content_hash`` to ``document_id`` only when the
-  hash can be verified against the raw source file, unless the operator
-  explicitly supplies ``--trust-content-hash``;
-* never invent model/provider provenance. Existing metadata may supply it, or
-  the operator may explicitly assert it with ``--model`` / ``--provider``;
-* validate counts, metadata and representative recall/filter behaviour before
-  reporting success.
-
-Typical use::
-
-    python scripts/migrate_vec0_canonical.py \
-        --source /path/embeddings.sqlite \
-        --destination /path/embeddings-v2.sqlite \
-        --dry-run
-
-    python scripts/migrate_vec0_canonical.py \
-        --source /path/embeddings.sqlite \
-        --destination /path/embeddings-v2.sqlite \
-        --assign-new-uuids \
-        --model text-embedding-3-small \
-        --provider openai
-
-The destination must not already exist. Switching Lucy to the new database is
-an explicit operational step outside this script.
+The source database is opened read-only and is never modified. The migration
+creates a new destination database, preserves vectors exactly, and validates
+the destination before reporting success.
 """
 
 from __future__ import annotations
@@ -99,7 +68,6 @@ def _load_vec_extension(conn: sqlite3.Connection, extension_path: str) -> None:
 
 
 def _open_source_read_only(path: Path, extension_path: str) -> sqlite3.Connection:
-    # URI mode=ro gives us an OS/SQLite-level guard against accidental writes.
     conn = sqlite3.connect(f"file:{path.resolve()}?mode=ro", uri=True)
     _load_vec_extension(conn, extension_path)
     return conn
@@ -157,19 +125,21 @@ def _read_legacy_records(conn: sqlite3.Connection) -> List[LegacyRecord]:
         "SELECT id, COUNT(*) FROM vec_embeddings GROUP BY id HAVING COUNT(*) > 1"
     ).fetchall()
     if duplicate_ids:
-        preview = ", ".join(f"{record_id!r} x{count}" for record_id, count in duplicate_ids[:5])
+        preview = ", ".join(
+            f"{record_id!r} x{count}" for record_id, count in duplicate_ids[:5]
+        )
         raise ValueError(
-            "source vec_embeddings contains duplicate record IDs; refusing ambiguous migration: "
-            + preview
+            "source vec_embeddings contains duplicate record IDs; "
+            f"refusing ambiguous migration: {preview}"
         )
 
     orphan_vectors = conn.execute(
-        "SELECT COUNT(*) FROM vec_embeddings v LEFT JOIN embedding_metadata m ON m.id = v.id"
-        " WHERE m.id IS NULL"
+        "SELECT COUNT(*) FROM vec_embeddings v "
+        "LEFT JOIN embedding_metadata m ON m.id = v.id WHERE m.id IS NULL"
     ).fetchone()[0]
     orphan_metadata = conn.execute(
-        "SELECT COUNT(*) FROM embedding_metadata m LEFT JOIN vec_embeddings v ON v.id = m.id"
-        " WHERE v.id IS NULL"
+        "SELECT COUNT(*) FROM embedding_metadata m "
+        "LEFT JOIN vec_embeddings v ON v.id = m.id WHERE v.id IS NULL"
     ).fetchone()[0]
     if orphan_vectors or orphan_metadata:
         raise ValueError(
@@ -179,10 +149,10 @@ def _read_legacy_records(conn: sqlite3.Connection) -> List[LegacyRecord]:
         )
 
     rows = conn.execute(
-        "SELECT m.id, m.account_name, m.namespace, v.embedding, m.source_type,"
-        " m.source_id, m.source_metadata, m.created_at"
-        " FROM embedding_metadata m JOIN vec_embeddings v ON v.id = m.id"
-        " ORDER BY m.account_name, m.namespace, m.id"
+        "SELECT m.id, m.account_name, m.namespace, v.embedding, m.source_type, "
+        "m.source_id, m.source_metadata, m.created_at "
+        "FROM embedding_metadata m JOIN vec_embeddings v ON v.id = m.id "
+        "ORDER BY m.account_name, m.namespace, m.id"
     ).fetchall()
 
     records: List[LegacyRecord] = []
@@ -190,15 +160,19 @@ def _read_legacy_records(conn: sqlite3.Connection) -> List[LegacyRecord]:
         vector = _decode_vector(row[3])
         if len(vector) != _EMBEDDING_DIM:
             raise ValueError(
-                f"record {row[0]!r} has {len(vector)} dimensions; expected {_EMBEDDING_DIM}"
+                f"record {row[0]!r} has {len(vector)} dimensions; "
+                f"expected {_EMBEDDING_DIM}"
             )
         try:
             metadata = json.loads(row[6] or "{}")
         except json.JSONDecodeError as exc:
-            raise ValueError(f"record {row[0]!r} has invalid source_metadata JSON") from exc
+            raise ValueError(
+                f"record {row[0]!r} has invalid source_metadata JSON"
+            ) from exc
         if not isinstance(metadata, dict):
-            raise ValueError(f"record {row[0]!r} source_metadata must be a JSON object")
-
+            raise ValueError(
+                f"record {row[0]!r} source_metadata must be a JSON object"
+            )
         records.append(
             LegacyRecord(
                 id=str(row[0]),
@@ -232,7 +206,9 @@ def _sha256_file(path: Path) -> str:
 
 def _looks_like_sha256(value: Any) -> bool:
     text = str(value or "")
-    return len(text) == 64 and all(ch in "0123456789abcdefABCDEF" for ch in text)
+    return len(text) == 64 and all(
+        ch in "0123456789abcdefABCDEF" for ch in text
+    )
 
 
 def _resolve_document_id(
@@ -256,9 +232,7 @@ def _resolve_document_id(
         actual = _sha256_file(source_path)
     except OSError:
         return "", False
-    if actual == candidate:
-        return candidate, True
-    return "", False
+    return (candidate, True) if actual == candidate else ("", False)
 
 
 def _first_nonempty(metadata: Dict[str, Any], keys: Sequence[str]) -> str:
@@ -294,14 +268,11 @@ def prepare_records(
 
     for legacy in records:
         id_replaced = not _is_uuid(legacy.id)
-        if id_replaced:
-            if not assign_new_uuids:
-                new_id = legacy.id
-            else:
-                new_id = str(uuid.uuid4())
-        else:
-            new_id = legacy.id
-
+        new_id = (
+            str(uuid.uuid4())
+            if id_replaced and assign_new_uuids
+            else legacy.id
+        )
         if new_id in assigned_ids:
             raise ValueError(f"migration would create duplicate id {new_id!r}")
         assigned_ids.add(new_id)
@@ -314,7 +285,6 @@ def prepare_records(
             asserted_model=model,
             asserted_provider=provider,
         )
-
         prepared.append(
             PreparedRecord(
                 old_id=legacy.id,
@@ -345,17 +315,37 @@ def _summary(prepared: Sequence[PreparedRecord]) -> Dict[str, Any]:
         (item.record.account_name, item.record.namespace) for item in prepared
     )
     source_types = Counter(item.record.source_type for item in prepared)
+    rescan_namespaces = Counter(
+        (item.record.account_name, item.record.namespace)
+        for item in prepared
+        if not item.document_id_verified
+    )
+    verified_namespaces = Counter(
+        (item.record.account_name, item.record.namespace)
+        for item in prepared
+        if item.document_id_verified
+    )
     return {
         "records": len(prepared),
         "valid_uuid_ids": sum(not item.id_replaced for item in prepared),
         "ids_requiring_assignment": sum(item.id_replaced for item in prepared),
         "verified_document_ids": sum(item.document_id_verified for item in prepared),
-        "requires_source_rescan": sum(not item.document_id_verified for item in prepared),
+        "requires_source_rescan": sum(
+            not item.document_id_verified for item in prepared
+        ),
         "known_provenance": sum(item.provenance_known for item in prepared),
         "unknown_provenance": sum(not item.provenance_known for item in prepared),
         "namespaces": {
             f"{account}/{namespace}": count
             for (account, namespace), count in sorted(namespaces.items())
+        },
+        "rescan_by_namespace": {
+            f"{account}/{namespace}": count
+            for (account, namespace), count in sorted(rescan_namespaces.items())
+        },
+        "verified_hashes_by_namespace": {
+            f"{account}/{namespace}": count
+            for (account, namespace), count in sorted(verified_namespaces.items())
         },
         "source_types": dict(sorted(source_types.items())),
     }
@@ -376,8 +366,6 @@ def _write_destination(
             for item in prepared:
                 store.upsert_embedding(item.record)
     except BaseException:
-        # A partially-created destination must never masquerade as an accepted
-        # migration. Best effort cleanup leaves the source untouched.
         try:
             destination.unlink(missing_ok=True)
         except OSError:
@@ -392,9 +380,9 @@ def _canonical_rows(
     try:
         _load_vec_extension(conn, extension_path)
         rows = conn.execute(
-            "SELECT id, account_name, namespace, source_type, source_id, document_id,"
-            " model, provider, dimensions, source_metadata, created_at"
-            " FROM embedding_metadata ORDER BY id"
+            "SELECT id, account_name, namespace, source_type, source_id, "
+            "document_id, model, provider, dimensions, source_metadata, created_at "
+            "FROM embedding_metadata ORDER BY id"
         ).fetchall()
     finally:
         conn.close()
@@ -453,9 +441,6 @@ def validate_destination(
             f"vector count mismatch: expected {len(prepared)}, got {vec_count}"
         )
 
-    # Exercise the actual store query path for one representative record per
-    # account/namespace/source_type. The record's own vector should retrieve at
-    # least one result under the same pre-top-k filters.
     representatives: Dict[Tuple[str, str, str], EmbeddingRecord] = {}
     for item in prepared:
         key = (
@@ -479,7 +464,6 @@ def validate_destination(
                     "filtered recall returned no result for "
                     f"{account}/{namespace}/{source_type}"
                 )
-
     return errors
 
 
@@ -536,7 +520,6 @@ def migrate_vec0_canonical(
             f"{invalid_ids} record id(s) are not UUIDs; rerun with "
             "--assign-new-uuids after reviewing the dry-run report"
         )
-
     if dry_run:
         return summary
 
@@ -558,6 +541,14 @@ def _print_summary(summary: Dict[str, Any]) -> None:
     print("Namespaces:")
     for name, count in summary["namespaces"].items():
         print(f"  {name}: {count}")
+    print("Rescan required by namespace:")
+    if summary["rescan_by_namespace"]:
+        for name, count in summary["rescan_by_namespace"].items():
+            verified = summary["verified_hashes_by_namespace"].get(name, 0)
+            total = summary["namespaces"].get(name, count + verified)
+            print(f"  {name}: {count} rescan / {verified} verified / {total} total")
+    else:
+        print("  none")
     print("Source types:")
     for name, count in summary["source_types"].items():
         print(f"  {name or '<empty>'}: {count}")
