@@ -136,7 +136,7 @@ def test_embedding_store_sqlite_backend(monkeypatch, tmp_path):
 
 
 def test_embedding_store_sqlite_default_db_path(monkeypatch, tmp_path):
-    """No explicit db path -> <storage_root>/<namespace>/embeddings.sqlite."""
+    """No explicit db path -> <storage_root>/<namespace>/embeddings-v2.sqlite."""
     # In production the storage namespace dir already exists (JsonFileStorage
     # creates it); mirror that here since SqliteChat2Primitives does not mkdir.
     (tmp_path / "root" / "data").mkdir(parents=True)
@@ -149,7 +149,7 @@ def test_embedding_store_sqlite_default_db_path(monkeypatch, tmp_path):
         },
     )
     store = module.provide_embedding_store(_sentinel_storage())
-    expected = tmp_path / "root" / "data" / "embeddings.sqlite"
+    expected = tmp_path / "root" / "data" / "embeddings-v2.sqlite"
     try:
         store.upsert_embedding(_record(record_id="r1"))
         assert expected.exists()

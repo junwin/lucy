@@ -296,10 +296,10 @@ def build_primitives_embedding_store(config: Any) -> EmbeddingStore:
       on-disk layout is identical to today's JSON embedding store.
     - ``sqlite``     -> ``PrimitivesEmbeddingStore`` over
       ``SqliteChat2Primitives`` at ``embedding_store_db_path`` (default
-      ``<storage_root_path>/<storage_namespace>/embeddings.sqlite``).
+      ``<storage_root_path>/<storage_namespace>/embeddings-v2.sqlite``).
     - ``sqlite_vec`` -> ``Vec0EmbeddingStore`` (sqlite-vec vec0 KNN, design
       doc embedding-vec0-store.md) at ``embedding_store_db_path`` (default
-      ``<storage_root_path>/<storage_namespace>/embeddings.sqlite``); the
+      ``<storage_root_path>/<storage_namespace>/embeddings-v2.sqlite``); the
       extension is loaded from ``sqlite_vec_extension_path`` (default
       ``/usr/local/lib/sqlite-vec/vec0.so``).
 
@@ -317,7 +317,7 @@ def build_primitives_embedding_store(config: Any) -> EmbeddingStore:
         if not db_path:
             storage_root = config.get("storage_root_path") or "/home/junwin/lucydata"
             storage_ns = config.get("storage_namespace") or "data"
-            db_path = str(Path(storage_root) / storage_ns / "embeddings.sqlite")
+            db_path = str(Path(storage_root) / storage_ns / "embeddings-v2.sqlite")
         return PrimitivesEmbeddingStore(SqliteChat2Primitives(db_path))
 
     if backend == "sqlite_vec":
@@ -330,7 +330,7 @@ def build_primitives_embedding_store(config: Any) -> EmbeddingStore:
         if not db_path:
             storage_root = config.get("storage_root_path") or "/home/junwin/lucydata"
             storage_ns = config.get("storage_namespace") or "data"
-            db_path = str(Path(storage_root) / storage_ns / "embeddings.sqlite")
+            db_path = str(Path(storage_root) / storage_ns / "embeddings-v2.sqlite")
         extension_path = config.get("sqlite_vec_extension_path")
         return Vec0EmbeddingStore(
             db_path=db_path,

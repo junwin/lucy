@@ -22,7 +22,7 @@ from src.storage.vec0_embedding_store import (
     Vec0EmbeddingStore,
 )
 
-_EMBEDDINGS_DB = "/home/junwin/lucy_storage/data/embeddings.sqlite"
+_EMBEDDINGS_DB = "/home/junwin/lucy_storage/data/embeddings-v2.sqlite"
 _ACCOUNT = "junwin"
 _NAMESPACE = "documents"
 _TARGET_SOURCE_ID = "obsidian_importer.md"

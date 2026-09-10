@@ -32,7 +32,7 @@ def test_migrate_copies_verbatim_and_skips_stray(tmp_path):
         "embeddings/stray.json": "{}",  # not <account>/<namespace>/<id>.json
     }
     file_store = _make_file_store(tmp_path, records)
-    sqlite_store = SqliteChat2Primitives(str(tmp_path / "embeddings.sqlite"))
+    sqlite_store = SqliteChat2Primitives(str(tmp_path / "embeddings-v2.sqlite"))
     try:
         total, copied, skipped = migrate_embeddings(file_store, sqlite_store)
 
@@ -51,7 +51,7 @@ def test_migrate_copies_verbatim_and_skips_stray(tmp_path):
 def test_migrate_is_idempotent(tmp_path):
     records = {"embeddings/junwin/documents/d1.json": '{"id": "d1", "vector": [0.1]}'}
     file_store = _make_file_store(tmp_path, records)
-    sqlite_store = SqliteChat2Primitives(str(tmp_path / "embeddings.sqlite"))
+    sqlite_store = SqliteChat2Primitives(str(tmp_path / "embeddings-v2.sqlite"))
     try:
         migrate_embeddings(file_store, sqlite_store)
         migrate_embeddings(file_store, sqlite_store)
@@ -63,7 +63,7 @@ def test_migrate_is_idempotent(tmp_path):
 def test_migrate_dry_run_writes_nothing(tmp_path):
     records = {"embeddings/junwin/documents/d1.json": '{"id": "d1", "vector": [0.1]}'}
     file_store = _make_file_store(tmp_path, records)
-    sqlite_store = SqliteChat2Primitives(str(tmp_path / "embeddings.sqlite"))
+    sqlite_store = SqliteChat2Primitives(str(tmp_path / "embeddings-v2.sqlite"))
     try:
         total, copied, skipped = migrate_embeddings(
             file_store, sqlite_store, dry_run=True
@@ -79,7 +79,7 @@ def test_migrate_dry_run_writes_nothing(tmp_path):
 def test_migrate_overwrites_existing_sqlite_values(tmp_path):
     records = {"embeddings/junwin/documents/d1.json": '{"id": "d1", "vector": [0.1]}'}
     file_store = _make_file_store(tmp_path, records)
-    sqlite_store = SqliteChat2Primitives(str(tmp_path / "embeddings.sqlite"))
+    sqlite_store = SqliteChat2Primitives(str(tmp_path / "embeddings-v2.sqlite"))
     try:
         # Pre-existing older value at the same key.
         sqlite_store.write_text(
