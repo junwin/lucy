@@ -12,7 +12,7 @@ warning logged.
 """
 
 import logging
-from src.handlers.handler_registry import HandlerRegistry
+from galet_tools import HandlerRegistry, register_installed_handlers
 from src.handlers.file_load_handler2 import FileLoadHandler2
 from src.handlers.file_save_handler import FileSaveHandler2
 from src.handlers.command_execution_handler2 import CommandExecutionHandler2
@@ -126,6 +126,13 @@ def build_registry() -> HandlerRegistry:
 
     # Tool selection pipeline diagnostic probe (issue #126)
     reg.register(ToolSelectionProbeHandler)
+
+    # Installed extension packages contribute handlers through the shared
+    # galet_tools.handlers entry-point group. Registration does not grant an
+    # agent permission: the existing agent/context allowlists still apply.
+    loaded_plugins = register_installed_handlers(reg)
+    if loaded_plugins:
+        logger.info("Loaded handler plugins: %s", ", ".join(loaded_plugins))
 
     logger.info("Handler registry built with %d handlers.", len(reg.tool_names()))
     return reg
