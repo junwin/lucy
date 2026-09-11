@@ -100,7 +100,7 @@ def _vec0_distance(db_path: str, query_vector: List[float]) -> float:
     conn = _open_with_vec0(db_path)
     try:
         row = conn.execute(
-            "SELECT distance FROM vec_embeddings"
+            "SELECT distance FROM vec_embeddings_v2"
             " WHERE embedding MATCH ? AND k = 1 AND account_name = ? AND namespace = ?",
             (json.dumps(query_vector), _ACCOUNT, "documents"),
         ).fetchone()
@@ -260,7 +260,7 @@ def test_round_trip_upsert_query_delete(vec0_db_path: str) -> None:
         assert (
             _scalar(
                 vec0_db_path,
-                "SELECT COUNT(*) FROM vec_embeddings WHERE id = ?",
+                "SELECT COUNT(*) FROM vec_embeddings_v2 WHERE id = ?",
                 ("doc-2",),
             )
             == 1

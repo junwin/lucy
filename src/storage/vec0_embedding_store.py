@@ -19,15 +19,12 @@ class EmbeddingCompatibilityError(ValueError, AssertionError):
     """Raised when a stored or query vector is incompatible with this vec0 store."""
 
 
-# account_name + namespace are partition keys because every semantic recall is
-# scoped by both. source_type remains in vec0 as a filterable metadata column so
-# source_type filtering participates in the KNN query before final top-k.
 _VEC_TABLE_DDL = (
-    "CREATE VIRTUAL TABLE IF NOT EXISTS vec_embeddings USING vec0("
+    "CREATE VIRTUAL TABLE IF NOT EXISTS vec_embeddings_v2 USING vec0("
     " id TEXT PRIMARY KEY,"
     " embedding float[1536] distance_metric=cosine,"
-    " account_name TEXT partition key,"
-    " namespace TEXT partition key,"
+    " account_name TEXT,"
+    " namespace TEXT,"
     " source_type TEXT)"
 )
 
@@ -62,11 +59,11 @@ _DOCUMENT_ID_INDEX_DDL = (
 )
 
 _VEC_INSERT_SQL = (
-    "INSERT INTO vec_embeddings(id, account_name, namespace, source_type, embedding)"
+    "INSERT INTO vec_embeddings_v2(id, account_name, namespace, source_type, embedding)"
     " VALUES (?, ?, ?, ?, ?)"
 )
 
-_VEC_DELETE_BY_ID_SQL = "DELETE FROM vec_embeddings WHERE id = ?"
+_VEC_DELETE_BY_ID_SQL = "DELETE FROM vec_embeddings_v2 WHERE id = ?"
 
 _METADATA_UPSERT_SQL = (
     "INSERT INTO embedding_metadata("
@@ -92,7 +89,7 @@ _METADATA_SELECT_COLUMNS = (
 )
 
 _KNN_SELECT_SQL = (
-    "SELECT id, embedding, distance FROM vec_embeddings"
+    "SELECT id, embedding, distance FROM vec_embeddings_v2"
     " WHERE embedding MATCH ? AND k = ? AND account_name = ? AND namespace = ?"
 )
 
@@ -295,7 +292,7 @@ class Vec0EmbeddingStore(EmbeddingStore):
             return {}
         placeholders = ", ".join("?" for _ in record_ids)
         sql = (
-            "SELECT id, embedding FROM vec_embeddings WHERE id IN ("
+            "SELECT id, embedding FROM vec_embeddings_v2 WHERE id IN ("
             + placeholders
             + ")"
         )

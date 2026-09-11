@@ -1,0 +1,44 @@
+name: issue-resolution
+type: sequence
+
+children:
+  - id: clarity
+    name: Requirement clarity
+    type: condition
+    agent: star
+    context: no_import
+    max_attempts: 1
+    instructions: |
+      is this question clear 'What is the capital of Ireland' answer true or false
+    on:
+      success: design
+      failed: exit
+      blocked: exit
+      inconclusive: exit
+
+  - id: design
+    name: Create design
+    type: condition
+    agent: star
+    context: no_import
+    max_attempts: 2
+    instructions: |
+      What is the capital of Ireland write the answer in obsidian software/ai/lucy/temp_files/myanswer.md
+    on:
+      success: review
+      failed: exit
+      blocked: exit
+      inconclusive: exit
+  - id: review
+    name: Review design
+    type: condition
+    agent: star
+    context: no_import
+    max_attempts: 2
+    instructions: |
+      is there a file presnt in obsidian software/ai/lucy/temp_files/myanswer.md
+    on:
+      success: complete
+      failed: design
+      blocked: exit
+      inconclusive: exit

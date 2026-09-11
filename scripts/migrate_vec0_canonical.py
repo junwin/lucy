@@ -459,7 +459,7 @@ def validate_destination(
     conn = sqlite3.connect(str(destination))
     try:
         _load_vec_extension(conn, extension_path)
-        vec_count = conn.execute("SELECT COUNT(*) FROM vec_embeddings").fetchone()[0]
+        vec_count = conn.execute("SELECT COUNT(*) FROM vec_embeddings_v2").fetchone()[0]
     finally:
         conn.close()
     if vec_count != len(prepared):
