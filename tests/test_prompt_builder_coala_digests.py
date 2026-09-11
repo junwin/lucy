@@ -14,8 +14,11 @@ from src.prompt_builders.coala_prompt_builder import CoALAPromptBuilder
 
 
 class _Config:
+    def __init__(self, values=None):
+        self._values = values or {}
+
     def get(self, key, default=None):
-        return default
+        return self._values.get(key, default)
 
 
 class _AgentManager:
@@ -67,10 +70,10 @@ class _Episodic(EpisodicMemory):
         return f"stored: {snippet}"
 
 
-def _builder(memory):
+def _builder(memory, config=None):
     return CoALAPromptBuilder(
         agent_manager=_AgentManager(),
-        config=_Config(),
+        config=config or _Config(),
         storage=SimpleNamespace(),
         episodic_memory=memory,
         procedural_memory=None,
@@ -131,12 +134,8 @@ def test_prompt_builder_recalls_archived_digests_without_active_session():
 
 def test_prompt_builder_persists_overflow_through_episodic_memory():
     memory = _Episodic()
-    builder = _builder(memory)
 
-    # Force a tiny prompt budget so the older history event overflows.
-    builder.config = SimpleNamespace(
-        get=lambda key, default=None: 1 if key == "prompt_budget_max_tokens" else default
-    )
+    builder = _builder(memory, config=_Config({"prompt_budget_max_tokens": 1}))
 
     messages = builder.build_prompt(
         content_text="q",
