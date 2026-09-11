@@ -124,6 +124,8 @@
       "file_save",
       "semantic_memory",
       "get_keywords",
+      "tasklists_manage",
+      "tasklists_run",
       "scrape_web_page",
       "web_search_handler"
     ],
