@@ -10,6 +10,7 @@ def test_explicit_provider_overrides_prefix():
     assert inst is not None
 
 
+@pytest.mark.order_dependent
 def test_prefix_fallback_works():
     name, _ = ProviderRegistry.resolve("deepseek-something")
     assert name == "deepseek"
