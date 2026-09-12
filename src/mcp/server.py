@@ -405,7 +405,7 @@ def serve() -> None:
     registry = container.get(container_config.HandlerRegistry)
     prompt_builder = container.get(container_config.PromptBuilderInterface)
     llm_adapter = container.get(container_config.LLMAdapter)
-    chat2_store = container.get(container_config.Chat2Store)
+    episodic_store = container.get(container_config.EpisodicMemoryManager)
 
     scope, mcp_tools = resolve_startup_scope(
         agent_manager, registry, prompt_builder, cfg
@@ -419,7 +419,7 @@ def serve() -> None:
         prompt_builder=prompt_builder,
         llm_adapter=llm_adapter,
         agent_manager=agent_manager,
-        chat2_store=chat2_store,
+        episodic_store=episodic_store,
     )
 
 

@@ -4,6 +4,7 @@ import pytest
 
 from src.chat2.facade import Chat2Store
 from src.chat2.sqlite import SqliteChat2Primitives
+from src.coala_memory.episodic import Chat2EpisodicMemory
 
 
 @pytest.fixture
@@ -29,7 +30,7 @@ def _saved_agent(**overrides):
 class TestChat2SqliteEndToEnd:
 
     def test_no_tool_call_records_session_and_event(self, make_proc, prompt_builder, llm_adapter, chat2_store):
-        proc = make_proc(chat2_store=chat2_store)
+        proc = make_proc(episodic_store=Chat2EpisodicMemory(chat2_store))
 
         prompt_builder.build_prompt.return_value = [{"role": "user", "content": "hi"}]
         llm_adapter.extract_tool_calls.return_value = []
@@ -55,7 +56,7 @@ class TestChat2SqliteEndToEnd:
         assert events[2].payload == "hello"
 
     def test_context_name_persisted_in_session_meta(self, make_proc, prompt_builder, llm_adapter, chat2_store):
-        proc = make_proc(chat2_store=chat2_store)
+        proc = make_proc(episodic_store=Chat2EpisodicMemory(chat2_store))
 
         prompt_builder.build_prompt.return_value = [{"role": "user", "content": "hi"}]
         llm_adapter.extract_tool_calls.return_value = []
@@ -78,7 +79,7 @@ class TestChat2SqliteEndToEnd:
         assert meta.agent_name == "lucy"
 
     def test_empty_context_name_persisted_as_none(self, make_proc, prompt_builder, llm_adapter, chat2_store):
-        proc = make_proc(chat2_store=chat2_store)
+        proc = make_proc(episodic_store=Chat2EpisodicMemory(chat2_store))
 
         prompt_builder.build_prompt.return_value = [{"role": "user", "content": "hi"}]
         llm_adapter.extract_tool_calls.return_value = []
@@ -99,7 +100,7 @@ class TestChat2SqliteEndToEnd:
         assert meta.friendly_name is None
 
     def test_existing_session_reused_not_recreated(self, make_proc, prompt_builder, llm_adapter, chat2_store):
-        proc = make_proc(chat2_store=chat2_store)
+        proc = make_proc(episodic_store=Chat2EpisodicMemory(chat2_store))
 
         prompt_builder.build_prompt.return_value = [{"role": "user", "content": "hi"}]
         llm_adapter.extract_tool_calls.return_value = []
@@ -128,7 +129,7 @@ class TestChat2SqliteEndToEnd:
         assert len(events) == 6
 
     def test_save_responses_false_skips_chat2_write(self, make_proc, prompt_builder, llm_adapter, chat2_store):
-        proc = make_proc(chat2_store=chat2_store)
+        proc = make_proc(episodic_store=Chat2EpisodicMemory(chat2_store))
 
         prompt_builder.build_prompt.return_value = [{"role": "user", "content": "hi"}]
         llm_adapter.extract_tool_calls.return_value = []
@@ -148,7 +149,7 @@ class TestChat2SqliteEndToEnd:
         assert chat2_store.list_sessions(account_name="acct1") == []
 
     def test_streaming_persists_events_on_generator_close(self, make_proc, prompt_builder, llm_adapter, chat2_store):
-        proc = make_proc(chat2_store=chat2_store)
+        proc = make_proc(episodic_store=Chat2EpisodicMemory(chat2_store))
 
         prompt_builder.build_prompt.return_value = [{"role": "user", "content": "hi"}]
         llm_adapter.extract_tool_calls.return_value = []

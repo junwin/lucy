@@ -9,6 +9,7 @@ import pytest
 
 from src.chat2.facade import Chat2Store
 from src.chat2.sqlite import SqliteChat2Primitives
+from src.coala_memory.episodic import Chat2EpisodicMemory
 from src.message_processors.automation_processor import AutomationProcessor
 from src.message_processors.function_calling_processor import FCPResult
 from src.message_processors.run_metrics import RunMetrics
@@ -73,7 +74,7 @@ def make_processor(chat2_store, storage):
         registry=None,
         storage=storage,
         prompt_builder=None,
-        chat2_store=chat2_store,
+        episodic_store=Chat2EpisodicMemory(chat2_store),
         llm_adapter=None,
         agent_manager=None,
     )

@@ -275,7 +275,7 @@ class AutomationProcessorModule(Module):
         registry: HandlerRegistry,
         storage: Storage,
         prompt_builder: PromptBuilderInterface,
-        chat2_store: Chat2Store,
+        episodic_memory_manager: EpisodicMemoryManager,
         llm_adapter: LLMAdapter,
         agent_manager: AgentManager,
     ) -> AutomationProcessor:
@@ -284,7 +284,7 @@ class AutomationProcessorModule(Module):
             registry=registry,
             storage=storage,
             prompt_builder=prompt_builder,
-            chat2_store=chat2_store,
+            episodic_store=episodic_memory_manager,
             llm_adapter=llm_adapter,
             agent_manager=agent_manager,
         )
@@ -306,14 +306,14 @@ class EndpointHandlersModule(Module):
         config: ConfigManager,
         storage: Storage,
         processor_factory: ProcessorFactory,
-        chat2_store: Chat2Store,
+        episodic_memory_manager: EpisodicMemoryManager,
     ) -> AskRequestHandler:
         return AskRequestHandler(
             agent_manager=agent_manager,
             config=config,
             storage=storage,
             processor_factory=processor_factory,
-            chat2_store=chat2_store,
+            episodic_store=episodic_memory_manager,
         )
 
 

@@ -70,7 +70,7 @@ def run_tasklist(function_processor, tasklist, **overrides):
         registry=None,
         storage=storage,
         prompt_builder=None,
-        chat2_store=None,
+        episodic_store=None,
         llm_adapter=None,
         agent_manager=None,
     )
@@ -169,7 +169,7 @@ def test_append_failure_aborts_run_and_marks_task_failed():
         registry=None,
         storage=storage,
         prompt_builder=None,
-        chat2_store=None,
+        episodic_store=None,
         llm_adapter=None,
         agent_manager=None,
     )

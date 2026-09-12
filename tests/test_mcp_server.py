@@ -413,7 +413,7 @@ class _ToolExecutorStub:
             prompt_builder=None,
             llm_adapter=_LlamaStub(),
             agent_manager=None,
-            chat2_store=None,
+            episodic_store=None,
         )
 
     def wrap_tool_calls(self, tool_calls: Any) -> Any:

@@ -6,7 +6,7 @@ from typing import Any, Dict, Iterable, List, Optional, Tuple
 from src.agent import Agent
 from src.agent.agent_manager import AgentManager
 from src.agent.caps import resolve_effective_cap
-from src.chat2.facade import Chat2Store
+from src.coala_memory.episodic import EpisodicMemoryManager
 from src.config_manager import ConfigManager
 from src.handlers.handler_registry import HandlerRegistry
 from galet.adapter_interface import LLMAdapter
@@ -60,14 +60,14 @@ class ToolExecutor:
         prompt_builder: PromptBuilderInterface,
         llm_adapter: LLMAdapter,
         agent_manager: Optional[AgentManager],
-        chat2_store: Optional[Chat2Store] = None,
+        episodic_store: Optional[EpisodicMemoryManager] = None,
     ):
         self.registry = registry
         self.config = config
         self.prompt_builder = prompt_builder
         self.llm_adapter = llm_adapter
         self.agent_manager = agent_manager
-        self.chat2_store = chat2_store
+        self.episodic_store = episodic_store
 
     def safe_json_loads(self, s: str, correlation_id: Optional[str] = None) -> Dict[str, Any]:
         if not s:
@@ -161,7 +161,7 @@ class ToolExecutor:
             "registry": self.registry,
             "prompt_builder": self.prompt_builder,
             "config": self.config,
-            "chat2_store": self.chat2_store,
+            "episodic_store": self.episodic_store,
             "llm_adapter": self.llm_adapter,
             "agent_manager": self.agent_manager,
         }

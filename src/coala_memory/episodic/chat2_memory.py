@@ -230,6 +230,9 @@ class Chat2EpisodicMemory(EpisodicMemory, EpisodicMemoryManager):
         self.chat2_store.link_event(correlation_id, session_id, event_id)
 
     def update_session(self, session_id: str, patch: Dict[str, Any]) -> EpisodicSession:
+        patch = dict(patch)
+        if isinstance(patch.get("links"), dict):
+            patch["links"] = SessionLinks(**patch["links"])
         meta = self.chat2_store.update_session(session_id, **patch)
         return self._to_session(meta)
 
