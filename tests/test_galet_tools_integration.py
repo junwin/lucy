@@ -31,4 +31,4 @@ def test_registry_bootstrap_loads_installed_handler_plugins(monkeypatch) -> None
 
     assert observed == [registry]
     assert registry.has_tool("file_load")
-    assert registry.has_tool("context")
+    assert registry.has_tool("context_handler")
