@@ -123,7 +123,7 @@ class TestResolveOrCreateSession:
 
     def test_no_match_when_stored_friendly_name_is_none(self, chat2) -> None:
         _seed(chat2, "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", "alice", "lucy", "Some Name")
-        chat2.update_session("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", friendly_name=None)
+        chat2.update_session("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", {"friendly_name": None})
         session_id = resolve_or_create_session(chat2, "alice", "lucy", "some")
         assert UUID_RE.match(session_id)
         assert session_id != "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
@@ -158,7 +158,7 @@ class TestResolveOrCreateSession:
     def test_existing_context_name_is_not_overwritten(self, chat2) -> None:
         session_id = "cccccccc-cccc-4ccc-8ccc-cccccccccccc"
         _seed(chat2, session_id, "alice", "lucy", "project")
-        chat2.update_session(session_id, context_name="original")
+        chat2.update_session(session_id, {"context_name": "original"})
         resolved = resolve_or_create_session(
             chat2,
             "alice",

@@ -281,7 +281,7 @@ class TestEnsureChat2SessionContextName:
         mock_store.add_events.return_value = []
 
         proc = make_proc()
-        proc.chat2_store = mock_store
+        proc.episodic_store = mock_store
 
         prompt_builder.build_prompt.return_value = [{"role": "user", "content": "hi"}]
 
@@ -313,7 +313,7 @@ class TestEnsureChat2SessionContextName:
         mock_store.add_events.return_value = []
 
         proc = make_proc()
-        proc.chat2_store = mock_store
+        proc.episodic_store = mock_store
 
         prompt_builder.build_prompt.return_value = [{"role": "user", "content": "hi"}]
 
@@ -342,7 +342,7 @@ class TestEnsureChat2SessionContextName:
         mock_store.add_events.return_value = []
 
         proc = make_proc()
-        proc.chat2_store = mock_store
+        proc.episodic_store = mock_store
 
         prompt_builder.build_prompt.return_value = [{"role": "user", "content": "hi"}]
 
@@ -362,11 +362,11 @@ class TestEnsureChat2SessionContextName:
         mock_store.add_events.assert_called_once()
 
     def test_no_chat2_store_no_crash(self, make_proc, prompt_builder, llm_adapter):
-        """When chat2_store is None, process_message still works fine."""
+        """When episodic_store is None, process_message still works fine."""
         from tests.conftest import FakeAgent
 
         proc = make_proc()
-        proc.chat2_store = None  # explicitly None
+        proc.episodic_store = None  # explicitly None
 
         prompt_builder.build_prompt.return_value = [{"role": "user", "content": "hi"}]
 
@@ -393,7 +393,7 @@ class TestEnsureChat2SessionContextName:
         mock_store.add_events.return_value = []
 
         proc = make_proc()
-        proc.chat2_store = mock_store
+        proc.episodic_store = mock_store
 
         prompt_builder.build_prompt.return_value = [{"role": "user", "content": "hi"}]
 
@@ -786,7 +786,7 @@ def test_streaming_persists_on_generator_close(make_proc, prompt_builder, llm_ad
     mock_store.add_events.return_value = []
 
     proc = make_proc()
-    proc.chat2_store = mock_store
+    proc.episodic_store = mock_store
 
     prompt_builder.build_prompt.return_value = [{"role": "user", "content": "hi"}]
 
