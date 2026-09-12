@@ -43,6 +43,47 @@ def test_generic_handlers_are_thin_galet_adapters() -> None:
     assert issubclass(GenerateImageHandler, GaletGenerateImageHandler)
 
 
+class DictConfig:
+    def __init__(self, values: dict) -> None:
+        self._values = values
+
+    def get(self, key: str, default=None):
+        return self._values.get(key, default)
+
+
+def test_file_adapters_round_trip_through_lucy_storage(tmp_path) -> None:
+    storage_root = tmp_path / "storage-root"
+    storage_root.mkdir()
+    config = DictConfig(
+        {
+            "storage_root_path": str(storage_root),
+            "storage_namespace": "account-data",
+            "external_roots": {},
+        }
+    )
+
+    saved = FileSaveHandler2(config).execute(
+        {
+            "location": "storage",
+            "external_root": "",
+            "path": "adapter-check.txt",
+            "file_content": "owned by galet-tools",
+            "overwrite": True,
+        }
+    )
+    loaded = FileLoadHandler2(config).execute(
+        {
+            "location": "storage",
+            "external_root": "",
+            "path": "adapter-check.txt",
+        }
+    )
+
+    assert saved["ok"] is True
+    assert loaded["ok"] is True
+    assert loaded["result"] == "owned by galet-tools"
+
+
 def test_registry_bootstrap_loads_installed_handler_plugins(monkeypatch) -> None:
     from src.handlers import registry_bootstrap
 
