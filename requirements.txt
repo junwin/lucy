@@ -53,4 +53,4 @@ mcp==2.1.1
 
 # Shared handler ABI and external handler discovery.
 # Pinned to the integration commit until galet-tools has its first release.
--e git+https://github.com/junwin/galet-tools.git@f00797eea58308055a9f6952565e6df52daa8220#egg=galet-tools
+-e git+https://github.com/junwin/galet-tools.git@f82a111063810a98d55a55019b1536d253340078#egg=galet-tools
