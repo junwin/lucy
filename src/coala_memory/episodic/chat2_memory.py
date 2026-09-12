@@ -187,6 +187,9 @@ class Chat2EpisodicMemory(EpisodicMemory, EpisodicMemoryManager):
         events = list(self.chat2_store.stream_events(session_id)) if include_events else []
         return self._to_session(meta, events)
 
+    def session_exists(self, session_id: str) -> bool:
+        return self.chat2_store.session_exists(session_id)
+
     def list_sessions(self, query: EpisodicSessionQuery) -> List[EpisodicSession]:
         metas = self.chat2_store.list_sessions(
             account_name=query.account_name or None,
@@ -205,23 +208,26 @@ class Chat2EpisodicMemory(EpisodicMemory, EpisodicMemoryManager):
         return sessions
 
     def append_event(self, session_id: str, event: EpisodicEvent) -> EpisodicEvent:
-        chat_event = ChatEvent(
-            event_id=event.event_id or None,
-            ts=event.created_at,
-            role=event.role,
-            actor=event.actor or event.role,
-            kind=event.kind or ("user_message" if event.role == "user" else "assistant_message"),
-            payload=event.content,
-            metadata=event.metadata,
-        ) if event.event_id and event.created_at else ChatEvent(
-            role=event.role,
-            actor=event.actor or event.role,
-            kind=event.kind or ("user_message" if event.role == "user" else "assistant_message"),
-            payload=event.content,
-            metadata=event.metadata,
-        )
-        stored = self.chat2_store.add_event(session_id, chat_event)
+        stored = self.chat2_store.add_event(session_id, self._to_chat_event(event))
         return self._to_episodic_event(stored)
+
+    def add_events(self, session_id: str, events: List[EpisodicEvent]) -> List[EpisodicEvent]:
+        chat_events = [self._to_chat_event(event) for event in events]
+        stored = self.chat2_store.add_events(session_id, chat_events)
+        return [self._to_episodic_event(event) for event in stored]
+
+    def link_event(
+        self,
+        correlation_id: Optional[str],
+        session_id: str,
+        event_id: str,
+    ) -> None:
+        """Link an event to a correlation id in the Chat2 sidecar index.
+
+        Delegates to the wrapped ``Chat2Store``. Falsy correlation ids
+        (``None`` or ``""``) are a no-op there and never raise.
+        """
+        self.chat2_store.link_event(correlation_id, session_id, event_id)
 
     def update_session(self, session_id: str, patch: Dict[str, Any]) -> EpisodicSession:
         meta = self.chat2_store.update_session(session_id, **patch)
@@ -255,6 +261,37 @@ class Chat2EpisodicMemory(EpisodicMemory, EpisodicMemoryManager):
             tags=list(meta.tags or []),
             metadata=dict(meta.metadata or {}),
             events=[cls._to_episodic_event(event) for event in (events or [])],
+        )
+
+    @staticmethod
+    def _to_chat_event(event: EpisodicEvent) -> ChatEvent:
+        """Convert an ``EpisodicEvent`` into a Chat2 ``ChatEvent``.
+
+        This is the single conversion path shared by :meth:`append_event` and
+        :meth:`add_events`. Field mapping is unchanged from the original inline
+        construction in ``append_event``: exactly ``event_id`` / ``ts`` /
+        ``role`` / ``actor`` / ``kind`` / ``payload`` / ``metadata``.
+
+        ``event_id`` and ``ts`` are only forwarded when both are present,
+        otherwise Chat2 generates them from its own defaults (a fresh UUID and
+        the current UTC time).
+        """
+        if event.event_id and event.created_at:
+            return ChatEvent(
+                event_id=event.event_id,
+                ts=event.created_at,
+                role=event.role,
+                actor=event.actor or event.role,
+                kind=event.kind or ("user_message" if event.role == "user" else "assistant_message"),
+                payload=event.content,
+                metadata=event.metadata,
+            )
+        return ChatEvent(
+            role=event.role,
+            actor=event.actor or event.role,
+            kind=event.kind or ("user_message" if event.role == "user" else "assistant_message"),
+            payload=event.content,
+            metadata=event.metadata,
         )
 
     @staticmethod

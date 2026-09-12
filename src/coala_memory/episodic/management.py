@@ -103,7 +103,25 @@ class EpisodicMemoryManager(ABC):
         raise NotImplementedError
 
     @abstractmethod
+    def session_exists(self, session_id: str) -> bool:
+        """Return True if a session with *session_id* exists."""
+        raise NotImplementedError
+
+    @abstractmethod
     def append_event(self, session_id: str, event: EpisodicEvent) -> EpisodicEvent:
+        raise NotImplementedError
+
+    @abstractmethod
+    def add_events(self, session_id: str, events: List[EpisodicEvent]) -> List[EpisodicEvent]:
+        """Append multiple events in order, returning the stored events."""
+        raise NotImplementedError
+
+    @abstractmethod
+    def link_event(self, correlation_id: Optional[str], session_id: str, event_id: str) -> None:
+        """Link an event to a correlation id in the sidecar index.
+
+        Falsy correlation ids (None or '') are a no-op and never raise.
+        """
         raise NotImplementedError
 
     @abstractmethod

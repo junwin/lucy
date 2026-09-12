@@ -1,3 +1,5 @@
+from uuid import uuid4
+
 from src.coala_memory.episodic import (
     Chat2EpisodicMemory,
     EpisodicEvent,
@@ -105,3 +107,92 @@ def test_chat2_episodic_memory_overflow_digest_is_optional(tmp_path):
 
     assert first == "first"
     assert second == "first\n\nsecond"
+
+
+# ----------------------------------------------------------------------
+# New primitives required so call sites stop reaching into Chat2Store:
+#   session_exists / add_events / link_event
+# ----------------------------------------------------------------------
+
+
+def test_session_exists_reflects_session_lifecycle(tmp_path):
+    memory = Chat2EpisodicMemory.from_sqlite(tmp_path / "chat2.sqlite")
+
+    session = memory.create_session(account_name="junwin", agent_name="peace")
+    assert memory.session_exists(session.session_id) is True
+
+    assert memory.session_exists(str(uuid4())) is False
+
+    memory.delete_session(session.session_id)
+    assert memory.session_exists(session.session_id) is False
+
+
+def test_add_events_returns_stored_events_and_persists_them(tmp_path):
+    memory = Chat2EpisodicMemory.from_sqlite(tmp_path / "chat2.sqlite")
+
+    session = memory.create_session(account_name="junwin", agent_name="peace")
+
+    stored = memory.add_events(
+        session.session_id,
+        [
+            EpisodicEvent(
+                role="user",
+                actor="junwin",
+                kind="user_message",
+                content="first",
+            ),
+            EpisodicEvent(
+                role="assistant",
+                actor="peace",
+                kind="assistant_message",
+                content="second",
+            ),
+        ],
+    )
+
+    assert isinstance(stored, list)
+    assert len(stored) == 2
+    assert all(event.event_id for event in stored)
+
+    reloaded = memory.get_session(session.session_id, include_events=True)
+    assert reloaded is not None
+    assert [event.content for event in reloaded.events] == ["first", "second"]
+
+
+def test_link_event_with_falsy_correlation_is_noop(tmp_path):
+    memory = Chat2EpisodicMemory.from_sqlite(tmp_path / "chat2.sqlite")
+
+    session = memory.create_session(account_name="junwin", agent_name="peace")
+    stored = memory.append_event(
+        session.session_id,
+        EpisodicEvent(
+            role="user",
+            actor="junwin",
+            kind="user_message",
+            content="no correlation",
+        ),
+    )
+
+    assert memory.link_event(None, session.session_id, stored.event_id) is None
+    assert memory.link_event("", session.session_id, stored.event_id) is None
+
+
+def test_link_event_links_event_to_correlation(tmp_path):
+    memory = Chat2EpisodicMemory.from_sqlite(tmp_path / "chat2.sqlite")
+
+    session = memory.create_session(account_name="junwin", agent_name="peace")
+    stored = memory.append_event(
+        session.session_id,
+        EpisodicEvent(
+            role="user",
+            actor="junwin",
+            kind="user_message",
+            content="linked event",
+        ),
+    )
+
+    correlation_id = str(uuid4())
+    memory.link_event(correlation_id, session.session_id, stored.event_id)
+
+    linked = memory.chat2_store.get_events_by_correlation(correlation_id)
+    assert [event.event_id for event in linked] == [stored.event_id]
