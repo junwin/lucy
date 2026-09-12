@@ -8,12 +8,15 @@ from src.config_manager import ConfigManager
 from src.storage.base import Storage
 from src.message_processors.processor_factory import ProcessorFactory
 from src.message_processors.function_calling_processor import ToolHandlerError
-from src.chat2.facade import Chat2Store
-from src.chat2.models import ChatEvent
+from src.coala_memory.episodic import (
+    EpisodicEvent,
+    EpisodicMemoryManager,
+    EpisodicSessionQuery,
+)
 
 
 def resolve_or_create_session(
-    chat2_store: Optional[Chat2Store],
+    episodic_store: Optional[EpisodicMemoryManager],
     account_name: str,
     agent_name: str,
     friendly_name: Optional[str],
@@ -31,9 +34,9 @@ def resolve_or_create_session(
     matched sessions are backfilled only when their context_name is empty;
     an established context is never overwritten implicitly.
     """
-    if chat2_store is None:
+    if episodic_store is None:
         logging.warning(
-            "/ask: chat2_store is None; session will not be persisted (account=%s agent=%s)",
+            "/ask: episodic_store is None; session will not be persisted (account=%s agent=%s)",
             account_name,
             agent_name,
         )
@@ -43,21 +46,23 @@ def resolve_or_create_session(
         q = friendly_name.strip().lower()
         matches = [
             meta
-            for meta in chat2_store.list_sessions(
+            for meta in episodic_store.list_sessions(EpisodicSessionQuery(
                 account_name=account_name,
                 agent_name=agent_name,
                 limit=limit,
-            )
+            ))
             if (meta.friendly_name or "").strip().lower().find(q) != -1
         ]
         if matches:
             match = matches[0]
             if context_name and not match.context_name:
-                chat2_store.update_session(match.session_id, context_name=context_name)
+                episodic_store.update_session(
+                    match.session_id, {"context_name": context_name}
+                )
             return match.session_id
 
     session_id = str(uuid.uuid4())
-    chat2_store.create_session(
+    episodic_store.create_session(
         user_id=account_name,
         account_name=account_name,
         agent_name=agent_name,
@@ -69,16 +74,18 @@ def resolve_or_create_session(
 
 
 def _backfill_session_context(
-    chat2_store: Optional[Chat2Store],
+    episodic_store: Optional[EpisodicMemoryManager],
     conversation_id: str,
     context_name: Optional[str],
 ) -> None:
     """Best-effort context backfill for sessions resolved before context lookup."""
-    if chat2_store is None or not conversation_id or not context_name:
+    if episodic_store is None or not conversation_id or not context_name:
         return
-    meta = chat2_store.get_session(conversation_id)
+    meta = episodic_store.get_session(conversation_id, include_events=False)
     if meta is not None and not meta.context_name:
-        chat2_store.update_session(conversation_id, context_name=context_name)
+        episodic_store.update_session(
+            conversation_id, {"context_name": context_name}
+        )
 
 
 class AskRequestHandler:
@@ -94,13 +101,13 @@ class AskRequestHandler:
         config: ConfigManager,
         storage: Storage,
         processor_factory: ProcessorFactory,
-        chat2_store: Optional[Chat2Store] = None,
+        episodic_store: Optional[EpisodicMemoryManager] = None,
     ) -> None:
         self.agent_manager = agent_manager
         self.config = config
         self.storage = storage
         self.processor_factory = processor_factory
-        self.chat2_store = chat2_store
+        self.episodic_store = episodic_store
         self.logger = logging.getLogger(__name__)
 
     def handle(self, payload: Dict[str, Any]) -> Tuple[int, Dict[str, Any]]:
@@ -255,7 +262,7 @@ class AskRequestHandler:
                     return 400, {"error": "Missing accountName or agentName for session creation"}
 
                 conversationId = resolve_or_create_session(
-                    chat2_store=self.chat2_store,
+                    episodic_store=self.episodic_store,
                     account_name=accountName,
                     agent_name=agentName,
                     friendly_name=friendly_name,
@@ -271,7 +278,7 @@ class AskRequestHandler:
 
             # app.py may have resolved a friendly-name session before the agent's
             # default context was known. Backfill that missing metadata now.
-            _backfill_session_context(self.chat2_store, conversationId, context_name)
+            _backfill_session_context(self.episodic_store, conversationId, context_name)
 
         except Exception:
             self.logger.exception(
@@ -309,15 +316,15 @@ class AskRequestHandler:
                 conversationId,
             )
             # Try to append the error to the session if we have one
-            if conversationId and self.chat2_store is not None:
+            if conversationId and self.episodic_store is not None:
                 try:
-                    self.chat2_store.add_event(
+                    self.episodic_store.append_event(
                         conversationId,
-                        ChatEvent(
+                        EpisodicEvent(
                             role="assistant",
                             actor=agentName,
                             kind="system_note",
-                            payload=error_message,
+                            content=error_message,
                             metadata={"error": True},
                         ),
                     )
@@ -434,7 +441,7 @@ class AskRequestHandler:
 
             try:
                 conversationId = resolve_or_create_session(
-                    chat2_store=self.chat2_store,
+                    episodic_store=self.episodic_store,
                     account_name=accountName,
                     agent_name=agentName,
                     friendly_name=friendly_name,
@@ -456,7 +463,7 @@ class AskRequestHandler:
                 return
 
         try:
-            _backfill_session_context(self.chat2_store, conversationId, context_name)
+            _backfill_session_context(self.episodic_store, conversationId, context_name)
         except Exception:
             self.logger.exception(
                 "/ask(streaming): failed to backfill session context session_id=%s",

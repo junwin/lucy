@@ -5,11 +5,11 @@ from src.config_manager import ConfigManager
 from src.coala_memory.episodic import EpisodicEvent
 from src.handlers.episodic_memory_handler import EpisodicMemoryHandler
 
-from tests.test_episodic_memory_handler import _config, _base_args
+from tests.test_episodic_memory_handler import _base_args, _handler
 
 
 def test_create_session_honours_required_and_optionals(tmp_path):
-    handler = EpisodicMemoryHandler(_config(tmp_path))
+    handler = _handler(tmp_path)
     args = _base_args(action="create_session", agent_name="peace", context_name="lucyproject")
     args.update({
         "session_id": "",
@@ -29,7 +29,7 @@ def test_create_session_honours_required_and_optionals(tmp_path):
 
 
 def test_update_session_patches_allowed_fields_only(tmp_path):
-    handler = EpisodicMemoryHandler(_config(tmp_path))
+    handler = _handler(tmp_path)
     session = handler.memory.create_session(account_name="junwin", agent_name="peace", friendly_name="orig", context_name="orig_ctx")
 
     link_id = str(uuid4())
@@ -64,7 +64,7 @@ def test_update_session_patches_allowed_fields_only(tmp_path):
 
 
 def test_update_session_unknown_session_id_errors_without_touching_others(tmp_path):
-    handler = EpisodicMemoryHandler(_config(tmp_path))
+    handler = _handler(tmp_path)
     session = handler.memory.create_session(account_name="junwin", agent_name="peace", friendly_name="orig")
 
     args = _base_args(action="update_session", session_id=str(uuid4()), agent_name="peace")
@@ -79,7 +79,7 @@ def test_update_session_unknown_session_id_errors_without_touching_others(tmp_pa
 
 
 def test_reset_session_clears_events_keeps_metadata(tmp_path):
-    handler = EpisodicMemoryHandler(_config(tmp_path))
+    handler = _handler(tmp_path)
     session = handler.memory.create_session(account_name="junwin", agent_name="peace", metadata={"x": 1})
     handler.memory.append_event(session.session_id, EpisodicEvent(role="user", actor="user", kind="user_message", content="c1"))
     handler.memory.append_event(session.session_id, EpisodicEvent(role="assistant", actor="peace", kind="assistant_message", content="c2"))
@@ -95,7 +95,7 @@ def test_reset_session_clears_events_keeps_metadata(tmp_path):
 
 
 def test_delete_session_returns_ok_and_session_id(tmp_path):
-    handler = EpisodicMemoryHandler(_config(tmp_path))
+    handler = _handler(tmp_path)
     session = handler.memory.create_session(account_name="junwin", agent_name="peace")
     args = _base_args(action="delete_session", session_id=session.session_id, agent_name="peace")
     result = handler.execute(args, account_name="junwin")

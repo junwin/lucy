@@ -11,6 +11,7 @@ from __future__ import annotations
 import uuid
 
 from src.chat2.facade import Chat2Store
+from src.coala_memory.episodic import Chat2EpisodicMemory
 from src.chat2.store_primitives import InMemoryStore, StoreKey
 from src.message_processors.fcp_chat2 import Chat2Recorder
 from src.message_processors.fcp_models import ProcessorContext
@@ -51,7 +52,7 @@ class TestWritePromptReportWiring:
         """write_prompt_report creates one system/prompt_report event in the session."""
         store = InMemoryStore()
         facade = Chat2Store(store)
-        recorder = Chat2Recorder(facade)
+        recorder = Chat2Recorder(Chat2EpisodicMemory(facade))
         conversation_id = str(uuid.uuid4())
         breakdown = _breakdown()
 
@@ -68,7 +69,7 @@ class TestWritePromptReportWiring:
         """With a correlation id, the event is linked and matches the session."""
         store = InMemoryStore()
         facade = Chat2Store(store)
-        recorder = Chat2Recorder(facade)
+        recorder = Chat2Recorder(Chat2EpisodicMemory(facade))
         conversation_id = str(uuid.uuid4())
         corr = str(uuid.uuid4())
         breakdown = _breakdown()
@@ -88,7 +89,7 @@ class TestWritePromptReportWiring:
         """None and '' correlation ids write the event but no links."""
         store = InMemoryStore()
         facade = Chat2Store(store)
-        recorder = Chat2Recorder(facade)
+        recorder = Chat2Recorder(Chat2EpisodicMemory(facade))
         conversation_id = str(uuid.uuid4())
         breakdown = _breakdown()
 
@@ -112,17 +113,17 @@ class TestWritePromptReportWiring:
         )
 
     def test_write_prompt_report_best_effort(self) -> None:
-        """A failing add_events does not propagate from write_prompt_report."""
+        """A failing append_event does not propagate from write_prompt_report."""
         store = InMemoryStore()
         facade = Chat2Store(store)
-        recorder = Chat2Recorder(facade)
+        recorder = Chat2Recorder(Chat2EpisodicMemory(facade))
         conversation_id = str(uuid.uuid4())
         breakdown = _breakdown()
 
-        def boom(session_id, events):
-            raise RuntimeError("add_events exploded")
+        def boom(session_id, event):
+            raise RuntimeError("append_event exploded")
 
-        facade.add_events = boom
+        facade.add_event = boom
 
         recorder.write_prompt_report(
             _ctx(conversation_id), breakdown, correlation_id=str(uuid.uuid4())
@@ -167,7 +168,7 @@ class TestFcpPromptReportWiring:
         from tests.conftest import FakeAgent
 
         facade = Chat2Store(InMemoryStore())
-        proc = make_proc(chat2_store=facade)
+        proc = make_proc(episodic_store=Chat2EpisodicMemory(facade))
         prompt_builder._last_prompt_token_breakdown = _pb_breakdown()
         conversation_id = str(uuid.uuid4())
         corr = str(uuid.uuid4())
@@ -199,7 +200,7 @@ class TestFcpPromptReportWiring:
         from tests.conftest import FakeAgent
 
         facade = Chat2Store(InMemoryStore())
-        proc = make_proc(chat2_store=facade)
+        proc = make_proc(episodic_store=Chat2EpisodicMemory(facade))
         prompt_builder._last_prompt_token_breakdown = _pb_breakdown()
         conversation_id = str(uuid.uuid4())
         corr = str(uuid.uuid4())
@@ -232,7 +233,7 @@ class TestFcpPromptReportWiring:
         from tests.conftest import FakeAgent
 
         facade = Chat2Store(InMemoryStore())
-        proc = make_proc(chat2_store=facade)
+        proc = make_proc(episodic_store=Chat2EpisodicMemory(facade))
         prompt_builder._last_prompt_token_breakdown = _pb_breakdown()
         conversation_id = str(uuid.uuid4())
 
@@ -279,7 +280,7 @@ class TestFcpPromptReportWiring:
         from tests.conftest import FakeAgent
 
         facade = Chat2Store(InMemoryStore())
-        proc = make_proc(chat2_store=facade)
+        proc = make_proc(episodic_store=Chat2EpisodicMemory(facade))
         prompt_builder._last_prompt_token_breakdown = _pb_breakdown()
         conversation_id = str(uuid.uuid4())
 

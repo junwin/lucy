@@ -1,7 +1,7 @@
 import json
 
 from src.config_manager import ConfigManager
-from src.coala_memory.episodic import EpisodicEvent
+from src.coala_memory.episodic import Chat2EpisodicMemory, EpisodicEvent
 from src.handlers.episodic_memory_handler import EpisodicMemoryHandler
 
 
@@ -20,6 +20,13 @@ def _config(tmp_path):
         encoding="utf-8",
     )
     return ConfigManager(str(config_path))
+
+
+def _handler(tmp_path):
+    return EpisodicMemoryHandler(
+        _config(tmp_path),
+        memory=Chat2EpisodicMemory.from_sqlite(tmp_path / "chat2.sqlite"),
+    )
 
 
 def _base_args(**overrides):
@@ -51,7 +58,7 @@ def test_tool_def_exposes_expected_integration_actions():
 
 
 def test_handler_recall_uses_sqlite_chat2_and_returns_recent_events(tmp_path):
-    handler = EpisodicMemoryHandler(_config(tmp_path))
+    handler = _handler(tmp_path)
     session = handler.memory.create_session(
         account_name="junwin",
         agent_name="peace",
@@ -82,7 +89,7 @@ def test_handler_recall_uses_sqlite_chat2_and_returns_recent_events(tmp_path):
 
 
 def test_handler_list_sessions_can_search_event_text(tmp_path):
-    handler = EpisodicMemoryHandler(_config(tmp_path))
+    handler = _handler(tmp_path)
     session = handler.memory.create_session(
         account_name="junwin",
         agent_name="peace",
@@ -104,7 +111,7 @@ def test_handler_list_sessions_can_search_event_text(tmp_path):
 
 
 def test_handler_append_event_round_trips_through_coala_layer(tmp_path):
-    handler = EpisodicMemoryHandler(_config(tmp_path))
+    handler = _handler(tmp_path)
     session = handler.memory.create_session(account_name="junwin", agent_name="peace")
 
     appended = handler.execute(

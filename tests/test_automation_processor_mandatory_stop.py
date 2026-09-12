@@ -87,7 +87,7 @@ def run_tasklist(processor_factory):
         registry=None,
         storage=storage,
         prompt_builder=None,
-        chat2_store=None,
+        episodic_store=None,
         llm_adapter=None,
         agent_manager=None,
     )

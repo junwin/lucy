@@ -10,6 +10,11 @@ import pytest
 
 from src.chat2.facade import Chat2Store
 from src.chat2.store_primitives import InMemoryStore
+from src.coala_memory.episodic import (
+    Chat2EpisodicMemory,
+    EpisodicMemoryManager,
+    EpisodicSessionQuery,
+)
 from src.message_endpoints.ask_request_handler import resolve_or_create_session
 
 UUID_RE = re.compile(
@@ -18,12 +23,12 @@ UUID_RE = re.compile(
 
 
 @pytest.fixture
-def chat2() -> Chat2Store:
-    return Chat2Store(InMemoryStore())
+def chat2() -> EpisodicMemoryManager:
+    return Chat2EpisodicMemory(Chat2Store(InMemoryStore()))
 
 
 def _seed(
-    chat2: Chat2Store,
+    chat2: EpisodicMemoryManager,
     session_id: str,
     account_name: str,
     agent_name: str,
@@ -95,22 +100,22 @@ class TestResolveOrCreateSession:
         mock_list = Mock(return_value=[])
         monkeypatch.setattr(chat2, "list_sessions", mock_list)
         session_id = resolve_or_create_session(chat2, "alice", "lucy", "project", limit=500)
-        mock_list.assert_called_once_with(
+        mock_list.assert_called_once_with(EpisodicSessionQuery(
             account_name="alice",
             agent_name="lucy",
             limit=500,
-        )
+        ))
         assert UUID_RE.match(session_id)
 
     def test_custom_limit_is_respected(self, chat2, monkeypatch) -> None:
         mock_list = Mock(return_value=[])
         monkeypatch.setattr(chat2, "list_sessions", mock_list)
         resolve_or_create_session(chat2, "alice", "lucy", "project", limit=123)
-        mock_list.assert_called_once_with(
+        mock_list.assert_called_once_with(EpisodicSessionQuery(
             account_name="alice",
             agent_name="lucy",
             limit=123,
-        )
+        ))
 
     def test_returns_uuid_when_chat2_store_is_none(self) -> None:
         session_id = resolve_or_create_session(None, "alice", "lucy", "project")
@@ -118,7 +123,7 @@ class TestResolveOrCreateSession:
 
     def test_no_match_when_stored_friendly_name_is_none(self, chat2) -> None:
         _seed(chat2, "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", "alice", "lucy", "Some Name")
-        chat2.update_session("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", friendly_name=None)
+        chat2.update_session("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", {"friendly_name": None})
         session_id = resolve_or_create_session(chat2, "alice", "lucy", "some")
         assert UUID_RE.match(session_id)
         assert session_id != "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
@@ -153,7 +158,7 @@ class TestResolveOrCreateSession:
     def test_existing_context_name_is_not_overwritten(self, chat2) -> None:
         session_id = "cccccccc-cccc-4ccc-8ccc-cccccccccccc"
         _seed(chat2, session_id, "alice", "lucy", "project")
-        chat2.update_session(session_id, context_name="original")
+        chat2.update_session(session_id, {"context_name": "original"})
         resolved = resolve_or_create_session(
             chat2,
             "alice",

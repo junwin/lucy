@@ -2,23 +2,16 @@
 
 from __future__ import annotations
 
-from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
-from src.chat2.adapters.jfs_adapter import JfsChat2Primitives
-from src.chat2.facade import Chat2Store
-from src.chat2.models import SessionLinks
-from src.chat2.sqlite import SqliteChat2Primitives
 from src.coala_memory.episodic import (
-    Chat2EpisodicMemory,
     EpisodicEvent,
+    EpisodicMemoryManager,
     EpisodicMemoryRequest,
     EpisodicSessionQuery,
 )
 from src.config_manager import ConfigManager
 from src.handlers.handler_v2 import HandlerV2
-from src.storage.json_file_storage import JsonFileStorage
-from src.storage_paths.storage_paths import StoragePaths
 
 
 class EpisodicMemoryHandler(HandlerV2):
@@ -26,39 +19,13 @@ class EpisodicMemoryHandler(HandlerV2):
 
     NAME = "episodic_memory"
 
-    def __init__(self, config: ConfigManager):
+    def __init__(
+        self,
+        config: ConfigManager,
+        memory: Optional[EpisodicMemoryManager] = None,
+    ):
         self.config = config
-        self.memory = Chat2EpisodicMemory(
-            self._build_store(),
-            digests_root=self._digests_root(),
-        )
-
-    def _build_store(self) -> Chat2Store:
-        backend = str(self.config.get("chat2_store_backend", "") or "").strip().lower()
-        if backend == "sqlite":
-            db_path = self.config.get("chat2_store_db_path")
-            if not db_path:
-                storage_root = self.config.get("storage_root_path") or "/home/junwin/lucydata"
-                storage_namespace = self.config.get("storage_namespace") or "data"
-                db_path = str(Path(storage_root) / storage_namespace / "chat2.sqlite")
-            return Chat2Store(SqliteChat2Primitives(db_path))
-        if not backend or backend == "jsonl":
-            storage_root = self.config.get("storage_root_path") or "/home/junwin/lucydata"
-            storage_namespace = self.config.get("storage_namespace") or "data"
-            storage = JsonFileStorage(StoragePaths(storage_root, storage_namespace))
-            return Chat2Store(JfsChat2Primitives(storage))
-        raise ValueError(
-            "Unknown chat2_store_backend %r: expected 'jsonl' or 'sqlite'" % backend
-        )
-
-    def _digests_root(self) -> Path:
-        external_roots = self.config.get("external_roots", {}) or {}
-        lucy_data_root = external_roots.get("lucy_data_files")
-        if lucy_data_root:
-            return Path(lucy_data_root) / "data" / "digests"
-        storage_root = self.config.get("storage_root_path") or "/home/junwin/lucydata"
-        storage_namespace = self.config.get("storage_namespace") or "data"
-        return Path(storage_root) / storage_namespace / "digests"
+        self.memory = memory
 
     @classmethod
     def name(cls) -> str:
@@ -122,6 +89,9 @@ class EpisodicMemoryHandler(HandlerV2):
 
     def execute(self, args: Dict[str, Any], *, account_name: str = "auto", **context: Any) -> Dict[str, Any]:
         action = str(args.get("action") or "").strip().lower()
+        memory = context.get("episodic_store") or self.memory
+        if memory is None:
+            return self._error(action, "episodic_store not available")
         requested_account = str(args.get("account_name") or "").strip()
         resolved_account = requested_account or str(account_name or "").strip()
         session_id = str(args.get("session_id") or "").strip()
@@ -130,7 +100,7 @@ class EpisodicMemoryHandler(HandlerV2):
             if action == "recall":
                 if not session_id:
                     return self._error(action, "session_id is required")
-                result = self.memory.recall(
+                result = memory.recall(
                     EpisodicMemoryRequest(
                         account_name=resolved_account,
                         agent_name=str(args.get("agent_name") or "").strip(),
@@ -164,7 +134,7 @@ class EpisodicMemoryHandler(HandlerV2):
             if action == "get_session":
                 if not session_id:
                     return self._error(action, "session_id is required")
-                session = self.memory.get_session(
+                session = memory.get_session(
                     session_id,
                     include_events=bool(args.get("include_events", True)),
                 )
@@ -175,7 +145,7 @@ class EpisodicMemoryHandler(HandlerV2):
             if action == "list_sessions":
                 if not resolved_account or resolved_account == "auto":
                     return self._error(action, "account_name is required")
-                sessions = self.memory.list_sessions(
+                sessions = memory.list_sessions(
                     EpisodicSessionQuery(
                         account_name=resolved_account,
                         agent_name=str(args.get("agent_name") or "").strip(),
@@ -198,7 +168,7 @@ class EpisodicMemoryHandler(HandlerV2):
                 if not content:
                     return self._error(action, "content is required")
                 role = str(args.get("role") or "user").strip()
-                stored = self.memory.append_event(
+                stored = memory.append_event(
                     session_id,
                     EpisodicEvent(
                         role=role,
@@ -237,7 +207,7 @@ class EpisodicMemoryHandler(HandlerV2):
                 if args.get("metadata"):
                     kwargs["metadata"] = dict(args.get("metadata") or {})
 
-                created = self.memory.create_session(
+                created = memory.create_session(
                     account_name=resolved_account,
                     agent_name=agent_name,
                     **kwargs,
@@ -260,21 +230,21 @@ class EpisodicMemoryHandler(HandlerV2):
                     allowed = {"user_session_id", "internal_session_id"}
                     filtered = {k: v for k, v in raw_links.items() if k in allowed}
                     if filtered:
-                        patch["links"] = SessionLinks(**filtered)
+                        patch["links"] = filtered
 
-                updated = self.memory.update_session(session_id, patch)
+                updated = memory.update_session(session_id, patch)
                 return {"ok": True, "tool": self.NAME, "action": action, "session": self._session_dict(updated)}
 
             if action == "reset_session":
                 if not session_id:
                     return self._error(action, "session_id is required")
-                self.memory.reset_session(session_id)
+                memory.reset_session(session_id)
                 return {"ok": True, "tool": self.NAME, "action": action, "session_id": session_id}
 
             if action == "delete_session":
                 if not session_id:
                     return self._error(action, "session_id is required")
-                self.memory.delete_session(session_id)
+                memory.delete_session(session_id)
                 return {"ok": True, "tool": self.NAME, "action": action, "session_id": session_id}
 
             return self._error(action, f"Unknown action: {action!r}")

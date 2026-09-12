@@ -31,7 +31,7 @@ from src.agent.caps import resolve_effective_cap
 from galet.adapter_interface import LLMAdapter
 from galet.provider_registry import ProviderRegistry
 
-from src.chat2.facade import Chat2Store
+from src.coala_memory.episodic import EpisodicMemoryManager
 
 from src.message_processors.fcp_models import ProcessorContext, ToolHandlerError, DEFAULT_MAX_HANDLER_SCHEMA_TOKENS
 from src.message_processors.fcp_chat2 import Chat2Recorder
@@ -295,7 +295,7 @@ class FunctionCallingProcessor(MessageProcessorInterface):
         registry: HandlerRegistry,
         prompt_builder: PromptBuilderInterface,
         llm_adapter: LLMAdapter,
-        chat2_store: Optional[Chat2Store] = None,
+        episodic_store: Optional[EpisodicMemoryManager] = None,
         agent_manager: Optional[AgentManager] = None,
         metrics_logger: Optional[RunMetricsLogger] = None,
         correlation_log_handler: Optional[CorrelationLogHandler] = None,
@@ -304,8 +304,8 @@ class FunctionCallingProcessor(MessageProcessorInterface):
         self.registry = registry
         self.prompt_builder = prompt_builder
         self.llm_adapter = llm_adapter
-        self.chat2_store = chat2_store
-        self.chat2 = Chat2Recorder(chat2_store)
+        self.episodic_store = episodic_store
+        self.chat2 = Chat2Recorder(episodic_store)
         self.agent_manager = agent_manager
         self.tool_executor = ToolExecutor(
             registry=self.registry,
@@ -313,7 +313,7 @@ class FunctionCallingProcessor(MessageProcessorInterface):
             prompt_builder=self.prompt_builder,
             llm_adapter=self.llm_adapter,
             agent_manager=self.agent_manager,
-            chat2_store=self.chat2_store,
+            episodic_store=self.episodic_store,
         )
         self.loop_runner = LLMLoopRunner(
             llm_adapter=self.llm_adapter,
@@ -450,7 +450,7 @@ class FunctionCallingProcessor(MessageProcessorInterface):
         streamed_events: List[SSEEvent],
         correlation_id: Optional[str] = None,
     ) -> None:
-        self.chat2.chat2_store = self.chat2_store
+        self.chat2.episodic_store = self.episodic_store
         self.chat2.write_streaming_events(
             ctx, user_message, streamed_events, correlation_id=correlation_id
         )
@@ -584,7 +584,7 @@ class FunctionCallingProcessor(MessageProcessorInterface):
 
             response_text = ""
             error_message = None
-            self.tool_executor.chat2_store = self.chat2_store
+            self.tool_executor.episodic_store = self.episodic_store
             for event in self.loop_runner.run(
                 ctx=ctx,
                 prompt_messages=setup.prompt_messages,
@@ -810,7 +810,7 @@ class FunctionCallingProcessor(MessageProcessorInterface):
                 supports_images=supports_images,
             )
 
-            self.tool_executor.chat2_store = self.chat2_store
+            self.tool_executor.episodic_store = self.episodic_store
             for event in self.loop_runner.run(
                 ctx=ctx,
                 prompt_messages=setup.prompt_messages,

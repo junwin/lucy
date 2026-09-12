@@ -1,6 +1,6 @@
 """ResetSessionHandler — clears the current session's events and signals the client.
 
-This handler truncates the session's events file on the server (via chat2_store)
+This handler clears the session's events through the episodic-memory manager
 and returns {"action": "reset_session"} to signal the streaming SSE loop that
 the client should also refresh/clear its local view.
 """
@@ -56,7 +56,7 @@ class ResetSessionHandler(HandlerV2):
         self, args: Dict[str, Any], *, account_name: str = "auto", **context
     ) -> Dict[str, Any]:
         conversation_id = context.get("conversation_id", "")
-        chat2_store = context.get("chat2_store")
+        episodic_store = context.get("episodic_store")
 
         logger.info("Reset session triggered for session=%s (account=%s)", conversation_id, account_name)
 
@@ -65,12 +65,12 @@ class ResetSessionHandler(HandlerV2):
             return {"action": "reset_session", "ok": False, "error": "No session ID available"}
 
         try:
-            if chat2_store is not None:
-                chat2_store.reset_events(conversation_id)
+            if episodic_store is not None:
+                episodic_store.reset_session(conversation_id)
                 logger.info("Reset session: cleared events for session=%s", conversation_id)
             else:
-                logger.warning("Reset session: no chat2_store available for session=%s", conversation_id)
-                return {"action": "reset_session", "ok": False, "error": "chat2_store not available"}
+                logger.warning("Reset session: no episodic_store available for session=%s", conversation_id)
+                return {"action": "reset_session", "ok": False, "error": "episodic_store not available"}
         except ValueError as e:
             logger.warning("Reset session: session not found: %s", conversation_id)
             return {"action": "reset_session", "ok": False, "error": str(e)}

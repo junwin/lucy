@@ -28,8 +28,7 @@ from src.storage.interfaces import TasklistStore
 if TYPE_CHECKING:
     from src.storage.interfaces import TasklistStore
 
-from src.chat2.facade import Chat2Store
-from src.chat2.models import ChatEvent
+from src.coala_memory.episodic import EpisodicEvent, EpisodicMemoryManager
 
 from src.tasklists.task import Task
 from src.tasklists.task_list import TaskList
@@ -178,9 +177,9 @@ def _parse_json_command(message: str) -> Tuple[Optional[dict], Optional[str]]:
 
 
 # ---------------------------------------------------------------------------
-# ChatEvent kind mapping
+# Episodic event kind mapping
 # ---------------------------------------------------------------------------
-# ChatEvent.kind is a Literal restricted to:
+# The Chat2 adapter currently accepts these event kinds:
 #   "user_message", "assistant_message", "assistant_tool_call",
 #   "tool_result", "system_note", "summary"
 #
@@ -196,7 +195,7 @@ _AUTOMATION_KIND_MAP = {
 
 
 def _map_chat2_kind(automation_kind: str) -> str:
-    """Map an automation-specific kind to a valid ChatEvent kind."""
+    """Map an automation-specific kind to a valid persisted event kind."""
     return _AUTOMATION_KIND_MAP.get(automation_kind, "system_note")
 
 
@@ -222,7 +221,7 @@ class AutomationProcessor(MessageProcessorInterface):
         registry: HandlerRegistry,
         storage: TasklistStore,
         prompt_builder: PromptBuilderInterface,
-        chat2_store: Optional[Chat2Store] = None,
+        episodic_store: Optional[EpisodicMemoryManager] = None,
         llm_adapter: Optional[LLMAdapter] = None,
         agent_manager: Optional[AgentManager] = None,
     ):
@@ -230,7 +229,7 @@ class AutomationProcessor(MessageProcessorInterface):
         self.registry = registry
         self.storage = storage
         self.prompt_builder = prompt_builder
-        self.chat2_store = chat2_store
+        self.episodic_store = episodic_store
         self.llm_adapter = llm_adapter
         self.agent_manager = agent_manager
 
@@ -249,12 +248,12 @@ class AutomationProcessor(MessageProcessorInterface):
 
         Best-effort: failures are logged but not propagated.
         """
-        if self.chat2_store is None:
+        if self.episodic_store is None:
             return
-        if self.chat2_store.session_exists(conversation_id):
+        if self.episodic_store.session_exists(conversation_id):
             return
         try:
-            self.chat2_store.create_session(
+            self.episodic_store.create_session(
                 user_id=account_name,
                 account_name=account_name,
                 agent_name=agent_name,
@@ -294,7 +293,7 @@ class AutomationProcessor(MessageProcessorInterface):
 
         Best-effort: failures are logged but not propagated.
         """
-        if self.chat2_store is None:
+        if self.episodic_store is None:
             return
         try:
             self._ensure_chat2_session(
@@ -302,21 +301,23 @@ class AutomationProcessor(MessageProcessorInterface):
                 friendly_name=friendly_name,
             )
 
-            # Map automation-specific kind to a valid ChatEvent kind.
+            # Map the automation-specific kind to a valid persisted event kind.
             mapped_kind = _map_chat2_kind(kind)
             meta = dict(metadata or {})
             # Preserve the original kind so consumers can distinguish automation events.
             meta["automation_kind"] = kind
 
-            event = ChatEvent(
+            event = EpisodicEvent(
                 role=role,
                 actor=agent_name if role == "assistant" else account_name,
                 kind=mapped_kind,
-                payload=payload,
+                content=payload,
                 metadata=meta,
             )
-            self.chat2_store.add_event(conversation_id, event)
-            self.chat2_store.link_event(correlation_id, conversation_id, event.event_id)
+            stored = self.episodic_store.append_event(conversation_id, event)
+            self.episodic_store.link_event(
+                correlation_id, conversation_id, stored.event_id
+            )
             logger.info(
                 "chat2: wrote %s event for session=%s kind=%s (mapped from %s)",
                 role,

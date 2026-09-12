@@ -63,7 +63,7 @@ def make_handler(processor: FakeProcessor, agent: Any) -> AskRequestHandler:
         config=Mock(),
         storage=FakeStorage(),
         processor_factory=FakeProcessorFactory(processor),
-        chat2_store=None,
+        episodic_store=None,
     )
 
 

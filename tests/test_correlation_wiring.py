@@ -11,6 +11,7 @@ import uuid
 
 from src.chat2.facade import Chat2Store
 from src.chat2.store_primitives import InMemoryStore, StoreKey
+from src.coala_memory.episodic import Chat2EpisodicMemory
 from src.message_processors.automation_processor import AutomationProcessor
 from src.message_processors.fcp_chat2 import Chat2Recorder
 from src.message_processors.fcp_models import ProcessorContext
@@ -38,7 +39,9 @@ def _make_automation_processor(chat2_store) -> AutomationProcessor:
         registry=None,
         storage=None,
         prompt_builder=None,
-        chat2_store=chat2_store,
+        episodic_store=(
+            Chat2EpisodicMemory(chat2_store) if chat2_store is not None else None
+        ),
         llm_adapter=None,
         agent_manager=None,
     )
@@ -56,7 +59,7 @@ class TestRecorderCorrelationWiring:
         """Every event written by the recorder is linked to the correlation."""
         store = InMemoryStore()
         facade = Chat2Store(store)
-        recorder = Chat2Recorder(facade)
+        recorder = Chat2Recorder(Chat2EpisodicMemory(facade))
         conversation_id = str(uuid.uuid4())
         corr = str(uuid.uuid4())
 
@@ -79,7 +82,7 @@ class TestRecorderCorrelationWiring:
         """A recorder run without a correlation id writes no links."""
         store = InMemoryStore()
         facade = Chat2Store(store)
-        recorder = Chat2Recorder(facade)
+        recorder = Chat2Recorder(Chat2EpisodicMemory(facade))
         conversation_id = str(uuid.uuid4())
 
         recorder.write_streaming_events(
