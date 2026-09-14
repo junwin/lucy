@@ -3,6 +3,7 @@ import logging
 from typing import Optional, Dict, Any
 
 from src.agent import Agent
+from galet import default_model_catalog
 from galet.provider_registry import ProviderRegistry
 
 
@@ -54,20 +55,33 @@ class ProcessorContext:
             )
             max_iterations = 1
 
-        # Resolve provider name if agent has explicit provider; otherwise None.
-        provider_explicit = getattr(primary_agent, "provider", None)
-        if provider_explicit:
-            try:
-                provider = ProviderRegistry.resolve_name(primary_agent.model, provider_explicit)
-            except ValueError:
-                logging.warning(
-                    "FCP: unknown provider '%s' for agent '%s', ignoring",
-                    provider_explicit,
-                    agent_name,
-                )
-                provider = None
+        model = primary_agent.model
+        model_policy = getattr(primary_agent, "model_policy", None)
+        if model_policy is not None:
+            resolved = default_model_catalog.resolve(
+                primary_agent.model_requirements()
+            )
+            model = resolved.model
+            provider = resolved.source
         else:
-            provider = None
+            # Preserve legacy fixed model/provider behaviour for agents that
+            # have not yet adopted a model policy.
+            provider_explicit = getattr(primary_agent, "provider", None)
+            if provider_explicit:
+                try:
+                    provider = ProviderRegistry.resolve_name(
+                        primary_agent.model,
+                        provider_explicit,
+                    )
+                except ValueError:
+                    logging.warning(
+                        "FCP: unknown provider '%s' for agent '%s', ignoring",
+                        provider_explicit,
+                        agent_name,
+                    )
+                    provider = None
+            else:
+                provider = None
 
         resolved_context_name = context_name or ""
         if not resolved_context_name.strip() and primary_agent.default_context:
@@ -78,7 +92,7 @@ class ProcessorContext:
             agent_name=agent_name,
             conversation_id=conversation_id,
             context_name=resolved_context_name,
-            model=primary_agent.model,
+            model=model,
             temperature=primary_agent.temperature,
             context_type=primary_agent.context_type or "hybrid",
             max_iterations=max_iterations,
