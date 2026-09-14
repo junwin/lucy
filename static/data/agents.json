@@ -41,7 +41,18 @@
     ],
     "provider": null,
     "use_embeddings": true,
-    "default_context": null
+    "default_context": null,
+    "model_policy": {
+      "profile": "reasoning",
+      "required_capabilities": [
+        "tool-calling",
+        "structured-output",
+        "long-context"
+      ],
+      "preferred_model": "gpt-5.6-sol",
+      "preferred_source": "openai",
+      "allow_fallback": true
+    }
   },
   {
     "name": "doris",
@@ -101,7 +112,17 @@
     ],
     "provider": null,
     "use_embeddings": false,
-    "default_context": "skinny"
+    "default_context": "skinny",
+    "model_policy": {
+      "profile": "focused-development",
+      "required_capabilities": [
+        "tool-calling",
+        "code-generation"
+      ],
+      "preferred_model": "gpt-5-mini",
+      "preferred_source": "openai",
+      "allow_fallback": true
+    }
   },
   {
     "name": "nelly",
@@ -131,7 +152,17 @@
     ],
     "provider": null,
     "use_embeddings": false,
-    "default_context": null
+    "default_context": null,
+    "model_policy": {
+      "profile": "development",
+      "required_capabilities": [
+        "tool-calling",
+        "code-generation"
+      ],
+      "preferred_model": "gpt-5.6-luna",
+      "preferred_source": "openai",
+      "allow_fallback": true
+    }
   },
   {
     "name": "glinda",
@@ -218,7 +249,17 @@
     ],
     "provider": null,
     "use_embeddings": true,
-    "default_context": "lucyproject"
+    "default_context": "lucyproject",
+    "model_policy": {
+      "profile": "reasoning",
+      "required_capabilities": [
+        "tool-calling",
+        "structured-output"
+      ],
+      "preferred_model": "deepseek-v4-pro",
+      "preferred_source": "deepseek",
+      "allow_fallback": true
+    }
   },
   {
     "name": "debo",
@@ -240,7 +281,17 @@
     ],
     "provider": null,
     "use_embeddings": false,
-    "default_context": "debo_work"
+    "default_context": "debo_work",
+    "model_policy": {
+      "profile": "reasoning",
+      "required_capabilities": [
+        "tool-calling",
+        "structured-output"
+      ],
+      "preferred_model": "deepseek-v4-pro",
+      "preferred_source": "deepseek",
+      "allow_fallback": true
+    }
   },
   {
     "name": "star",
@@ -272,7 +323,17 @@
     ],
     "provider": null,
     "use_embeddings": false,
-    "default_context": "skinny"
+    "default_context": "skinny",
+    "model_policy": {
+      "profile": "focused-development",
+      "required_capabilities": [
+        "tool-calling",
+        "code-generation"
+      ],
+      "preferred_model": "deepseek-v4-flash",
+      "preferred_source": "deepseek",
+      "allow_fallback": true
+    }
   },
   {
     "name": "belle",
@@ -310,7 +371,16 @@
     ],
     "provider": null,
     "use_embeddings": true,
-    "default_context": null
+    "default_context": null,
+    "model_policy": {
+      "profile": "writing",
+      "required_capabilities": [
+        "long-form-text"
+      ],
+      "preferred_model": "mistral-medium-latest",
+      "preferred_source": "mistral",
+      "allow_fallback": true
+    }
   },
   {
     "name": "lamy",
