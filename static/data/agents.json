@@ -36,6 +36,7 @@
       "serve_image",
       "agents_manage",
       "remote_execute",
+      "delegate_task",
       "tool_selection_probe",
       "tool_handler_meta"
     ],
