@@ -29,6 +29,7 @@ from src.handlers.generate_svg_handler import GenerateSvgHandler
 from src.handlers.semantic_memory_handler import SemanticMemoryHandler
 from src.handlers.episodic_memory_handler import EpisodicMemoryHandler
 from src.handlers.remote_execute_handler import RemoteExecuteHandler
+from src.handlers.delegate_task_handler import DelegateTaskHandler
 from src.handlers.tool_handler_meta_handler import ToolHandlerMetaHandler
 from src.handlers.agents_manage_handler import AgentsManageHandler
 from src.handlers.lazy_tool_selector_handler import LazyToolSelectorHandler
@@ -114,6 +115,8 @@ def build_registry() -> HandlerRegistry:
 
     # Remote execution — query a remote Lucy instance's /ask endpoint
     reg.register(RemoteExecuteHandler)
+    # Delegation — select an eligible machine, then use remote execution
+    reg.register(DelegateTaskHandler)
 
     # Tool metadata inspector
     reg.register(ToolHandlerMetaHandler)
