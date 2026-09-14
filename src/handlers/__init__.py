@@ -14,6 +14,7 @@ from .scrape_web_page_handler2 import ScrapeWebPageHandler2
 from .web_search_handler2 import WebSearchHandler2
 from .reset_session_handler import ResetSessionHandler
 from .remote_execute_handler import RemoteExecuteHandler
+from .delegate_task_handler import DelegateTaskHandler
 from .tool_handler_meta_handler import ToolHandlerMetaHandler
 from .agents_manage_handler import AgentsManageHandler
 
@@ -33,6 +34,7 @@ __all__ = [
     "WebSearchHandler2",
     "ResetSessionHandler",
     "RemoteExecuteHandler",
+    "DelegateTaskHandler",
     "ToolHandlerMetaHandler",
     "AgentsManageHandler",
 ]
