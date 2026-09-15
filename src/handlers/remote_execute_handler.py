@@ -122,7 +122,7 @@ class RemoteExecuteHandler(HandlerV2):
                 question=question,
             )
 
-        # Fixed session reuse: NEVER generate a new UUID here.
+        # Stable per-agent session reuse: NEVER generate a new UUID here.
         agent_name = (args.get("agentName") or machine.default_agent or "").strip()
         context_name = (args.get("contextName") or machine.default_context or "").strip()
         remote_account = (args.get("accountName") or "").strip() or account_name
@@ -132,7 +132,7 @@ class RemoteExecuteHandler(HandlerV2):
             "accountName": remote_account,
             "agentName": agent_name,
             "contextName": context_name,
-            "sessionId": machine.session_id,
+            "sessionId": machine.session_id_for(agent_name),
         }
 
         headers = {
