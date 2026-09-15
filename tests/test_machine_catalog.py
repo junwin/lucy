@@ -20,12 +20,14 @@ def test_definition_exposes_capabilities_without_exposing_secret():
     assert machine.provides_agent("nelly")
     assert machine.provides_model("openai","gpt-5.6-luna")
     assert machine.project_path("lucy")=="/srv/lucy"
+    assert machine.session_id_for("nelly")=="delegate-mint-nelly"
     assert "secret" not in repr(machine)
 
 
 def test_existing_minimal_format_is_valid():
     machine=MachineDefinition.from_dict("pi",{"host":"127.0.0.1","api_key":"key","default_agent":"peace"})
     assert machine.ask_url=="http://127.0.0.1:5000/ask"
+    assert machine.session_id_for("peace")=="delegate-pi-peace"
     assert machine.provides_agent("anything")
 
 
