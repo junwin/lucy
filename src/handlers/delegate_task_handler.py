@@ -22,9 +22,16 @@ class DelegateTaskHandler(HandlerV2):
     NAME = "delegate_task"
     DEFAULT_TIMEOUT = RemoteExecuteHandler.DEFAULT_TIMEOUT
 
-    def __init__(self, config: ConfigManager, agent_manager: AgentManager):
+    def __init__(
+        self,
+        config: ConfigManager,
+        agent_manager: Optional[AgentManager] = None,
+    ):
         self.config = config
-        self.agent_manager = agent_manager
+        self.agent_manager = agent_manager or AgentManager(
+            config.get("agents_path"),
+            strict_fields=config.get("strict_agent_fields", True),
+        )
 
     @classmethod
     def name(cls) -> str:
