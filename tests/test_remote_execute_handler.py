@@ -67,7 +67,7 @@ def test_happy_path_sse(monkeypatch, temp_config):
     assert res["ok"] is True
     assert res["result"] == "hello from remote"
     assert captured["url"].startswith("http://127.0.0.1:5000/ask")
-    assert captured["body"]["sessionId"] == "fixed-session-id-123"
+    assert captured["body"]["sessionId"] == "fixed-session-id-123-peace"
     assert captured["body"]["agentName"] == "peace"
     assert captured["body"]["contextName"] == "lucyproject"
     assert captured["headers"]["X-API-Key"] == "sekret"
@@ -98,7 +98,7 @@ def test_session_id_reused_from_config(monkeypatch, temp_config):
     res = h.execute({"machine": "pi4", "question": "ping"}, account_name="junwin")
 
     assert res["ok"] is True
-    assert captured["body"]["sessionId"] == "fixed-session-id-123"
+    assert captured["body"]["sessionId"] == "fixed-session-id-123-peace"
     # ensure the accountName fallback used the provided account
     assert captured["body"]["accountName"] == "junwin"
 
