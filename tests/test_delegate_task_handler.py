@@ -1,6 +1,7 @@
 import json
 from types import SimpleNamespace
 
+from src.config_manager import ConfigManager
 from src.handlers.delegate_task_handler import DelegateTaskHandler
 
 
@@ -156,3 +157,21 @@ def test_invalid_capabilities_are_rejected(tmp_path):
 
     assert result["ok"] is False
     assert "capabilities must be a list" in result["error"]
+
+
+def test_runtime_constructor_loads_agent_manager_from_config(tmp_path):
+    agents_file = tmp_path / "agents.json"
+    agents_file.write_text(json.dumps([{"name": "nelly"}]))
+    config_file = tmp_path / "config.json"
+    config_file.write_text(
+        json.dumps(
+            {
+                "code_sandbox_path": "/tmp",
+                "agents_path": str(agents_file),
+            }
+        )
+    )
+
+    handler = DelegateTaskHandler(ConfigManager(str(config_file)))
+
+    assert handler.agent_manager.is_valid("nelly")
