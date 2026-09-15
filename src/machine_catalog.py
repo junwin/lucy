@@ -103,6 +103,13 @@ class MachineDefinition:
     def ask_url(self) -> str:
         return f"{self.scheme}://{self.host}:{self.port}/ask"
 
+    def session_id_for(self, agent: str) -> str:
+        """Return a stable session ID scoped to this machine and agent."""
+
+        base = self.session_id or f"delegate-{self.name}"
+        agent_name = agent.strip()
+        return f"{base}-{agent_name}" if agent_name else base
+
     def supports(self, capability: str) -> bool:
         return capability in self.capabilities
 
