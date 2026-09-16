@@ -1,10 +1,11 @@
-"""DI wiring tests for the optional embedding store backend selection.
+"""DI wiring tests for Lucy-owned embedding store backends.
 
-Covers ``StorageModule.provide_embedding_store``: the default wiring (shared
-JsonFileStorage) stays untouched, ``embedding_store_backend=file`` / ``sqlite``
-opt into ``PrimitivesEmbeddingStore``, ``sqlite_vec`` into
-``Vec0EmbeddingStore``, and an unknown value fails loudly.
+The default wiring (shared JsonFileStorage) stays untouched. Explicit ``file``
+and ``sqlite`` backends use ``PrimitivesEmbeddingStore``. Native sqlite-vec
+storage is owned by galet-memory and is no longer constructed by Lucy.
 """
+
+import pytest
 
 from src.chat2.fs_primitives import FileChat2Primitives
 from src.chat2.sqlite import SqliteChat2Primitives
@@ -13,11 +14,8 @@ from src.storage.models import EmbeddingRecord
 from src.storage.primitives_embedding_store import PrimitivesEmbeddingStore
 from tests.conftest import FakeConfig
 
-import pytest
-
 
 def _storage_module(monkeypatch, values: dict) -> StorageModule:
-    """Build a StorageModule whose module-level config is a FakeConfig."""
     import src.container_config as cc
 
     monkeypatch.setattr(cc, "config", FakeConfig(values))
@@ -25,7 +23,6 @@ def _storage_module(monkeypatch, values: dict) -> StorageModule:
 
 
 def _sentinel_storage():
-    """A dummy Storage object; only identity matters for these tests."""
     return object()
 
 
@@ -41,13 +38,7 @@ def _record(record_id: str) -> EmbeddingRecord:
     )
 
 
-# ---------------------------------------------------------------------------
-# Default wiring
-# ---------------------------------------------------------------------------
-
-
 def test_embedding_store_defaults_to_shared_storage(monkeypatch):
-    """Unset backend -> the same JsonFileStorage instance is returned."""
     module = _storage_module(monkeypatch, {})
     storage = _sentinel_storage()
     assert module.provide_embedding_store(storage) is storage
@@ -57,11 +48,6 @@ def test_embedding_store_empty_backend_keeps_shared_storage(monkeypatch):
     module = _storage_module(monkeypatch, {"embedding_store_backend": ""})
     storage = _sentinel_storage()
     assert module.provide_embedding_store(storage) is storage
-
-
-# ---------------------------------------------------------------------------
-# file backend
-# ---------------------------------------------------------------------------
 
 
 def test_embedding_store_file_backend(monkeypatch, tmp_path):
@@ -80,16 +66,20 @@ def test_embedding_store_file_backend(monkeypatch, tmp_path):
     assert isinstance(store._store, FileChat2Primitives)
     assert store is not storage
 
-    # Same on-disk layout as JsonFileStorage.
     store.upsert_embedding(_record(record_id="r1"))
     expected = (
-        tmp_path / "root" / "data" / "embeddings" / "junwin" / "documents" / "r1.json"
+        tmp_path
+        / "root"
+        / "data"
+        / "embeddings"
+        / "junwin"
+        / "documents"
+        / "r1.json"
     )
     assert expected.exists()
 
 
 def test_embedding_store_file_backend_uppercase(monkeypatch, tmp_path):
-    """Backend value is normalized (case-insensitive)."""
     module = _storage_module(
         monkeypatch,
         {
@@ -100,11 +90,6 @@ def test_embedding_store_file_backend_uppercase(monkeypatch, tmp_path):
     )
     store = module.provide_embedding_store(_sentinel_storage())
     assert isinstance(store._store, FileChat2Primitives)
-
-
-# ---------------------------------------------------------------------------
-# sqlite backend
-# ---------------------------------------------------------------------------
 
 
 def test_embedding_store_sqlite_backend(monkeypatch, tmp_path):
@@ -136,9 +121,6 @@ def test_embedding_store_sqlite_backend(monkeypatch, tmp_path):
 
 
 def test_embedding_store_sqlite_default_db_path(monkeypatch, tmp_path):
-    """No explicit db path -> <storage_root>/<namespace>/embeddings-v2.sqlite."""
-    # In production the storage namespace dir already exists (JsonFileStorage
-    # creates it); mirror that here since SqliteChat2Primitives does not mkdir.
     (tmp_path / "root" / "data").mkdir(parents=True)
     module = _storage_module(
         monkeypatch,
@@ -157,46 +139,7 @@ def test_embedding_store_sqlite_default_db_path(monkeypatch, tmp_path):
         store._store.close()
 
 
-def test_embedding_store_sqlite_vec_backend(monkeypatch, tmp_path):
-    import sqlite3
-    from pathlib import Path
-
-    from src.storage.vec0_embedding_store import (
-        DEFAULT_SQLITE_VEC_EXTENSION_PATH,
-        Vec0EmbeddingStore,
-    )
-
-    if not Path(DEFAULT_SQLITE_VEC_EXTENSION_PATH).exists():
-        pytest.skip("sqlite-vec extension not available")
-    probe = sqlite3.connect(":memory:")
-    try:
-        probe.enable_load_extension(True)
-        probe.load_extension(DEFAULT_SQLITE_VEC_EXTENSION_PATH)
-    except sqlite3.OperationalError:
-        pytest.skip("sqlite-vec extension not loadable")
-    finally:
-        probe.close()
-
-    db_path = tmp_path / "emb_vec0.sqlite"
-    module = _storage_module(
-        monkeypatch,
-        {
-            "embedding_store_backend": "sqlite_vec",
-            "embedding_store_db_path": str(db_path),
-        },
-    )
-    store = module.provide_embedding_store(_sentinel_storage())
-    assert isinstance(store, Vec0EmbeddingStore)
-    store.close()
-    assert db_path.exists()
-
-
-# ---------------------------------------------------------------------------
-# Unknown backend fails loudly
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.parametrize("bad", ["sqllite", "mongo", "file!"])
+@pytest.mark.parametrize("bad", ["sqlite_vec", "sqllite", "mongo", "file!"])
 def test_embedding_store_unknown_backend_raises(monkeypatch, bad):
     module = _storage_module(monkeypatch, {"embedding_store_backend": bad})
     with pytest.raises(ValueError, match="embedding_store_backend"):
