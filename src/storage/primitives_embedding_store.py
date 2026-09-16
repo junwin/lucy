@@ -5,8 +5,9 @@ Embedding records are stored as documents at logical keys
     embeddings/<account_name>/<namespace>/<id>.json
 
 using only generic-store document operations plus ``list_keys`` for namespace
-scans. Lucy owns the file/sqlite generic stores; native vector-index storage is
-owned by galet-memory.
+scans. Lucy owns the file/sqlite generic stores. ``sqlite_vec`` remains a Lucy
+configuration choice for compatibility, but its native implementation is owned
+by galet-memory and reached through Lucy's thin adapter.
 """
 
 from __future__ import annotations
@@ -192,28 +193,43 @@ class PrimitivesEmbeddingStore(EmbeddingStore):
         return results[:top_k]
 
 
-def build_primitives_embedding_store(config: Any) -> EmbeddingStore:
-    """Build one of Lucy's generic embedding stores.
+def _default_embedding_db_path(config: Any) -> str:
+    db_path = config.get("embedding_store_db_path")
+    if db_path:
+        return str(db_path)
+    storage_root = config.get("storage_root_path") or "/home/junwin/lucydata"
+    storage_ns = config.get("storage_namespace") or "data"
+    return str(Path(storage_root) / storage_ns / "embeddings-v2.sqlite")
 
-    Supported backends are ``file`` and ``sqlite``. Native sqlite-vec/vec0
-    persistence is owned by galet-memory and is intentionally not constructed
-    here.
+
+def build_primitives_embedding_store(config: Any) -> EmbeddingStore:
+    """Build Lucy's configured embedding-store adapter.
+
+    ``file`` and ``sqlite`` are Lucy-owned generic stores. ``sqlite_vec`` is
+    retained as a deployment/configuration contract, but delegates to the thin
+    ``Vec0EmbeddingStore`` compatibility adapter, whose native sqlite-vec
+    implementation lives in galet-memory.
     """
     backend = str(config.get("embedding_store_backend", "file")).strip().lower()
 
     if backend == "sqlite":
         from src.chat2.sqlite import SqliteChat2Primitives
 
-        db_path = config.get("embedding_store_db_path")
-        if not db_path:
-            storage_root = config.get("storage_root_path") or "/home/junwin/lucydata"
-            storage_ns = config.get("storage_namespace") or "data"
-            db_path = str(Path(storage_root) / storage_ns / "embeddings-v2.sqlite")
-        return PrimitivesEmbeddingStore(SqliteChat2Primitives(db_path))
+        return PrimitivesEmbeddingStore(
+            SqliteChat2Primitives(_default_embedding_db_path(config))
+        )
+
+    if backend == "sqlite_vec":
+        from src.storage.vec0_embedding_store import Vec0EmbeddingStore
+
+        return Vec0EmbeddingStore(
+            db_path=_default_embedding_db_path(config),
+            sqlite_vec_extension_path=config.get("sqlite_vec_extension_path"),
+        )
 
     if backend != "file":
         raise ValueError(
-            f"Unknown embedding_store_backend {backend!r}: expected 'file' or 'sqlite'"
+            f"Unknown embedding_store_backend {backend!r}: expected 'file', 'sqlite' or 'sqlite_vec'"
         )
 
     from src.chat2.fs_primitives import FileChat2Primitives
