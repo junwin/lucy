@@ -58,6 +58,9 @@ galet @ git+https://github.com/junwin/galet.git@cd73d43729f9ba7b88096902efd67718
 # embedding_store_backend=sqlite_vec is configured.
 galet-memory[vec] @ git+https://github.com/junwin/galet-memory.git@0e2240cf09c2c30e0a7e20b5ce55ca8b50b497f9
 
+# Provider-neutral prompt selection, budgeting, and compilation.
+galet-prompt-builder @ git+https://github.com/junwin/galet-prompt-builder.git@bf1f9dd6bc902f4bf3bb42ca0ecdcbf97c38e9f8
+
 # Shared handler ABI and external handler discovery.
 # Pinned to the integration commit until galet-tools has its first release.
 -e git+https://github.com/junwin/galet-tools.git@2fd16230721acd0cd726e698a1804c099eb593b1#egg=galet-tools
