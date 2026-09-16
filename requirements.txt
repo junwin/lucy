@@ -51,9 +51,11 @@ mcp==2.1.1
 # Pinned to the model catalog/credential profile integration commit pending the next release.
 -e git+https://github.com/junwin/galet.git@cd73d43729f9ba7b88096902efd677181283d12d#egg=galet
 
-# Galet memory abstractions and implementations. sqlite-vec ownership and
-# migrations moved here; Lucy retains only a temporary compatibility adapter.
--e git+https://github.com/junwin/galet-memory.git@1ac261aebced2b07568aa748a0766edf5f2e370e#egg=galet-memory
+# NOTE: galet-memory is used by the sqlite-vec compatibility adapter during
+# this cutover, but is intentionally not pinned here yet. Its current main
+# pins an older Galet commit; align that dependency before adding it to Lucy's
+# install set. Development/test environments should install the local
+# galet-memory checkout editable with --no-deps for now.
 
 # Shared handler ABI and external handler discovery.
 # Pinned to the integration commit until galet-tools has its first release.
