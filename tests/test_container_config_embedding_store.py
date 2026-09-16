@@ -1,8 +1,9 @@
-"""DI wiring tests for Lucy-owned embedding store backends.
+"""DI wiring tests for Lucy embedding-store configuration.
 
 The default wiring (shared JsonFileStorage) stays untouched. Explicit ``file``
-and ``sqlite`` backends use ``PrimitivesEmbeddingStore``. Native sqlite-vec
-storage is owned by galet-memory and is no longer constructed by Lucy.
+and ``sqlite`` backends use ``PrimitivesEmbeddingStore``. ``sqlite_vec`` is a
+supported Lucy configuration choice but delegates native vector storage to
+``galet-memory`` through the compatibility adapter.
 """
 
 import pytest
@@ -26,12 +27,14 @@ def _sentinel_storage():
     return object()
 
 
-def _record(record_id: str) -> EmbeddingRecord:
+def _record(record_id: str, dimensions: int = 3) -> EmbeddingRecord:
+    vector = [0.0] * dimensions
+    vector[0] = 1.0
     return EmbeddingRecord(
         id=record_id,
         namespace="documents",
         account_name="junwin",
-        vector=[1.0, 0.0, 0.0],
+        vector=vector,
         source_type="note",
         source_id="src1",
         source_metadata={},
@@ -139,7 +142,36 @@ def test_embedding_store_sqlite_default_db_path(monkeypatch, tmp_path):
         store._store.close()
 
 
-@pytest.mark.parametrize("bad", ["sqlite_vec", "sqllite", "mongo", "file!"])
+def test_embedding_store_sqlite_vec_delegates_to_galet_memory(monkeypatch, tmp_path):
+    pytest.importorskip("sqlite_vec")
+    from src.storage.vec0_embedding_store import Vec0EmbeddingStore
+
+    db_path = tmp_path / "emb_vec0.sqlite"
+    module = _storage_module(
+        monkeypatch,
+        {
+            "embedding_store_backend": "sqlite_vec",
+            "embedding_store_db_path": str(db_path),
+        },
+    )
+    store = module.provide_embedding_store(_sentinel_storage())
+    assert isinstance(store, Vec0EmbeddingStore)
+    try:
+        store.upsert_embedding(_record("r1", dimensions=1536))
+        results = store.query_embeddings(
+            namespaces=["documents"],
+            account_name="junwin",
+            query_vector=[1.0] + [0.0] * 1535,
+            top_k=1,
+        )
+        assert results
+        assert results[0][0].id == "r1"
+    finally:
+        store.close()
+    assert db_path.exists()
+
+
+@pytest.mark.parametrize("bad", ["sqllite", "mongo", "file!"])
 def test_embedding_store_unknown_backend_raises(monkeypatch, bad):
     module = _storage_module(monkeypatch, {"embedding_store_backend": bad})
     with pytest.raises(ValueError, match="embedding_store_backend"):
