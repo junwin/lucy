@@ -1,2 +1,2 @@
-from .agent import Agent
+from .agent import Agent, ModelPolicy
 from .agent_manager import AgentManager

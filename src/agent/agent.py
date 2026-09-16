@@ -15,10 +15,81 @@ Design goals:
 from __future__ import annotations
 
 from dataclasses import dataclass, fields as dataclass_fields
-from typing import Optional, List, Any, Dict
+from typing import Optional, List, Any, Dict, Tuple
 import logging
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class ModelPolicy:
+    """Model capabilities and preferences required by an agent."""
+
+    profile: Optional[str] = None
+    required_capabilities: Tuple[str, ...] = ()
+    preferred_model: Optional[str] = None
+    preferred_source: Optional[str] = None
+    allow_fallback: bool = True
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "ModelPolicy":
+        if not isinstance(data, dict):
+            raise ValueError("model_policy must be an object")
+
+        allowed = {
+            "profile",
+            "required_capabilities",
+            "preferred_model",
+            "preferred_source",
+            "allow_fallback",
+        }
+        unknown = set(data) - allowed
+        if unknown:
+            raise ValueError(
+                "model_policy contains unknown fields: "
+                + ", ".join(sorted(unknown))
+            )
+
+        capabilities = data.get("required_capabilities", ())
+        if not isinstance(capabilities, (list, tuple)):
+            raise ValueError("model_policy.required_capabilities must be a list")
+        if any(not isinstance(value, str) or not value for value in capabilities):
+            raise ValueError(
+                "model_policy.required_capabilities must contain non-empty strings"
+            )
+
+        allow_fallback = data.get("allow_fallback", True)
+        if not isinstance(allow_fallback, bool):
+            raise ValueError("model_policy.allow_fallback must be a bool")
+
+        return cls(
+            profile=_optional_policy_string(data.get("profile")),
+            required_capabilities=tuple(capabilities),
+            preferred_model=_optional_policy_string(data.get("preferred_model")),
+            preferred_source=_optional_policy_string(data.get("preferred_source")),
+            allow_fallback=allow_fallback,
+        )
+
+    def to_dict(self) -> Dict[str, Any]:
+        result: Dict[str, Any] = {
+            "required_capabilities": list(self.required_capabilities),
+            "allow_fallback": self.allow_fallback,
+        }
+        if self.profile is not None:
+            result["profile"] = self.profile
+        if self.preferred_model is not None:
+            result["preferred_model"] = self.preferred_model
+        if self.preferred_source is not None:
+            result["preferred_source"] = self.preferred_source
+        return result
+
+
+def _optional_policy_string(value: Any) -> Optional[str]:
+    if value is None:
+        return None
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError("model_policy string values must be non-empty strings")
+    return value.strip()
 
 
 @dataclass
@@ -53,6 +124,7 @@ class Agent:
     persona: str = ""
     allowed_tools: Optional[List[str]] = None
     provider: Optional[str] = None
+    model_policy: Optional[ModelPolicy] = None
     use_embeddings: bool = False
     # Optional default context name for this agent (can be overridden at runtime)
     default_context: Optional[str] = None
@@ -144,6 +216,14 @@ class Agent:
                 )
                 for key in unknown_keys:
                     raw.pop(key)
+
+        if "model_policy" in raw and raw["model_policy"] is not None:
+            try:
+                raw["model_policy"] = ModelPolicy.from_dict(raw["model_policy"])
+            except ValueError as exc:
+                raise ValueError(
+                    f"Agent '{agent_name}' has invalid model_policy: {exc}"
+                ) from exc
 
         # Validate/coerce specific fields to be forgiving where possible
         # allowed_tools: should be None or a list of strings
@@ -267,6 +347,8 @@ class Agent:
             "use_embeddings": self.use_embeddings,
             "default_context": self.default_context,
         }
+        if self.model_policy is not None:
+            result["model_policy"] = self.model_policy.to_dict()
         if self.max_tool_result_chars is not None:
             result["max_tool_result_chars"] = self.max_tool_result_chars
         if self.max_handler_schema_tokens is not None:
@@ -276,6 +358,26 @@ class Agent:
         if self.prompt_budget_max_tokens is not None:
             result["prompt_budget_max_tokens"] = self.prompt_budget_max_tokens
         return result
+
+    def model_requirements(self):
+        """Translate this agent's policy into Galet model requirements."""
+
+        from galet import ModelRequirements
+
+        policy = self.model_policy
+        if policy is None:
+            return ModelRequirements.create(
+                preferred_model=self.model,
+                preferred_source=self.provider,
+                allow_fallback=False,
+            )
+        return ModelRequirements.create(
+            profile=policy.profile,
+            required_capabilities=policy.required_capabilities,
+            preferred_model=policy.preferred_model or self.model,
+            preferred_source=policy.preferred_source or self.provider,
+            allow_fallback=policy.allow_fallback,
+        )
 
     def allows_tool(self, tool_name: str) -> bool:
         """Return True if the given tool is allowed for this agent.

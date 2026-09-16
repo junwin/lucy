@@ -1,6 +1,6 @@
 import pytest
 
-from src.agent.agent import Agent
+from src.agent.agent import Agent, ModelPolicy
 
 CAP_FIELDS = (
     "max_tool_result_chars",
@@ -114,3 +114,79 @@ def test_to_dict_emits_cap_fields_only_when_set_and_round_trips():
     restored_plain = Agent.from_dict(plain_dumped)
     for field in CAP_FIELDS:
         assert getattr(restored_plain, field) is None
+
+
+
+def test_agent_loads_model_policy_and_builds_galet_requirements():
+    agent = Agent.from_dict(
+        {
+            "name": "architect",
+            "model": "legacy-model",
+            "model_policy": {
+                "profile": "reasoning",
+                "required_capabilities": ["tool-calling", "structured-output"],
+                "preferred_model": "gpt-5.6-sol",
+                "preferred_source": "openai",
+                "allow_fallback": True,
+            },
+        }
+    )
+
+    assert isinstance(agent.model_policy, ModelPolicy)
+    requirements = agent.model_requirements()
+    assert requirements.profile == "reasoning"
+    assert requirements.required_capabilities == frozenset(
+        {"tool-calling", "structured-output"}
+    )
+    assert requirements.preferred_model == "gpt-5.6-sol"
+    assert requirements.preferred_source == "openai"
+    assert requirements.allow_fallback is True
+
+
+def test_model_policy_round_trips():
+    agent = Agent.from_dict(
+        {
+            "name": "worker",
+            "model_policy": {
+                "profile": "focused-development",
+                "required_capabilities": ["code-generation"],
+                "preferred_model": "gpt-5-mini",
+                "allow_fallback": False,
+            },
+        }
+    )
+
+    restored = Agent.from_dict(agent.to_dict())
+
+    assert restored.model_policy == agent.model_policy
+
+
+def test_legacy_agent_builds_fixed_model_requirements():
+    agent = Agent.from_dict(
+        {
+            "name": "legacy",
+            "model": "gpt-4o",
+            "provider": "openai",
+        }
+    )
+
+    requirements = agent.model_requirements()
+
+    assert requirements.preferred_model == "gpt-4o"
+    assert requirements.preferred_source == "openai"
+    assert requirements.allow_fallback is False
+
+
+@pytest.mark.parametrize(
+    ("policy", "message"),
+    [
+        ("reasoning", "must be an object"),
+        ({"unknown": True}, "unknown fields"),
+        ({"required_capabilities": "tools"}, "must be a list"),
+        ({"required_capabilities": [""]}, "non-empty strings"),
+        ({"allow_fallback": "yes"}, "must be a bool"),
+    ],
+)
+def test_invalid_model_policy_is_rejected(policy, message):
+    with pytest.raises(ValueError, match=message):
+        Agent.from_dict({"name": "invalid", "model_policy": policy})

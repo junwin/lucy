@@ -1,19 +1,19 @@
 """remote_execute — query a remote Lucy instance via its /ask endpoint.
 
-Reads machine definitions from ``config.local.machines.json`` (a separate,
-gitignored file because it holds API keys). Query-only: no reset, list, or
-event sub-actions.
+Loads validated machine definitions from ``config.local.machines.json``.
+Legacy inline API keys remain supported while authentication profiles are
+introduced. Query-only: no reset, list, or event sub-actions.
 """
 
 import json
 import logging
-import os
 from typing import Any, Dict, Optional
 
 import requests
 
 from src.config_manager import ConfigManager
 from src.handlers.handler_v2 import HandlerV2
+from src.machine_catalog import MachineConfigError, MachineDefinition, MachineManager
 
 
 logger = logging.getLogger(__name__)
@@ -115,29 +115,16 @@ class RemoteExecuteHandler(HandlerV2):
         machines = self._load_machines()
         machine = machines.get(machine_key)
         if not machine:
-            available = ", ".join(sorted(machines.keys())) or "(none)"
+            available = ", ".join(sorted(machines)) or "(none)"
             return self._error(
                 f"Unknown machine '{machine_key}'. Available machines: {available}",
                 machine=machine_key,
                 question=question,
             )
 
-        scheme = (machine.get("scheme") or "http").strip().rstrip(":/")
-        host = (machine.get("host") or "").strip()
-        port = machine.get("port", 5000)
-        api_key = (machine.get("api_key") or "").strip()
-        session_id = (machine.get("session_id") or "").strip()
-
-        if not host:
-            return self._error(
-                f"Machine '{machine_key}' is missing a 'host'.",
-                machine=machine_key,
-                question=question,
-            )
-
-        # Fixed session reuse: NEVER generate a new UUID here.
-        agent_name = (args.get("agentName") or machine.get("default_agent") or "").strip()
-        context_name = (args.get("contextName") or machine.get("default_context") or "").strip()
+        # Stable per-agent session reuse: NEVER generate a new UUID here.
+        agent_name = (args.get("agentName") or machine.default_agent or "").strip()
+        context_name = (args.get("contextName") or machine.default_context or "").strip()
         remote_account = (args.get("accountName") or "").strip() or account_name
 
         body = {
@@ -145,13 +132,12 @@ class RemoteExecuteHandler(HandlerV2):
             "accountName": remote_account,
             "agentName": agent_name,
             "contextName": context_name,
-            "sessionId": session_id,
+            "sessionId": machine.session_id_for(agent_name),
         }
 
-        url = f"{scheme}://{host}:{port}/ask"
         headers = {
             "Content-Type": "application/json",
-            "X-API-Key": api_key,
+            "X-API-Key": machine.api_key,
         }
 
         timeout = args.get("timeout_seconds") or self.DEFAULT_TIMEOUT
@@ -159,7 +145,7 @@ class RemoteExecuteHandler(HandlerV2):
             timeout = self.DEFAULT_TIMEOUT
 
         try:
-            resp = requests.post(url, json=body, headers=headers, timeout=timeout)
+            resp = requests.post(machine.ask_url, json=body, headers=headers, timeout=timeout)
             resp.raise_for_status()
             raw = resp.text or ""
         except requests.exceptions.Timeout:
@@ -207,25 +193,27 @@ class RemoteExecuteHandler(HandlerV2):
         result.update(extra)
         return result
 
-    def _machines_path(self) -> str:
-        if self._machines_config_path:
-            return self._machines_config_path
-        base_dir = os.path.dirname(os.path.abspath(self.config.file_name))
-        return os.path.join(base_dir, "config.local.machines.json")
+    def _machine_manager(self) -> MachineManager:
+        return MachineManager.beside_config(
+            self.config.file_name,
+            machines_path=self._machines_config_path,
+        )
 
-    def _load_machines(self) -> Dict[str, Dict[str, Any]]:
-        path = self._machines_path()
-        if not os.path.exists(path):
-            return {}
+    def _load_machines(self) -> Dict[str, MachineDefinition]:
+        manager = self._machine_manager()
         try:
-            with open(path, "r", encoding="utf-8") as f:
-                data = json.load(f)
-        except (OSError, json.JSONDecodeError) as e:
-            logger.warning("remote_execute: failed to load machines config %s: %s", path, e)
+            manager.load()
+        except MachineConfigError as exc:
+            logger.warning(
+                "remote_execute: failed to load machines config %s: %s",
+                manager.path,
+                exc,
+            )
             return {}
-
-        machines = data.get("machines", {}) if isinstance(data, dict) else {}
-        return machines if isinstance(machines, dict) else {}
+        return {
+            machine.name: machine
+            for machine in manager.machines(enabled_only=True)
+        }
 
     def _parse_response(self, raw: str) -> Optional[str]:
         """Extract the final answer from an SSE or plain-JSON /ask response.

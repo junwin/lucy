@@ -67,7 +67,10 @@ def test_happy_path_sse(monkeypatch, temp_config):
     assert res["ok"] is True
     assert res["result"] == "hello from remote"
     assert captured["url"].startswith("http://127.0.0.1:5000/ask")
-    assert captured["body"]["sessionId"] == "fixed-session-id-123"
+    assert captured["body"]["sessionId"] == "fixed-session-id-123-peace"
+    assert captured["body"]["agentName"] == "peace"
+    assert captured["body"]["contextName"] == "lucyproject"
+    assert captured["headers"]["X-API-Key"] == "sekret"
 
 
 def test_unknown_machine_lists_available(temp_config):
@@ -95,6 +98,52 @@ def test_session_id_reused_from_config(monkeypatch, temp_config):
     res = h.execute({"machine": "pi4", "question": "ping"}, account_name="junwin")
 
     assert res["ok"] is True
-    assert captured["body"]["sessionId"] == "fixed-session-id-123"
+    assert captured["body"]["sessionId"] == "fixed-session-id-123-peace"
     # ensure the accountName fallback used the provided account
     assert captured["body"]["accountName"] == "junwin"
+
+
+def test_disabled_machine_is_not_available(tmp_path):
+    config_file = tmp_path / "config.json"
+    config_file.write_text(json.dumps({"code_sandbox_path": "/tmp"}))
+    machines_file = tmp_path / "config.local.machines.json"
+    machines_file.write_text(
+        json.dumps(
+            {
+                "machines": {
+                    "offline": {
+                        "host": "127.0.0.1",
+                        "enabled": False,
+                    }
+                }
+            }
+        )
+    )
+
+    handler = RemoteExecuteHandler(ConfigManager(str(config_file)))
+    result = handler.execute(
+        {"machine": "offline", "question": "ping"},
+        account_name="junwin",
+    )
+
+    assert result["ok"] is False
+    assert "Unknown machine" in result["error"]
+    assert "(none)" in result["error"]
+
+
+def test_invalid_machine_catalog_fails_closed(tmp_path):
+    config_file = tmp_path / "config.json"
+    config_file.write_text(json.dumps({"code_sandbox_path": "/tmp"}))
+    machines_file = tmp_path / "config.local.machines.json"
+    machines_file.write_text(
+        json.dumps({"machines": {"broken": {"host": "https://bad-host"}}})
+    )
+
+    handler = RemoteExecuteHandler(ConfigManager(str(config_file)))
+    result = handler.execute(
+        {"machine": "broken", "question": "ping"},
+        account_name="junwin",
+    )
+
+    assert result["ok"] is False
+    assert "Unknown machine" in result["error"]
