@@ -111,9 +111,9 @@ class StorageModule(Module):
         backend = str(config.get("embedding_store_backend", "") or "").strip().lower()
         if not backend:
             return storage
-        if backend not in ("file", "sqlite", "sqlite_vec"):
+        if backend not in ("file", "sqlite"):
             raise ValueError(
-                "Unknown embedding_store_backend %r: expected 'file', 'sqlite' or 'sqlite_vec'"
+                "Unknown embedding_store_backend %r: expected 'file' or 'sqlite'"
                 % backend
             )
         return build_primitives_embedding_store(config)
