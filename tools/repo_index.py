@@ -1,20 +1,19 @@
 #!/usr/bin/env python3
-"""Generate compact and detailed structural views of a Python repository."""
+"""Generate and query structural views of a Python repository."""
 
 from __future__ import annotations
 
 import argparse
 import ast
+import re
 import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
-
 
 DEFAULT_EXCLUDES = {
     ".git", ".venv", "venv", "__pycache__", ".pytest_cache",
     ".mypy_cache", ".ruff_cache", "node_modules", "build", "dist",
 }
-
 
 @dataclass
 class ClassInfo:
@@ -22,7 +21,6 @@ class ClassInfo:
     line: int
     bases: list[str] = field(default_factory=list)
     methods: list[tuple[str, int]] = field(default_factory=list)
-
 
 @dataclass
 class ModuleInfo:
@@ -81,6 +79,11 @@ def function_signature(node: ast.FunctionDef | ast.AsyncFunctionDef) -> str:
     return signature
 
 
+def symbol_name(signature: str) -> str:
+    name = signature.split("(", 1)[0]
+    return name[6:] if name.startswith("async ") else name
+
+
 def first_docstring_line(node: ast.AST) -> str | None:
     docstring = ast.get_docstring(node, clean=True)
     return docstring.splitlines()[0].strip() if docstring else None
@@ -128,29 +131,32 @@ def find_python_files(root: Path) -> list[Path]:
 
 
 def is_test_path(path: Path, root: Path) -> bool:
-    """Return True for conventional test files/directories."""
     relative = path.relative_to(root)
     return "tests" in relative.parts or relative.name.startswith("test_")
 
 
+def scan_repository(root: Path) -> list[ModuleInfo]:
+    modules: list[ModuleInfo] = []
+    for path in find_python_files(root):
+        info = parse_module(path)
+        if info is not None:
+            modules.append(info)
+    return modules
+
+
 def git_commit(root: Path) -> str | None:
     try:
-        result = subprocess.run(
-            ["git", "rev-parse", "HEAD"], cwd=root,
-            capture_output=True, text=True, check=True,
-        )
+        result = subprocess.run(["git", "rev-parse", "HEAD"], cwd=root,
+                                capture_output=True, text=True, check=True)
         return result.stdout.strip()
     except (subprocess.CalledProcessError, FileNotFoundError):
         return None
 
 
 def render_map(modules: list[ModuleInfo], root: Path, commit: str | None) -> str:
-    """Render a prompt-sized orientation map: production Python file paths only."""
     mapped = [info for info in modules if not is_test_path(info.path, root)]
-    lines = [
-        "# Repository Map", "", f"Repository: `{root.name}`",
-        f"Python files: {len(mapped)} (tests excluded)",
-    ]
+    lines = ["# Repository Map", "", f"Repository: `{root.name}`",
+             f"Python files: {len(mapped)} (tests excluded)"]
     if commit:
         lines.append(f"Git commit: `{commit}`")
     lines.extend(["", "## Python files", ""])
@@ -159,35 +165,109 @@ def render_map(modules: list[ModuleInfo], root: Path, commit: str | None) -> str
     return "\n".join(lines)
 
 
+def render_module(info: ModuleInfo, root: Path) -> str:
+    lines = [f"## `{info.path.relative_to(root)}`", ""]
+    if info.docstring:
+        lines.extend([f"> {info.docstring}", ""])
+    if info.imports:
+        lines.extend(["**Imports**", ""])
+        lines.extend(f"- `{item}`" for item in info.imports)
+        lines.append("")
+    if info.classes:
+        lines.extend(["**Classes**", ""])
+        for cls in info.classes:
+            bases = f"({', '.join(cls.bases)})" if cls.bases else ""
+            lines.append(f"- `{cls.name}{bases}` — line {cls.line}")
+            for signature, line in cls.methods:
+                lines.append(f"  - `{signature}` — line {line}")
+        lines.append("")
+    if info.functions:
+        lines.extend(["**Functions**", ""])
+        for signature, line in info.functions:
+            lines.append(f"- `{signature}` — line {line}")
+        lines.append("")
+    return "\n".join(lines)
+
+
 def render_index(modules: list[ModuleInfo], root: Path, commit: str | None) -> str:
-    lines = [
-        "# Repository Index", "", f"Repository: `{root.name}`",
-        f"Python files: {len(modules)}",
-    ]
+    lines = ["# Repository Index", "", f"Repository: `{root.name}`",
+             f"Python files: {len(modules)}"]
     if commit:
         lines.append(f"Git commit: `{commit}`")
     lines.extend(["", "---", ""])
+    lines.extend(render_module(info, root) for info in modules)
+    return "\n".join(lines)
+
+
+def lookup_modules(modules: list[ModuleInfo], root: Path, lookup: str) -> list[ModuleInfo]:
+    """Match an exact file or all Python modules beneath a path prefix."""
+    query = lookup.strip().replace("\\", "/").strip("/")
+    return [info for info in modules
+            if (rel := info.path.relative_to(root).as_posix()) == query
+            or rel.startswith(query.rstrip("/") + "/")]
+
+
+def find_symbol(modules: list[ModuleInfo], root: Path, query: str) -> str:
+    needle = query.casefold()
+    lines = [f"# Symbol matches: `{query}`", ""]
+    count = 0
     for info in modules:
-        lines.extend([f"## `{info.path.relative_to(root)}`", ""])
+        rel = info.path.relative_to(root)
+        for cls in info.classes:
+            if needle in cls.name.casefold():
+                lines.append(f"- `{rel}:{cls.line}` class `{cls.name}`")
+                count += 1
+            for signature, line in cls.methods:
+                name = symbol_name(signature)
+                if needle in name.casefold():
+                    lines.append(f"- `{rel}:{line}` `{cls.name}.{name}`")
+                    count += 1
+        for signature, line in info.functions:
+            name = symbol_name(signature)
+            if needle in name.casefold():
+                lines.append(f"- `{rel}:{line}` `{name}`")
+                count += 1
+    if not count:
+        lines.append("No matching symbols.")
+    return "\n".join(lines)
+
+
+def search_repository(modules: list[ModuleInfo], root: Path, query: str, limit: int) -> str:
+    """Rank modules using deterministic lexical matches over structural metadata."""
+    terms = [t.casefold() for t in re.findall(r"[A-Za-z0-9_]+", query) if t]
+    scored: list[tuple[int, ModuleInfo, list[str]]] = []
+    for info in modules:
+        rel = info.path.relative_to(root).as_posix()
+        reasons: list[str] = []
+        score = 0
+        fields: list[tuple[str, str, int]] = [("path", rel, 8)]
         if info.docstring:
-            lines.extend([f"> {info.docstring}", ""])
-        if info.imports:
-            lines.extend(["**Imports**", ""])
-            lines.extend(f"- `{item}`" for item in info.imports)
-            lines.append("")
-        if info.classes:
-            lines.extend(["**Classes**", ""])
-            for cls in info.classes:
-                bases = f"({', '.join(cls.bases)})" if cls.bases else ""
-                lines.append(f"- `{cls.name}{bases}` — line {cls.line}")
-                for signature, line in cls.methods:
-                    lines.append(f"  - `{signature}` — line {line}")
-            lines.append("")
-        if info.functions:
-            lines.extend(["**Functions**", ""])
-            for signature, line in info.functions:
-                lines.append(f"- `{signature}` — line {line}")
-            lines.append("")
+            fields.append(("docstring", info.docstring, 3))
+        for cls in info.classes:
+            fields.append(("class", cls.name, 6))
+            for signature, _ in cls.methods:
+                fields.append(("method", symbol_name(signature), 5))
+        for signature, _ in info.functions:
+            fields.append(("function", symbol_name(signature), 5))
+        fields.extend(("import", item, 1) for item in info.imports)
+        for label, value, weight in fields:
+            haystack = value.casefold()
+            matched = [term for term in terms if term in haystack]
+            if matched:
+                score += weight * len(matched)
+                reasons.append(f"{label}: {value}")
+        if score:
+            scored.append((score, info, reasons))
+    scored.sort(key=lambda item: (-item[0], item[1].path.relative_to(root).as_posix()))
+    lines = [f"# Repository search: `{query}`", ""]
+    if not scored:
+        lines.append("No matches.")
+        return "\n".join(lines)
+    for score, info, reasons in scored[:limit]:
+        lines.append(f"## `{info.path.relative_to(root)}` — score {score}")
+        for reason in reasons[:5]:
+            lines.append(f"- {reason}")
+        lines.append("")
     return "\n".join(lines)
 
 
@@ -196,31 +276,40 @@ def estimate_tokens(text: str) -> int:
 
 
 def print_stats(name: str, text: str) -> None:
-    print(
-        f"{name:20} {len(text):>10,} chars  "
-        f"{text.count(chr(10)) + 1:>7,} lines  "
-        f"~{estimate_tokens(text):>8,} tokens"
-    )
+    print(f"{name:20} {len(text):>10,} chars  {text.count(chr(10)) + 1:>7,} lines  "
+          f"~{estimate_tokens(text):>8,} tokens")
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(
-        description="Generate compact and detailed structural repository views."
-    )
+    parser = argparse.ArgumentParser(description="Generate or query structural repository views.")
     parser.add_argument("--root", type=Path, default=Path("."))
     parser.add_argument("--map-output", type=Path, default=Path("repo_map.md"))
     parser.add_argument("--index-output", type=Path, default=Path("repo_index.md"))
+    group = parser.add_mutually_exclusive_group()
+    group.add_argument("--lookup", help="Show detailed structure for a file or directory prefix")
+    group.add_argument("--symbol", help="Find classes, methods, or functions by name")
+    group.add_argument("--search", help="Search paths and structural metadata")
+    parser.add_argument("--limit", type=int, default=10, help="Maximum search results (default: 10)")
     return parser.parse_args()
 
 
 def main() -> None:
     args = parse_args()
     root = args.root.resolve()
-    modules = []
-    for path in find_python_files(root):
-        info = parse_module(path)
-        if info is not None:
-            modules.append(info)
+    modules = scan_repository(root)
+
+    if args.lookup:
+        matches = lookup_modules(modules, root, args.lookup)
+        print("\n\n".join(render_module(info, root) for info in matches)
+              if matches else f"No modules matched: {args.lookup}")
+        return
+    if args.symbol:
+        print(find_symbol(modules, root, args.symbol))
+        return
+    if args.search:
+        print(search_repository(modules, root, args.search, max(1, args.limit)))
+        return
+
     commit = git_commit(root)
     repo_map = render_map(modules, root, commit)
     repo_index = render_index(modules, root, commit)
@@ -237,7 +326,6 @@ def main() -> None:
     print()
     print(f"Map:   {map_output}")
     print(f"Index: {index_output}")
-
 
 if __name__ == "__main__":
     main()
