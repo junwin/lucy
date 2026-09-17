@@ -44,7 +44,6 @@ def format_arguments(args: ast.arguments) -> str:
     parts: list[str] = []
     positional = list(args.posonlyargs) + list(args.args)
     defaults_offset = len(positional) - len(args.defaults)
-
     for index, arg in enumerate(positional):
         text = arg.arg
         if arg.annotation:
@@ -52,7 +51,6 @@ def format_arguments(args: ast.arguments) -> str:
         if index >= defaults_offset:
             text += f" = {expr_name(args.defaults[index - defaults_offset])}"
         parts.append(text)
-
     if args.vararg:
         text = f"*{args.vararg.arg}"
         if args.vararg.annotation:
@@ -60,7 +58,6 @@ def format_arguments(args: ast.arguments) -> str:
         parts.append(text)
     elif args.kwonlyargs:
         parts.append("*")
-
     for arg, default in zip(args.kwonlyargs, args.kw_defaults):
         text = arg.arg
         if arg.annotation:
@@ -68,13 +65,11 @@ def format_arguments(args: ast.arguments) -> str:
         if default is not None:
             text += f" = {expr_name(default)}"
         parts.append(text)
-
     if args.kwarg:
         text = f"**{args.kwarg.arg}"
         if args.kwarg.annotation:
             text += f": {expr_name(args.kwarg.annotation)}"
         parts.append(text)
-
     return ", ".join(parts)
 
 
@@ -97,9 +92,7 @@ def parse_module(path: Path) -> ModuleInfo | None:
     except (UnicodeDecodeError, SyntaxError, OSError) as exc:
         print(f"warning: unable to parse {path}: {exc}")
         return None
-
     info = ModuleInfo(path=path, docstring=first_docstring_line(tree))
-
     for node in tree.body:
         if isinstance(node, ast.Import):
             info.imports.extend(alias.name for alias in node.names)
@@ -108,18 +101,13 @@ def parse_module(path: Path) -> ModuleInfo | None:
             names = ", ".join(alias.name for alias in node.names)
             info.imports.append(f"{module}: {names}")
         elif isinstance(node, ast.ClassDef):
-            cls = ClassInfo(
-                name=node.name,
-                line=node.lineno,
-                bases=[expr_name(base) for base in node.bases],
-            )
+            cls = ClassInfo(node.name, node.lineno, [expr_name(b) for b in node.bases])
             for child in node.body:
                 if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)):
                     cls.methods.append((function_signature(child), child.lineno))
             info.classes.append(cls)
         elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
             info.functions.append((function_signature(node), node.lineno))
-
     info.imports = sorted(set(info.imports))
     return info
 
@@ -139,6 +127,12 @@ def find_python_files(root: Path) -> list[Path]:
     )
 
 
+def is_test_path(path: Path, root: Path) -> bool:
+    """Return True for conventional test files/directories."""
+    relative = path.relative_to(root)
+    return "tests" in relative.parts or relative.name.startswith("test_")
+
+
 def git_commit(root: Path) -> str | None:
     try:
         result = subprocess.run(
@@ -151,30 +145,17 @@ def git_commit(root: Path) -> str | None:
 
 
 def render_map(modules: list[ModuleInfo], root: Path, commit: str | None) -> str:
+    """Render a prompt-sized orientation map: production Python file paths only."""
+    mapped = [info for info in modules if not is_test_path(info.path, root)]
     lines = [
         "# Repository Map", "", f"Repository: `{root.name}`",
-        f"Python files: {len(modules)}",
+        f"Python files: {len(mapped)} (tests excluded)",
     ]
     if commit:
         lines.append(f"Git commit: `{commit}`")
+    lines.extend(["", "## Python files", ""])
+    lines.extend(f"- `{info.path.relative_to(root)}`" for info in mapped)
     lines.append("")
-
-    for info in modules:
-        lines.append(f"## {info.path.relative_to(root)}")
-        for cls in info.classes:
-            lines.append(f"  class {cls.name}")
-            for signature, _ in cls.methods:
-                name = signature.split("(", 1)[0]
-                if name.startswith("async "):
-                    name = name[6:]
-                lines.append(f"    {name}")
-        for signature, _ in info.functions:
-            name = signature.split("(", 1)[0]
-            if name.startswith("async "):
-                name = name[6:]
-            lines.append(f"  {name}")
-        lines.append("")
-
     return "\n".join(lines)
 
 
@@ -186,7 +167,6 @@ def render_index(modules: list[ModuleInfo], root: Path, commit: str | None) -> s
     if commit:
         lines.append(f"Git commit: `{commit}`")
     lines.extend(["", "---", ""])
-
     for info in modules:
         lines.extend([f"## `{info.path.relative_to(root)}`", ""])
         if info.docstring:
@@ -208,12 +188,10 @@ def render_index(modules: list[ModuleInfo], root: Path, commit: str | None) -> s
             for signature, line in info.functions:
                 lines.append(f"- `{signature}` — line {line}")
             lines.append("")
-
     return "\n".join(lines)
 
 
 def estimate_tokens(text: str) -> int:
-    """Return a rough token estimate using four characters per token."""
     return max(1, len(text) // 4)
 
 
@@ -238,23 +216,18 @@ def parse_args() -> argparse.Namespace:
 def main() -> None:
     args = parse_args()
     root = args.root.resolve()
-
     modules = []
     for path in find_python_files(root):
         info = parse_module(path)
         if info is not None:
             modules.append(info)
-
     commit = git_commit(root)
     repo_map = render_map(modules, root, commit)
     repo_index = render_index(modules, root, commit)
-
     map_output = args.map_output if args.map_output.is_absolute() else root / args.map_output
     index_output = args.index_output if args.index_output.is_absolute() else root / args.index_output
-
     map_output.write_text(repo_map, encoding="utf-8")
     index_output.write_text(repo_index, encoding="utf-8")
-
     print()
     print(f"Indexed {len(modules)} Python files")
     print(f"Git commit: {commit or 'unknown'}")
