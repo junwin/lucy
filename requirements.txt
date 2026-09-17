@@ -59,8 +59,8 @@ galet @ git+https://github.com/junwin/galet.git@cd73d43729f9ba7b88096902efd67718
 galet-memory[vec] @ git+https://github.com/junwin/galet-memory.git@74f82530e31f26e6ce20628288ac6fc6a5ab0205
 
 # Provider-neutral prompt selection, budgeting, and compilation.
-galet-prompt-builder @ git+https://github.com/junwin/galet-prompt-builder.git@83e44229f83ee8d248753dcc18b545b247ba24a6
+galet-prompt-builder @ git+https://github.com/junwin/galet-prompt-builder.git@bf1f9dd6bc902f4bf3bb42ca0ecdcbf97c38e9f8
 
 # Shared handler ABI and external handler discovery.
 # Pinned to the integration commit until galet-tools has its first release.
--e git+https://github.com/junwin/galet-tools.git@9c82c0cac6a3bc4aa616c804a50f6e36a1a71dbf#egg=galet-tools
+-e git+https://github.com/junwin/galet-tools.git@fbb9073b9b3efd15cdccfcd740adada8045be73a#egg=galet-tools
