@@ -231,7 +231,8 @@ def lookup_modules(modules: list[ModuleInfo], root: Path, lookup: str) -> list[M
 def find_symbol(
     modules: list[ModuleInfo], root: Path, query: str, include_tests: bool = False
 ) -> str:
-    needle = query.casefold()
+    needle = query.strip().casefold()
+    qualified = "." in needle
     suffix = " (tests included)" if include_tests else " (tests excluded)"
     lines = [f"# Symbol matches: `{query}`{suffix}", ""]
     count = 0
@@ -240,25 +241,28 @@ def find_symbol(
             continue
         rel = info.path.relative_to(root)
         for cls in info.classes:
-            if needle in cls.name.casefold():
+            if not qualified and needle in cls.name.casefold():
                 lines.append(
                     f"- `{rel}:{cls.line}-{cls.end_line}` class `{cls.name}`"
                 )
                 count += 1
             for method in cls.methods:
                 name = symbol_name(method.signature)
-                if needle in name.casefold():
+                candidate = f"{cls.name}.{name}"
+                haystack = candidate.casefold() if qualified else name.casefold()
+                if needle in haystack:
                     lines.append(
-                        f"- `{rel}:{method.line}-{method.end_line}` `{cls.name}.{name}`"
+                        f"- `{rel}:{method.line}-{method.end_line}` `{candidate}`"
                     )
                     count += 1
-        for function in info.functions:
-            name = symbol_name(function.signature)
-            if needle in name.casefold():
-                lines.append(
-                    f"- `{rel}:{function.line}-{function.end_line}` `{name}`"
-                )
-                count += 1
+        if not qualified:
+            for function in info.functions:
+                name = symbol_name(function.signature)
+                if needle in name.casefold():
+                    lines.append(
+                        f"- `{rel}:{function.line}-{function.end_line}` `{name}`"
+                    )
+                    count += 1
     if not count:
         lines.append("No matching symbols.")
     return "\n".join(lines)
@@ -332,7 +336,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--index-output", type=Path, default=Path("repo_index.md"))
     group = parser.add_mutually_exclusive_group()
     group.add_argument("--lookup", help="Show detailed structure for a file or directory prefix")
-    group.add_argument("--symbol", help="Find classes, methods, or functions by name")
+    group.add_argument("--symbol", help="Find classes, methods, or functions by name (supports Class.method)")
     group.add_argument("--search", help="Search paths and structural metadata")
     parser.add_argument("--limit", type=int, default=10, help="Maximum search results (default: 10)")
     parser.add_argument("--include-tests", action="store_true",
