@@ -232,34 +232,49 @@ def find_symbol(modules: list[ModuleInfo], root: Path, query: str) -> str:
     return "\n".join(lines)
 
 
-def search_repository(modules: list[ModuleInfo], root: Path, query: str, limit: int) -> str:
-    """Rank modules using deterministic lexical matches over structural metadata."""
-    terms = [t.casefold() for t in re.findall(r"[A-Za-z0-9_]+", query) if t]
+def _category_match(terms: list[str], values: list[str], weight: int) -> tuple[int, list[str]]:
+    """Score one evidence category once per query term, avoiding occurrence inflation."""
+    matched_terms: set[str] = set()
+    reasons: list[str] = []
+    for value in values:
+        haystack = value.casefold()
+        hits = [term for term in terms if term in haystack]
+        if hits:
+            matched_terms.update(hits)
+            reasons.append(value)
+    return weight * len(matched_terms), reasons
+
+
+def search_repository(
+    modules: list[ModuleInfo], root: Path, query: str, limit: int, include_tests: bool = False
+) -> str:
+    """Rank modules using capped lexical evidence over structural metadata."""
+    terms = list(dict.fromkeys(t.casefold() for t in re.findall(r"[A-Za-z0-9_]+", query) if t))
     scored: list[tuple[int, ModuleInfo, list[str]]] = []
     for info in modules:
+        if not include_tests and is_test_path(info.path, root):
+            continue
         rel = info.path.relative_to(root).as_posix()
-        reasons: list[str] = []
+        categories: list[tuple[str, list[str], int]] = [
+            ("path", [rel], 10),
+            ("class", [cls.name for cls in info.classes], 8),
+            ("method", [symbol_name(sig) for cls in info.classes for sig, _ in cls.methods], 6),
+            ("function", [symbol_name(sig) for sig, _ in info.functions], 6),
+            ("docstring", [info.docstring] if info.docstring else [], 4),
+            ("import", info.imports, 1),
+        ]
         score = 0
-        fields: list[tuple[str, str, int]] = [("path", rel, 8)]
-        if info.docstring:
-            fields.append(("docstring", info.docstring, 3))
-        for cls in info.classes:
-            fields.append(("class", cls.name, 6))
-            for signature, _ in cls.methods:
-                fields.append(("method", symbol_name(signature), 5))
-        for signature, _ in info.functions:
-            fields.append(("function", symbol_name(signature), 5))
-        fields.extend(("import", item, 1) for item in info.imports)
-        for label, value, weight in fields:
-            haystack = value.casefold()
-            matched = [term for term in terms if term in haystack]
-            if matched:
-                score += weight * len(matched)
+        reasons: list[str] = []
+        for label, values, weight in categories:
+            category_score, matches = _category_match(terms, values, weight)
+            score += category_score
+            for value in matches[:3]:
                 reasons.append(f"{label}: {value}")
         if score:
             scored.append((score, info, reasons))
     scored.sort(key=lambda item: (-item[0], item[1].path.relative_to(root).as_posix()))
-    lines = [f"# Repository search: `{query}`", ""]
+    suffix = " (tests included)" if include_tests else " (tests excluded)"
+    lines = [f"# Repository search: `{query}`{suffix}", ""]
     if not scored:
         lines.append("No matches.")
         return "\n".join(lines)
@@ -290,6 +305,8 @@ def parse_args() -> argparse.Namespace:
     group.add_argument("--symbol", help="Find classes, methods, or functions by name")
     group.add_argument("--search", help="Search paths and structural metadata")
     parser.add_argument("--limit", type=int, default=10, help="Maximum search results (default: 10)")
+    parser.add_argument("--include-tests", action="store_true",
+                        help="Include test modules in --search results")
     return parser.parse_args()
 
 
@@ -307,7 +324,7 @@ def main() -> None:
         print(find_symbol(modules, root, args.symbol))
         return
     if args.search:
-        print(search_repository(modules, root, args.search, max(1, args.limit)))
+        print(search_repository(modules, root, args.search, max(1, args.limit), args.include_tests))
         return
 
     commit = git_commit(root)
