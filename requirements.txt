@@ -56,7 +56,7 @@ galet @ git+https://github.com/junwin/galet.git@cd73d43729f9ba7b88096902efd67718
 # Owns provider-neutral memory implementations and sqlite-vec/vec0 support.
 # Include the vec extra so a normal Lucy install has sqlite-vec available when
 # embedding_store_backend=sqlite_vec is configured.
-galet-memory[vec] @ git+https://github.com/junwin/galet-memory.git@0e2240cf09c2c30e0a7e20b5ce55ca8b50b497f9
+galet-memory[vec] @ git+https://github.com/junwin/galet-memory.git@74f82530e31f26e6ce20628288ac6fc6a5ab0205
 
 # Provider-neutral prompt selection, budgeting, and compilation.
 galet-prompt-builder @ git+https://github.com/junwin/galet-prompt-builder.git@bf1f9dd6bc902f4bf3bb42ca0ecdcbf97c38e9f8
