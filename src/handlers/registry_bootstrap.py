@@ -118,8 +118,8 @@ def build_registry() -> HandlerRegistry:
     reg.register(RemoteExecuteHandler)
     # Delegation — select an eligible machine, then use remote execution
     reg.register(DelegateTaskHandler)
-+    # Patch application — apply unified diffs using git apply
-+    reg.register(PatchApplyHandler)
+    # Patch application — apply unified diffs using git apply
+    reg.register(PatchApplyHandler)
 
     # Tool metadata inspector
     reg.register(ToolHandlerMetaHandler)
