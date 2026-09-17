@@ -15,6 +15,7 @@ from .web_search_handler2 import WebSearchHandler2
 from .reset_session_handler import ResetSessionHandler
 from .remote_execute_handler import RemoteExecuteHandler
 from .delegate_task_handler import DelegateTaskHandler
+from .patch_apply_handler import PatchApplyHandler
 from .tool_handler_meta_handler import ToolHandlerMetaHandler
 from .agents_manage_handler import AgentsManageHandler
 
@@ -35,6 +36,7 @@ __all__ = [
     "ResetSessionHandler",
     "RemoteExecuteHandler",
     "DelegateTaskHandler",
+    "PatchApplyHandler",
     "ToolHandlerMetaHandler",
     "AgentsManageHandler",
 ]
