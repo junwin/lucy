@@ -111,6 +111,7 @@
       "repo_index",
       "repo_search",
       "get_keywords",
+      "reset_session",
       "scrape_web_page",
       "web_search_handler",
       "episodic_memory",
@@ -157,6 +158,7 @@
       "repo_search",
       "tasklists_manage",
       "tasklists_run",
+      "reset_session",
       "scrape_web_page",
       "web_search_handler"
     ],
@@ -331,6 +333,7 @@
       "get_keywords",
       "tasklists_manage",
       "tasklists_run",
+      "reset_session",
       "repo_index",
       "repo_search",
       "scrape_web_page",
