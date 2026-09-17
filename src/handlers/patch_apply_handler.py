@@ -1,54 +1,36 @@
-"""PatchApplyHandler — apply unified-diff patches using git apply.
-
-This is a native Lucy handler (HandlerV2) rather than a galet adapter so it
-can implement the exact apply semantics desired by the design.
-"""
+"""Apply a single-file unified-diff patch using git apply."""
 
 from __future__ import annotations
 
 import json
 import logging
 import os
+import re
+import shutil
 import subprocess
 import tempfile
-import importlib.util
-from pathlib import PurePosixPath, Path
-from typing import Any, Dict
+from pathlib import PurePosixPath
+from typing import Any, Dict, List, Tuple
 
 from src.config_manager import ConfigManager
-try:
-    from src.handlers.handler_v2 import HandlerV2
-except Exception:
-    # Testing/runtime fallback: provide a minimal HandlerV2 base if galet_tools is not available
-    class HandlerV2:
-        pass
+from src.handlers.galet_adapters import LucyStorageLocationResolver
+from src.handlers.handler_v2 import HandlerV2
 
 logger = logging.getLogger(__name__)
 
-
-def _resolve_lucy_storage_resolver_class():
-    # Prefer the installed package import if available (normal runtime).
-    try:
-        from src.handlers.galet_adapters import LucyStorageLocationResolver
-
-        return LucyStorageLocationResolver
-    except Exception:
-        # Fallback: load galet_adapters.py from the same directory as this file
-        here = Path(__file__).resolve().parent
-        path = here / "galet_adapters.py"
-        spec = importlib.util.spec_from_file_location("galet_adapters_local", str(path))
-        mod = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(mod)
-        return mod.LucyStorageLocationResolver
+_MAX_PATCH_BYTES = 1024 * 1024
+_GIT_TIMEOUT_SECONDS = 30
+_WINDOWS_DRIVE_RE = re.compile(r"^[A-Za-z]:")
 
 
 class PatchApplyHandler(HandlerV2):
+    """Validate and apply a patch that affects exactly one requested file."""
+
     NAME = "patch_apply"
 
     def __init__(self, config: ConfigManager) -> None:
         self.config = config
-        resolver_cls = _resolve_lucy_storage_resolver_class()
-        self._resolver = resolver_cls(config)
+        self._resolver = LucyStorageLocationResolver(config)
 
     @classmethod
     def name(cls) -> str:
@@ -59,17 +41,38 @@ class PatchApplyHandler(HandlerV2):
         return {
             "type": "function",
             "name": cls.NAME,
-            "description": "Apply a unified-diff patch to files on disk using git apply. Use check_only to validate without applying.",
+            "description": (
+                "Validate or apply a unified-diff patch to exactly one file. "
+                "The path in the patch must match path exactly."
+            ),
             "parameters": {
                 "type": "object",
                 "properties": {
                     "location": {"type": "string", "enum": ["storage", "external"]},
-                    "external_root": {"type": "string"},
-                    "path": {"type": "string"},
+                    "external_root": {
+                        "type": "string",
+                        "description": (
+                            "Named external root for location='external'; "
+                            "use an empty string for location='storage'."
+                        ),
+                    },
+                    "path": {
+                        "type": "string",
+                        "description": "POSIX-style relative path to the single file being patched.",
+                    },
                     "patch_content": {"type": "string"},
-                    "check_only": {"type": "boolean"},
+                    "check_only": {
+                        "type": "boolean",
+                        "description": "Validate without changing the file.",
+                    },
                 },
-                "required": ["location", "path", "patch_content"],
+                "required": [
+                    "location",
+                    "external_root",
+                    "path",
+                    "patch_content",
+                    "check_only",
+                ],
                 "additionalProperties": False,
             },
             "strict": True,
@@ -83,7 +86,15 @@ class PatchApplyHandler(HandlerV2):
                 "ok": {"type": "boolean"},
                 "tool": {"type": "string"},
                 "applied": {"type": "boolean"},
+                "location": {"type": "string"},
+                "external_root": {"type": "string"},
+                "path": {"type": "string"},
+                "affected_paths": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                },
                 "error": {"type": "string"},
+                "details": {"type": "string"},
                 "stdout": {"type": "string"},
                 "stderr": {"type": "string"},
             },
@@ -91,89 +102,382 @@ class PatchApplyHandler(HandlerV2):
             "additionalProperties": True,
         }
 
-    def _invalid(self, message: str, **extra: Any) -> Dict[str, Any]:
-        res = {"ok": False, "tool": self.NAME, "applied": False, "error": message}
-        res.update(extra)
-        return res
+    def _result(
+        self,
+        *,
+        ok: bool,
+        applied: bool,
+        location: str = "",
+        external_root: str = "",
+        path: str = "",
+        **extra: Any,
+    ) -> Dict[str, Any]:
+        result: Dict[str, Any] = {
+            "ok": ok,
+            "tool": self.NAME,
+            "applied": applied,
+            "location": location,
+            "external_root": external_root,
+            "path": path,
+        }
+        result.update(extra)
+        return result
 
-    def execute(self, args: Dict[str, Any], *, account_name: str = "auto", **context: Any) -> Dict[str, Any]:
-        loc = (args.get("location") or "").strip()
-        external_root = (args.get("external_root") or "").strip()
-        path = (args.get("path") or "").strip()
-        patch_content = args.get("patch_content") or ""
-        check_only = bool(args.get("check_only", False))
+    def _invalid(
+        self,
+        message: str,
+        *,
+        location: str = "",
+        external_root: str = "",
+        path: str = "",
+        **extra: Any,
+    ) -> Dict[str, Any]:
+        return self._result(
+            ok=False,
+            applied=False,
+            location=location,
+            external_root=external_root,
+            path=path,
+            error=message,
+            **extra,
+        )
 
-        if loc not in ("storage", "external"):
-            return self._invalid("location must be 'storage' or 'external'")
-        if not path:
-            return self._invalid("path is required")
-        if not patch_content:
-            return self._invalid("patch_content is required")
+    @staticmethod
+    def _validate_relative_path(path: str) -> Tuple[str, str]:
+        if not isinstance(path, str):
+            return "", "path must be a string"
 
-        # Reject absolute paths and parent-up traversal.
-        p = PurePosixPath(path)
-        if p.is_absolute() or any(part == ".." for part in p.parts):
-            return self._invalid("path must be relative and must not contain '..' or be absolute")
+        candidate = path.strip()
+        if not candidate:
+            return "", "path is required"
+        if "\x00" in candidate or "\n" in candidate or "\r" in candidate:
+            return "", "path contains an invalid character"
+        if "\\" in candidate:
+            return "", "path must use POSIX '/' separators"
+        if _WINDOWS_DRIVE_RE.match(candidate):
+            return "", "path must not contain a Windows drive prefix"
+
+        parsed = PurePosixPath(candidate)
+        if parsed.is_absolute() or any(part == ".." for part in parsed.parts):
+            return "", "path must be relative and must not contain '..'"
+        if parsed == PurePosixPath("."):
+            return "", "path must identify a file"
+
+        normalized = parsed.as_posix()
+        if normalized.startswith("../") or normalized == "..":
+            return "", "path escapes the configured root"
+        return normalized, ""
+
+    @staticmethod
+    def _decode_git_output(value: bytes) -> str:
+        return value.decode("utf-8", errors="replace")
+
+    @classmethod
+    def _paths_from_numstat(cls, stdout: bytes) -> Tuple[List[str], str]:
+        """Parse git apply --numstat -z output and reject rename/copy records."""
+        records = stdout.split(b"\x00")
+        if records and records[-1] == b"":
+            records.pop()
+
+        paths: List[str] = []
+        for record in records:
+            fields = record.split(b"\t", 2)
+            if len(fields) != 3:
+                return [], "Could not parse the patch's affected paths"
+            raw_path = fields[2]
+            if not raw_path:
+                return [], "Rename and copy patches are not supported"
+            paths.append(raw_path.decode("utf-8", errors="surrogateescape"))
+        return paths, ""
+
+    def execute(
+        self,
+        args: Dict[str, Any],
+        *,
+        account_name: str = "auto",
+        **context: Any,
+    ) -> Dict[str, Any]:
+        if not isinstance(args, dict):
+            return self._invalid("arguments must be an object")
+
+        location = args.get("location")
+        external_root = args.get("external_root")
+        raw_path = args.get("path")
+        patch_content = args.get("patch_content")
+        check_only = args.get("check_only")
+
+        if not isinstance(location, str):
+            return self._invalid("location must be a string")
+        location = location.strip()
+
+        if not isinstance(external_root, str):
+            return self._invalid(
+                "external_root must be a string",
+                location=location,
+            )
+        external_root = external_root.strip()
+
+        if location not in ("storage", "external"):
+            return self._invalid(
+                "location must be 'storage' or 'external'",
+                location=location,
+                external_root=external_root,
+            )
+        if location == "storage" and external_root:
+            return self._invalid(
+                "external_root must be empty for location='storage'",
+                location=location,
+                external_root=external_root,
+            )
+        if location == "external" and not external_root:
+            return self._invalid(
+                "external_root is required for location='external'",
+                location=location,
+            )
+
+        normalized_path, path_error = self._validate_relative_path(raw_path)
+        if path_error:
+            return self._invalid(
+                path_error,
+                location=location,
+                external_root=external_root,
+                path=raw_path if isinstance(raw_path, str) else "",
+            )
+
+        if not isinstance(patch_content, str) or not patch_content:
+            return self._invalid(
+                "patch_content must be a non-empty string",
+                location=location,
+                external_root=external_root,
+                path=normalized_path,
+            )
+        patch_size = len(patch_content.encode("utf-8"))
+        if patch_size > _MAX_PATCH_BYTES:
+            return self._invalid(
+                f"patch_content exceeds the {_MAX_PATCH_BYTES}-byte limit",
+                location=location,
+                external_root=external_root,
+                path=normalized_path,
+            )
+        if not isinstance(check_only, bool):
+            return self._invalid(
+                "check_only must be a boolean",
+                location=location,
+                external_root=external_root,
+                path=normalized_path,
+            )
+
+        forbidden_markers = (
+            "GIT binary patch",
+            "new file mode 120000",
+            "new mode 120000",
+            "old mode 120000",
+        )
+        if any(marker in patch_content for marker in forbidden_markers):
+            return self._invalid(
+                "binary patches and symbolic-link mode changes are not supported",
+                location=location,
+                external_root=external_root,
+                path=normalized_path,
+            )
 
         try:
-            if loc == "storage":
-                base_dir = self._resolver.storage_base_dir()
+            if location == "storage":
+                resolved_base = self._resolver.storage_base_dir()
             else:
-                base_dir = self._resolver.external_root_dir(external_root)
-        except Exception as e:
-            return self._invalid(str(e))
+                resolved_base = self._resolver.external_root_dir(external_root)
+        except (TypeError, ValueError) as exc:
+            return self._invalid(
+                str(exc),
+                location=location,
+                external_root=external_root,
+                path=normalized_path,
+            )
 
-        # Ensure the resolved working directory is inside the base_dir.
-        # We'll run git apply from base_dir so file-level escapes should not be
-        # possible if callers provide a valid relative path, but check anyway.
+        base_dir = os.path.realpath(os.path.abspath(resolved_base))
+        if not os.path.isdir(base_dir):
+            return self._invalid(
+                "configured root is not an existing directory",
+                location=location,
+                external_root=external_root,
+                path=normalized_path,
+                details=base_dir,
+            )
+
+        target_path = os.path.realpath(os.path.join(base_dir, normalized_path))
         try:
-            base_dir = os.path.abspath(base_dir)
-        except Exception as e:
-            return self._invalid(f"Could not resolve base dir: {e}")
+            contained = os.path.commonpath([base_dir, target_path]) == base_dir
+        except ValueError:
+            contained = False
+        if not contained:
+            return self._invalid(
+                "path escapes the configured root",
+                location=location,
+                external_root=external_root,
+                path=normalized_path,
+            )
 
-        # Write patch to a temporary file.
-        tmp = None
+        git_executable = shutil.which("git")
+        if git_executable is None:
+            return self._invalid(
+                "git was not found on PATH",
+                location=location,
+                external_root=external_root,
+                path=normalized_path,
+            )
+
+        patch_file = ""
         try:
-            tf = tempfile.NamedTemporaryFile(mode="w", delete=False, encoding="utf-8")
-            tf.write(patch_content)
-            tf.flush()
-            tf.close()
-            tmp = tf.name
+            with tempfile.NamedTemporaryFile(
+                mode="w",
+                suffix=".patch",
+                delete=False,
+                encoding="utf-8",
+            ) as handle:
+                handle.write(patch_content)
+                patch_file = handle.name
 
-            # First run a check
-            cmd_check = ["git", "apply", "--check", tmp]
-            proc = subprocess.run(cmd_check, cwd=base_dir, capture_output=True, text=True)
-            if proc.returncode != 0:
-                return self._invalid("git apply --check failed", stdout=proc.stdout, stderr=proc.stderr)
+            numstat = subprocess.run(
+                [git_executable, "apply", "--numstat", "-z", patch_file],
+                cwd=base_dir,
+                capture_output=True,
+                timeout=_GIT_TIMEOUT_SECONDS,
+            )
+            if numstat.returncode != 0:
+                return self._invalid(
+                    "could not inspect patch paths",
+                    location=location,
+                    external_root=external_root,
+                    path=normalized_path,
+                    stdout=self._decode_git_output(numstat.stdout),
+                    stderr=self._decode_git_output(numstat.stderr),
+                )
+
+            affected_paths, parse_error = self._paths_from_numstat(numstat.stdout)
+            if parse_error:
+                return self._invalid(
+                    parse_error,
+                    location=location,
+                    external_root=external_root,
+                    path=normalized_path,
+                )
+            if affected_paths != [normalized_path]:
+                return self._invalid(
+                    "patch must affect exactly the requested path",
+                    location=location,
+                    external_root=external_root,
+                    path=normalized_path,
+                    affected_paths=affected_paths,
+                )
+
+            checked = subprocess.run(
+                [git_executable, "apply", "--check", patch_file],
+                cwd=base_dir,
+                capture_output=True,
+                text=True,
+                timeout=_GIT_TIMEOUT_SECONDS,
+            )
+            if checked.returncode != 0:
+                return self._invalid(
+                    "git apply --check failed",
+                    location=location,
+                    external_root=external_root,
+                    path=normalized_path,
+                    affected_paths=affected_paths,
+                    stdout=checked.stdout,
+                    stderr=checked.stderr,
+                )
 
             if check_only:
-                return {"ok": True, "tool": self.NAME, "applied": False, "stdout": proc.stdout, "stderr": proc.stderr}
+                return self._result(
+                    ok=True,
+                    applied=False,
+                    location=location,
+                    external_root=external_root,
+                    path=normalized_path,
+                    affected_paths=affected_paths,
+                    stdout=checked.stdout,
+                    stderr=checked.stderr,
+                )
 
-            # Apply the patch
-            cmd_apply = ["git", "apply", tmp]
-            proc2 = subprocess.run(cmd_apply, cwd=base_dir, capture_output=True, text=True)
-            if proc2.returncode != 0:
-                return self._invalid("git apply failed", stdout=proc2.stdout, stderr=proc2.stderr)
+            applied = subprocess.run(
+                [git_executable, "apply", patch_file],
+                cwd=base_dir,
+                capture_output=True,
+                text=True,
+                timeout=_GIT_TIMEOUT_SECONDS,
+            )
+            if applied.returncode != 0:
+                return self._invalid(
+                    "git apply failed",
+                    location=location,
+                    external_root=external_root,
+                    path=normalized_path,
+                    affected_paths=affected_paths,
+                    stdout=applied.stdout,
+                    stderr=applied.stderr,
+                )
 
-            return {"ok": True, "tool": self.NAME, "applied": True, "stdout": proc2.stdout, "stderr": proc2.stderr}
-        except FileNotFoundError as e:
-            return self._invalid("git not found on PATH", error=str(e))
-        except Exception as e:
-            logger.exception("patch apply failed")
-            return self._invalid("exception during patch apply", error=str(e))
+            return self._result(
+                ok=True,
+                applied=True,
+                location=location,
+                external_root=external_root,
+                path=normalized_path,
+                affected_paths=affected_paths,
+                stdout=applied.stdout,
+                stderr=applied.stderr,
+            )
+        except subprocess.TimeoutExpired as exc:
+            return self._invalid(
+                "git apply timed out",
+                location=location,
+                external_root=external_root,
+                path=normalized_path,
+                details=str(exc),
+            )
+        except OSError as exc:
+            logger.exception("patch_apply operating-system failure")
+            return self._invalid(
+                "operating-system error while applying patch",
+                location=location,
+                external_root=external_root,
+                path=normalized_path,
+                details=str(exc),
+            )
         finally:
-            if tmp and os.path.exists(tmp):
+            if patch_file:
                 try:
-                    os.remove(tmp)
-                except Exception:
-                    pass
+                    os.remove(patch_file)
+                except OSError:
+                    logger.warning(
+                        "Could not remove temporary patch file %s",
+                        patch_file,
+                        exc_info=True,
+                    )
 
-    def execute_raw(self, arguments_raw: str, *, account_name: str = "auto", call_id: str = "", **context: Any) -> str:
+    def execute_raw(
+        self,
+        arguments_raw: str,
+        *,
+        account_name: str = "auto",
+        call_id: str = "",
+        **context: Any,
+    ) -> str:
         try:
-            args = json.loads(arguments_raw or "{}")
-        except Exception:
-            args = {}
-        result = self.execute(args if isinstance(args, dict) else {}, account_name=account_name)
+            args = json.loads(arguments_raw)
+        except (TypeError, json.JSONDecodeError) as exc:
+            result = self._invalid(
+                "arguments_raw is not valid JSON",
+                details=str(exc),
+            )
+            return json.dumps(result, ensure_ascii=False)
+
+        if not isinstance(args, dict):
+            result = self._invalid("arguments_raw must decode to an object")
+            return json.dumps(result, ensure_ascii=False)
+
+        result = self.execute(args, account_name=account_name, **context)
         return json.dumps(result, ensure_ascii=False)
 
 
