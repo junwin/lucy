@@ -63,4 +63,4 @@ galet-prompt-builder @ git+https://github.com/junwin/galet-prompt-builder.git@83
 
 # Shared handler ABI and external handler discovery.
 # Pinned to the integration commit until galet-tools has its first release.
--e git+https://github.com/junwin/galet-tools.git@2fd16230721acd0cd726e698a1804c099eb593b1#egg=galet-tools
+-e git+https://github.com/junwin/galet-tools.git@9c82c0cac6a3bc4aa616c804a50f6e36a1a71dbf#egg=galet-tools
