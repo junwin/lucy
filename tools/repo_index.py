@@ -16,11 +16,18 @@ DEFAULT_EXCLUDES = {
 }
 
 @dataclass
+class SymbolInfo:
+    signature: str
+    line: int
+    end_line: int
+
+@dataclass
 class ClassInfo:
     name: str
     line: int
+    end_line: int
     bases: list[str] = field(default_factory=list)
-    methods: list[tuple[str, int]] = field(default_factory=list)
+    methods: list[SymbolInfo] = field(default_factory=list)
 
 @dataclass
 class ModuleInfo:
@@ -28,7 +35,7 @@ class ModuleInfo:
     docstring: str | None = None
     imports: list[str] = field(default_factory=list)
     classes: list[ClassInfo] = field(default_factory=list)
-    functions: list[tuple[str, int]] = field(default_factory=list)
+    functions: list[SymbolInfo] = field(default_factory=list)
 
 
 def expr_name(node: ast.AST) -> str:
@@ -84,6 +91,10 @@ def symbol_name(signature: str) -> str:
     return name[6:] if name.startswith("async ") else name
 
 
+def line_range(line: int, end_line: int) -> str:
+    return f"line {line}" if line == end_line else f"lines {line}-{end_line}"
+
+
 def first_docstring_line(node: ast.AST) -> str | None:
     docstring = ast.get_docstring(node, clean=True)
     return docstring.splitlines()[0].strip() if docstring else None
@@ -104,13 +115,20 @@ def parse_module(path: Path) -> ModuleInfo | None:
             names = ", ".join(alias.name for alias in node.names)
             info.imports.append(f"{module}: {names}")
         elif isinstance(node, ast.ClassDef):
-            cls = ClassInfo(node.name, node.lineno, [expr_name(b) for b in node.bases])
+            cls = ClassInfo(
+                node.name, node.lineno, node.end_lineno or node.lineno,
+                [expr_name(b) for b in node.bases],
+            )
             for child in node.body:
                 if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)):
-                    cls.methods.append((function_signature(child), child.lineno))
+                    cls.methods.append(SymbolInfo(
+                        function_signature(child), child.lineno, child.end_lineno or child.lineno
+                    ))
             info.classes.append(cls)
         elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-            info.functions.append((function_signature(node), node.lineno))
+            info.functions.append(SymbolInfo(
+                function_signature(node), node.lineno, node.end_lineno or node.lineno
+            ))
     info.imports = sorted(set(info.imports))
     return info
 
@@ -177,14 +195,18 @@ def render_module(info: ModuleInfo, root: Path) -> str:
         lines.extend(["**Classes**", ""])
         for cls in info.classes:
             bases = f"({', '.join(cls.bases)})" if cls.bases else ""
-            lines.append(f"- `{cls.name}{bases}` — line {cls.line}")
-            for signature, line in cls.methods:
-                lines.append(f"  - `{signature}` — line {line}")
+            lines.append(f"- `{cls.name}{bases}` — {line_range(cls.line, cls.end_line)}")
+            for method in cls.methods:
+                lines.append(
+                    f"  - `{method.signature}` — {line_range(method.line, method.end_line)}"
+                )
         lines.append("")
     if info.functions:
         lines.extend(["**Functions**", ""])
-        for signature, line in info.functions:
-            lines.append(f"- `{signature}` — line {line}")
+        for function in info.functions:
+            lines.append(
+                f"- `{function.signature}` — {line_range(function.line, function.end_line)}"
+            )
         lines.append("")
     return "\n".join(lines)
 
@@ -200,32 +222,42 @@ def render_index(modules: list[ModuleInfo], root: Path, commit: str | None) -> s
 
 
 def lookup_modules(modules: list[ModuleInfo], root: Path, lookup: str) -> list[ModuleInfo]:
-    """Match an exact file or all Python modules beneath a path prefix."""
     query = lookup.strip().replace("\\", "/").strip("/")
     return [info for info in modules
             if (rel := info.path.relative_to(root).as_posix()) == query
             or rel.startswith(query.rstrip("/") + "/")]
 
 
-def find_symbol(modules: list[ModuleInfo], root: Path, query: str) -> str:
+def find_symbol(
+    modules: list[ModuleInfo], root: Path, query: str, include_tests: bool = False
+) -> str:
     needle = query.casefold()
-    lines = [f"# Symbol matches: `{query}`", ""]
+    suffix = " (tests included)" if include_tests else " (tests excluded)"
+    lines = [f"# Symbol matches: `{query}`{suffix}", ""]
     count = 0
     for info in modules:
+        if not include_tests and is_test_path(info.path, root):
+            continue
         rel = info.path.relative_to(root)
         for cls in info.classes:
             if needle in cls.name.casefold():
-                lines.append(f"- `{rel}:{cls.line}` class `{cls.name}`")
+                lines.append(
+                    f"- `{rel}:{cls.line}-{cls.end_line}` class `{cls.name}`"
+                )
                 count += 1
-            for signature, line in cls.methods:
-                name = symbol_name(signature)
+            for method in cls.methods:
+                name = symbol_name(method.signature)
                 if needle in name.casefold():
-                    lines.append(f"- `{rel}:{line}` `{cls.name}.{name}`")
+                    lines.append(
+                        f"- `{rel}:{method.line}-{method.end_line}` `{cls.name}.{name}`"
+                    )
                     count += 1
-        for signature, line in info.functions:
-            name = symbol_name(signature)
+        for function in info.functions:
+            name = symbol_name(function.signature)
             if needle in name.casefold():
-                lines.append(f"- `{rel}:{line}` `{name}`")
+                lines.append(
+                    f"- `{rel}:{function.line}-{function.end_line}` `{name}`"
+                )
                 count += 1
     if not count:
         lines.append("No matching symbols.")
@@ -233,7 +265,6 @@ def find_symbol(modules: list[ModuleInfo], root: Path, query: str) -> str:
 
 
 def _category_match(terms: list[str], values: list[str], weight: int) -> tuple[int, list[str]]:
-    """Score one evidence category once per query term, avoiding occurrence inflation."""
     matched_terms: set[str] = set()
     reasons: list[str] = []
     for value in values:
@@ -248,7 +279,6 @@ def _category_match(terms: list[str], values: list[str], weight: int) -> tuple[i
 def search_repository(
     modules: list[ModuleInfo], root: Path, query: str, limit: int, include_tests: bool = False
 ) -> str:
-    """Rank modules using capped lexical evidence over structural metadata."""
     terms = list(dict.fromkeys(t.casefold() for t in re.findall(r"[A-Za-z0-9_]+", query) if t))
     scored: list[tuple[int, ModuleInfo, list[str]]] = []
     for info in modules:
@@ -258,8 +288,8 @@ def search_repository(
         categories: list[tuple[str, list[str], int]] = [
             ("path", [rel], 10),
             ("class", [cls.name for cls in info.classes], 8),
-            ("method", [symbol_name(sig) for cls in info.classes for sig, _ in cls.methods], 6),
-            ("function", [symbol_name(sig) for sig, _ in info.functions], 6),
+            ("method", [symbol_name(m.signature) for cls in info.classes for m in cls.methods], 6),
+            ("function", [symbol_name(fn.signature) for fn in info.functions], 6),
             ("docstring", [info.docstring] if info.docstring else [], 4),
             ("import", info.imports, 1),
         ]
@@ -306,7 +336,7 @@ def parse_args() -> argparse.Namespace:
     group.add_argument("--search", help="Search paths and structural metadata")
     parser.add_argument("--limit", type=int, default=10, help="Maximum search results (default: 10)")
     parser.add_argument("--include-tests", action="store_true",
-                        help="Include test modules in --search results")
+                        help="Include test modules in --search and --symbol results")
     return parser.parse_args()
 
 
@@ -321,7 +351,7 @@ def main() -> None:
               if matches else f"No modules matched: {args.lookup}")
         return
     if args.symbol:
-        print(find_symbol(modules, root, args.symbol))
+        print(find_symbol(modules, root, args.symbol, args.include_tests))
         return
     if args.search:
         print(search_repository(modules, root, args.search, max(1, args.limit), args.include_tests))
