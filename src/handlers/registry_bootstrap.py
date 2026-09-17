@@ -30,6 +30,8 @@ from src.handlers.semantic_memory_handler import SemanticMemoryHandler
 from src.handlers.episodic_memory_handler import EpisodicMemoryHandler
 from src.handlers.remote_execute_handler import RemoteExecuteHandler
 from src.handlers.patch_apply_handler import PatchApplyHandler
+from src.handlers.repo_index_handler import RepoIndexHandler
+from src.handlers.repo_search_handler import RepoSearchHandler
 from src.handlers.delegate_task_handler import DelegateTaskHandler
 from src.handlers.tool_handler_meta_handler import ToolHandlerMetaHandler
 from src.handlers.agents_manage_handler import AgentsManageHandler
@@ -66,6 +68,8 @@ def build_registry() -> HandlerRegistry:
     reg.register(SandboxExecuteHandler)
     reg.register(GenerateSvgHandler)
     reg.register(ContextHandler)
+    reg.register(RepoIndexHandler)
+    reg.register(RepoSearchHandler)
 
     # Optional / third-party dependent handlers: import and register lazily.
     try:
