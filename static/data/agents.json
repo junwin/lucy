@@ -105,6 +105,7 @@
       "file_load",
       "file_save",
       "patch_apply",
+      "reset_session",
       "serve_image",
       "get_keywords",
       "scrape_web_page",
@@ -325,6 +326,7 @@
       "web_search_handler",
       "episodic_memory",
       "curate_chat",
+      "reset_session",
       "sandbox_execute"
     ],
     "provider": null,
