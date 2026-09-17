@@ -29,6 +29,7 @@ from src.handlers.generate_svg_handler import GenerateSvgHandler
 from src.handlers.semantic_memory_handler import SemanticMemoryHandler
 from src.handlers.episodic_memory_handler import EpisodicMemoryHandler
 from src.handlers.remote_execute_handler import RemoteExecuteHandler
+from src.handlers.patch_apply_handler import PatchApplyHandler
 from src.handlers.delegate_task_handler import DelegateTaskHandler
 from src.handlers.tool_handler_meta_handler import ToolHandlerMetaHandler
 from src.handlers.agents_manage_handler import AgentsManageHandler
@@ -117,6 +118,8 @@ def build_registry() -> HandlerRegistry:
     reg.register(RemoteExecuteHandler)
     # Delegation — select an eligible machine, then use remote execution
     reg.register(DelegateTaskHandler)
++    # Patch application — apply unified diffs using git apply
++    reg.register(PatchApplyHandler)
 
     # Tool metadata inspector
     reg.register(ToolHandlerMetaHandler)
