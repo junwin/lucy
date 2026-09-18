@@ -45,21 +45,21 @@ coverage==7.14.0
 # src/mcp/server.py). HTTP extras (uvicorn/starlette) come in transitively.
 mcp==2.1.1
 
-# Galet (separate repo)
+# Galet (separate repo, published to PyPI)
 # galet is a separate public repo: https://github.com/junwin/galet.git
 # It is a provider-agnostic LLM/embedding/image-generation stack extracted from Lucy.
-# Keep the requirement form identical to galet-memory's dependency declaration so
-# pip sees one exact VCS candidate rather than editable and direct-URL variants.
-galet @ git+https://github.com/junwin/galet.git@cd73d43729f9ba7b88096902efd677181283d12d
+# Pinned to a released PyPI artefact rather than a VCS commit so installs are
+# reproducible without git access and every dependency resolves from one index.
+galet==0.1.2
 
-# Galet memory (separate repo)
+# Galet memory (separate repo, published to PyPI)
 # Owns provider-neutral memory implementations and sqlite-vec/vec0 support.
 # Include the vec extra so a normal Lucy install has sqlite-vec available when
 # embedding_store_backend=sqlite_vec is configured.
-galet-memory[vec] @ git+https://github.com/junwin/galet-memory.git@74f82530e31f26e6ce20628288ac6fc6a5ab0205
+galet-memory[vec]==0.1.0
 
 # Provider-neutral prompt selection, budgeting, and compilation.
-galet-prompt-builder @ git+https://github.com/junwin/galet-prompt-builder.git@bf1f9dd6bc902f4bf3bb42ca0ecdcbf97c38e9f8
+galet-prompt-builder==0.1.1
 
 # Shared handler ABI and external handler discovery.
-galet-tools @ git+https://github.com/junwin/galet-tools.git@fbb9073b9b3efd15cdccfcd740adada8045be73a
+galet-tools==0.1.0
