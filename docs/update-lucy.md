@@ -35,12 +35,26 @@ python -m pip install -r requirements.txt
 pytest
 ```
 
-If Lucy is developed alongside an editable `galet-memory` checkout, install the
-local package explicitly as needed:
+Every galet distribution is pinned to a released PyPI version in
+`requirements.txt`, so updating needs no git access and no editable installs.
+`pip check` should report no broken requirements.
+
+If Lucy is developed alongside a local galet checkout, install that one package
+editable in place of its PyPI pin:
 
 ```bash
 python -m pip install -e ../galet-memory --no-deps
 ```
 
-Keep the Lucy and galet-memory Galet dependency versions aligned before adding a
-permanent galet-memory VCS pin to Lucy's requirements.
+An editable install overrides the pin for that package only, so the environment
+is no longer purely index-based. To go back to the released version:
+
+```bash
+python -m pip install --force-reinstall --no-deps galet-memory[vec]==0.1.0
+```
+
+The same pattern applies to `galet`, `galet-prompt-builder` and `galet-tools`,
+using the versions listed in `requirements.txt`.
+
+When bumping any galet package, update the pin in `requirements.txt` and the
+version table in `README.md`.

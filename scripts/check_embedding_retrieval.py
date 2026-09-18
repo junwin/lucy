@@ -8,7 +8,7 @@ Exit 0 when >= 1 context is returned with score > 0.25; exits non-zero with a
 clear message when no context passes or retrieval fails. First-hit identity is
 printed for information (expected obsidian_importer.md) and is not a gate.
 
-Run from the repo root:  ./.venv/bin/python scripts/check_embedding_retrieval.py
+Run from the repo root:  ./venv/bin/python scripts/check_embedding_retrieval.py
 """
 
 from __future__ import annotations

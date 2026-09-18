@@ -262,9 +262,9 @@ agent allowlist, audit log), and a minimal Python MCP client example (connect,
 Test suite (repo root, branch `experiment/mcp-handlerregistry`, worktree state --
 nothing committed yet):
 
-- `.venv/bin/python -m pytest tests/test_mcp_server.py tests/test_tool_adapter.py -v`
+- `venv/bin/python -m pytest tests/test_mcp_server.py tests/test_tool_adapter.py -v`
   -> **22 passed** (20 `test_mcp_*` + 2 `test_tool_adapter_*`).
-- Full suite `.venv/bin/python -m pytest tests -q` -> **exit 0, no failures/errors**.
+- Full suite `venv/bin/python -m pytest tests -q` -> **exit 0, no failures/errors**.
 
 Manual local smoke test (real server + official MCP SDK 2.1.1 client over streamable HTTP):
 
@@ -273,7 +273,7 @@ Manual local smoke test (real server + official MCP SDK 2.1.1 client over stream
   `ConfigManager`), removed again immediately after the run.
 - Port: the default `8765` is occupied on the dev Pi by an unrelated uvicorn (as
   the Config notes warn), so the override bound `127.0.0.1:8877`.
-- Start: `.venv/bin/python -m src.mcp.server` logged
+- Start: `venv/bin/python -m src.mcp.server` logged
   `mcp_server_start agent=mcp account=junwin context=lucyproject tools=6
   transport=streamable-http bind=127.0.0.1:8877`, one `mcp_server_tool` line per
   exposed tool (file_load, generate_image, generate_svg, get_keywords,

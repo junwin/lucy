@@ -9,42 +9,58 @@ Lucy is a self-hosted AI chat platform running on a Raspberry Pi 5. It supports 
 **Linux / Raspberry Pi:**
 
 ```bash
-python3 -m venv .venv
-source .venv/bin/activate
+python3 -m venv venv
+source venv/bin/activate
 pip install -r requirements.txt
 ```
 
 **Windows (PowerShell):**
 
 ```powershell
-python -m venv .venv
-.venv\Scripts\Activate.ps1
+python -m venv venv
+venv\Scripts\Activate.ps1
 pip install -r requirements.txt
 ```
 
 **Windows (Command Prompt):**
 
 ```cmd
-python -m venv .venv
-.venv\Scripts\activate.bat
+python -m venv venv
+venv\Scripts\activate.bat
 pip install -r requirements.txt
 ```
 
-### galet dependency
+### galet dependencies
 
-galet is a separate, provider-agnostic LLM/embedding/image-generation stack extracted from Lucy. It lives in its own public repo and is installed automatically by `requirements.txt` as an editable install:
+The galet stack is a provider-agnostic LLM/embedding/image-generation family extracted from Lucy. All four distributions are published to PyPI, and `requirements.txt` pins them as released index artefacts — so a fresh install needs no git access and uses no editable installs:
 
-```bash
--e git+https://github.com/junwin/galet.git#egg=galet
-```
+| Package | Pinned version | Purpose |
+|---------|----------------|---------|
+| `galet` | 0.1.2 | Provider-agnostic LLM, embedding and image-generation core |
+| `galet-memory[vec]` | 0.1.0 | Provider-neutral memory implementations, plus sqlite-vec/vec0 support |
+| `galet-prompt-builder` | 0.1.1 | Prompt selection, budgeting and compilation |
+| `galet-tools` | 0.1.0 | Shared handler ABI and external handler discovery |
 
-- Repo: https://github.com/junwin/galet.git
+Everything then resolves from a single index; `pip check` should report no broken requirements.
 
-**Optional manual dev workflow:** clone galet as a sibling repo and install it editable so local edits are picked up without reinstalling:
+Source repositories (same order as `update-galet-repos.sh`):
+
+- https://github.com/junwin/galet.git
+- https://github.com/junwin/galet-memory.git
+- https://github.com/junwin/galet-prompt-builder.git
+- https://github.com/junwin/galet-tools.git
+
+**Optional manual dev workflow:** to work on a galet package locally, clone it as a sibling repo and install it editable, so local edits are picked up without reinstalling:
 
 ```bash
 git clone https://github.com/junwin/galet.git ../galet
 pip install -e ../galet
+```
+
+Tradeoff: an editable install overrides the PyPI pin for that package, so the venv is no longer purely index-based. To go back to the released version, reinstall it from the index:
+
+```bash
+pip install --force-reinstall --no-deps galet==0.1.2
 ```
 
 ### 2. Run Lucy
@@ -139,7 +155,7 @@ Config keys:
 
 ```bash
 # Run tests (always in venv)
-bash -lc "source .venv/bin/activate && pytest"
+bash -lc "source venv/bin/activate && pytest"
 
 # Format
 black src/ tests/

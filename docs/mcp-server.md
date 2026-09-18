@@ -55,7 +55,7 @@ No handler is rewritten for MCP, and no second permission system exists.
 3. Start from the repo root (this honours `config.local.json`):
 
    ```bash
-   .venv/bin/python -m src.mcp.server
+   venv/bin/python -m src.mcp.server
    ```
 
    The server serves streamable HTTP at `http://127.0.0.1:8765/mcp`.
@@ -181,4 +181,4 @@ Pure/offline (no server process, no network):
   == `eligible_tool_defs`, context narrowing, argument passing, result/error
   mapping (`isError`).
 
-Run: `.venv/bin/python -m pytest tests/test_mcp_server.py tests/test_tool_adapter.py`
+Run: `venv/bin/python -m pytest tests/test_mcp_server.py tests/test_tool_adapter.py`
