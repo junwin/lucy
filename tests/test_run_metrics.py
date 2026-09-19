@@ -16,7 +16,9 @@ def test_run_metrics_round_trip():
         tool_calls=2,
         prompt_tokens=100,
         completion_tokens=50,
-        failures=1,
+        failures=3,
+        tool_failures=2,
+        processor_failures=1,
         duration_ms=1234,
         agent="lucy",
         account="junwin",
@@ -34,6 +36,8 @@ def test_run_metrics_round_trip():
     assert d["started"] == "2026-08-27T14:00:00.000Z"
     assert d["errors"] == 2
     assert d["warnings"] == 1
+    assert d["tool_failures"] == 2
+    assert d["processor_failures"] == 1
     assert d["success"] is False
     m2 = RunMetrics.from_dict(d)
     assert m2.to_dict() == d
@@ -69,6 +73,8 @@ def test_run_metrics_defaults():
         "completion_tokens": 0,
         "total_tokens": 0,
         "failures": 0,
+        "tool_failures": 0,
+        "processor_failures": 0,
         "duration_ms": 0,
         "agent": "",
         "account": "",
@@ -88,6 +94,91 @@ def test_run_metrics_strict_validation_rejects_unknown_field():
 def test_run_metrics_from_dict_requires_dict():
     with pytest.raises(TypeError):
         RunMetrics.from_dict("not-a-dict")
+
+
+def test_tool_failure_metrics_count_ok_false_results(make_proc, prompt_builder, llm_adapter):
+    from tests.conftest import FakeAgent, FakeHandler, FakeRegistry
+
+    ok_handler = FakeHandler({"ok": True})
+    failed_handler = FakeHandler({"ok": False, "error": "refused"})
+    reg = FakeRegistry(
+        handler_by_name={"ok_tool": ok_handler, "failed_tool": failed_handler},
+        tool_defs=[{"name": "ok_tool"}, {"name": "failed_tool"}],
+    )
+    proc = make_proc(registry=reg)
+
+    first_response = object()
+    final_response = object()
+    llm_adapter.call_model.side_effect = [first_response, final_response]
+    llm_adapter.get_response_id.side_effect = lambda response: (
+        "r1" if response is first_response else "r2"
+    )
+    llm_adapter.extract_tool_calls.side_effect = lambda response: (
+        [
+            {"name": "ok_tool", "id": "call-ok", "arguments": "{}"},
+            {"name": "failed_tool", "id": "call-failed", "arguments": "{}"},
+        ]
+        if response is first_response
+        else []
+    )
+    llm_adapter.get_text.side_effect = lambda response: (
+        "" if response is first_response else "done"
+    )
+    llm_adapter.format_tool_output.side_effect = lambda **kwargs: {
+        "type": "function_call_output",
+        "call_id": kwargs["call_id"],
+        "output": kwargs["output"],
+    }
+
+    out = proc.process_message(
+        primary_agent=FakeAgent(max_function_call_iterations=3),
+        account={"accountId": "acct1"},
+        message="use both tools",
+        conversation_id="c1",
+        context_name="ctx",
+    )
+
+    assert out.text == "done"
+    assert out.metrics.tool_calls == 2
+    assert out.metrics.tool_failures == 1
+    assert out.metrics.processor_failures == 0
+    assert out.metrics.failures == 1
+
+
+def test_iteration_cap_is_a_processor_failure(make_proc, prompt_builder, llm_adapter):
+    from tests.conftest import FakeAgent, FakeHandler, FakeRegistry
+
+    handler = FakeHandler({"ok": True})
+    reg = FakeRegistry(
+        handler_by_name={"my_tool": handler},
+        tool_defs=[{"name": "my_tool"}],
+    )
+    proc = make_proc(registry=reg)
+
+    prompt_builder.build_prompt.return_value = [{"role": "user", "content": "loop"}]
+    llm_adapter.call_model.return_value = object()
+    llm_adapter.get_response_id.return_value = "r1"
+    llm_adapter.extract_tool_calls.return_value = [
+        {"name": "my_tool", "id": "call-1", "arguments": "{}"}
+    ]
+    llm_adapter.get_text.return_value = ""
+    llm_adapter.format_tool_output.return_value = {
+        "type": "function_call_output",
+        "call_id": "call-1",
+        "output": "{}",
+    }
+
+    out = proc.process_message(
+        primary_agent=FakeAgent(max_function_call_iterations=1),
+        account={"accountId": "acct1"},
+        message="loop",
+        conversation_id="c1",
+        context_name="ctx",
+    )
+
+    assert out.metrics.tool_failures == 0
+    assert out.metrics.processor_failures == 1
+    assert out.metrics.failures == 1
 
 
 def test_hit_iteration_cap_flag(make_proc, prompt_builder, llm_adapter):
