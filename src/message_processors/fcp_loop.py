@@ -16,6 +16,7 @@ from src.message_processors.fcp_models import (
 )
 from src.message_processors.fcp_tool_executor import ToolExecutor
 from src.message_processors.sse_events import SSEEvent
+from src.message_processors.run_metrics import record_processor_failure
 
 
 class LLMLoopRunner:
@@ -231,7 +232,7 @@ class LLMLoopRunner:
                 previous_tool_calls = tool_calls
 
                 if not previous_response_id:
-                    metrics["failures"] += 1
+                    record_processor_failure(metrics)
                     yield SSEEvent(type="error", message="LLM returned tool_calls but no response_id.")
                     yield SSEEvent(type="metrics", metrics=dict(metrics))
                     yield SSEEvent(type="done", conversation_id=ctx.conversation_id)
@@ -302,7 +303,7 @@ class LLMLoopRunner:
                 next_input_items = tool_output_items
 
                 if iteration >= ctx.max_iterations:
-                    metrics["failures"] += 1
+                    record_processor_failure(metrics)
                     logging.error(
                         "FunctionCallingProcessor(streaming): exceeded max_function_call_iterations=%d correlation_id=%s for agent '%s' in conversation_id=%s",
                         ctx.max_iterations,

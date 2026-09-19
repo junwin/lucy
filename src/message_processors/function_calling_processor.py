@@ -42,7 +42,7 @@ from src.prompt_builders.prompt_builder import estimate_tokens_from_text
 from src.tool_selection import ToolSelectionError, ToolSelectionPipeline
 from src.message_processors.fcp_tool_executor import ToolExecutor, load_context_state
 from src.message_processors.fcp_loop import LLMLoopRunner
-from src.message_processors.run_metrics import RunMetrics
+from src.message_processors.run_metrics import RunMetrics, record_processor_failure
 from src.metrics import CorrelationLogHandler, RunMetricsLogger
 
 
@@ -275,6 +275,8 @@ def _build_run_metrics(
         completion_tokens=metrics.get("completion_tokens", 0),
         total_tokens=metrics.get("total_tokens", 0),
         failures=failures,
+        tool_failures=metrics.get("tool_failures", 0),
+        processor_failures=metrics.get("processor_failures", 0),
         duration_ms=latency_ms,
         agent=ctx.agent_name if ctx is not None else "",
         account=ctx.account_id if ctx is not None else "",
@@ -520,6 +522,8 @@ class FunctionCallingProcessor(MessageProcessorInterface):
             "openai_calls": 0,
             "tool_calls": 0,
             "failures": 0,
+            "tool_failures": 0,
+            "processor_failures": 0,
             "hit_iteration_cap": False,
             "prompt_tokens": 0,
             "completion_tokens": 0,
@@ -536,7 +540,7 @@ class FunctionCallingProcessor(MessageProcessorInterface):
         logging.info("FunctionCallingProcessor inbound message: %s", message)
 
         if not primary_agent:
-            metrics["failures"] += 1
+            record_processor_failure(metrics)
             record = self._finalize_run(
                 metrics, None, correlation_id, started, 0, correlation_token
             )
@@ -553,7 +557,7 @@ class FunctionCallingProcessor(MessageProcessorInterface):
         )
 
         if not ctx.account_id:
-            metrics["failures"] += 1
+            record_processor_failure(metrics)
             record = self._finalize_run(
                 metrics, None, correlation_id, started, 0, correlation_token
             )
@@ -630,7 +634,7 @@ class FunctionCallingProcessor(MessageProcessorInterface):
             raise
 
         except ToolSelectionError as e:
-            metrics["failures"] += 1
+            record_processor_failure(metrics)
             logging.error(
                 "FunctionCallingProcessor: tool selection error agent=%s session_id=%s code=%s: %s",
                 ctx.agent_name,
@@ -660,7 +664,7 @@ class FunctionCallingProcessor(MessageProcessorInterface):
             )
 
         except Exception as e:
-            metrics["failures"] += 1
+            record_processor_failure(metrics)
             logging.exception(
                 "FunctionCallingProcessor: unhandled error agent=%s session_id=%s",
                 ctx.agent_name,
@@ -735,6 +739,8 @@ class FunctionCallingProcessor(MessageProcessorInterface):
             "openai_calls": 0,
             "tool_calls": 0,
             "failures": 0,
+            "tool_failures": 0,
+            "processor_failures": 0,
             "hit_iteration_cap": False,
             "prompt_tokens": 0,
             "completion_tokens": 0,
@@ -755,7 +761,7 @@ class FunctionCallingProcessor(MessageProcessorInterface):
         )
 
         if not primary_agent:
-            metrics["failures"] += 1
+            record_processor_failure(metrics)
             yield SSEEvent(type="error", message="Missing primary_agent configuration.").to_sse()
             yield SSEEvent(type="metrics", metrics=dict(metrics)).to_sse()
             yield SSEEvent(type="done").to_sse()
@@ -772,7 +778,7 @@ class FunctionCallingProcessor(MessageProcessorInterface):
         )
 
         if not ctx.account_id:
-            metrics["failures"] += 1
+            record_processor_failure(metrics)
             yield SSEEvent(type="error", message="Missing account.accountId.").to_sse()
             yield SSEEvent(type="metrics", metrics=dict(metrics)).to_sse()
             yield SSEEvent(type="done").to_sse()
@@ -837,7 +843,7 @@ class FunctionCallingProcessor(MessageProcessorInterface):
             raise
 
         except ToolSelectionError as e:
-            metrics["failures"] += 1
+            record_processor_failure(metrics)
             logging.error(
                 "FunctionCallingProcessor(streaming): tool selection error correlation_id=%s agent=%s session_id=%s code=%s: %s",
                 correlation_id,
@@ -864,7 +870,7 @@ class FunctionCallingProcessor(MessageProcessorInterface):
             yield SSEEvent(type="done", conversation_id=ctx.conversation_id).to_sse()
 
         except Exception as e:
-            metrics["failures"] += 1
+            record_processor_failure(metrics)
             logging.exception(
                 "FunctionCallingProcessor(streaming): unhandled error correlation_id=%s agent=%s session_id=%s",
                 correlation_id,

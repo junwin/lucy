@@ -6,6 +6,18 @@ from typing import Any, Dict, Optional
 from pydantic import BaseModel
 
 
+def record_tool_failure(metrics: Dict[str, Any]) -> None:
+    """Record one failed tool attempt in component and aggregate counters."""
+    metrics["tool_failures"] = metrics.get("tool_failures", 0) + 1
+    metrics["failures"] = metrics.get("failures", 0) + 1
+
+
+def record_processor_failure(metrics: Dict[str, Any]) -> None:
+    """Record one non-tool processing failure in component and aggregate counters."""
+    metrics["processor_failures"] = metrics.get("processor_failures", 0) + 1
+    metrics["failures"] = metrics.get("failures", 0) + 1
+
+
 class _RunMetricsModel(BaseModel):
     correlation_id: str = ""
     iterations: int = 0
@@ -17,6 +29,8 @@ class _RunMetricsModel(BaseModel):
     completion_tokens: int = 0
     total_tokens: int = 0
     failures: int = 0
+    tool_failures: int = 0
+    processor_failures: int = 0
     duration_ms: int = 0
     agent: str = ""
     account: str = ""
@@ -62,6 +76,8 @@ class RunMetrics:
         completion_tokens: int = 0,
         total_tokens: Optional[int] = None,
         failures: int = 0,
+        tool_failures: int = 0,
+        processor_failures: int = 0,
         duration_ms: int = 0,
         agent: str = "",
         account: str = "",
@@ -85,6 +101,8 @@ class RunMetrics:
             else total_tokens
         )
         self.failures = failures
+        self.tool_failures = tool_failures
+        self.processor_failures = processor_failures
         self.duration_ms = duration_ms
         self.agent = agent
         self.account = account
@@ -106,6 +124,8 @@ class RunMetrics:
             "completion_tokens": self.completion_tokens,
             "total_tokens": self.prompt_tokens + self.completion_tokens,
             "failures": self.failures,
+            "tool_failures": self.tool_failures,
+            "processor_failures": self.processor_failures,
             "duration_ms": self.duration_ms,
             "agent": self.agent,
             "account": self.account,
@@ -137,6 +157,8 @@ class RunMetrics:
             completion_tokens=validated.completion_tokens,
             total_tokens=validated.prompt_tokens + validated.completion_tokens,
             failures=validated.failures,
+            tool_failures=validated.tool_failures,
+            processor_failures=validated.processor_failures,
             duration_ms=validated.duration_ms,
             agent=validated.agent,
             account=validated.account,

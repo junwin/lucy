@@ -27,8 +27,10 @@ class CommandExecutionHandler2(GaletCommandExecutionHandler2):
         result = super().execute(args, account_name=account_name)
         if result.get("error") == "Command refused by security policy":
             result["error"] = (
-                "Command refused by security policy: interactive commands "
-                "are not allowed and shell syntax requires an explicit wrapper"
+                "Command refused by security policy: interactive commands are "
+                "not allowed. If shell syntax is required, use an explicit "
+                "non-interactive wrapper such as bash -lc 'pwd'. Do not "
+                "repeat the rejected command unchanged."
             )
         return result
 

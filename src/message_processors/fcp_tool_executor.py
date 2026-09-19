@@ -10,6 +10,7 @@ from src.coala_memory.episodic import EpisodicMemoryManager
 from src.config_manager import ConfigManager
 from src.handlers.handler_registry import HandlerRegistry
 from galet.adapter_interface import LLMAdapter
+from src.message_processors.run_metrics import record_tool_failure
 from src.message_processors.fcp_models import (
     ProcessorContext,
     ToolHandlerError,
@@ -170,7 +171,7 @@ class ToolExecutor:
             metrics["tool_calls"] += 1
 
             if not tc.call_id:
-                metrics["failures"] += 1
+                record_tool_failure(metrics)
                 raise ToolHandlerError(
                     f"Tool call missing id/call_id for tool '{tc.name}'. Cannot send function_call_output."
                 )
@@ -181,7 +182,7 @@ class ToolExecutor:
             # the next turn.
             has_tool = getattr(self.registry, "has_tool", None)
             if callable(has_tool) and not has_tool(tc.name):
-                metrics["failures"] += 1
+                record_tool_failure(metrics)
                 valid = getattr(self.registry, "tool_names", lambda: [])()
                 logging.error(
                     "Unknown tool requested by model: correlation_id=%s tool=%r call_id=%s args=%r valid_tools=%s",
@@ -240,8 +241,15 @@ class ToolExecutor:
                     tool_result_text, max_chars=max_tool_result_chars, correlation_id=correlation_id
                 )
 
+                try:
+                    parsed_result = json.loads(tool_result_text)
+                except (json.JSONDecodeError, TypeError):
+                    parsed_result = None
+                if isinstance(parsed_result, dict) and parsed_result.get("ok") is False:
+                    record_tool_failure(metrics)
+
             except ToolResultTooLargeError as e:
-                metrics["failures"] += 1
+                record_tool_failure(metrics)
                 # Replace the too-large raw result with a compact error so the
                 # LLM sees a graceful tool-failure message instead of a hard crash.
                 error_msg = str(e)
@@ -262,7 +270,7 @@ class ToolExecutor:
                 raw_results.append((tc, tool_result_text))
                 # Fall through to tool_output_items.append below.
             except Exception as e:
-                metrics["failures"] += 1
+                record_tool_failure(metrics)
                 logging.exception("Tool execution failed: correlation_id=%s tool=%s call_id=%s", correlation_id, tc.name, tc.call_id)
                 raise ToolHandlerError(f"{type(e).__name__}: {e}")
 
