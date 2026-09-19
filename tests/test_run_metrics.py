@@ -502,6 +502,8 @@ def test_streaming_error_paths_emit_metrics(make_proc, prompt_builder, llm_adapt
         "openai_calls": 0,
         "tool_calls": 0,
         "failures": 1,
+        "tool_failures": 0,
+        "processor_failures": 1,
         "hit_iteration_cap": False,
         "prompt_tokens": 0,
         "completion_tokens": 0,
