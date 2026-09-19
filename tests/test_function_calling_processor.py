@@ -1,3 +1,5 @@
+import json
+
 import pytest
 from unittest.mock import Mock, patch
 
@@ -261,6 +263,79 @@ def test_different_tool_calls_do_not_trigger_duplicate_detection(make_proc, prom
 
     assert out == "done"
     assert llm_adapter.call_model.call_count == 3
+
+
+def test_repeated_tool_failure_warns_then_blocks_failed_call_shape(
+    make_proc, prompt_builder, llm_adapter
+):
+    """Two equivalent failures add guidance; a known failed call is not run again."""
+    from tests.conftest import FakeAgent, FakeHandler, FakeRegistry
+
+    handler = FakeHandler({"ok": False, "error": "Command refused by security policy"})
+    reg = FakeRegistry(
+        handler_by_name={"execute_command": handler},
+        tool_defs=[{"name": "execute_command"}],
+    )
+    proc = make_proc(registry=reg)
+
+    prompt_builder.build_prompt.return_value = [
+        {"role": "user", "content": "run a command"}
+    ]
+
+    resp1, resp2, resp3 = object(), object(), object()
+    llm_adapter.call_model.side_effect = [resp1, resp2, resp3]
+    llm_adapter.get_response_id.side_effect = ["r1", "r2", "r3"]
+    llm_adapter.extract_tool_calls.side_effect = [
+        [
+            {
+                "name": "execute_command",
+                "id": "call-1",
+                "arguments": '{"command": "bad-one", "timeout": 5}',
+            }
+        ],
+        [
+            {
+                "name": "execute_command",
+                "id": "call-2",
+                "arguments": '{"timeout":5,"command":"bad-two"}',
+            }
+        ],
+        [
+            {
+                "name": "execute_command",
+                "id": "call-3",
+                "arguments": '{"timeout": 5, "command": "bad-one"}',
+            }
+        ],
+    ]
+    llm_adapter.get_text.return_value = ""
+    llm_adapter.format_tool_output.side_effect = lambda call_id, output, **kwargs: {
+        "type": "function_call_output",
+        "call_id": call_id,
+        "output": output,
+    }
+
+    result = proc.process_message(
+        primary_agent=FakeAgent(max_function_call_iterations=10),
+        account={"accountId": "acct1"},
+        message="run a command",
+        conversation_id="c1",
+        context_name="ctx",
+    )
+
+    assert "repeat" in result.text.lower()
+    assert "materially different" in result.text.lower()
+    assert llm_adapter.call_model.call_count == 3
+    assert len(handler.calls) == 2
+    assert result.metrics.tool_calls == 2
+    assert result.metrics.tool_failures == 2
+    assert result.metrics.processor_failures == 0
+
+    third_model_input = llm_adapter.call_model.call_args_list[2].kwargs["input"]
+    guided_result = json.loads(third_model_input[0]["output"])
+    assert guided_result["ok"] is False
+    assert guided_result["repeated_failure"] is True
+    assert "do not repeat" in guided_result["guidance"].lower()
 
 
 # ---------------------------------------------------------------------------
