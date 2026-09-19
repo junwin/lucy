@@ -17,6 +17,8 @@ class _RunMetricsModel(BaseModel):
     completion_tokens: int = 0
     total_tokens: int = 0
     failures: int = 0
+    tool_failures: int = 0
+    processor_failures: int = 0
     duration_ms: int = 0
     agent: str = ""
     account: str = ""
@@ -62,6 +64,8 @@ class RunMetrics:
         completion_tokens: int = 0,
         total_tokens: Optional[int] = None,
         failures: int = 0,
+        tool_failures: int = 0,
+        processor_failures: int = 0,
         duration_ms: int = 0,
         agent: str = "",
         account: str = "",
@@ -85,6 +89,8 @@ class RunMetrics:
             else total_tokens
         )
         self.failures = failures
+        self.tool_failures = tool_failures
+        self.processor_failures = processor_failures
         self.duration_ms = duration_ms
         self.agent = agent
         self.account = account
@@ -106,6 +112,8 @@ class RunMetrics:
             "completion_tokens": self.completion_tokens,
             "total_tokens": self.prompt_tokens + self.completion_tokens,
             "failures": self.failures,
+            "tool_failures": self.tool_failures,
+            "processor_failures": self.processor_failures,
             "duration_ms": self.duration_ms,
             "agent": self.agent,
             "account": self.account,
@@ -137,6 +145,8 @@ class RunMetrics:
             completion_tokens=validated.completion_tokens,
             total_tokens=validated.prompt_tokens + validated.completion_tokens,
             failures=validated.failures,
+            tool_failures=validated.tool_failures,
+            processor_failures=validated.processor_failures,
             duration_ms=validated.duration_ms,
             agent=validated.agent,
             account=validated.account,
