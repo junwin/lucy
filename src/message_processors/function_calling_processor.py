@@ -739,6 +739,8 @@ class FunctionCallingProcessor(MessageProcessorInterface):
             "openai_calls": 0,
             "tool_calls": 0,
             "failures": 0,
+            "tool_failures": 0,
+            "processor_failures": 0,
             "hit_iteration_cap": False,
             "prompt_tokens": 0,
             "completion_tokens": 0,
