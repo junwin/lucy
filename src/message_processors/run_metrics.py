@@ -6,6 +6,18 @@ from typing import Any, Dict, Optional
 from pydantic import BaseModel
 
 
+def record_tool_failure(metrics: Dict[str, Any]) -> None:
+    """Record one failed tool attempt in component and aggregate counters."""
+    metrics["tool_failures"] = metrics.get("tool_failures", 0) + 1
+    metrics["failures"] = metrics.get("failures", 0) + 1
+
+
+def record_processor_failure(metrics: Dict[str, Any]) -> None:
+    """Record one non-tool processing failure in component and aggregate counters."""
+    metrics["processor_failures"] = metrics.get("processor_failures", 0) + 1
+    metrics["failures"] = metrics.get("failures", 0) + 1
+
+
 class _RunMetricsModel(BaseModel):
     correlation_id: str = ""
     iterations: int = 0
