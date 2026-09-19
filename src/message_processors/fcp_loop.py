@@ -1,7 +1,7 @@
 import json
 import logging
 import time
-from typing import Any, Dict, Generator, List, Optional, Tuple
+from typing import Any, Dict, Generator, List, Optional, Set, Tuple
 
 from src.agent import Agent
 from src.config_manager import ConfigManager
@@ -45,6 +45,68 @@ class LLMLoopRunner:
             if c.name != p.name or c.arguments_raw != p.arguments_raw:
                 return False
         return True
+
+    @staticmethod
+    def _tool_call_fingerprint(tool_call: _ToolCall) -> Tuple[str, str]:
+        """Return a stable fingerprint for a tool name and normalized arguments."""
+        try:
+            arguments = json.loads(tool_call.arguments_raw or "{}")
+            normalized = json.dumps(
+                arguments,
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(",", ":"),
+            )
+        except (json.JSONDecodeError, TypeError):
+            normalized = " ".join((tool_call.arguments_raw or "").split())
+        return tool_call.name, normalized
+
+    @staticmethod
+    def _failure_signature(
+        tool_call: _ToolCall,
+        raw_text: str,
+    ) -> Optional[Tuple[str, str]]:
+        """Return a stable signature for a normal ``ok:false`` tool result."""
+        try:
+            result = json.loads(raw_text)
+        except (json.JSONDecodeError, TypeError):
+            return None
+        if not isinstance(result, dict) or result.get("ok") is not False:
+            return None
+
+        error_code = result.get("error_code")
+        error = result.get("error")
+        if error_code:
+            detail = f"code:{error_code}"
+        elif isinstance(error, str) and error.strip():
+            detail = " ".join(error.lower().split())
+        else:
+            detail = "unspecified-tool-failure"
+        return tool_call.name, detail
+
+    def _add_repeated_failure_guidance(
+        self,
+        tool_call: _ToolCall,
+        raw_text: str,
+        *,
+        ctx: ProcessorContext,
+    ) -> Tuple[str, Dict[str, Any]]:
+        """Add corrective guidance to a failed result and reformat it for the LLM."""
+        result = json.loads(raw_text)
+        result["repeated_failure"] = True
+        result["guidance"] = (
+            "This tool has returned the same failure twice. Do not repeat a previously "
+            "failed call unchanged; use a materially different approach or stop and "
+            "explain the blocker."
+        )
+        guided_text = json.dumps(result, ensure_ascii=False)
+        guided_item = self.llm_adapter.format_tool_output(
+            call_id=str(tool_call.call_id),
+            output=guided_text,
+            name=tool_call.name,
+            provider=ctx.provider,
+        )
+        return guided_text, guided_item
 
     @staticmethod
     def _inspect_raw_results(
@@ -116,6 +178,9 @@ class LLMLoopRunner:
         response_text = ""
         previous_response_id: Optional[str] = None
         previous_tool_calls: Optional[List[_ToolCall]] = None
+        failure_counts: Dict[Tuple[str, str], int] = {}
+        failed_call_fingerprints: Dict[Tuple[str, str], Set[Tuple[str, str]]] = {}
+        blocked_call_fingerprints: Set[Tuple[str, str]] = set()
 
         next_input_items: List[Dict[str, Any]] = prompt_messages
 
@@ -211,6 +276,29 @@ class LLMLoopRunner:
                 )
 
             if tool_calls:
+                blocked_calls = [
+                    tc
+                    for tc in tool_calls
+                    if self._tool_call_fingerprint(tc) in blocked_call_fingerprints
+                ]
+                if blocked_calls:
+                    logging.warning(
+                        "FunctionCallingProcessor(streaming): blocked previously failed tool call "
+                        "correlation_id=%s iteration=%d/%d agent=%s session_id=%s tools=%s",
+                        correlation_id,
+                        iteration,
+                        ctx.max_iterations,
+                        ctx.agent_name,
+                        ctx.conversation_id,
+                        [tc.name for tc in blocked_calls],
+                    )
+                    response_text = (
+                        "I stopped because I was about to repeat a tool call that had already "
+                        "failed as part of a repeated-failure pattern. A materially different "
+                        "approach is required."
+                    )
+                    break
+
                 if self._tool_calls_are_duplicate(tool_calls, previous_tool_calls):
                     logging.warning(
                         "FunctionCallingProcessor(streaming): duplicate tool calls detected correlation_id=%s at iteration=%d/%d "
@@ -271,6 +359,39 @@ class LLMLoopRunner:
                     yield SSEEvent(type="done", conversation_id=ctx.conversation_id)
                     return
 
+                repeated_failure_stop: Optional[Tuple[str, str]] = None
+                for index, (tc, raw_text) in enumerate(raw_results):
+                    signature = self._failure_signature(tc, raw_text)
+                    if signature is None:
+                        continue
+
+                    fingerprint = self._tool_call_fingerprint(tc)
+                    fingerprints = failed_call_fingerprints.setdefault(signature, set())
+                    fingerprints.add(fingerprint)
+                    failure_counts[signature] = failure_counts.get(signature, 0) + 1
+                    failure_count = failure_counts[signature]
+
+                    if failure_count == 2:
+                        blocked_call_fingerprints.update(fingerprints)
+                        guided_text, guided_item = self._add_repeated_failure_guidance(
+                            tc,
+                            raw_text,
+                            ctx=ctx,
+                        )
+                        raw_results[index] = (tc, guided_text)
+                        tool_output_items[index] = guided_item
+                        logging.warning(
+                            "FunctionCallingProcessor(streaming): repeated tool failure; corrective "
+                            "guidance injected correlation_id=%s iteration=%d agent=%s session_id=%s tool=%s",
+                            correlation_id,
+                            iteration,
+                            ctx.agent_name,
+                            ctx.conversation_id,
+                            tc.name,
+                        )
+                    elif failure_count >= 3:
+                        repeated_failure_stop = signature
+
                 for (tc, raw_text), item in zip(raw_results, tool_output_items):
                     call_id = str(item.get("call_id", ""))
                     try:
@@ -301,6 +422,23 @@ class LLMLoopRunner:
                 )
 
                 next_input_items = tool_output_items
+
+                if repeated_failure_stop is not None:
+                    logging.warning(
+                        "FunctionCallingProcessor(streaming): repeated tool failure limit reached "
+                        "correlation_id=%s iteration=%d/%d agent=%s session_id=%s tool=%s",
+                        correlation_id,
+                        iteration,
+                        ctx.max_iterations,
+                        ctx.agent_name,
+                        ctx.conversation_id,
+                        repeated_failure_stop[0],
+                    )
+                    response_text = (
+                        f"I stopped after the tool '{repeated_failure_stop[0]}' returned the same "
+                        "failure three times. A materially different approach is required."
+                    )
+                    break
 
                 if iteration >= ctx.max_iterations:
                     record_processor_failure(metrics)
