@@ -1,8 +1,6 @@
-import pytest
+import sys
 
-from galet_tools.tools.command_execution_handler2 import (
-    CommandExecutionHandler2 as GaletCommandExecutionHandler2,
-)
+from galet_tools.tools.execute_command2 import ExecuteCommand2 as GaletExecuteCommand2
 
 from src.handlers.command_execution_handler2 import CommandExecutionHandler2
 
@@ -16,77 +14,82 @@ class DummyConfig:
 
 
 def _mk_handler(tmp_path):
-    # minimal config; we only test path validation helper here
     return CommandExecutionHandler2(DummyConfig(code_sandbox_path=str(tmp_path)))
 
 
-def test_validate_and_normalize_relative_path_allows_dot(tmp_path):
+def _process_args(**overrides):
+    args = {
+        "mode": "process",
+        "executable": sys.executable,
+        "arguments": ["-c", "print('hello')"],
+        "script": "",
+        "shell": "none",
+        "location": "sandbox",
+        "external_root": "",
+        "working_directory": ".",
+        "timeout_seconds": 10,
+        "success_exit_codes": [0],
+    }
+    args.update(overrides)
+    return args
+
+
+def test_adapter_uses_structured_galet_handler_and_preserves_public_name():
+    assert issubclass(CommandExecutionHandler2, GaletExecuteCommand2)
+    assert CommandExecutionHandler2.name() == "execute_command"
+    assert CommandExecutionHandler2.tool_def()["name"] == "execute_command"
+
+
+def test_schema_exposes_structured_execution_arguments():
+    properties = CommandExecutionHandler2.tool_def()["parameters"]["properties"]
+
+    assert {"mode", "executable", "arguments", "script", "shell"} <= set(properties)
+    assert "command" not in properties
+    assert "wrapper" not in properties
+
+
+def test_validate_relative_path_allows_dot(tmp_path):
     h = _mk_handler(tmp_path)
 
-    norm, err = h._validate_and_normalize_relative_path(".")
+    norm, err = h._validate_relative_path(".")
 
     assert err == ""
     assert norm == "."
 
 
-def test_validate_and_normalize_relative_path_empty_normalizes_to_dot(tmp_path):
-    """os.path.normpath('') becomes '.', so the helper treats it as base dir."""
+def test_validate_relative_path_blocks_parent(tmp_path):
     h = _mk_handler(tmp_path)
 
-    norm, err = h._validate_and_normalize_relative_path("")
-
-    assert err == ""
-    assert norm == "."
-
-
-def test_validate_and_normalize_relative_path_blocks_parent(tmp_path):
-    h = _mk_handler(tmp_path)
-
-    norm, err = h._validate_and_normalize_relative_path("..")
+    norm, err = h._validate_relative_path("..")
 
     assert norm == ""
-    assert "parent" in err or ".." in err
+    assert "configured root" in err
 
 
-def test_validate_and_normalize_relative_path_allows_internal_dotdot_normalization(tmp_path):
-    """Current behavior: 'a/../b' normalizes to 'b' and is allowed."""
+def test_process_execution_uses_exact_arguments(tmp_path):
     h = _mk_handler(tmp_path)
 
-    norm, err = h._validate_and_normalize_relative_path("a/../b")
-
-    assert err == ""
-    assert norm == "b"
-
-
-def test_execute_replaces_generic_security_refusal_with_actionable_message(
-    tmp_path, monkeypatch
-):
-    """The bare Galet refusal must be replaced by an actionable Lucy message."""
-    h = _mk_handler(tmp_path)
-
-    def fake_galet_execute(self, args, *, account_name="auto"):
-        # Exactly what galet-tools returns when the policy refuses a command.
-        return {
-            "ok": False,
-            "tool": "execute_command",
-            "error": "Command refused by security policy",
-            "location": "external",
-            "external_root": "repo_lucy",
-            "command": "pwd && true",
-            "working_directory": ".",
-        }
-
-    monkeypatch.setattr(
-        GaletCommandExecutionHandler2, "execute", fake_galet_execute
+    result = h.execute(
+        _process_args(
+            arguments=[
+                "-c",
+                "import sys; print(sys.argv[1])",
+                "value with spaces | and shell text",
+            ]
+        )
     )
 
-    result = h.execute({"command": "pwd && true", "wrapper": "none"})
+    assert result["ok"] is True
+    assert result["stdout"].strip() == "value with spaces | and shell text"
 
-    # ok:false is preserved.
+
+def test_embedded_shell_is_rejected_with_structured_error(tmp_path):
+    h = _mk_handler(tmp_path)
+
+    result = h.execute(
+        _process_args(executable="bash", arguments=["-lc", "echo bad"])
+    )
+
     assert result["ok"] is False
-    # The generic Galet refusal text is gone.
-    assert result["error"] != "Command refused by security policy"
-    # ... replaced by the actionable Lucy message.
-    assert "interactive commands are not allowed" in result["error"]
-    assert "bash -lc 'pwd'" in result["error"]
-    assert "Do not repeat the rejected command unchanged" in result["error"]
+    assert result["error_code"] == "embedded_shell_refused"
+    assert "mode='shell'" in result["error"]
