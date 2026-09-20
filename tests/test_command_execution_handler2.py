@@ -14,6 +14,9 @@ class DummyConfig:
 
 
 def _mk_handler(tmp_path):
+    # Lucy fences an existing sandbox root by account name. The handler's
+    # default account is 'auto', so create that resolved directory explicitly.
+    (tmp_path / "auto").mkdir(exist_ok=True)
     return CommandExecutionHandler2(DummyConfig(code_sandbox_path=str(tmp_path)))
 
 
