@@ -116,7 +116,9 @@
       "web_search_handler",
       "episodic_memory",
       "tasklists_manage",
-      "tasklists_run"
+      "tasklists_run",
+      "delegate_task",
+      "remote_execute"
     ],
     "provider": null,
     "use_embeddings": false,
@@ -341,6 +343,8 @@
       "web_search_handler",
       "episodic_memory",
       "curate_chat",
+      "remote_execute",
+      "delegate_task",
       "sandbox_execute"
     ],
     "provider": null,
