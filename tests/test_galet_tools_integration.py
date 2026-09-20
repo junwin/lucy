@@ -2,9 +2,7 @@ from __future__ import annotations
 
 from galet_tools import HandlerRegistry as GaletHandlerRegistry
 from galet_tools.framework import HandlerV2 as GaletHandlerV2
-from galet_tools.tools.command_execution_handler2 import (
-    CommandExecutionHandler2 as GaletCommandExecutionHandler2,
-)
+from galet_tools.tools.execute_command2 import ExecuteCommand2 as GaletExecuteCommand2
 from galet_tools.tools.file_load_handler2 import (
     FileLoadHandler2 as GaletFileLoadHandler2,
 )
@@ -41,7 +39,7 @@ def test_generic_handlers_are_thin_galet_adapters() -> None:
     assert issubclass(FileSaveHandler2, GaletFileSaveHandler2)
     assert issubclass(
         CommandExecutionHandler2,
-        GaletCommandExecutionHandler2,
+        GaletExecuteCommand2,
     )
     assert issubclass(GenerateSvgHandler, GaletGenerateSvgHandler)
     assert issubclass(GenerateImageHandler, GaletGenerateImageHandler)

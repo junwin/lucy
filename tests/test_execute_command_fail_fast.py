@@ -1,59 +1,54 @@
-import json
-import shlex
+import shutil
+import sys
+
+import pytest
+
 from src.config_manager import ConfigManager
 from src.handlers.command_execution_handler2 import CommandExecutionHandler2
 
 
-def test_heredoc_is_detected_and_rejected():
-    cfg = ConfigManager("config.json")
-    handler = CommandExecutionHandler2(cfg)
-
-    cmd = "python3 - << 'PY'\nprint(\"hello\")\nPY"
+def _base_args(**overrides):
     args = {
+        "mode": "process",
+        "executable": "bash",
+        "arguments": ["-lc", "echo should-not-run"],
+        "script": "",
+        "shell": "none",
         "location": "external",
         "external_root": "repo_lucy",
-        "command": cmd,
         "working_directory": ".",
         "timeout_seconds": 2,
         "success_exit_codes": [0],
     }
-
-    res = handler.execute(args)
-
-    assert res["ok"] is False
-    assert "shell" in (res.get("error") or "").lower()
-    # Should return quickly without attempting to run a subprocess
-    assert res.get("command") == cmd
+    args.update(overrides)
+    return args
 
 
-def test_heredoc_allowed_when_wrapped_in_bash_lc():
-    """
-    Regression: a heredoc should be rejected when used directly (above), but
-    allowed when the caller intentionally wraps the entire command in a
-    `bash -lc '...` invocation. This ensures callers can use shell features
-    (including heredocs) when they explicitly request a shell.
-    """
-    cfg = ConfigManager("config.json")
-    handler = CommandExecutionHandler2(cfg)
+def test_embedded_shell_is_rejected_before_subprocess_execution():
+    handler = CommandExecutionHandler2(ConfigManager("config.json"))
 
-    # The inner command uses a heredoc to provide stdin to python3; when wrapped
-    # in bash -lc the handler should allow it and actually execute.
-    inner = "python3 - <<'PY'\nprint(\"hello-from-heredoc\")\nPY"
-    # Properly quote the inner command so shlex parsing yields ['bash','-lc', inner]
-    cmd = "bash -lc " + shlex.quote(inner)
+    result = handler.execute(_base_args())
 
-    args = {
-        "location": "external",
-        "external_root": "repo_lucy",
-        "command": cmd,
-        "working_directory": ".",
-        "timeout_seconds": 5,
-        "success_exit_codes": [0],
-    }
+    assert result["ok"] is False
+    assert result["error_code"] == "embedded_shell_refused"
 
-    res = handler.execute(args)
 
-    assert res["ok"] is True
-    # stdout should contain the printed string from the heredoc-fed python
-    assert "hello-from-heredoc" in (res.get("stdout") or "")
-    assert res.get("command") == cmd
+@pytest.mark.skipif(sys.platform == "win32" or shutil.which("bash") is None, reason="bash unavailable")
+def test_heredoc_allowed_with_explicit_bash_shell():
+    handler = CommandExecutionHandler2(ConfigManager("config.json"))
+    script = "python3 - <<'PY'\nprint('hello-from-heredoc')\nPY"
+
+    result = handler.execute(
+        _base_args(
+            mode="shell",
+            executable="",
+            arguments=[],
+            script=script,
+            shell="bash",
+            timeout_seconds=5,
+        )
+    )
+
+    assert result["ok"] is True
+    assert "hello-from-heredoc" in result["stdout"]
+    assert result["script"] == script
