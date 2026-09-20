@@ -1,9 +1,7 @@
-"""Lucy compatibility adapter for galet-tools' execute_command handler."""
+"""Lucy compatibility adapter for galet-tools' structured command handler."""
 
 from galet_tools.host.security import DefaultSecurityPolicy
-from galet_tools.tools.command_execution_handler2 import (
-    CommandExecutionHandler2 as GaletCommandExecutionHandler2,
-)
+from galet_tools.tools.execute_command2 import ExecuteCommand2 as GaletExecuteCommand2
 
 from src.handlers.galet_adapters import (
     LucySandboxRootResolver,
@@ -11,8 +9,12 @@ from src.handlers.galet_adapters import (
 )
 
 
-class CommandExecutionHandler2(GaletCommandExecutionHandler2):
-    """Construct Galet's command handler from Lucy's ConfigManager."""
+class CommandExecutionHandler2(GaletExecuteCommand2):
+    """Construct Galet's structured command handler from Lucy's ConfigManager."""
+
+    # Preserve Lucy's existing public tool name so agent permissions, skills,
+    # and lazy-tool selection do not need to migrate at the same time.
+    NAME = "execute_command"
 
     def __init__(self, config) -> None:
         self.config = config
@@ -22,17 +24,6 @@ class CommandExecutionHandler2(GaletCommandExecutionHandler2):
             LucySandboxRootResolver(config),
             self._lucy_security_policy,
         )
-
-    def execute(self, args, *, account_name: str = "auto"):
-        result = super().execute(args, account_name=account_name)
-        if result.get("error") == "Command refused by security policy":
-            result["error"] = (
-                "Command refused by security policy: interactive commands are "
-                "not allowed. If shell syntax is required, use an explicit "
-                "non-interactive wrapper such as bash -lc 'pwd'. Do not "
-                "repeat the rejected command unchanged."
-            )
-        return result
 
 
 __all__ = ["CommandExecutionHandler2"]
