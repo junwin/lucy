@@ -41,7 +41,7 @@ def test_generic_handlers_are_thin_galet_adapters() -> None:
     assert issubclass(FileSaveHandler2, GaletFileSaveHandler2)
     assert issubclass(
         CommandExecutionHandler2,
-        GaletCommandExecutionHandler2,
+        GaletExecuteCommand2,
     )
     assert issubclass(GenerateSvgHandler, GaletGenerateSvgHandler)
     assert issubclass(GenerateImageHandler, GaletGenerateImageHandler)
