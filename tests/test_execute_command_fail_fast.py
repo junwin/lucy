@@ -1,4 +1,5 @@
 import shutil
+import sys
 
 import pytest
 
@@ -32,7 +33,7 @@ def test_embedded_shell_is_rejected_before_subprocess_execution():
     assert result["error_code"] == "embedded_shell_refused"
 
 
-@pytest.mark.skipif(shutil.which("bash") is None, reason="bash unavailable")
+@pytest.mark.skipif(sys.platform == "win32" or shutil.which("bash") is None, reason="bash unavailable")
 def test_heredoc_allowed_with_explicit_bash_shell():
     handler = CommandExecutionHandler2(ConfigManager("config.json"))
     script = "python3 - <<'PY'\nprint('hello-from-heredoc')\nPY"
