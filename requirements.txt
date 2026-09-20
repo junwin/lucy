@@ -62,4 +62,4 @@ galet-memory[vec]==0.1.0
 galet-prompt-builder==0.1.1
 
 # Shared handler ABI and external handler discovery.
-galet-tools==0.1.0
+galet-tools==0.1.1
