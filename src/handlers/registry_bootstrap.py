@@ -40,6 +40,7 @@ from src.handlers.tool_selection_probe_handler import ToolSelectionProbeHandler
 from src.handlers.context_handler import ContextHandler
 from src.handlers.video_generate_handler import VideoGenerateHandler
 from src.handlers.discover_tools_handler import DiscoverToolsHandler
+from src.handlers.activate_tools_handler import ActivateToolsHandler
 from src.handlers.tool_catalog import RegistryToolProvider, ToolCatalog
 
 try:
@@ -75,6 +76,7 @@ def build_registry_and_catalog() -> tuple[HandlerRegistry, ToolCatalog]:
     reg.register(RepoSearchHandler)
     reg.register(VideoGenerateHandler)
     reg.register(DiscoverToolsHandler)
+    reg.register(ActivateToolsHandler)
 
     # Optional / third-party dependent handlers: import and register lazily.
     try:
