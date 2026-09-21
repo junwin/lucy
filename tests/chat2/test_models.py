@@ -172,6 +172,24 @@ def test_chat_event_prompt_report_kind():
     assert event2.payload == event.payload
 
 
+def test_chat_event_generated_video_kind_round_trips():
+    payload = {
+        "video_url": "/download/video/example?accountName=junwin",
+        "mime_type": "video/mp4",
+        "download_name": "fashion-reel.mp4",
+        "video_id": "example",
+    }
+    event = ChatEvent(
+        role="assistant",
+        actor="lucy",
+        kind="generated_video",
+        payload=payload,
+    )
+
+    assert event.kind == "generated_video"
+    assert ChatEvent.model_validate_json(event.model_dump_json()).payload == payload
+
+
 def test_chat_session_meta_basic():
     """Test basic ChatSessionMeta creation."""
     now = datetime.utcnow()
