@@ -39,6 +39,7 @@ from src.handlers.lazy_tool_selector_handler import LazyToolSelectorHandler
 from src.handlers.tool_selection_probe_handler import ToolSelectionProbeHandler
 from src.handlers.context_handler import ContextHandler
 from src.handlers.video_generate_handler import VideoGenerateHandler
+from src.handlers.discover_tools_handler import DiscoverToolsHandler
 from src.handlers.tool_catalog import RegistryToolProvider, ToolCatalog
 
 try:
@@ -73,6 +74,7 @@ def build_registry_and_catalog() -> tuple[HandlerRegistry, ToolCatalog]:
     reg.register(RepoIndexHandler)
     reg.register(RepoSearchHandler)
     reg.register(VideoGenerateHandler)
+    reg.register(DiscoverToolsHandler)
 
     # Optional / third-party dependent handlers: import and register lazily.
     try:
@@ -169,6 +171,9 @@ def build_registry_and_catalog() -> tuple[HandlerRegistry, ToolCatalog]:
             )
         )
     catalog = ToolCatalog(providers)
+    # Handlers receive the registry in their execution context. Attaching the
+    # paired catalog keeps discovery on the exact registry used for execution.
+    reg.tool_catalog = catalog
 
     logger.info(
         "Handler registry built with %d handlers across %d tool sources.",
