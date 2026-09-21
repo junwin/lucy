@@ -18,6 +18,9 @@ from galet_tools.tools.generate_svg_handler import (
 from galet_tools.tools.patch_apply_handler import (
     PatchApplyHandler2 as GaletPatchApplyHandler2,
 )
+from galet_tools.tools.video_generate_handler import (
+    VideoGenerateHandler as GaletVideoGenerateHandler,
+)
 
 from src.handlers.command_execution_handler2 import CommandExecutionHandler2
 from src.handlers.file_load_handler2 import FileLoadHandler2
@@ -27,6 +30,7 @@ from src.handlers.generate_svg_handler import GenerateSvgHandler
 from src.handlers.handler_registry import HandlerRegistry
 from src.handlers.handler_v2 import HandlerV2
 from src.handlers.patch_apply_handler import PatchApplyHandler
+from src.handlers.video_generate_handler import VideoGenerateHandler
 
 
 def test_lucy_compatibility_imports_use_canonical_galet_contract() -> None:
@@ -44,6 +48,7 @@ def test_generic_handlers_are_thin_galet_adapters() -> None:
     assert issubclass(GenerateSvgHandler, GaletGenerateSvgHandler)
     assert issubclass(GenerateImageHandler, GaletGenerateImageHandler)
     assert issubclass(PatchApplyHandler, GaletPatchApplyHandler2)
+    assert issubclass(VideoGenerateHandler, GaletVideoGenerateHandler)
 
 
 class DictConfig:
@@ -108,6 +113,7 @@ def test_registry_bootstrap_loads_installed_handler_plugins(monkeypatch) -> None
     assert registry.has_tool("file_load")
     assert registry.has_tool("patch_apply")
     assert registry.has_tool("context_handler")
+    assert registry.has_tool("video_generate")
 
 
 def test_file_load_adapter_supports_ranged_reads(tmp_path) -> None:
@@ -186,4 +192,21 @@ def test_file_load_strict_schema_exposes_range_arguments() -> None:
     assert set(parameters["required"]) == set(parameters["properties"])
     assert {"start_line", "line_count", "include_line_numbers"} <= set(
         parameters["properties"]
+    )
+
+
+def test_video_generate_adapter_uses_lucy_storage(tmp_path) -> None:
+    config = DictConfig(
+        {
+            "storage_root_path": str(tmp_path / "storage-root"),
+            "storage_namespace": "account-data",
+        }
+    )
+
+    handler = VideoGenerateHandler(config)
+
+    assert handler.name() == "video_generate"
+    assert handler.config is config
+    assert handler._storage_resolver.storage_base_dir() == str(
+        tmp_path / "storage-root" / "account-data"
     )
