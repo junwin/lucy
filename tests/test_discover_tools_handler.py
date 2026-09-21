@@ -110,12 +110,12 @@ def test_discovery_returns_compact_group_and_tag_matches() -> None:
         "groups": ["social-media-tools"],
         "tags": ["bluesky", "image-tools", "social-media"],
         "capabilities": ["external-publish", "network"],
-        "score": 56,
+        "score": 46,
         "matched_on": [
-            "name:publish",
             "tag:image",
-            "tag:publish",
             "description:image",
+            "name:publish",
+            "capability:publish",
             "description:publish",
         ],
     }
