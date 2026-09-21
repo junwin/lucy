@@ -110,7 +110,36 @@ def test_discovery_returns_compact_group_and_tag_matches() -> None:
         "groups": ["social-media-tools"],
         "tags": ["bluesky", "image-tools", "social-media"],
         "capabilities": ["external-publish", "network"],
+        "score": 56,
+        "matched_on": [
+            "name:publish",
+            "tag:image",
+            "tag:publish",
+            "description:image",
+            "description:publish",
+        ],
     }
+
+
+def test_discovery_ignores_stop_words_and_does_not_pad_results() -> None:
+    result = _execute(
+        DiscoveryRegistry(),
+        allowed_tools=[
+            "discover_tools",
+            "bsky_publish",
+            "tumblr_publish",
+            "admin_delete",
+        ],
+        query="tools related to generating or publishing an image",
+        limit=10,
+    )
+
+    assert [item["name"] for item in result["matches"]] == [
+        "bsky_publish",
+        "tumblr_publish",
+    ]
+    assert all(item["score"] > 0 for item in result["matches"])
+    assert all(item["matched_on"] for item in result["matches"])
 
 
 def test_discovery_never_discloses_agent_prohibited_tools() -> None:
