@@ -47,21 +47,6 @@ class LLMLoopRunner:
         return True
 
     @staticmethod
-    def _tool_call_fingerprint(tool_call: _ToolCall) -> Tuple[str, str]:
-        """Return a stable fingerprint for a tool name and normalized arguments."""
-        try:
-            arguments = json.loads(tool_call.arguments_raw or "{}")
-            normalized = json.dumps(
-                arguments,
-                ensure_ascii=False,
-                sort_keys=True,
-                separators=(",", ":"),
-            )
-        except (json.JSONDecodeError, TypeError):
-            normalized = " ".join((tool_call.arguments_raw or "").split())
-        return tool_call.name, normalized
-
-    @staticmethod
     def _inspect_raw_results(
         raw_results: List[Tuple[_ToolCall, str]],
     ) -> Generator[SSEEvent, None, None]:
