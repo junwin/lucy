@@ -8,6 +8,7 @@ from src.handlers.activate_tools_handler import ActivateToolsHandler
 from src.handlers.tool_catalog import RegistryToolProvider, ToolCatalog
 from src.message_processors.fcp_models import _ToolCall
 from src.message_processors.fcp_tool_executor import ToolExecutor
+from src.tool_selection import ToolSelectionPipeline
 
 
 class ActivationRegistry:
@@ -168,3 +169,35 @@ def test_executor_rechecks_permission_against_forged_activation_result() -> None
         "discover_tools",
         "activate_tools",
     ]
+
+
+def test_selection_pairs_activate_tools_with_discovery() -> None:
+    registry = ActivationRegistry()
+    llm_adapter = Mock()
+    llm_adapter.call_model.return_value = object()
+    llm_adapter.get_text.return_value = '["discover_tools"]'
+    pipeline = ToolSelectionPipeline(
+        registry=registry,
+        storage=None,
+        llm_adapter=llm_adapter,
+        config={
+            "lazy_tool_loading": {
+                "enabled": True,
+                "min_eligible_to_select": 1,
+            }
+        },
+    )
+
+    selection = pipeline.resolve(
+        agent=SimpleNamespace(
+            allowed_tools=["discover_tools", "activate_tools", "bsky_publish"],
+            model="test-model",
+            provider=None,
+        ),
+        account_name="acct",
+        context_name="none",
+        prompt_text="find a tool to publish to Bluesky",
+    )
+
+    assert selection.prompt_based == ["discover_tools"]
+    assert selection.active == ["discover_tools", "activate_tools"]
