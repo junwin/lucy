@@ -37,7 +37,8 @@ class ChatEvent(BaseModel):
     role: Literal["user", "assistant", "tool", "system"]
     actor: str
     kind: Literal["user_message", "assistant_message", "assistant_tool_call", 
-                  "tool_result", "system_note", "summary", "generated_image", "prompt_report"]
+                  "tool_result", "system_note", "summary", "generated_image",
+                  "generated_video", "prompt_report"]
     payload: dict | str
     metadata: dict = Field(default_factory=dict)
     
