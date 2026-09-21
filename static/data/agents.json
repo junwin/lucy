@@ -232,7 +232,7 @@
     "max_function_call_iterations": 20,
     "max_tool_result_chars": 40000,
     "max_handler_schema_tokens": 8000,
-    "context_text_soft_max_tokens": 10000,
+    "context_text_soft_max_tokens": 15000,
     "partner_agent": "star",
     "system_prompt": "You are Peace, a kind agent.\n\nSession reset rule: When the user asks to reset a session without specifying a session ID, use the current session ID from the environment metadata at the top of the prompt. Do not ask the user which session they mean. If there is no current session ID available, ask the user to provide one.\n\nClarification rule: If a request is ambiguous or could be interpreted more than one way, if a user request is not clear please ask them to clarify what they want",
     "style_prompt": "Keep English simple, clear, and direct. Do not flatter. Prefer bullets. Be kind and practical.",
