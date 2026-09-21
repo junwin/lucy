@@ -265,13 +265,20 @@ def test_different_tool_calls_do_not_trigger_duplicate_detection(make_proc, prom
     assert llm_adapter.call_model.call_count == 3
 
 
-def test_repeated_tool_failure_warns_then_blocks_failed_call_shape(
+def test_nonzero_command_results_are_returned_to_model_without_blocking(
     make_proc, prompt_builder, llm_adapter
 ):
-    """Two equivalent failures add guidance; a known failed call is not run again."""
+    """Non-zero command exits are observations, not processor-level failures."""
     from tests.conftest import FakeAgent, FakeHandler, FakeRegistry
 
-    handler = FakeHandler({"ok": False, "error": "Command refused by security policy"})
+    command_result = {
+        "ok": False,
+        "status": "error",
+        "returncode": 1,
+        "stdout": "",
+        "stderr": "",
+    }
+    handler = FakeHandler(command_result)
     reg = FakeRegistry(
         handler_by_name={"execute_command": handler},
         tool_defs=[{"name": "execute_command"}],
@@ -279,36 +286,37 @@ def test_repeated_tool_failure_warns_then_blocks_failed_call_shape(
     proc = make_proc(registry=reg)
 
     prompt_builder.build_prompt.return_value = [
-        {"role": "user", "content": "run a command"}
+        {"role": "user", "content": "probe three conditions"}
     ]
 
-    resp1, resp2, resp3 = object(), object(), object()
-    llm_adapter.call_model.side_effect = [resp1, resp2, resp3]
-    llm_adapter.get_response_id.side_effect = ["r1", "r2", "r3"]
+    resp1, resp2, resp3, resp4 = object(), object(), object(), object()
+    llm_adapter.call_model.side_effect = [resp1, resp2, resp3, resp4]
+    llm_adapter.get_response_id.side_effect = ["r1", "r2", "r3", "r4"]
     llm_adapter.extract_tool_calls.side_effect = [
         [
             {
                 "name": "execute_command",
                 "id": "call-1",
-                "arguments": '{"command": "bad-one", "timeout": 5}',
+                "arguments": '{"command": "grep -q foo missing.txt"}',
             }
         ],
         [
             {
                 "name": "execute_command",
                 "id": "call-2",
-                "arguments": '{"timeout":5,"command":"bad-two"}',
+                "arguments": '{"command": "test -f /nope"}',
             }
         ],
         [
             {
                 "name": "execute_command",
                 "id": "call-3",
-                "arguments": '{"timeout": 5, "command": "bad-one"}',
+                "arguments": '{"command": "diff a b"}',
             }
         ],
+        [],
     ]
-    llm_adapter.get_text.return_value = ""
+    llm_adapter.get_text.return_value = "probe complete"
     llm_adapter.format_tool_output.side_effect = lambda call_id, output, **kwargs: {
         "type": "function_call_output",
         "call_id": call_id,
@@ -318,24 +326,83 @@ def test_repeated_tool_failure_warns_then_blocks_failed_call_shape(
     result = proc.process_message(
         primary_agent=FakeAgent(max_function_call_iterations=10),
         account={"accountId": "acct1"},
-        message="run a command",
+        message="probe three conditions",
         conversation_id="c1",
         context_name="ctx",
     )
 
-    assert "repeat" in result.text.lower()
-    assert "materially different" in result.text.lower()
-    assert llm_adapter.call_model.call_count == 3
-    assert len(handler.calls) == 2
-    assert result.metrics.tool_calls == 2
-    assert result.metrics.tool_failures == 2
-    assert result.metrics.processor_failures == 0
+    assert result.text == "probe complete"
+    assert llm_adapter.call_model.call_count == 4
+    assert len(handler.calls) == 3
 
-    third_model_input = llm_adapter.call_model.call_args_list[2].kwargs["input"]
-    guided_result = json.loads(third_model_input[0]["output"])
-    assert guided_result["ok"] is False
-    assert guided_result["repeated_failure"] is True
-    assert "do not repeat" in guided_result["guidance"].lower()
+    for model_call in llm_adapter.call_model.call_args_list[1:]:
+        model_input = model_call.kwargs["input"]
+        if model_input and model_input[0].get("type") == "function_call_output":
+            returned_result = json.loads(model_input[0]["output"])
+            assert returned_result == command_result
+            assert "repeated_failure" not in returned_result
+            assert "guidance" not in returned_result
+
+
+def test_partial_sandbox_result_is_returned_to_model_unchanged(
+    make_proc, prompt_builder, llm_adapter
+):
+    """A completed sandbox batch remains useful even when one step fails."""
+    from tests.conftest import FakeAgent, FakeHandler, FakeRegistry
+
+    sandbox_result = {
+        "ok": False,
+        "status": "error",
+        "steps": [
+            {"tool": "file_load", "ok": True, "result": "loaded"},
+            {"tool": "execute_command", "ok": False, "returncode": 1},
+            {"tool": "repo_search", "ok": True, "result": "matches"},
+        ],
+    }
+    handler = FakeHandler(sandbox_result)
+    reg = FakeRegistry(
+        handler_by_name={"sandbox_execute": handler},
+        tool_defs=[{"name": "sandbox_execute"}],
+    )
+    proc = make_proc(registry=reg)
+
+    prompt_builder.build_prompt.return_value = [
+        {"role": "user", "content": "run sandbox probes"}
+    ]
+    resp1, resp2 = object(), object()
+    llm_adapter.call_model.side_effect = [resp1, resp2]
+    llm_adapter.get_response_id.side_effect = ["r1", "r2"]
+    llm_adapter.extract_tool_calls.side_effect = [
+        [
+            {
+                "name": "sandbox_execute",
+                "id": "call-1",
+                "arguments": '{"continue_on_error": true, "steps": []}',
+            }
+        ],
+        [],
+    ]
+    llm_adapter.get_text.return_value = "analysed partial results"
+    llm_adapter.format_tool_output.side_effect = lambda call_id, output, **kwargs: {
+        "type": "function_call_output",
+        "call_id": call_id,
+        "output": output,
+    }
+
+    result = proc.process_message(
+        primary_agent=FakeAgent(max_function_call_iterations=3),
+        account={"accountId": "acct1"},
+        message="run sandbox probes",
+        conversation_id="c1",
+        context_name="ctx",
+    )
+
+    assert result.text == "analysed partial results"
+    second_model_input = llm_adapter.call_model.call_args_list[1].kwargs["input"]
+    returned_result = json.loads(second_model_input[0]["output"])
+    assert returned_result == sandbox_result
+
+
 
 
 # ---------------------------------------------------------------------------
