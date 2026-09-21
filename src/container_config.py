@@ -32,7 +32,8 @@ from src.coala_memory.episodic import (
 from src.coala_memory.procedural import ProceduralMemory, ContextProceduralMemory
 
 from src.handlers.handler_registry import HandlerRegistry
-from src.handlers.registry_bootstrap import build_registry
+from src.handlers.registry_bootstrap import build_registry_and_catalog
+from src.handlers.tool_catalog import ToolCatalog
 from src.message_processors.processor_factory import ProcessorFactory
 from src.message_processors.message_processor_interface import ProcessorFactoryInterface
 from src.prompt_builders.prompt_builder_interface import PromptBuilderInterface
@@ -225,10 +226,27 @@ class CoALAMemoryModule(Module):
 
 
 class HandlerRegistryModule(Module):
+    def __init__(self) -> None:
+        self._components: tuple[HandlerRegistry, ToolCatalog] | None = None
+
+    def _registry_components(self) -> tuple[HandlerRegistry, ToolCatalog]:
+        # Both injected views must share one registry: catalog resolution and
+        # normal FCP execution must never drift onto separate handler instances.
+        if self._components is None:
+            self._components = build_registry_and_catalog()
+        return self._components
+
     @provider
     @singleton
     def provide_handler_registry(self) -> HandlerRegistry:
-        return build_registry()
+        registry, _catalog = self._registry_components()
+        return registry
+
+    @provider
+    @singleton
+    def provide_tool_catalog(self) -> ToolCatalog:
+        _registry, catalog = self._registry_components()
+        return catalog
 
 
 class PromptBuilderModule(Module):

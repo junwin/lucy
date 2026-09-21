@@ -39,6 +39,9 @@ from src.handlers.lazy_tool_selector_handler import LazyToolSelectorHandler
 from src.handlers.tool_selection_probe_handler import ToolSelectionProbeHandler
 from src.handlers.context_handler import ContextHandler
 from src.handlers.video_generate_handler import VideoGenerateHandler
+from src.handlers.discover_tools_handler import DiscoverToolsHandler
+from src.handlers.activate_tools_handler import ActivateToolsHandler
+from src.handlers.tool_catalog import RegistryToolProvider, ToolCatalog
 
 try:
     from src.handlers.generate_image_handler import GenerateImageHandler
@@ -51,12 +54,12 @@ except ImportError:
 logger = logging.getLogger(__name__)
 
 
-def build_registry() -> HandlerRegistry:
-    """Create and populate a HandlerRegistry.
+def build_registry_and_catalog() -> tuple[HandlerRegistry, ToolCatalog]:
+    """Create one execution registry and its provider-aware discovery catalog.
 
-    Returns a HandlerRegistry populated with available handlers. Handlers
-    that fail to import due to optional dependencies will be skipped and
-    logged, rather than causing an import-time failure.
+    Lucy-owned registrations and installed extension registrations share the
+    same HandlerRegistry so existing execution and permission behavior is
+    unchanged. The catalog records their source boundaries separately.
     """
 
     reg = HandlerRegistry()
@@ -72,6 +75,8 @@ def build_registry() -> HandlerRegistry:
     reg.register(RepoIndexHandler)
     reg.register(RepoSearchHandler)
     reg.register(VideoGenerateHandler)
+    reg.register(DiscoverToolsHandler)
+    reg.register(ActivateToolsHandler)
 
     # Optional / third-party dependent handlers: import and register lazily.
     try:
@@ -139,6 +144,11 @@ def build_registry() -> HandlerRegistry:
     # Tool selection pipeline diagnostic probe (issue #126)
     reg.register(ToolSelectionProbeHandler)
 
+    # Snapshot Lucy-owned names before extensions contribute handlers. These
+    # source boundaries are catalog metadata only; every handler still executes
+    # through this same registry and the existing permission filters.
+    lucy_tool_names = frozenset(reg.tool_names())
+
     # Installed extension packages contribute handlers through the shared
     # galet_tools.handlers entry-point group. Registration does not grant an
     # agent permission: the existing agent/context allowlists still apply.
@@ -146,5 +156,44 @@ def build_registry() -> HandlerRegistry:
     if loaded_plugins:
         logger.info("Loaded handler plugins: %s", ", ".join(loaded_plugins))
 
-    logger.info("Handler registry built with %d handlers.", len(reg.tool_names()))
-    return reg
+    installed_tool_names = frozenset(set(reg.tool_names()) - set(lucy_tool_names))
+    providers = [
+        RegistryToolProvider(
+            reg,
+            source="lucy",
+            tool_names=lucy_tool_names,
+        )
+    ]
+    if installed_tool_names:
+        providers.append(
+            RegistryToolProvider(
+                reg,
+                source="galet-tools",
+                tool_names=installed_tool_names,
+            )
+        )
+    catalog = ToolCatalog(providers)
+    # Handlers receive the registry in their execution context. Attaching the
+    # paired catalog keeps discovery on the exact registry used for execution.
+    reg.tool_catalog = catalog
+
+    logger.info(
+        "Handler registry built with %d handlers across %d tool sources.",
+        len(reg.tool_names()),
+        len(providers),
+    )
+    return reg, catalog
+
+
+def build_registry() -> HandlerRegistry:
+    """Build the execution registry (backward-compatible public API)."""
+
+    registry, _catalog = build_registry_and_catalog()
+    return registry
+
+
+def build_tool_catalog() -> ToolCatalog:
+    """Build a provider-aware catalog over the production registry."""
+
+    _registry, catalog = build_registry_and_catalog()
+    return catalog

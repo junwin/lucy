@@ -92,13 +92,48 @@ def test_file_adapters_round_trip_through_lucy_storage(tmp_path) -> None:
     assert loaded["result"] == "owned by galet-tools"
 
 
-def test_registry_bootstrap_loads_installed_handler_plugins(monkeypatch) -> None:
+def test_registry_bootstrap_separates_lucy_and_installed_tool_sources(
+    monkeypatch,
+) -> None:
     from src.handlers import registry_bootstrap
 
     observed: list[HandlerRegistry] = []
 
+    class InstalledTestHandler(HandlerV2):
+        @classmethod
+        def name(cls) -> str:
+            return "installed_test_tool"
+
+        @classmethod
+        def tool_def(cls) -> dict:
+            return {
+                "type": "function",
+                "name": cls.name(),
+                "description": "A test-only installed extension tool",
+                "parameters": {
+                    "type": "object",
+                    "properties": {},
+                    "required": [],
+                    "additionalProperties": False,
+                },
+                "strict": True,
+            }
+
+        @classmethod
+        def result_schema(cls) -> dict:
+            return {
+                "type": "object",
+                "properties": {"ok": {"type": "boolean"}},
+                "required": ["ok"],
+                "additionalProperties": False,
+            }
+
+        def execute(self, args, **context):
+            return {"ok": True}
+
     def discover(registry: HandlerRegistry) -> list[str]:
         observed.append(registry)
+        registry.register(InstalledTestHandler)
         return ["test-plugin"]
 
     monkeypatch.setattr(
@@ -107,13 +142,20 @@ def test_registry_bootstrap_loads_installed_handler_plugins(monkeypatch) -> None
         discover,
     )
 
-    registry = registry_bootstrap.build_registry()
+    registry, catalog = registry_bootstrap.build_registry_and_catalog()
 
     assert observed == [registry]
     assert registry.has_tool("file_load")
     assert registry.has_tool("patch_apply")
     assert registry.has_tool("context_handler")
     assert registry.has_tool("video_generate")
+    assert registry.has_tool("installed_test_tool")
+
+    by_id = {descriptor.id: descriptor for descriptor in catalog.descriptors()}
+    assert "lucy:file_load" in by_id
+    assert "lucy:video_generate" in by_id
+    assert "galet-tools:installed_test_tool" in by_id
+    assert "lucy:installed_test_tool" not in by_id
 
 
 def test_file_load_adapter_supports_ranged_reads(tmp_path) -> None:

@@ -125,6 +125,75 @@ class ToolExecutor:
         return wrapped
 
 
+    def apply_tool_activations(
+        self,
+        *,
+        raw_results: List[Tuple[_ToolCall, str]],
+        function_defs: List[Dict[str, Any]],
+        primary_agent: Agent,
+        ctx: ProcessorContext,
+    ) -> List[str]:
+        """Add validated, run-scoped schemas requested by activate_tools."""
+
+        catalog = getattr(self.registry, "tool_catalog", None)
+        if catalog is None:
+            return []
+
+        context_state = load_context_state(
+            self.prompt_builder,
+            ctx.account_id,
+            ctx.context_name,
+        )
+        resolver = getattr(self.registry, "eligible_tool_defs", None)
+        if callable(resolver):
+            eligible_defs = resolver(primary_agent, context_state)
+        else:
+            allowed = set(getattr(primary_agent, "allowed_tools", None) or [])
+            eligible_defs = [
+                tool_def
+                for tool_def in self.registry.tools()
+                if tool_def.get("name") in allowed
+            ]
+        eligible_names = {
+            str(tool_def.get("name"))
+            for tool_def in eligible_defs
+            if tool_def.get("name")
+        }
+        active_names = {
+            str(tool_def.get("name"))
+            for tool_def in function_defs
+            if tool_def.get("name")
+        }
+
+        activated: List[str] = []
+        for tool_call, raw_text in raw_results:
+            if tool_call.name != "activate_tools":
+                continue
+            try:
+                result = json.loads(raw_text)
+            except (json.JSONDecodeError, TypeError):
+                continue
+            if not isinstance(result, dict) or result.get("ok") is not True:
+                continue
+
+            for tool_id in result.get("activate_tool_ids") or []:
+                descriptor = catalog.get(str(tool_id))
+                definition = catalog.definition(str(tool_id))
+                if (
+                    descriptor is None
+                    or definition is None
+                    or descriptor.name not in eligible_names
+                    or descriptor.name in active_names
+                    or descriptor.name in {"discover_tools", "activate_tools"}
+                ):
+                    continue
+                function_defs.append(dict(definition))
+                active_names.add(descriptor.name)
+                activated.append(descriptor.name)
+
+        return activated
+
+
     def execute_tool_calls(
         self,
         *,

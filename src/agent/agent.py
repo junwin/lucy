@@ -123,6 +123,7 @@ class Agent:
     style_prompt: str = ""
     persona: str = ""
     allowed_tools: Optional[List[str]] = None
+    tool_discovery_enabled: bool = True
     provider: Optional[str] = None
     model_policy: Optional[ModelPolicy] = None
     use_embeddings: bool = False
@@ -308,13 +309,14 @@ class Agent:
                     f"Agent '{agent_name}' has invalid save_responses={raw.get('save_responses')!r}; expected bool"
                 )
 
-        if "use_embeddings" in raw:
-            try:
-                raw["use_embeddings"] = Agent._coerce_bool(raw["use_embeddings"])
-            except Exception:
-                raise ValueError(
-                    f"Agent '{agent_name}' has invalid use_embeddings={raw.get('use_embeddings')!r}; expected bool"
-                )
+        for bool_field in ("use_embeddings", "tool_discovery_enabled"):
+            if bool_field in raw:
+                try:
+                    raw[bool_field] = Agent._coerce_bool(raw[bool_field])
+                except Exception:
+                    raise ValueError(
+                        f"Agent '{agent_name}' has invalid {bool_field}={raw.get(bool_field)!r}; expected bool"
+                    )
 
         # Finally, construct Agent using only allowed fields (any missing fields will use dataclass defaults)
         try:
@@ -343,6 +345,7 @@ class Agent:
             "style_prompt": self.style_prompt,
             "persona": self.persona,
             "allowed_tools": self.allowed_tools,
+            "tool_discovery_enabled": self.tool_discovery_enabled,
             "provider": self.provider,
             "use_embeddings": self.use_embeddings,
             "default_context": self.default_context,

@@ -17,6 +17,7 @@ __all__ = [
 ]
 
 _SELECTION_MODEL_FALLBACK = "gpt-4o-mini"
+_DISCOVERY_CONTROL_TOOLS = ("discover_tools", "activate_tools")
 DEFAULT_MAX_HANDLER_SCHEMA_TOKENS = 8000
 _PROVIDER_PREFIXES = (
     ("deepseek", "deepseek"),
@@ -123,6 +124,25 @@ class ToolSelectionPipeline:
 
         allowed = get_agent_allowed_tools(agent)
         all_tools = get_all_tools_from_registry(self.registry) if self.registry is not None else []
+
+        # Discovery is a platform control-plane capability for function-calling
+        # agents, not a domain permission. It can be disabled explicitly, and
+        # only registered controls are added. Domain eligibility remains bound
+        # to the agent's configured allowed_tools.
+        if (
+            getattr(agent, "message_processor", "function_calling_processor")
+            == "function_calling_processor"
+            and getattr(agent, "tool_discovery_enabled", True)
+        ):
+            allowed = _order_preserving_dedupe(
+                allowed
+                + [
+                    name
+                    for name in _DISCOVERY_CONTROL_TOOLS
+                    if name in all_tools
+                ]
+            )
+
         registry_names = set(all_tools)
         allowed_set = set(allowed)
         eligible = [name for name in all_tools if name in allowed_set]
@@ -143,6 +163,14 @@ class ToolSelectionPipeline:
             active = list(eligible)
         else:
             active = _order_preserving_dedupe(required + prompt_based)
+
+        # Discovery and activation form a control-plane pair. If discovery is
+        # selected, expose activation too so the model can use a discovered
+        # tool on the following loop iteration. Permission remains bounded by
+        # the eligible set.
+        if "discover_tools" in active and "activate_tools" in eligible:
+            active = _order_preserving_dedupe(active + ["activate_tools"])
+
         active_defs = self._defs_by_name(active)
         meta["active_defs"] = active_defs
 
