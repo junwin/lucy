@@ -190,7 +190,9 @@ def test_selection_pairs_activate_tools_with_discovery() -> None:
 
     selection = pipeline.resolve(
         agent=SimpleNamespace(
-            allowed_tools=["discover_tools", "activate_tools", "bsky_publish"],
+            allowed_tools=["bsky_publish"],
+            message_processor="function_calling_processor",
+            tool_discovery_enabled=True,
             model="test-model",
             provider=None,
         ),
@@ -201,3 +203,38 @@ def test_selection_pairs_activate_tools_with_discovery() -> None:
 
     assert selection.prompt_based == ["discover_tools"]
     assert selection.active == ["discover_tools", "activate_tools"]
+
+
+def test_function_calling_agent_can_opt_out_of_discovery_controls() -> None:
+    registry = ActivationRegistry()
+    llm_adapter = Mock()
+    llm_adapter.call_model.return_value = object()
+    llm_adapter.get_text.return_value = '["discover_tools"]'
+    pipeline = ToolSelectionPipeline(
+        registry=registry,
+        storage=None,
+        llm_adapter=llm_adapter,
+        config={
+            "lazy_tool_loading": {
+                "enabled": True,
+                "min_eligible_to_select": 1,
+            }
+        },
+    )
+
+    selection = pipeline.resolve(
+        agent=SimpleNamespace(
+            allowed_tools=["bsky_publish"],
+            message_processor="function_calling_processor",
+            tool_discovery_enabled=False,
+            model="test-model",
+            provider=None,
+        ),
+        account_name="acct",
+        context_name="none",
+        prompt_text="find a tool to publish to Bluesky",
+    )
+
+    assert "discover_tools" not in selection.allowed
+    assert "activate_tools" not in selection.allowed
+    assert selection.active == []
