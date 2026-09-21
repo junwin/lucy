@@ -18,6 +18,7 @@ from src.handlers.file_save_handler import FileSaveHandler2
 from src.handlers.command_execution_handler2 import CommandExecutionHandler2
 from src.handlers.scrape_web_page_handler2 import ScrapeWebPageHandler2
 from src.handlers.web_search_handler2 import WebSearchHandler2
+from src.handlers.video_generate_handler import VideoGenerateHandler
 from src.handlers.tasklists_manage_handler import TasklistsManageHandler
 from src.handlers.tasklists_run_handler import TasklistsRunHandler
 from src.handlers.curate_chat_handler import CurateChatHandler
@@ -67,6 +68,7 @@ def build_registry() -> HandlerRegistry:
     reg.register(ScrapeWebPageHandler2)
     reg.register(SandboxExecuteHandler)
     reg.register(GenerateSvgHandler)
+    reg.register(VideoGenerateHandler)
     reg.register(ContextHandler)
     reg.register(RepoIndexHandler)
     reg.register(RepoSearchHandler)
