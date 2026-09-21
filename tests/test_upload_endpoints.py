@@ -15,7 +15,10 @@ import sys
 if REPO_ROOT not in sys.path:
     sys.path.insert(0, REPO_ROOT)
 
-from src.http_endpoints.upload_endpoints import post_upload_image_impl
+from src.http_endpoints.upload_endpoints import (
+    get_video_download_impl,
+    post_upload_image_impl,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -236,3 +239,59 @@ def test_file_too_large():
     )
     assert status == 413
     assert "File too large" in body["error"]
+
+
+
+def test_video_download_resolves_account_owned_file():
+    config = _make_config()
+    video_id = str(__import__("uuid").uuid4())
+    directory = os.path.join(
+        config.get("storage_root_path"),
+        "data",
+        "videos",
+        "arla",
+    )
+    os.makedirs(directory)
+    expected = os.path.join(directory, f"{video_id}.mp4")
+    with open(expected, "wb") as handle:
+        handle.write(b"video-data")
+
+    path, body, status = get_video_download_impl(config, "arla", video_id)
+
+    assert status == 200
+    assert body == {"ok": True, "id": video_id}
+    assert path == expected
+
+
+def test_video_download_is_account_scoped():
+    config = _make_config()
+    video_id = str(__import__("uuid").uuid4())
+    directory = os.path.join(
+        config.get("storage_root_path"),
+        "data",
+        "videos",
+        "john",
+    )
+    os.makedirs(directory)
+    with open(os.path.join(directory, f"{video_id}.mp4"), "wb") as handle:
+        handle.write(b"video-data")
+
+    path, body, status = get_video_download_impl(config, "arla", video_id)
+
+    assert path is None
+    assert status == 404
+    assert body["error"] == "Video not found"
+
+
+def test_upload_rejects_path_like_account_name():
+    config = _make_config()
+    body, status = post_upload_image_impl(
+        config=config,
+        account_name="../arla",
+        file_data=_make_png_bytes(),
+        original_filename="x.png",
+        mime_type="image/png",
+    )
+
+    assert status == 400
+    assert "accountName" in body["error"]
