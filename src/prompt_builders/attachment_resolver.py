@@ -111,6 +111,19 @@ class AttachmentResolver:
 
         return parts
 
+    @staticmethod
+    def reference_text(
+        image_ids: Optional[List[str]],
+        file_ids: Optional[List[str]],
+    ) -> str:
+        """Describe stored attachment IDs so tool-calling models can reuse them."""
+        references: List[str] = []
+        if image_ids:
+            references.append("Uploaded image IDs available to tools: " + ", ".join(image_ids))
+        if file_ids:
+            references.append("Uploaded file IDs available to tools: " + ", ".join(file_ids))
+        return "\n".join(f"[{value}]" for value in references)
+
     def build_images_dir(self) -> str:
         return os.path.join(
             self.config.get("storage_root_path", "/home/junwin/lucy_storage"),

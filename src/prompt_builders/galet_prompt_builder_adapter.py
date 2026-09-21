@@ -329,8 +329,10 @@ class GaletPromptBuilderAdapter(PromptBuilderInterface):
     ) -> None:
         if not (image_ids or file_ids):
             return
+        reference_text = self._attachments.reference_text(image_ids, file_ids)
+        prompt_text = "\n\n".join(filter(None, [content_text, reference_text]))
         content: List[Dict[str, Any]] = [
-            {"type": "text", "text": content_text}
+            {"type": "text", "text": prompt_text}
         ]
         content.extend(
             self._attachments.resolve(

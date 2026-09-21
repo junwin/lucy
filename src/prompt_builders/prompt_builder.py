@@ -330,7 +330,9 @@ class PromptBuilder(PromptBuilderInterface):
     ) -> Dict[str, Any]:
         if not (image_ids or file_ids):
             return {"role": "user", "content": content_text}
-        content_parts: List[Dict[str, Any]] = [{"type": "text", "text": content_text}]
+        reference_text = self._attachment_resolver.reference_text(image_ids, file_ids)
+        prompt_text = "\n\n".join(filter(None, [content_text, reference_text]))
+        content_parts: List[Dict[str, Any]] = [{"type": "text", "text": prompt_text}]
         content_parts.extend(
             self._resolve_attachments(
                 account_name=account_name,

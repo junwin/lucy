@@ -234,6 +234,8 @@ class TestBuildPromptWithAttachments:
         assert user_msg["role"] == "user"
         assert isinstance(user_msg["content"], list)
         assert len([p for p in user_msg["content"] if p["type"] == "image"]) == 1
+        text_part = next(p for p in user_msg["content"] if p["type"] == "text")
+        assert "Uploaded image IDs available to tools: imgbp1" in text_part["text"]
 
     def test_no_attachments_produces_string_content(self, temp_images_root):
         messages = _make_prompt_builder(temp_images_root).build_prompt(
@@ -336,3 +338,15 @@ class TestSupportsImages:
         assert len(parts) == 1
         assert parts[0]["type"] == "image"
         assert base64.b64decode(parts[0]["source"]["data"]) == img_content
+
+
+def test_attachment_reference_text_lists_image_and_file_ids():
+    from src.prompt_builders.attachment_resolver import AttachmentResolver
+
+    text = AttachmentResolver.reference_text(
+        ["image-one", "image-two"],
+        ["file-one"],
+    )
+
+    assert "[Uploaded image IDs available to tools: image-one, image-two]" in text
+    assert "[Uploaded file IDs available to tools: file-one]" in text
