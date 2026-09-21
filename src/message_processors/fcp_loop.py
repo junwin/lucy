@@ -153,6 +153,17 @@ class LLMLoopRunner:
                         alt=img.get("alt"),
                     )
 
+            if "video" in parsed:
+                video = parsed["video"]
+                if isinstance(video, dict):
+                    yield SSEEvent(
+                        type="video",
+                        video_url=video.get("url"),
+                        mime_type=video.get("mime_type") or "video/mp4",
+                        download_name=video.get("download_name"),
+                        video_id=video.get("video_id"),
+                    )
+
     def run(
         self,
         *,

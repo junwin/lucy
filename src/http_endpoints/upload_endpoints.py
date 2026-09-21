@@ -11,7 +11,7 @@ import logging
 import os
 import uuid
 from datetime import datetime, timezone
-from typing import Any, Dict, Tuple
+from typing import Any, Dict, Optional, Tuple
 
 from src.config_manager import ConfigManager
 
@@ -30,6 +30,16 @@ EXT_BY_MIME: Dict[str, str] = {
 }
 
 logger = logging.getLogger(__name__)
+
+
+def _valid_account_name(account_name: str) -> bool:
+    return bool(
+        account_name
+        and account_name not in {".", ".."}
+        and "/" not in account_name
+        and "\\" not in account_name
+        and not os.path.isabs(account_name)
+    )
 
 
 def _build_image_dir(config: ConfigManager, account_name: str) -> str:
@@ -52,8 +62,8 @@ def post_upload_image_impl(
 
     # --- Validation ----------------------------------------------------------
 
-    if not account_name:
-        return {"error": "accountName is required"}, 400
+    if not _valid_account_name(account_name):
+        return {"error": "A valid accountName is required"}, 400
 
     if not file_data:
         return {"error": "No file data provided"}, 400
@@ -109,3 +119,38 @@ def post_upload_image_impl(
         "filename": original_filename,
         "mime_type": mime_type,
     }, 200
+
+
+
+def get_video_download_impl(
+    config: ConfigManager,
+    account_name: str,
+    video_id: str,
+) -> Tuple[Optional[str], Dict[str, Any], int]:
+    """Resolve an account-owned generated video for authenticated download."""
+
+    if not _valid_account_name(account_name):
+        return None, {"error": "A valid accountName is required"}, 400
+
+    try:
+        normalized_id = str(uuid.UUID(video_id))
+    except (ValueError, TypeError, AttributeError):
+        return None, {"error": "video_id must be a UUID"}, 400
+
+    storage_root = config.get("storage_root_path", "/home/junwin/lucy_storage")
+    storage_ns = config.get("storage_namespace", "data")
+    base = os.path.realpath(
+        os.path.join(storage_root, storage_ns, "videos", account_name)
+    )
+    path = os.path.realpath(os.path.join(base, f"{normalized_id}.mp4"))
+
+    try:
+        contained = os.path.commonpath([base, path]) == base
+    except ValueError:
+        contained = False
+    if not contained:
+        return None, {"error": "Video path is outside account storage"}, 400
+    if not os.path.isfile(path):
+        return None, {"error": "Video not found"}, 404
+
+    return path, {"ok": True, "id": normalized_id}, 200
