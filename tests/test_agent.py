@@ -190,3 +190,24 @@ def test_legacy_agent_builds_fixed_model_requirements():
 def test_invalid_model_policy_is_rejected(policy, message):
     with pytest.raises(ValueError, match=message):
         Agent.from_dict({"name": "invalid", "model_policy": policy})
+
+
+def test_tool_discovery_defaults_enabled_and_round_trips() -> None:
+    agent = Agent.from_dict({"name": "default-discovery"})
+
+    assert agent.tool_discovery_enabled is True
+    assert Agent.from_dict(agent.to_dict()).tool_discovery_enabled is True
+
+
+def test_tool_discovery_can_be_disabled_and_coerces_boolean_strings() -> None:
+    agent = Agent.from_dict(
+        {
+            "name": "no-discovery",
+            "tool_discovery_enabled": "false",
+        }
+    )
+
+    assert agent.tool_discovery_enabled is False
+    dumped = agent.to_dict()
+    assert dumped["tool_discovery_enabled"] is False
+    assert Agent.from_dict(dumped).tool_discovery_enabled is False
