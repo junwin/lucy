@@ -48,7 +48,10 @@ from src.http_endpoints.chats_endpoints import (
     delete_chat_impl,
     update_chat_impl,
 )
-from src.http_endpoints.upload_endpoints import post_upload_image_impl
+from src.http_endpoints.upload_endpoints import (
+    get_video_download_impl,
+    post_upload_image_impl,
+)
 from src.chat2.facade import Chat2Store
 from src.coala_memory.semantic import SemanticMemory
 from src.coala_memory.episodic import EpisodicMemoryManager
@@ -503,6 +506,29 @@ def upload_image():
         mime_type=file.content_type or "application/octet-stream",
     )
     return jsonify(body), status
+
+
+@app.route("/download/video/<video_id>", methods=["GET"])
+def download_video(video_id: str):
+    """Download an account-owned generated MP4.
+
+    Query params:
+      accountName: account identifier (required)
+    """
+    account_name = (request.args.get("accountName") or "").strip()
+    path, body, status = get_video_download_impl(
+        config=config,
+        account_name=account_name,
+        video_id=video_id,
+    )
+    if status != 200 or path is None:
+        return jsonify(body), status
+    return send_file(
+        path,
+        mimetype="video/mp4",
+        as_attachment=True,
+        download_name=f"{video_id}.mp4",
+    )
 
 
 # -----------------------------------------------------------------------------
