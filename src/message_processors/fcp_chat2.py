@@ -136,6 +136,22 @@ class Chat2Recorder:
                             metadata={"agent": ctx.agent_name, "format": "png"},
                         ))
 
+            # 5. Generated videos
+            for ev in streamed_events:
+                if ev.type == "video":
+                    chat_events.append(EpisodicEvent(
+                        role="assistant",
+                        actor=ctx.agent_name,
+                        kind="generated_video",
+                        content={
+                            "video_url": ev.video_url,
+                            "mime_type": ev.mime_type or "video/mp4",
+                            "download_name": ev.download_name or "fashion-reel.mp4",
+                            "video_id": ev.video_id,
+                        },
+                        metadata={"agent": ctx.agent_name, "format": "mp4"},
+                    ))
+
             stored_events = self.episodic_store.add_events(ctx.conversation_id, chat_events)
             for event in stored_events:
                 self.episodic_store.link_event(
