@@ -71,6 +71,8 @@ class ToolProvider(Protocol):
 
     def descriptors(self) -> Sequence[ToolDescriptor]: ...
 
+    def definition(self, tool_name: str) -> Mapping[str, Any] | None: ...
+
     def create(self, tool_name: str, **kwargs: Any) -> Any: ...
 
 
@@ -97,6 +99,18 @@ class RegistryToolProvider:
                 )
             )
         return descriptors
+
+    def definition(self, tool_name: str) -> Mapping[str, Any] | None:
+        if self.tool_names is not None and tool_name not in self.tool_names:
+            return None
+        return next(
+            (
+                tool_def
+                for tool_def in self.registry.tools()
+                if tool_def.get("name") == tool_name
+            ),
+            None,
+        )
 
     def create(self, tool_name: str, **kwargs: Any) -> Any:
         if self.tool_names is not None and tool_name not in self.tool_names:
@@ -128,6 +142,15 @@ class ToolCatalog:
 
     def get(self, tool_id: str) -> ToolDescriptor | None:
         return next((item for item in self.descriptors() if item.id == tool_id), None)
+
+    def definition(self, tool_id: str) -> Mapping[str, Any] | None:
+        source, separator, name = tool_id.partition(":")
+        if not separator or not source or not name:
+            return None
+        provider = self._providers.get(source)
+        if provider is None:
+            return None
+        return provider.definition(name)
 
     def create(self, tool_id: str, **kwargs: Any) -> Any:
         source, separator, name = tool_id.partition(":")
