@@ -42,6 +42,7 @@
       "delegate_task",
       "tool_selection_probe",
       "tool_handler_meta",
+      "discover_tools",
       "video_generate"
     ],
     "provider": null,
