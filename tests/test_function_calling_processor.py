@@ -369,12 +369,25 @@ def test_partial_sandbox_result_is_returned_to_model_unchanged(
     prompt_builder.build_prompt.return_value = [
         {"role": "user", "content": "run sandbox probes"}
     ]
-    setup_tool_then_text(
-        llm_adapter,
-        tool_name="sandbox_execute",
-        tool_args='{"continue_on_error": true, "steps": []}',
-        final_text="analysed partial results",
-    )
+    resp1, resp2 = object(), object()
+    llm_adapter.call_model.side_effect = [resp1, resp2]
+    llm_adapter.get_response_id.side_effect = ["r1", "r2"]
+    llm_adapter.extract_tool_calls.side_effect = [
+        [
+            {
+                "name": "sandbox_execute",
+                "id": "call-1",
+                "arguments": '{"continue_on_error": true, "steps": []}',
+            }
+        ],
+        [],
+    ]
+    llm_adapter.get_text.return_value = "analysed partial results"
+    llm_adapter.format_tool_output.side_effect = lambda call_id, output, **kwargs: {
+        "type": "function_call_output",
+        "call_id": call_id,
+        "output": output,
+    }
 
     result = proc.process_message(
         primary_agent=FakeAgent(max_function_call_iterations=3),
