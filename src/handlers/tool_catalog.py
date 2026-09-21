@@ -9,6 +9,7 @@ OpenAI tool definitions.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+import re
 from typing import Any, Iterable, Mapping, Protocol, Sequence
 
 
@@ -52,6 +53,15 @@ class ToolDescriptor:
             aliases=_normalise_terms(metadata.get("aliases")),
             capabilities=_normalise_terms(metadata.get("capabilities")),
         )
+
+
+@dataclass(frozen=True)
+class ToolMatch:
+    """A ranked descriptor plus transparent scoring evidence."""
+
+    descriptor: ToolDescriptor
+    score: int
+    matched_on: tuple[str, ...]
 
 
 class ToolProvider(Protocol):
@@ -136,13 +146,33 @@ class ToolCatalog:
         tags: Iterable[str] = (),
         limit: int = 10,
     ) -> list[ToolDescriptor]:
-        """Return deterministic lexical matches from optional metadata."""
+        """Return descriptors ordered by transparent lexical relevance."""
+
+        return [
+            match.descriptor
+            for match in self.search_matches(
+                query,
+                groups=groups,
+                tags=tags,
+                limit=limit,
+            )
+        ]
+
+    def search_matches(
+        self,
+        query: str = "",
+        *,
+        groups: Iterable[str] = (),
+        tags: Iterable[str] = (),
+        limit: int = 10,
+    ) -> list[ToolMatch]:
+        """Rank meaningful matches; never pad results using conversational words."""
 
         required_groups = set(_normalise_terms(groups))
         required_tags = set(_normalise_terms(tags))
-        query_terms = set(_normalise_terms(query.replace(",", " ").split()))
+        query_terms = set(_tokenize(query))
 
-        ranked: list[tuple[int, str, ToolDescriptor]] = []
+        ranked: list[tuple[int, str, ToolMatch]] = []
         for descriptor in self.descriptors():
             descriptor_groups = set(descriptor.groups)
             descriptor_tags = set(descriptor.tags)
@@ -151,25 +181,83 @@ class ToolCatalog:
             if required_tags and not required_tags <= descriptor_tags:
                 continue
 
-            searchable = {
-                descriptor.name.lower(),
-                *(value.lower() for value in descriptor.aliases),
-                *(value.lower() for value in descriptor.groups),
-                *(value.lower() for value in descriptor.tags),
-            }
-            description_terms = set(
-                _normalise_terms(descriptor.description.replace(",", " ").split())
+            fields = (
+                ("name", 20, set(_tokenize(descriptor.name))),
+                ("alias", 16, set(_tokenize(" ".join(descriptor.aliases)))),
+                ("tag", 12, set(_tokenize(" ".join(descriptor.tags)))),
+                ("group", 10, set(_tokenize(" ".join(descriptor.groups)))),
+                ("capability", 8, set(_tokenize(" ".join(descriptor.capabilities)))),
+                ("description", 3, set(_tokenize(descriptor.description))),
             )
-            score = sum(
-                10 if term in searchable else 1 if term in description_terms else 0
-                for term in query_terms
-            )
+            matched_on: list[str] = []
+            score = 0
+            for term in sorted(query_terms):
+                for field_name, weight, field_terms in fields:
+                    if term in field_terms:
+                        score += weight
+                        matched_on.append(f"{field_name}:{term}")
+
             if query_terms and score == 0:
                 continue
-            ranked.append((-score, descriptor.id, descriptor))
+            match = ToolMatch(
+                descriptor=descriptor,
+                score=score,
+                matched_on=tuple(matched_on),
+            )
+            ranked.append((-score, descriptor.id, match))
 
         ranked.sort(key=lambda item: (item[0], item[1]))
         return [item[2] for item in ranked[: max(0, limit)]]
+
+_STOP_WORDS = frozenset(
+    {
+        "a",
+        "an",
+        "and",
+        "are",
+        "by",
+        "can",
+        "find",
+        "for",
+        "from",
+        "in",
+        "is",
+        "it",
+        "of",
+        "on",
+        "or",
+        "related",
+        "that",
+        "the",
+        "this",
+        "to",
+        "tool",
+        "tools",
+        "with",
+    }
+)
+
+_TERM_ALIASES = {
+    "generated": "generate",
+    "generates": "generate",
+    "generating": "generate",
+    "generation": "generate",
+    "images": "image",
+    "published": "publish",
+    "publisher": "publish",
+    "publishers": "publish",
+    "publishes": "publish",
+    "publishing": "publish",
+}
+
+
+def _tokenize(value: str) -> tuple[str, ...]:
+    terms = []
+    for raw in re.findall(r"[a-z0-9]+", value.lower()):
+        term = _TERM_ALIASES.get(raw, raw)
+        if term and term not in _STOP_WORDS:
+            terms.append(term)
+    return tuple(sorted(set(terms)))
 
 
 def _normalise_terms(values: Any) -> tuple[str, ...]:
@@ -186,3 +274,4 @@ def _normalise_terms(values: Any) -> tuple[str, ...]:
             }
         )
     )
+
