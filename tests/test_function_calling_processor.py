@@ -1000,3 +1000,69 @@ def test_streaming_and_nonstreaming_paths_produce_same_final_text(make_proc, pro
 
     assert text_payloads, "streaming path should emit at least one text event"
     assert text_payloads[-1] == final_text
+
+
+def test_shared_tool_discovery_guidance_is_injected_for_function_calling_agents(
+    make_proc, prompt_builder, llm_adapter
+):
+    from tests.conftest import FakeAgent, FakeHandler, FakeRegistry
+
+    handler = FakeHandler({"ok": True})
+    registry = FakeRegistry(
+        handler_by_name={
+            "discover_tools": handler,
+            "activate_tools": handler,
+        },
+        tool_defs=[
+            {"type": "function", "name": "discover_tools", "description": "Discover"},
+            {"type": "function", "name": "activate_tools", "description": "Activate"},
+        ],
+    )
+    proc = make_proc(registry=registry)
+    agent = FakeAgent()
+    agent.allowed_tools = []
+
+    proc.process_message(
+        primary_agent=agent,
+        account={"accountId": "acct1"},
+        message="hello",
+        conversation_id="c1",
+        context_name="ctx",
+    )
+
+    messages = prompt_builder.build_prompt.call_args.kwargs["extra_system_messages"]
+    assert any("use discover_tools" in message for message in messages)
+    assert any("activate_tools" in message for message in messages)
+
+
+def test_agent_can_opt_out_of_shared_tool_discovery_guidance(
+    make_proc, prompt_builder, llm_adapter
+):
+    from tests.conftest import FakeAgent, FakeHandler, FakeRegistry
+
+    handler = FakeHandler({"ok": True})
+    registry = FakeRegistry(
+        handler_by_name={
+            "discover_tools": handler,
+            "activate_tools": handler,
+        },
+        tool_defs=[
+            {"type": "function", "name": "discover_tools", "description": "Discover"},
+            {"type": "function", "name": "activate_tools", "description": "Activate"},
+        ],
+    )
+    proc = make_proc(registry=registry)
+    agent = FakeAgent()
+    agent.allowed_tools = []
+    agent.tool_discovery_enabled = False
+
+    proc.process_message(
+        primary_agent=agent,
+        account={"accountId": "acct1"},
+        message="hello",
+        conversation_id="c1",
+        context_name="ctx",
+    )
+
+    messages = prompt_builder.build_prompt.call_args.kwargs["extra_system_messages"]
+    assert not any("discover_tools" in message for message in messages)
