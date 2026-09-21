@@ -50,6 +50,13 @@ _correlation_id_var: contextvars.ContextVar[str] = contextvars.ContextVar(
     "fcp_correlation_id", default="-"
 )
 
+_TOOL_DISCOVERY_SYSTEM_MESSAGE = (
+    "When the currently active tools are insufficient, use discover_tools to "
+    "search the tools you are permitted to use. Before calling a discovered "
+    "tool that is not currently active, call activate_tools with its qualified "
+    "tool ID. Activated tools remain available only for the current request."
+)
+
 
 class _CorrelationIdFilter(logging.Filter):
     """Inject the active FCP correlation id into log records.
@@ -402,6 +409,18 @@ class FunctionCallingProcessor(MessageProcessorInterface):
         extra_system_messages = self._get_environment_system_messages()
         if extra_system_messages:
             logging.debug("FunctionCallingProcessor: injecting %d environment system message(s) from environment_prompt_block", len(extra_system_messages))
+
+        has_tool = getattr(self.registry, "has_tool", None)
+        discovery_registered = (
+            callable(has_tool)
+            and has_tool("discover_tools")
+            and has_tool("activate_tools")
+        )
+        if (
+            discovery_registered
+            and getattr(primary_agent, "tool_discovery_enabled", True)
+        ):
+            extra_system_messages.append(_TOOL_DISCOVERY_SYSTEM_MESSAGE)
 
         provider_name = ProviderRegistry.resolve_name(ctx.model, ctx.provider)
         provider_block = self.config.get("provider_prompt_blocks", {}).get(provider_name, "")
