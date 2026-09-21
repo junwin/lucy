@@ -38,6 +38,7 @@ from src.handlers.agents_manage_handler import AgentsManageHandler
 from src.handlers.lazy_tool_selector_handler import LazyToolSelectorHandler
 from src.handlers.tool_selection_probe_handler import ToolSelectionProbeHandler
 from src.handlers.context_handler import ContextHandler
+from src.handlers.video_generate_handler import VideoGenerateHandler
 
 try:
     from src.handlers.generate_image_handler import GenerateImageHandler
@@ -70,6 +71,7 @@ def build_registry() -> HandlerRegistry:
     reg.register(ContextHandler)
     reg.register(RepoIndexHandler)
     reg.register(RepoSearchHandler)
+    reg.register(VideoGenerateHandler)
 
     # Optional / third-party dependent handlers: import and register lazily.
     try:
