@@ -310,6 +310,23 @@ class LLMLoopRunner:
                     [x.get("call_id") for x in tool_output_items],
                 )
 
+                activated_tools = self.tool_executor.apply_tool_activations(
+                    raw_results=raw_results,
+                    function_defs=function_defs,
+                    primary_agent=primary_agent,
+                    ctx=ctx,
+                )
+                if activated_tools:
+                    logging.info(
+                        "FunctionCallingProcessor(streaming): activated run-scoped tools "
+                        "correlation_id=%s iteration=%d agent=%s session_id=%s tools=%s",
+                        correlation_id,
+                        iteration,
+                        ctx.agent_name,
+                        ctx.conversation_id,
+                        activated_tools,
+                    )
+
                 next_input_items = tool_output_items
 
                 if iteration >= ctx.max_iterations:
