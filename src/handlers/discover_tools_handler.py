@@ -93,6 +93,11 @@ class DiscoverToolsHandler(HandlerV2):
                                 "type": "array",
                                 "items": {"type": "string"},
                             },
+                            "score": {"type": "integer"},
+                            "matched_on": {
+                                "type": "array",
+                                "items": {"type": "string"},
+                            },
                         },
                         "required": [
                             "id",
@@ -102,6 +107,8 @@ class DiscoverToolsHandler(HandlerV2):
                             "groups",
                             "tags",
                             "capabilities",
+                            "score",
+                            "matched_on",
                         ],
                         "additionalProperties": False,
                     },
@@ -147,8 +154,8 @@ class DiscoverToolsHandler(HandlerV2):
         limit = max(1, min(int(args.get("limit") or 10), 20))
 
         matches = [
-            descriptor
-            for descriptor in catalog.search(
+            match
+            for match in catalog.search_matches(
                 query,
                 groups=groups,
                 tags=tags,
@@ -156,7 +163,7 @@ class DiscoverToolsHandler(HandlerV2):
                 # catalog before applying the agent/context eligibility ceiling.
                 limit=len(catalog.descriptors()),
             )
-            if descriptor.name in eligible_names
+            if match.descriptor.name in eligible_names
         ][:limit]
 
         return {
@@ -166,15 +173,17 @@ class DiscoverToolsHandler(HandlerV2):
             "count": len(matches),
             "matches": [
                 {
-                    "id": descriptor.id,
-                    "name": descriptor.name,
-                    "description": descriptor.description,
-                    "source": descriptor.source,
-                    "groups": list(descriptor.groups),
-                    "tags": list(descriptor.tags),
-                    "capabilities": list(descriptor.capabilities),
+                    "id": match.descriptor.id,
+                    "name": match.descriptor.name,
+                    "description": match.descriptor.description,
+                    "source": match.descriptor.source,
+                    "groups": list(match.descriptor.groups),
+                    "tags": list(match.descriptor.tags),
+                    "capabilities": list(match.descriptor.capabilities),
+                    "score": match.score,
+                    "matched_on": list(match.matched_on),
                 }
-                for descriptor in matches
+                for match in matches
             ],
         }
 
