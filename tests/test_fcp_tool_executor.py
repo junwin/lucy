@@ -1,7 +1,9 @@
 import logging
+
+import pytest
 from unittest.mock import Mock, patch
 
-from src.message_processors.fcp_models import ProcessorContext, _ToolCall
+from src.message_processors.fcp_models import ProcessorContext, ToolHandlerError, _ToolCall
 from src.message_processors.fcp_tool_executor import ToolExecutor
 from src.metrics.tool_call_digest import args_digest, error_signature
 from src.metrics.tool_call_trace import ToolCallTrace
@@ -247,6 +249,115 @@ def test_execute_tool_calls_traces_too_large_result():
     assert trace.ok is False
     assert trace.error_code == "result_too_large"
     assert trace.error_signature is not None
+    assert trace.duration_ms >= 0
+    assert trace.ts.endswith("Z")
+    assert metrics == {"tool_calls": 1, "tool_failures": 1, "failures": 1}
+
+
+def test_execute_tool_calls_traces_missing_call_id_before_raising():
+    from tests.conftest import FakeAgent, FakeConfig, FakeRegistry
+
+    trace_logger = Mock(spec=ToolCallTraceLogger)
+    prompt_builder = Mock()
+    prompt_builder._get_context_state.return_value = None
+    executor = ToolExecutor(
+        registry=FakeRegistry(),
+        config=FakeConfig(),
+        prompt_builder=prompt_builder,
+        llm_adapter=Mock(),
+        agent_manager=None,
+        trace_logger=trace_logger,
+    )
+    agent = FakeAgent()
+    metrics = {"tool_calls": 0}
+
+    with pytest.raises(ToolHandlerError, match="Tool call missing id/call_id"):
+        executor.execute_tool_calls(
+            tool_calls=[
+                _ToolCall(
+                    name="sample_tool",
+                    call_id="",
+                    arguments_raw='{"value":1}',
+                )
+            ],
+            primary_agent=agent,
+            secondary_agent=None,
+            processor_factory=None,
+            account={"accountId": "acct1"},
+            ctx=_executor_context(agent),
+            metrics=metrics,
+            correlation_id="correlation-missing-id",
+            parent_correlation_id="parent-1",
+            iteration=5,
+        )
+
+    trace_logger.append.assert_called_once()
+    trace = trace_logger.append.call_args.args[0]
+    assert trace.correlation_id == "correlation-missing-id"
+    assert trace.parent_correlation_id == "parent-1"
+    assert trace.iteration == 5
+    assert trace.tool_name == "sample_tool"
+    assert trace.call_id == ""
+    assert trace.args_digest == args_digest('{"value":1}')
+    assert trace.ok is False
+    assert trace.error_code == "tool_handler_error"
+    assert trace.error_signature == error_signature(
+        "ToolHandlerError: Tool call missing id/call_id for tool "
+        "'sample_tool'. Cannot send function_call_output."
+    )
+    assert metrics == {"tool_calls": 1, "tool_failures": 1, "failures": 1}
+
+
+def test_execute_tool_calls_traces_handler_exception_before_raising():
+    from tests.conftest import FakeAgent, FakeConfig, FakeHandler, FakeRegistry
+
+    handler = FakeHandler(exc=RuntimeError("boom"))
+    registry = FakeRegistry(handler_by_name={"sample_tool": handler})
+    trace_logger = Mock(spec=ToolCallTraceLogger)
+    prompt_builder = Mock()
+    prompt_builder._get_context_state.return_value = None
+    executor = ToolExecutor(
+        registry=registry,
+        config=FakeConfig(),
+        prompt_builder=prompt_builder,
+        llm_adapter=Mock(),
+        agent_manager=None,
+        trace_logger=trace_logger,
+    )
+    agent = FakeAgent()
+    metrics = {"tool_calls": 0}
+
+    with pytest.raises(ToolHandlerError, match="RuntimeError: boom"):
+        executor.execute_tool_calls(
+            tool_calls=[
+                _ToolCall(
+                    name="sample_tool",
+                    call_id="call-error",
+                    arguments_raw='{"value":1}',
+                )
+            ],
+            primary_agent=agent,
+            secondary_agent=None,
+            processor_factory=None,
+            account={"accountId": "acct1"},
+            ctx=_executor_context(agent),
+            metrics=metrics,
+            correlation_id="correlation-error",
+            parent_correlation_id=None,
+            iteration=6,
+        )
+
+    trace_logger.append.assert_called_once()
+    trace = trace_logger.append.call_args.args[0]
+    assert trace.correlation_id == "correlation-error"
+    assert trace.parent_correlation_id is None
+    assert trace.iteration == 6
+    assert trace.tool_name == "sample_tool"
+    assert trace.call_id == "call-error"
+    assert trace.args_digest == args_digest('{"value":1}')
+    assert trace.ok is False
+    assert trace.error_code == "tool_handler_error"
+    assert trace.error_signature == error_signature("RuntimeError: boom")
     assert trace.duration_ms >= 0
     assert trace.ts.endswith("Z")
     assert metrics == {"tool_calls": 1, "tool_failures": 1, "failures": 1}
