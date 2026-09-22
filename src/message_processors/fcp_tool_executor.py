@@ -101,6 +101,7 @@ class ToolExecutor:
         started_at: float,
         ok: bool,
         result_text: str,
+        error_text: str = "",
     ) -> ToolCallTrace:
         return ToolCallTrace(
             correlation_id=correlation_id,
@@ -111,7 +112,7 @@ class ToolExecutor:
             args_digest=args_digest(tc.arguments_raw),
             ok=ok,
             error_code=None if ok else error_code(result_text),
-            error_signature=None if ok else error_signature(result_text),
+            error_signature=None if ok else error_signature(error_text),
             duration_ms=max(0, int((time.perf_counter() - started_at) * 1000)),
             ts=(
                 datetime.now(timezone.utc)
@@ -370,6 +371,15 @@ class ToolExecutor:
                     parsed_result = None
                 if isinstance(parsed_result, dict) and parsed_result.get("ok") is False:
                     record_tool_failure(metrics)
+                    trace_error_text = next(
+                        (
+                            value
+                            for key in ("error", "message", "detail")
+                            if isinstance((value := parsed_result.get(key)), str)
+                            and value.strip()
+                        ),
+                        "",
+                    )
                     trace = self._build_trace(
                         tc=tc,
                         correlation_id=correlation_id,
@@ -378,6 +388,7 @@ class ToolExecutor:
                         started_at=started_at,
                         ok=False,
                         result_text=tool_result_text,
+                        error_text=trace_error_text,
                     )
                 else:
                     trace = self._build_trace(
