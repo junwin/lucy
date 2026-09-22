@@ -208,6 +208,7 @@ class ToolExecutor:
         ctx: ProcessorContext,
         metrics: Dict[str, Any],
         correlation_id: Optional[str] = None,
+        parent_correlation_id: Optional[str] = None,
     ) -> Tuple[List[Dict[str, Any]], List[Tuple[_ToolCall, str]]]:
         correlation_id = correlation_id or "-"
         max_tool_result_chars = resolve_effective_cap(
