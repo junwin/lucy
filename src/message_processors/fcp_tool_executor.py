@@ -296,9 +296,28 @@ class ToolExecutor:
 
             if not tc.call_id:
                 record_tool_failure(metrics)
-                raise ToolHandlerError(
-                    f"Tool call missing id/call_id for tool '{tc.name}'. Cannot send function_call_output."
+                error_text = (
+                    f"Tool call missing id/call_id for tool '{tc.name}'. "
+                    "Cannot send function_call_output."
                 )
+                trace_error_text = f"ToolHandlerError: {error_text}"
+                trace_result_text = json.dumps(
+                    {"ok": False, "tool": tc.name, "error": trace_error_text},
+                    ensure_ascii=False,
+                )
+                self._append_trace(
+                    self._build_trace(
+                        tc=tc,
+                        correlation_id=correlation_id,
+                        parent_correlation_id=parent_correlation_id,
+                        iteration=iteration,
+                        started_at=started_at,
+                        ok=False,
+                        result_text=trace_result_text,
+                        error_text=trace_error_text,
+                    )
+                )
+                raise ToolHandlerError(error_text)
 
             # Unknown tool name: the model asked for a tool we don't have
             # (e.g. 'bash'). Return a recoverable error to the LLM instead of
@@ -448,7 +467,24 @@ class ToolExecutor:
             except Exception as e:
                 record_tool_failure(metrics)
                 logging.exception("Tool execution failed: correlation_id=%s tool=%s call_id=%s", correlation_id, tc.name, tc.call_id)
-                raise ToolHandlerError(f"{type(e).__name__}: {e}")
+                trace_error_text = f"{type(e).__name__}: {e}"
+                trace_result_text = json.dumps(
+                    {"ok": False, "tool": tc.name, "error": trace_error_text},
+                    ensure_ascii=False,
+                )
+                self._append_trace(
+                    self._build_trace(
+                        tc=tc,
+                        correlation_id=correlation_id,
+                        parent_correlation_id=parent_correlation_id,
+                        iteration=iteration,
+                        started_at=started_at,
+                        ok=False,
+                        result_text=trace_result_text,
+                        error_text=trace_error_text,
+                    )
+                )
+                raise ToolHandlerError(trace_error_text)
 
             tool_output_items.append(self.llm_adapter.format_tool_output(call_id=str(tc.call_id), output=tool_result_text, name=tc.name, provider=ctx.provider))
             if trace is not None:
