@@ -58,7 +58,15 @@ class TasklistDryrunHandler(HandlerV2):
                     "tasklist_id": {
                         "type": "string",
                         "description": "ID of the persisted tasklist to inspect.",
-                    }
+                    },
+                    "agentName": {
+                        "type": "string",
+                        "description": "Optional worker agent override; defaults to colin.",
+                    },
+                    "contextName": {
+                        "type": "string",
+                        "description": "Optional dry-run context override; defaults to dry-run-task.",
+                    },
                 },
                 "required": ["tasklist_id"],
                 "additionalProperties": False,
@@ -124,6 +132,8 @@ class TasklistDryrunHandler(HandlerV2):
         **context,
     ) -> Dict[str, Any]:
         tasklist_id = (args.get("tasklist_id") or "").strip()
+        agent_name = (args.get("agentName") or self.DRYRUN_AGENT).strip()
+        context_name = (args.get("contextName") or self.DRYRUN_CONTEXT).strip()
         correlation_id = context.get("correlation_id")
 
         if not tasklist_id:
@@ -169,11 +179,11 @@ class TasklistDryrunHandler(HandlerV2):
                     delegated = self.delegate_handler.execute(
                         {
                             "task": task.instructions,
-                            "agentName": self.DRYRUN_AGENT,
+                            "agentName": agent_name,
                             "capabilities": [],
                             "project": "",
                             "machine": "",
-                            "contextName": self.DRYRUN_CONTEXT,
+                            "contextName": context_name,
                             "accountName": account_name,
                             "timeout_seconds": self.delegate_handler.DEFAULT_TIMEOUT,
                         },
