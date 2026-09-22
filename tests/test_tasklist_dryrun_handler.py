@@ -327,13 +327,20 @@ def test_dryrun_logs_start_and_end(tmp_path, caplog):
     )
 
 
-def test_dryrun_tool_definition_has_optional_agent_and_context():
+def test_dryrun_tool_definition_uses_nullable_required_overrides():
     tool_def = TasklistDryrunHandler.tool_def()
 
     assert tool_def["name"] == "tasklist_dryrun"
-    assert tool_def["parameters"]["required"] == ["tasklist_id"]
-    assert set(tool_def["parameters"]["properties"]) == {
+    assert tool_def["parameters"]["required"] == [
         "tasklist_id",
         "agentName",
         "contextName",
-    }
+    ]
+    assert tool_def["parameters"]["properties"]["agentName"]["type"] == [
+        "string",
+        "null",
+    ]
+    assert tool_def["parameters"]["properties"]["contextName"]["type"] == [
+        "string",
+        "null",
+    ]
