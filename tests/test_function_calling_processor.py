@@ -1070,6 +1070,89 @@ def test_agent_can_opt_out_of_shared_tool_discovery_guidance(
     assert not any("discover_tools" in message for message in messages)
 
 
+
+def _prepare_parent_correlation_test(proc, prompt_builder):
+    prompt_builder.build_prompt.return_value = [{"role": "user", "content": "hi"}]
+    proc.loop_runner.run = Mock(return_value=iter(()))
+
+
+def test_parent_correlation_id_is_none_for_top_level_run(
+    make_proc, prompt_builder
+):
+    from src.message_processors.function_calling_processor import _correlation_id_var
+    from tests.conftest import FakeAgent
+
+    proc = make_proc()
+    _prepare_parent_correlation_test(proc, prompt_builder)
+    outer_token = _correlation_id_var.set("-")
+    try:
+        proc.process_message(
+            primary_agent=FakeAgent(save_responses=False),
+            account={"accountId": "acct1"},
+            message="hi",
+            conversation_id="c1",
+            context_name="ctx",
+        )
+    finally:
+        _correlation_id_var.reset(outer_token)
+
+    assert proc.loop_runner.run.call_args.kwargs["parent_correlation_id"] is None
+
+
+def test_parent_correlation_id_captured_for_nested_run(
+    make_proc, prompt_builder
+):
+    from src.message_processors.function_calling_processor import _correlation_id_var
+    from tests.conftest import FakeAgent
+
+    proc = make_proc()
+    _prepare_parent_correlation_test(proc, prompt_builder)
+    outer_token = _correlation_id_var.set("outer-correlation-id")
+    try:
+        proc.process_message(
+            primary_agent=FakeAgent(save_responses=False),
+            account={"accountId": "acct1"},
+            message="hi",
+            conversation_id="c1",
+            context_name="ctx",
+        )
+    finally:
+        _correlation_id_var.reset(outer_token)
+
+    assert (
+        proc.loop_runner.run.call_args.kwargs["parent_correlation_id"]
+        == "outer-correlation-id"
+    )
+
+
+def test_streaming_parent_correlation_id_captured_for_nested_run(
+    make_proc, prompt_builder
+):
+    from src.message_processors.function_calling_processor import _correlation_id_var
+    from tests.conftest import FakeAgent
+
+    proc = make_proc()
+    _prepare_parent_correlation_test(proc, prompt_builder)
+    outer_token = _correlation_id_var.set("outer-correlation-id")
+    try:
+        list(
+            proc.process_message_streaming(
+                primary_agent=FakeAgent(save_responses=False),
+                account={"accountId": "acct1"},
+                message="hi",
+                conversation_id="c1",
+                context_name="ctx",
+            )
+        )
+    finally:
+        _correlation_id_var.reset(outer_token)
+
+    assert (
+        proc.loop_runner.run.call_args.kwargs["parent_correlation_id"]
+        == "outer-correlation-id"
+    )
+
+
 def _build_fcp_with_trace_logger(config, trace_logger=None):
     from src.message_processors.function_calling_processor import FunctionCallingProcessor
     from tests.conftest import FakeRegistry
