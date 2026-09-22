@@ -17,6 +17,7 @@ from src.message_processors.fcp_models import (
     ToolResultTooLargeError,
     _ToolCall,
 )
+from src.metrics.tool_call_trace import ToolCallTrace
 from src.metrics.tool_call_trace_logger import ToolCallTraceLogger
 from src.prompt_builders.prompt_builder_interface import PromptBuilderInterface
 
@@ -72,6 +73,20 @@ class ToolExecutor:
         self.agent_manager = agent_manager
         self.episodic_store = episodic_store
         self.trace_logger = trace_logger
+
+    def _append_trace(self, trace: ToolCallTrace) -> None:
+        if self.trace_logger is None:
+            return
+        try:
+            self.trace_logger.append(trace)
+        except Exception as exc:
+            logging.warning(
+                "Tool call trace append failed: correlation_id=%s tool=%s call_id=%s error=%s",
+                trace.correlation_id or "-",
+                trace.tool_name or "-",
+                trace.call_id or "-",
+                exc,
+            )
 
     def safe_json_loads(self, s: str, correlation_id: Optional[str] = None) -> Dict[str, Any]:
         if not s:
