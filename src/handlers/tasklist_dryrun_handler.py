@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 from src.config_manager import ConfigManager
+from src.handlers.delegate_task_handler import DelegateTaskHandler
 from src.handlers.handler_v2 import HandlerV2
 from src.storage.json_file_storage import JsonFileStorage
 from src.storage.json_file_storage_parts.tasklists import DEFAULT_RUN_TTL_DAYS
@@ -17,8 +18,14 @@ logger = logging.getLogger(__name__)
 
 class TasklistDryrunHandler(HandlerV2):
     NAME = "tasklist_dryrun"
+    DRYRUN_AGENT = "colin"
+    DRYRUN_CONTEXT = "dry-run-task"
 
-    def __init__(self, config: ConfigManager):
+    def __init__(
+        self,
+        config: ConfigManager,
+        delegate_handler: Optional[DelegateTaskHandler] = None,
+    ):
         self.config = config
         storage_root = self.config.get("storage_root_path")
         storage_ns = self.config.get("storage_namespace")
@@ -28,6 +35,7 @@ class TasklistDryrunHandler(HandlerV2):
         )
         store = JsonFileStorage(sp, tasklist_run_ttl_days=ttl_days)
         self.tasklist_service = TaskListService(store)
+        self.delegate_handler = delegate_handler or DelegateTaskHandler(config)
 
     @classmethod
     def name(cls) -> str:
@@ -39,8 +47,8 @@ class TasklistDryrunHandler(HandlerV2):
             "type": "function",
             "name": cls.NAME,
             "description": (
-                "Load a persisted tasklist without modifying it or invoking agents, "
-                "and return its tasks in stored order."
+                "Load a persisted tasklist without modifying it and dry-run each "
+                "task through the configured dry-run worker context."
             ),
             "parameters": {
                 "type": "object",
@@ -73,8 +81,15 @@ class TasklistDryrunHandler(HandlerV2):
                             "name": {"type": "string"},
                             "state": {"type": "string"},
                             "instructions": {"type": "string"},
+                            "dry_run": {"type": "object"},
                         },
-                        "required": ["id", "name", "state", "instructions"],
+                        "required": [
+                            "id",
+                            "name",
+                            "state",
+                            "instructions",
+                            "dry_run",
+                        ],
                         "additionalProperties": False,
                     },
                 },
@@ -123,15 +138,31 @@ class TasklistDryrunHandler(HandlerV2):
                     },
                 }
 
-            tasks = [
-                {
-                    "id": task.id,
-                    "name": task.name,
-                    "state": task.state,
-                    "instructions": task.instructions,
-                }
-                for task in tasklist.tasks
-            ]
+            tasks = []
+            for task in tasklist.tasks:
+                dry_run = self.delegate_handler.execute(
+                    {
+                        "task": task.instructions,
+                        "agentName": self.DRYRUN_AGENT,
+                        "capabilities": [],
+                        "project": "",
+                        "machine": "",
+                        "contextName": self.DRYRUN_CONTEXT,
+                        "accountName": account_name,
+                        "timeout_seconds": self.delegate_handler.DEFAULT_TIMEOUT,
+                    },
+                    account_name=account_name,
+                )
+                tasks.append(
+                    {
+                        "id": task.id,
+                        "name": task.name,
+                        "state": task.state,
+                        "instructions": task.instructions,
+                        "dry_run": dry_run,
+                    }
+                )
+
             return {
                 "ok": True,
                 "tool": self.NAME,
