@@ -161,6 +161,26 @@ def test_dryrun_delegates_each_task_to_colin_with_dryrun_context(tmp_path):
     assert second_args["contextName"] == "dry-run-task"
 
 
+def test_dryrun_allows_agent_and_context_overrides(tmp_path):
+    handler = _handler(tmp_path)
+    _save_tasklist(handler)
+
+    handler.execute(
+        {
+            "tasklist_id": "dryrun-1",
+            "agentName": "star",
+            "contextName": "alternate-dry-run",
+        },
+        account_name="alice",
+    )
+
+    assert len(handler.delegate_handler.calls) == 2
+    for args, account in handler.delegate_handler.calls:
+        assert account == "alice"
+        assert args["agentName"] == "star"
+        assert args["contextName"] == "alternate-dry-run"
+
+
 def test_dryrun_records_delegate_failure_and_continues(tmp_path):
     handler = _handler(
         tmp_path,
@@ -307,9 +327,13 @@ def test_dryrun_logs_start_and_end(tmp_path, caplog):
     )
 
 
-def test_dryrun_tool_definition_has_only_tasklist_id():
+def test_dryrun_tool_definition_has_optional_agent_and_context():
     tool_def = TasklistDryrunHandler.tool_def()
 
     assert tool_def["name"] == "tasklist_dryrun"
     assert tool_def["parameters"]["required"] == ["tasklist_id"]
-    assert set(tool_def["parameters"]["properties"]) == {"tasklist_id"}
+    assert set(tool_def["parameters"]["properties"]) == {
+        "tasklist_id",
+        "agentName",
+        "contextName",
+    }
