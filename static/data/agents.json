@@ -229,7 +229,7 @@
     "save_responses": true,
     "model": "deepseek-v4-pro",
     "message_processor": "function_calling_processor",
-    "max_function_call_iterations": 20,
+    "max_function_call_iterations": 30,
     "max_tool_result_chars": 40000,
     "max_handler_schema_tokens": 8000,
     "context_text_soft_max_tokens": 15000,
