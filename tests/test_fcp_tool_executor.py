@@ -1,3 +1,4 @@
+import json
 import logging
 
 import pytest
@@ -361,3 +362,112 @@ def test_execute_tool_calls_traces_handler_exception_before_raising():
     assert trace.duration_ms >= 0
     assert trace.ts.endswith("Z")
     assert metrics == {"tool_calls": 1, "tool_failures": 1, "failures": 1}
+
+
+def test_execute_tool_calls_writes_exactly_one_trace_per_call(tmp_path):
+    from tests.conftest import FakeAgent, FakeConfig, FakeHandler, FakeRegistry
+
+    registry = FakeRegistry(
+        handler_by_name={
+            "success_tool": FakeHandler({"ok": True, "value": 42}),
+            "failed_tool": FakeHandler(
+                {"ok": False, "error": "sensitive-error-detail"}
+            ),
+            "large_tool": FakeHandler({"ok": True, "payload": "x" * 300}),
+        }
+    )
+    trace_path = tmp_path / "metrics" / "tool_calls.jsonl"
+    llm_adapter = Mock()
+    llm_adapter.format_tool_output.side_effect = (
+        lambda call_id, output, **kwargs: {
+            "type": "function_call_output",
+            "call_id": call_id,
+            "output": output,
+        }
+    )
+    prompt_builder = Mock()
+    prompt_builder._get_context_state.return_value = None
+    executor = ToolExecutor(
+        registry=registry,
+        config=FakeConfig(values={"max_tool_result_chars": 100}),
+        prompt_builder=prompt_builder,
+        llm_adapter=llm_adapter,
+        agent_manager=None,
+        trace_logger=ToolCallTraceLogger(trace_path),
+    )
+    agent = FakeAgent()
+    metrics = {"tool_calls": 0}
+    calls = [
+        _ToolCall(
+            name="success_tool",
+            call_id="call-success",
+            arguments_raw='{"value":1}',
+        ),
+        _ToolCall(
+            name="failed_tool",
+            call_id="call-failed",
+            arguments_raw='{"api_key":"sensitive-argument-value"}',
+        ),
+        _ToolCall(
+            name="unknown_tool",
+            call_id="call-unknown",
+            arguments_raw="{}",
+        ),
+        _ToolCall(
+            name="large_tool",
+            call_id="call-large",
+            arguments_raw="{}",
+        ),
+    ]
+
+    executor.execute_tool_calls(
+        tool_calls=calls,
+        primary_agent=agent,
+        secondary_agent=None,
+        processor_factory=None,
+        account={"accountId": "acct1"},
+        ctx=_executor_context(agent),
+        metrics=metrics,
+        correlation_id="correlation-integration",
+        parent_correlation_id="parent-integration",
+        iteration=8,
+    )
+
+    persisted_text = trace_path.read_text(encoding="utf-8")
+    records = [
+        json.loads(line)
+        for line in persisted_text.splitlines()
+        if line.strip()
+    ]
+
+    assert len(records) == len(calls)
+    assert [record["call_id"] for record in records] == [
+        "call-success",
+        "call-failed",
+        "call-unknown",
+        "call-large",
+    ]
+    assert [record["ok"] for record in records] == [True, False, False, False]
+    assert [record["error_code"] for record in records] == [
+        None,
+        "other",
+        "unknown_tool",
+        "result_too_large",
+    ]
+    assert all(
+        record["correlation_id"] == "correlation-integration"
+        for record in records
+    )
+    assert all(
+        record["parent_correlation_id"] == "parent-integration"
+        for record in records
+    )
+    assert all(record["iteration"] == 8 for record in records)
+    assert "sensitive-argument-value" not in persisted_text
+    assert "sensitive-error-detail" not in persisted_text
+    assert records[1]["args_digest"] == args_digest(
+        '{"api_key":"sensitive-argument-value"}'
+    )
+    assert records[1]["error_signature"] == error_signature(
+        "sensitive-error-detail"
+    )
