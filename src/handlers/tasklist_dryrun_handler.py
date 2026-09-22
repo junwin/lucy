@@ -20,6 +20,7 @@ class TasklistDryrunHandler(HandlerV2):
     NAME = "tasklist_dryrun"
     DRYRUN_AGENT = "colin"
     DRYRUN_CONTEXT = "dry-run-task"
+    ASSESSMENTS = {"ready", "decompose", "blocked", "invalid"}
 
     def __init__(
         self,
@@ -80,16 +81,19 @@ class TasklistDryrunHandler(HandlerV2):
                             "id": {"type": "string"},
                             "name": {"type": "string"},
                             "state": {"type": "string"},
-                            "instructions": {"type": "string"},
-                            "dry_run": {"type": "object"},
+                            "assessment": {
+                                "type": ["string", "null"],
+                                "enum": [
+                                    "ready",
+                                    "decompose",
+                                    "blocked",
+                                    "invalid",
+                                    None,
+                                ],
+                            },
+                            "error": {"type": "string"},
                         },
-                        "required": [
-                            "id",
-                            "name",
-                            "state",
-                            "instructions",
-                            "dry_run",
-                        ],
+                        "required": ["id", "name", "state", "assessment"],
                         "additionalProperties": False,
                     },
                 },
@@ -140,28 +144,38 @@ class TasklistDryrunHandler(HandlerV2):
 
             tasks = []
             for task in tasklist.tasks:
-                dry_run = self.delegate_handler.execute(
-                    {
-                        "task": task.instructions,
-                        "agentName": self.DRYRUN_AGENT,
-                        "capabilities": [],
-                        "project": "",
-                        "machine": "",
-                        "contextName": self.DRYRUN_CONTEXT,
-                        "accountName": account_name,
-                        "timeout_seconds": self.delegate_handler.DEFAULT_TIMEOUT,
-                    },
-                    account_name=account_name,
-                )
-                tasks.append(
-                    {
-                        "id": task.id,
-                        "name": task.name,
-                        "state": task.state,
-                        "instructions": task.instructions,
-                        "dry_run": dry_run,
-                    }
-                )
+                item = {
+                    "id": task.id,
+                    "name": task.name,
+                    "state": task.state,
+                    "assessment": None,
+                }
+                try:
+                    delegated = self.delegate_handler.execute(
+                        {
+                            "task": task.instructions,
+                            "agentName": self.DRYRUN_AGENT,
+                            "capabilities": [],
+                            "project": "",
+                            "machine": "",
+                            "contextName": self.DRYRUN_CONTEXT,
+                            "accountName": account_name,
+                            "timeout_seconds": self.delegate_handler.DEFAULT_TIMEOUT,
+                        },
+                        account_name=account_name,
+                    )
+                    assessment, error = self._assessment_from_delegate(delegated)
+                    item["assessment"] = assessment
+                    if error:
+                        item["error"] = error
+                except Exception as exc:
+                    logger.exception(
+                        "tasklist_dryrun task failed tasklist_id=%s task_id=%s",
+                        tasklist_id,
+                        task.id,
+                    )
+                    item["error"] = str(exc)
+                tasks.append(item)
 
             return {
                 "ok": True,
@@ -184,3 +198,16 @@ class TasklistDryrunHandler(HandlerV2):
                 tasklist_id,
                 correlation_id,
             )
+
+    @classmethod
+    def _assessment_from_delegate(
+        cls, delegated: Dict[str, Any]
+    ) -> tuple[Optional[str], Optional[str]]:
+        if not delegated.get("ok"):
+            error = delegated.get("error") or "delegate_task failed"
+            return None, str(error)
+
+        value = str(delegated.get("result") or "").strip().lower()
+        if value not in cls.ASSESSMENTS:
+            return None, f"unexpected dry-run assessment: {value!r}"
+        return value, None
