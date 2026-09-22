@@ -274,6 +274,7 @@ class LLMLoopRunner:
                         metrics=metrics,
                         correlation_id=correlation_id,
                         parent_correlation_id=parent_correlation_id,
+                        iteration=iteration,
                     )
                 except (ToolHandlerError, ToolResultTooLargeError) as e:
                     for tc in tool_calls:
