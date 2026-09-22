@@ -1,6 +1,8 @@
 import json
 import logging
 import re
+import time
+from datetime import datetime, timezone
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 from src.agent import Agent
@@ -17,6 +19,7 @@ from src.message_processors.fcp_models import (
     ToolResultTooLargeError,
     _ToolCall,
 )
+from src.metrics.tool_call_digest import args_digest, error_code, error_signature
 from src.metrics.tool_call_trace import ToolCallTrace
 from src.metrics.tool_call_trace_logger import ToolCallTraceLogger
 from src.prompt_builders.prompt_builder_interface import PromptBuilderInterface
@@ -87,6 +90,35 @@ class ToolExecutor:
                 trace.call_id or "-",
                 exc,
             )
+
+    def _build_trace(
+        self,
+        *,
+        tc: _ToolCall,
+        correlation_id: str,
+        parent_correlation_id: Optional[str],
+        iteration: int,
+        started_at: float,
+        ok: bool,
+        result_text: str,
+    ) -> ToolCallTrace:
+        return ToolCallTrace(
+            correlation_id=correlation_id,
+            parent_correlation_id=parent_correlation_id,
+            iteration=iteration,
+            tool_name=tc.name,
+            call_id=tc.call_id,
+            args_digest=args_digest(tc.arguments_raw),
+            ok=ok,
+            error_code=None if ok else error_code(result_text),
+            error_signature=None if ok else error_signature(result_text),
+            duration_ms=max(0, int((time.perf_counter() - started_at) * 1000)),
+            ts=(
+                datetime.now(timezone.utc)
+                .isoformat(timespec="milliseconds")
+                .replace("+00:00", "Z")
+            ),
+        )
 
     def safe_json_loads(self, s: str, correlation_id: Optional[str] = None) -> Dict[str, Any]:
         if not s:
@@ -224,6 +256,7 @@ class ToolExecutor:
         metrics: Dict[str, Any],
         correlation_id: Optional[str] = None,
         parent_correlation_id: Optional[str] = None,
+        iteration: int = 0,
     ) -> Tuple[List[Dict[str, Any]], List[Tuple[_ToolCall, str]]]:
         correlation_id = correlation_id or "-"
         max_tool_result_chars = resolve_effective_cap(
@@ -257,6 +290,8 @@ class ToolExecutor:
 
         for tc in tool_calls:
             metrics["tool_calls"] += 1
+            started_at = time.perf_counter()
+            trace: Optional[ToolCallTrace] = None
 
             if not tc.call_id:
                 record_tool_failure(metrics)
@@ -335,6 +370,25 @@ class ToolExecutor:
                     parsed_result = None
                 if isinstance(parsed_result, dict) and parsed_result.get("ok") is False:
                     record_tool_failure(metrics)
+                    trace = self._build_trace(
+                        tc=tc,
+                        correlation_id=correlation_id,
+                        parent_correlation_id=parent_correlation_id,
+                        iteration=iteration,
+                        started_at=started_at,
+                        ok=False,
+                        result_text=tool_result_text,
+                    )
+                else:
+                    trace = self._build_trace(
+                        tc=tc,
+                        correlation_id=correlation_id,
+                        parent_correlation_id=parent_correlation_id,
+                        iteration=iteration,
+                        started_at=started_at,
+                        ok=True,
+                        result_text=tool_result_text,
+                    )
 
             except ToolResultTooLargeError as e:
                 record_tool_failure(metrics)
@@ -363,5 +417,7 @@ class ToolExecutor:
                 raise ToolHandlerError(f"{type(e).__name__}: {e}")
 
             tool_output_items.append(self.llm_adapter.format_tool_output(call_id=str(tc.call_id), output=tool_result_text, name=tc.name, provider=ctx.provider))
+            if trace is not None:
+                self._append_trace(trace)
 
         return tool_output_items, raw_results
