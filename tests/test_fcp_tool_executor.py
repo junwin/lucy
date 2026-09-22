@@ -132,3 +132,121 @@ def test_execute_tool_calls_traces_ok_false_result():
     assert trace.duration_ms >= 0
     assert trace.ts.endswith("Z")
     assert metrics == {"tool_calls": 1, "tool_failures": 1, "failures": 1}
+
+
+def _executor_context(agent):
+    return ProcessorContext.from_agent(
+        primary_agent=agent,
+        account={"accountId": "acct1"},
+        conversation_id="conversation-1",
+        context_name="context-1",
+    )
+
+
+def test_execute_tool_calls_traces_unknown_tool():
+    from tests.conftest import FakeAgent, FakeConfig, FakeRegistry
+
+    trace_logger = Mock(spec=ToolCallTraceLogger)
+    llm_adapter = Mock()
+    llm_adapter.format_tool_output.return_value = {"type": "function_call_output"}
+    prompt_builder = Mock()
+    prompt_builder._get_context_state.return_value = None
+    executor = ToolExecutor(
+        registry=FakeRegistry(),
+        config=FakeConfig(),
+        prompt_builder=prompt_builder,
+        llm_adapter=llm_adapter,
+        agent_manager=None,
+        trace_logger=trace_logger,
+    )
+    agent = FakeAgent()
+    metrics = {"tool_calls": 0}
+
+    executor.execute_tool_calls(
+        tool_calls=[
+            _ToolCall(
+                name="missing_tool",
+                call_id="call-unknown",
+                arguments_raw='{"query":"secret"}',
+            )
+        ],
+        primary_agent=agent,
+        secondary_agent=None,
+        processor_factory=None,
+        account={"accountId": "acct1"},
+        ctx=_executor_context(agent),
+        metrics=metrics,
+        correlation_id="correlation-unknown",
+        parent_correlation_id="parent-1",
+        iteration=2,
+    )
+
+    trace_logger.append.assert_called_once()
+    trace = trace_logger.append.call_args.args[0]
+    assert trace.correlation_id == "correlation-unknown"
+    assert trace.parent_correlation_id == "parent-1"
+    assert trace.iteration == 2
+    assert trace.tool_name == "missing_tool"
+    assert trace.call_id == "call-unknown"
+    assert trace.args_digest == args_digest('{"query":"secret"}')
+    assert trace.ok is False
+    assert trace.error_code == "unknown_tool"
+    assert trace.error_signature == error_signature(
+        "Unknown tool 'missing_tool'. Valid tools: []"
+    )
+    assert metrics == {"tool_calls": 1, "tool_failures": 1, "failures": 1}
+
+
+def test_execute_tool_calls_traces_too_large_result():
+    from tests.conftest import FakeAgent, FakeConfig, FakeHandler, FakeRegistry
+
+    handler = FakeHandler({"ok": True, "payload": "x" * 200})
+    registry = FakeRegistry(handler_by_name={"large_tool": handler})
+    trace_logger = Mock(spec=ToolCallTraceLogger)
+    llm_adapter = Mock()
+    llm_adapter.format_tool_output.return_value = {"type": "function_call_output"}
+    prompt_builder = Mock()
+    prompt_builder._get_context_state.return_value = None
+    executor = ToolExecutor(
+        registry=registry,
+        config=FakeConfig(values={"max_tool_result_chars": 40}),
+        prompt_builder=prompt_builder,
+        llm_adapter=llm_adapter,
+        agent_manager=None,
+        trace_logger=trace_logger,
+    )
+    agent = FakeAgent()
+    metrics = {"tool_calls": 0}
+
+    executor.execute_tool_calls(
+        tool_calls=[
+            _ToolCall(
+                name="large_tool",
+                call_id="call-large",
+                arguments_raw="{}",
+            )
+        ],
+        primary_agent=agent,
+        secondary_agent=None,
+        processor_factory=None,
+        account={"accountId": "acct1"},
+        ctx=_executor_context(agent),
+        metrics=metrics,
+        correlation_id="correlation-large",
+        parent_correlation_id=None,
+        iteration=3,
+    )
+
+    trace_logger.append.assert_called_once()
+    trace = trace_logger.append.call_args.args[0]
+    assert trace.correlation_id == "correlation-large"
+    assert trace.parent_correlation_id is None
+    assert trace.iteration == 3
+    assert trace.tool_name == "large_tool"
+    assert trace.call_id == "call-large"
+    assert trace.ok is False
+    assert trace.error_code == "result_too_large"
+    assert trace.error_signature is not None
+    assert trace.duration_ms >= 0
+    assert trace.ts.endswith("Z")
+    assert metrics == {"tool_calls": 1, "tool_failures": 1, "failures": 1}
