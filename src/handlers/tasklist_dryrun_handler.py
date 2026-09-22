@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 from typing import Any, Dict, Optional
 
@@ -80,8 +81,8 @@ class TasklistDryrunHandler(HandlerV2):
                         "properties": {
                             "id": {"type": "string"},
                             "name": {"type": "string"},
-                            "state": {"type": "string"},
-                            "assessment": {
+                            "persisted_state": {"type": "string"},
+                            "state": {
                                 "type": ["string", "null"],
                                 "enum": [
                                     "ready",
@@ -91,9 +92,21 @@ class TasklistDryrunHandler(HandlerV2):
                                     None,
                                 ],
                             },
+                            "intended_implementation": {"type": "string"},
+                            "tests_to_add_or_run": {
+                                "type": "array",
+                                "items": {"type": "string"},
+                            },
                             "error": {"type": "string"},
                         },
-                        "required": ["id", "name", "state", "assessment"],
+                        "required": [
+                            "id",
+                            "name",
+                            "persisted_state",
+                            "state",
+                            "intended_implementation",
+                            "tests_to_add_or_run",
+                        ],
                         "additionalProperties": False,
                     },
                 },
@@ -147,8 +160,10 @@ class TasklistDryrunHandler(HandlerV2):
                 item = {
                     "id": task.id,
                     "name": task.name,
-                    "state": task.state,
-                    "assessment": None,
+                    "persisted_state": task.state,
+                    "state": None,
+                    "intended_implementation": "",
+                    "tests_to_add_or_run": [],
                 }
                 try:
                     delegated = self.delegate_handler.execute(
@@ -164,8 +179,9 @@ class TasklistDryrunHandler(HandlerV2):
                         },
                         account_name=account_name,
                     )
-                    assessment, error = self._assessment_from_delegate(delegated)
-                    item["assessment"] = assessment
+                    assessment, error = self._result_from_delegate(delegated)
+                    if assessment is not None:
+                        item.update(assessment)
                     if error:
                         item["error"] = error
                 except Exception as exc:
@@ -200,14 +216,40 @@ class TasklistDryrunHandler(HandlerV2):
             )
 
     @classmethod
-    def _assessment_from_delegate(
+    def _result_from_delegate(
         cls, delegated: Dict[str, Any]
-    ) -> tuple[Optional[str], Optional[str]]:
+    ) -> tuple[Optional[Dict[str, Any]], Optional[str]]:
         if not delegated.get("ok"):
             error = delegated.get("error") or "delegate_task failed"
             return None, str(error)
 
-        value = str(delegated.get("result") or "").strip().lower()
-        if value not in cls.ASSESSMENTS:
-            return None, f"unexpected dry-run assessment: {value!r}"
-        return value, None
+        raw = str(delegated.get("result") or "").strip()
+        try:
+            payload = json.loads(raw)
+        except json.JSONDecodeError as exc:
+            return None, f"invalid dry-run JSON: {exc.msg}"
+
+        results = payload.get("task_results") if isinstance(payload, dict) else None
+        if not isinstance(results, list) or len(results) != 1:
+            return None, "dry-run response must contain exactly one task_result"
+
+        result = results[0]
+        if not isinstance(result, dict):
+            return None, "dry-run task_result must be an object"
+
+        state = str(result.get("state") or "").strip().lower()
+        if state not in cls.ASSESSMENTS:
+            return None, f"unexpected dry-run state: {state!r}"
+
+        intended = result.get("intended_implementation")
+        tests = result.get("tests_to_add_or_run")
+        if not isinstance(intended, str):
+            return None, "dry-run intended_implementation must be a string"
+        if not isinstance(tests, list) or any(not isinstance(test, str) for test in tests):
+            return None, "dry-run tests_to_add_or_run must be a list of strings"
+
+        return {
+            "state": state,
+            "intended_implementation": intended.strip(),
+            "tests_to_add_or_run": tests,
+        }, None
