@@ -22,21 +22,27 @@ class SimpleConfig:
 class FakeDelegateHandler:
     DEFAULT_TIMEOUT = 120
 
-    def __init__(self):
+    def __init__(self, results=None):
         self.calls = []
+        self.results = list(results or [])
 
     def execute(self, args, *, account_name="auto"):
         self.calls.append((args, account_name))
+        if self.results:
+            result = self.results.pop(0)
+            if isinstance(result, Exception):
+                raise result
+            return result
         return {
             "ok": True,
             "tool": "delegate_task",
             "agent": args["agentName"],
-            "result": f"dry run: {args['task']}",
+            "result": "ready",
         }
 
 
-def _handler(tmp_path):
-    delegate = FakeDelegateHandler()
+def _handler(tmp_path, results=None):
+    delegate = FakeDelegateHandler(results=results)
     handler = TasklistDryrunHandler(
         SimpleConfig(str(tmp_path), "ns"),
         delegate_handler=delegate,
@@ -58,8 +64,14 @@ def _save_tasklist(handler, account_name="alice", tasklist_id="dryrun-1"):
     return tasklist
 
 
-def test_dryrun_returns_tasks_in_order_with_required_fields(tmp_path):
-    handler = _handler(tmp_path)
+def test_dryrun_returns_compact_assessments_in_order(tmp_path):
+    handler = _handler(
+        tmp_path,
+        results=[
+            {"ok": True, "result": "ready"},
+            {"ok": True, "result": "DECOMPOSE\n"},
+        ],
+    )
     _save_tasklist(handler)
 
     result = handler.execute(
@@ -77,25 +89,13 @@ def test_dryrun_returns_tasks_in_order_with_required_fields(tmp_path):
                 "id": "t1",
                 "name": "First",
                 "state": "Pending",
-                "instructions": "do first",
-                "dry_run": {
-                    "ok": True,
-                    "tool": "delegate_task",
-                    "agent": "colin",
-                    "result": "dry run: do first",
-                },
+                "assessment": "ready",
             },
             {
                 "id": "t2",
                 "name": "Second",
                 "state": "Completed",
-                "instructions": "do second",
-                "dry_run": {
-                    "ok": True,
-                    "tool": "delegate_task",
-                    "agent": "colin",
-                    "result": "dry run: do second",
-                },
+                "assessment": "decompose",
             },
         ],
     }
@@ -125,6 +125,64 @@ def test_dryrun_delegates_each_task_to_colin_with_dryrun_context(tmp_path):
     assert second_args["task"] == "do second"
     assert second_args["agentName"] == "colin"
     assert second_args["contextName"] == "dry-run-task"
+
+
+def test_dryrun_records_delegate_failure_and_continues(tmp_path):
+    handler = _handler(
+        tmp_path,
+        results=[
+            {"ok": False, "error": "no eligible machine"},
+            {"ok": True, "result": "blocked"},
+        ],
+    )
+    _save_tasklist(handler)
+
+    result = handler.execute({"tasklist_id": "dryrun-1"}, account_name="alice")
+
+    assert result["ok"] is True
+    assert result["tasks"][0] == {
+        "id": "t1",
+        "name": "First",
+        "state": "Pending",
+        "assessment": None,
+        "error": "no eligible machine",
+    }
+    assert result["tasks"][1]["assessment"] == "blocked"
+
+
+def test_dryrun_records_unexpected_assessment(tmp_path):
+    handler = _handler(
+        tmp_path,
+        results=[
+            {"ok": True, "result": "ready because it is simple"},
+            {"ok": True, "result": "invalid"},
+        ],
+    )
+    _save_tasklist(handler)
+
+    result = handler.execute({"tasklist_id": "dryrun-1"}, account_name="alice")
+
+    assert result["tasks"][0]["assessment"] is None
+    assert "unexpected dry-run assessment" in result["tasks"][0]["error"]
+    assert result["tasks"][1]["assessment"] == "invalid"
+
+
+def test_dryrun_records_raised_task_error_and_continues(tmp_path):
+    handler = _handler(
+        tmp_path,
+        results=[
+            RuntimeError("boom"),
+            {"ok": True, "result": "ready"},
+        ],
+    )
+    _save_tasklist(handler)
+
+    result = handler.execute({"tasklist_id": "dryrun-1"}, account_name="alice")
+
+    assert result["ok"] is True
+    assert result["tasks"][0]["assessment"] is None
+    assert result["tasks"][0]["error"] == "boom"
+    assert result["tasks"][1]["assessment"] == "ready"
 
 
 def test_dryrun_does_not_modify_persisted_tasklist(tmp_path):
