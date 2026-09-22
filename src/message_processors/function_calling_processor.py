@@ -43,7 +43,7 @@ from src.tool_selection import ToolSelectionError, ToolSelectionPipeline
 from src.message_processors.fcp_tool_executor import ToolExecutor, load_context_state
 from src.message_processors.fcp_loop import LLMLoopRunner
 from src.message_processors.run_metrics import RunMetrics, record_processor_failure
-from src.metrics import CorrelationLogHandler, RunMetricsLogger
+from src.metrics import CorrelationLogHandler, RunMetricsLogger, ToolCallTraceLogger
 
 
 _correlation_id_var: contextvars.ContextVar[str] = contextvars.ContextVar(
@@ -107,6 +107,30 @@ def _resolve_metrics_logger(config: Any) -> Optional[RunMetricsLogger]:
     if not path:
         return None
     return RunMetricsLogger(path)
+
+
+def _resolve_tool_call_trace_logger(config: Any) -> Optional[ToolCallTraceLogger]:
+    """Resolve the tool call trace logger from config, or None when unconfigured.
+
+    Priority: explicit ``metrics_tool_calls_log_path``, then the design default
+    ``<storage_root_path>/<storage_namespace>/metrics/tool_calls.jsonl``.
+    """
+
+    if config is None:
+        return None
+    path = config.get("metrics_tool_calls_log_path")
+    if not path:
+        storage_root = config.get("storage_root_path")
+        if storage_root:
+            path = os.path.join(
+                str(storage_root),
+                str(config.get("storage_namespace") or ""),
+                "metrics",
+                "tool_calls.jsonl",
+            )
+    if not path:
+        return None
+    return ToolCallTraceLogger(path)
 
 
 def _compute_prompt_token_breakdown(prompt_builder: Any, filtered_function_defs: List[Dict[str, Any]]) -> Dict[str, int]:
@@ -297,7 +321,7 @@ def _build_run_metrics(
 
 class FunctionCallingProcessor(MessageProcessorInterface):
     @inject
-    @noninjectable("metrics_logger", "correlation_log_handler")
+    @noninjectable("metrics_logger", "correlation_log_handler", "trace_logger")
     def __init__(
         self,
         config: ConfigManager,
@@ -308,6 +332,7 @@ class FunctionCallingProcessor(MessageProcessorInterface):
         agent_manager: Optional[AgentManager] = None,
         metrics_logger: Optional[RunMetricsLogger] = None,
         correlation_log_handler: Optional[CorrelationLogHandler] = None,
+        trace_logger: Optional[ToolCallTraceLogger] = None,
     ):
         self.config = config
         self.registry = registry
@@ -316,6 +341,7 @@ class FunctionCallingProcessor(MessageProcessorInterface):
         self.episodic_store = episodic_store
         self.chat2 = Chat2Recorder(episodic_store)
         self.agent_manager = agent_manager
+        self._trace_logger = trace_logger or _resolve_tool_call_trace_logger(config)
         self.tool_executor = ToolExecutor(
             registry=self.registry,
             config=self.config,
@@ -323,6 +349,7 @@ class FunctionCallingProcessor(MessageProcessorInterface):
             llm_adapter=self.llm_adapter,
             agent_manager=self.agent_manager,
             episodic_store=self.episodic_store,
+            trace_logger=self._trace_logger,
         )
         self.loop_runner = LLMLoopRunner(
             llm_adapter=self.llm_adapter,
@@ -554,6 +581,8 @@ class FunctionCallingProcessor(MessageProcessorInterface):
 
         started = _utc_now_iso()
         self._correlation_handler.start_run(correlation_id)
+        parent_id = _correlation_id_var.get("-")
+        parent_correlation_id = None if parent_id == "-" else parent_id
         correlation_token = _correlation_id_var.set(correlation_id)
 
         logging.info("FunctionCallingProcessor inbound message: %s", message)
@@ -618,6 +647,7 @@ class FunctionCallingProcessor(MessageProcessorInterface):
                 account=account,
                 metrics=metrics,
                 correlation_id=correlation_id,
+                parent_correlation_id=parent_correlation_id,
             ):
                 if event.type == "text" and event.content:
                     response_text = event.content
@@ -771,6 +801,8 @@ class FunctionCallingProcessor(MessageProcessorInterface):
 
         started = _utc_now_iso()
         self._correlation_handler.start_run(correlation_id)
+        parent_id = _correlation_id_var.get("-")
+        parent_correlation_id = None if parent_id == "-" else parent_id
         correlation_token = _correlation_id_var.set(correlation_id)
 
         logging.info(
@@ -846,6 +878,7 @@ class FunctionCallingProcessor(MessageProcessorInterface):
                 account=account,
                 metrics=metrics,
                 correlation_id=correlation_id,
+                parent_correlation_id=parent_correlation_id,
             ):
                 streamed_events.append(event)
                 yield event.to_sse()

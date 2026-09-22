@@ -3,6 +3,8 @@ import json
 import pytest
 from unittest.mock import Mock, patch
 
+from src.metrics import ToolCallTraceLogger
+
 
 def test_no_tool_calls_returns_text(make_proc, prompt_builder, llm_adapter):
     from tests.conftest import FakeAgent
@@ -1066,3 +1068,64 @@ def test_agent_can_opt_out_of_shared_tool_discovery_guidance(
 
     messages = prompt_builder.build_prompt.call_args.kwargs["extra_system_messages"]
     assert not any("discover_tools" in message for message in messages)
+
+
+def _build_fcp_with_trace_logger(config, trace_logger=None):
+    from src.message_processors.function_calling_processor import FunctionCallingProcessor
+    from tests.conftest import FakeRegistry
+
+    return FunctionCallingProcessor(
+        config=config,
+        registry=FakeRegistry(),
+        prompt_builder=Mock(),
+        llm_adapter=Mock(),
+        trace_logger=trace_logger,
+    )
+
+
+def test_fcp_resolves_tool_call_trace_logger(tmp_path):
+    from tests.conftest import FakeConfig
+
+    override = tmp_path / "custom" / "calls.jsonl"
+    config = FakeConfig(values={"metrics_tool_calls_log_path": str(override)})
+
+    proc = _build_fcp_with_trace_logger(config)
+
+    logger = proc.tool_executor.trace_logger
+    assert isinstance(logger, ToolCallTraceLogger)
+    assert logger is proc._trace_logger
+    assert logger.path == override
+
+
+def test_fcp_resolves_tool_call_trace_logger_storage_default(tmp_path):
+    from tests.conftest import FakeConfig
+
+    config = FakeConfig(
+        values={"storage_root_path": str(tmp_path), "storage_namespace": "data"}
+    )
+
+    proc = _build_fcp_with_trace_logger(config)
+
+    assert proc.tool_executor.trace_logger.path == (
+        tmp_path / "data" / "metrics" / "tool_calls.jsonl"
+    )
+
+
+def test_fcp_resolves_tool_call_trace_logger_unconfigured():
+    from tests.conftest import FakeConfig
+
+    proc = _build_fcp_with_trace_logger(FakeConfig())
+
+    assert proc._trace_logger is None
+    assert proc.tool_executor.trace_logger is None
+
+
+def test_fcp_accepts_injected_tool_call_trace_logger(tmp_path):
+    from tests.conftest import FakeConfig
+
+    injected = ToolCallTraceLogger(tmp_path / "injected.jsonl")
+
+    proc = _build_fcp_with_trace_logger(FakeConfig(), trace_logger=injected)
+
+    assert proc._trace_logger is injected
+    assert proc.tool_executor.trace_logger is injected

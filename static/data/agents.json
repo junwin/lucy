@@ -92,7 +92,7 @@
     "name": "colin",
     "language_code": "en-US",
     "context_type": "hybrid",
-    "max_prompt_conversations": 1,
+    "max_prompt_conversations": 6,
     "max_prompt_documents": 1,
     "temperature": 0,
     "save_responses": true,

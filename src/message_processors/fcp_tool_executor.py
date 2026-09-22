@@ -17,6 +17,7 @@ from src.message_processors.fcp_models import (
     ToolResultTooLargeError,
     _ToolCall,
 )
+from src.metrics.tool_call_trace_logger import ToolCallTraceLogger
 from src.prompt_builders.prompt_builder_interface import PromptBuilderInterface
 
 DEFAULT_MAX_TOOL_RESULT_CHARS = 20000
@@ -62,6 +63,7 @@ class ToolExecutor:
         llm_adapter: LLMAdapter,
         agent_manager: Optional[AgentManager],
         episodic_store: Optional[EpisodicMemoryManager] = None,
+        trace_logger: Optional[ToolCallTraceLogger] = None,
     ):
         self.registry = registry
         self.config = config
@@ -69,6 +71,7 @@ class ToolExecutor:
         self.llm_adapter = llm_adapter
         self.agent_manager = agent_manager
         self.episodic_store = episodic_store
+        self.trace_logger = trace_logger
 
     def safe_json_loads(self, s: str, correlation_id: Optional[str] = None) -> Dict[str, Any]:
         if not s:
