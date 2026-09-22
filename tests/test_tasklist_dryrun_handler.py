@@ -19,8 +19,29 @@ class SimpleConfig:
         return self.values.get(key, default)
 
 
+class FakeDelegateHandler:
+    DEFAULT_TIMEOUT = 120
+
+    def __init__(self):
+        self.calls = []
+
+    def execute(self, args, *, account_name="auto"):
+        self.calls.append((args, account_name))
+        return {
+            "ok": True,
+            "tool": "delegate_task",
+            "agent": args["agentName"],
+            "result": f"dry run: {args['task']}",
+        }
+
+
 def _handler(tmp_path):
-    return TasklistDryrunHandler(SimpleConfig(str(tmp_path), "ns"))
+    delegate = FakeDelegateHandler()
+    handler = TasklistDryrunHandler(
+        SimpleConfig(str(tmp_path), "ns"),
+        delegate_handler=delegate,
+    )
+    return handler
 
 
 def _save_tasklist(handler, account_name="alice", tasklist_id="dryrun-1"):
@@ -57,15 +78,53 @@ def test_dryrun_returns_tasks_in_order_with_required_fields(tmp_path):
                 "name": "First",
                 "state": "Pending",
                 "instructions": "do first",
+                "dry_run": {
+                    "ok": True,
+                    "tool": "delegate_task",
+                    "agent": "colin",
+                    "result": "dry run: do first",
+                },
             },
             {
                 "id": "t2",
                 "name": "Second",
                 "state": "Completed",
                 "instructions": "do second",
+                "dry_run": {
+                    "ok": True,
+                    "tool": "delegate_task",
+                    "agent": "colin",
+                    "result": "dry run: do second",
+                },
             },
         ],
     }
+
+
+def test_dryrun_delegates_each_task_to_colin_with_dryrun_context(tmp_path):
+    handler = _handler(tmp_path)
+    _save_tasklist(handler)
+
+    handler.execute({"tasklist_id": "dryrun-1"}, account_name="alice")
+
+    assert len(handler.delegate_handler.calls) == 2
+    first_args, first_account = handler.delegate_handler.calls[0]
+    second_args, second_account = handler.delegate_handler.calls[1]
+
+    assert first_account == second_account == "alice"
+    assert first_args == {
+        "task": "do first",
+        "agentName": "colin",
+        "capabilities": [],
+        "project": "",
+        "machine": "",
+        "contextName": "dry-run-task",
+        "accountName": "alice",
+        "timeout_seconds": 120,
+    }
+    assert second_args["task"] == "do second"
+    assert second_args["agentName"] == "colin"
+    assert second_args["contextName"] == "dry-run-task"
 
 
 def test_dryrun_does_not_modify_persisted_tasklist(tmp_path):
@@ -87,6 +146,7 @@ def test_dryrun_missing_tasklist_is_read_only_error(tmp_path):
 
     assert result["ok"] is False
     assert result["error"]["code"] == "tasklist_not_found"
+    assert handler.delegate_handler.calls == []
 
 
 def test_dryrun_requires_tasklist_id(tmp_path):
@@ -96,6 +156,7 @@ def test_dryrun_requires_tasklist_id(tmp_path):
 
     assert result["ok"] is False
     assert result["error"]["code"] == "missing_tasklist_id"
+    assert handler.delegate_handler.calls == []
 
 
 def test_dryrun_logs_start_and_end(tmp_path, caplog):
