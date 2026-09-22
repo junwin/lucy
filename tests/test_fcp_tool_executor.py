@@ -1,4 +1,3 @@
-import json
 import logging
 from unittest.mock import Mock, patch
 
@@ -124,14 +123,12 @@ def test_execute_tool_calls_traces_success_result():
 def test_execute_tool_calls_traces_ok_false_result():
     result = {"ok": False, "error": "Validation failed."}
     trace, metrics = _execute_completed_result(result, iteration=7)
-    result_text = json.dumps(result, ensure_ascii=False)
-
     assert trace.correlation_id == "correlation-1"
     assert trace.parent_correlation_id == "parent-1"
     assert trace.iteration == 7
     assert trace.ok is False
     assert trace.error_code == "other"
-    assert trace.error_signature == error_signature(result_text)
+    assert trace.error_signature == error_signature("Validation failed.")
     assert trace.duration_ms >= 0
     assert trace.ts.endswith("Z")
     assert metrics == {"tool_calls": 1, "tool_failures": 1, "failures": 1}
