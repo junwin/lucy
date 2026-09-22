@@ -316,11 +316,12 @@ class ToolExecutor:
                     tc.arguments_raw,
                     valid,
                 )
+                trace_error_text = f"Unknown tool '{tc.name}'. Valid tools: {valid}"
                 tool_result_text = json.dumps(
                     {
                         "ok": False,
                         "tool": tc.name,
-                        "error": f"Unknown tool '{tc.name}'. Valid tools: {valid}",
+                        "error": trace_error_text,
                     },
                     ensure_ascii=False,
                 )
@@ -328,6 +329,18 @@ class ToolExecutor:
                 tool_output_items.append(
                     self.llm_adapter.format_tool_output(
                         call_id=str(tc.call_id), output=tool_result_text, name=tc.name, provider=ctx.provider
+                    )
+                )
+                self._append_trace(
+                    self._build_trace(
+                        tc=tc,
+                        correlation_id=correlation_id,
+                        parent_correlation_id=parent_correlation_id,
+                        iteration=iteration,
+                        started_at=started_at,
+                        ok=False,
+                        result_text=tool_result_text,
+                        error_text=trace_error_text,
                     )
                 )
                 continue
@@ -421,6 +434,16 @@ class ToolExecutor:
                 tool_result_text = json.dumps(error_dict, ensure_ascii=False)
                 raw_results.pop()  # remove the too-large entry
                 raw_results.append((tc, tool_result_text))
+                trace = self._build_trace(
+                    tc=tc,
+                    correlation_id=correlation_id,
+                    parent_correlation_id=parent_correlation_id,
+                    iteration=iteration,
+                    started_at=started_at,
+                    ok=False,
+                    result_text=tool_result_text,
+                    error_text=error_msg,
+                )
                 # Fall through to tool_output_items.append below.
             except Exception as e:
                 record_tool_failure(metrics)
