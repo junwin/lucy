@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import logging
 
 from src.handlers.tasklist_dryrun_handler import TasklistDryrunHandler
