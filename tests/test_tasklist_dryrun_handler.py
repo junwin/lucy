@@ -260,7 +260,7 @@ def test_dryrun_records_raised_task_error_and_continues(tmp_path):
         tmp_path,
         results=[
             RuntimeError("boom"),
-            _result("ready"),
+            _result(True),
         ],
     )
     _save_tasklist(handler)
