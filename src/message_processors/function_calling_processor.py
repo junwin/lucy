@@ -35,7 +35,7 @@ from galet_prompt_builder import ApproximateTokenCounter
 from galet_memory import EpisodicMemoryManager
 
 from src.message_processors.fcp_models import ProcessorContext, ToolHandlerError, DEFAULT_MAX_HANDLER_SCHEMA_TOKENS
-from src.message_processors.fcp_chat2 import Chat2Recorder
+from src.message_processors.episodic_recorder import EpisodicRecorder
 
 _TOKEN_COUNTER = ApproximateTokenCounter()
 
@@ -315,7 +315,7 @@ class FunctionCallingProcessor(MessageProcessorInterface):
         self.prompt_builder = prompt_builder
         self.llm_adapter = llm_adapter
         self.episodic_store = episodic_store
-        self.chat2 = Chat2Recorder(episodic_store)
+        self.episodic_recorder = EpisodicRecorder(episodic_store)
         self.agent_manager = agent_manager
         self.tool_executor = ToolExecutor(
             registry=self.registry,
@@ -460,41 +460,41 @@ class FunctionCallingProcessor(MessageProcessorInterface):
 
 
     # ------------------------------------------------------------------
-    # Chat2 storage helpers
+    # Episodic memory helpers
     # ------------------------------------------------------------------
 
 
-    def _write_streaming_chat2_events(
+    def _write_streaming_episodic_events(
         self,
         ctx: ProcessorContext,
         user_message: str,
         streamed_events: List[SSEEvent],
         correlation_id: Optional[str] = None,
     ) -> None:
-        self.chat2.episodic_store = self.episodic_store
-        self.chat2.write_streaming_events(
+        self.episodic_recorder.episodic_store = self.episodic_store
+        self.episodic_recorder.write_streaming_events(
             ctx, user_message, streamed_events, correlation_id=correlation_id
         )
 
-    def _write_streaming_chat2_user_message(
+    def _write_streaming_episodic_user_message(
         self,
         ctx: ProcessorContext,
         user_message: str,
         correlation_id: Optional[str] = None,
     ) -> None:
-        self.chat2.episodic_store = self.episodic_store
-        self.chat2.write_user_message(
+        self.episodic_recorder.episodic_store = self.episodic_store
+        self.episodic_recorder.write_user_message(
             ctx, user_message, correlation_id=correlation_id
         )
 
-    def _write_streaming_chat2_event(
+    def _write_streaming_episodic_event(
         self,
         ctx: ProcessorContext,
         event: SSEEvent,
         correlation_id: Optional[str] = None,
     ) -> None:
-        self.chat2.episodic_store = self.episodic_store
-        self.chat2.write_streaming_event(
+        self.episodic_recorder.episodic_store = self.episodic_store
+        self.episodic_recorder.write_streaming_event(
             ctx, event, correlation_id=correlation_id
         )
 
@@ -617,7 +617,7 @@ class FunctionCallingProcessor(MessageProcessorInterface):
                 correlation_id=correlation_id,
             )
             if ctx.store_this_call:
-                self.chat2.write_prompt_report(
+                self.episodic_recorder.write_prompt_report(
                     ctx,
                     setup.prompt_breakdown,
                     correlation_id=correlation_id,
@@ -656,8 +656,7 @@ class FunctionCallingProcessor(MessageProcessorInterface):
                 raise ToolHandlerError(error_message)
 
             if ctx.store_this_call and response_text:
-                # Write to chat2 only (v1 removed — no backward compatibility)
-                self._write_streaming_chat2_events(
+                self._write_streaming_episodic_events(
                     ctx,
                     message,
                     [SSEEvent(type="text", content=response_text)],
@@ -690,7 +689,7 @@ class FunctionCallingProcessor(MessageProcessorInterface):
                 e.message,
             )
             try:
-                self._write_streaming_chat2_events(
+                self._write_streaming_episodic_events(
                     ctx,
                     message,
                     [SSEEvent(type="text", content=e.message)],
@@ -721,8 +720,7 @@ class FunctionCallingProcessor(MessageProcessorInterface):
             error_message = "I ran into an internal error while processing your request. The issue has been logged."
 
             try:
-                # Write error events to chat2 only
-                self._write_streaming_chat2_events(
+                self._write_streaming_episodic_events(
                     ctx,
                     message,
                     [SSEEvent(type="text", content=error_message + f" (Details: {type(e).__name__})")],
@@ -865,10 +863,10 @@ class FunctionCallingProcessor(MessageProcessorInterface):
             )
 
             if ctx.store_this_call:
-                self._write_streaming_chat2_user_message(
+                self._write_streaming_episodic_user_message(
                     ctx, message, correlation_id=correlation_id
                 )
-                self.chat2.write_prompt_report(
+                self.episodic_recorder.write_prompt_report(
                     ctx,
                     setup.prompt_breakdown,
                     correlation_id=correlation_id,
@@ -895,7 +893,7 @@ class FunctionCallingProcessor(MessageProcessorInterface):
                     if should_persist:
                         last_persisted_text = event.content
                 if ctx.store_this_call and should_persist:
-                    self._write_streaming_chat2_event(
+                    self._write_streaming_episodic_event(
                         ctx, event, correlation_id=correlation_id
                     )
                 yield event.to_sse()
@@ -917,7 +915,7 @@ class FunctionCallingProcessor(MessageProcessorInterface):
                 e.message,
             )
             try:
-                self._write_streaming_chat2_event(
+                self._write_streaming_episodic_event(
                     ctx,
                     SSEEvent(type="text", content=e.message),
                     correlation_id=correlation_id,
@@ -943,7 +941,7 @@ class FunctionCallingProcessor(MessageProcessorInterface):
             error_message = "I ran into an internal error while processing your request. The issue has been logged."
 
             try:
-                self._write_streaming_chat2_event(
+                self._write_streaming_episodic_event(
                     ctx,
                     SSEEvent(
                         type="text",

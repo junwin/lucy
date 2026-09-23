@@ -1,8 +1,7 @@
 # CoALA memory scaffold
 
-This package introduces typed seams around the memory access already performed
-inside `src/prompt_builders/prompt_builder.py` and related chat/curation APIs.
-It does **not** yet change runtime behaviour.
+This package contains Lucy-specific semantic and procedural memory adapters.
+Episodic memory is supplied directly by `galet-memory`.
 
 ## Mapping from current Lucy code
 
@@ -10,9 +9,8 @@ It does **not** yet change runtime behaviour.
 
 Prompt-time sources:
 
-- `PromptBuilder` uses `Chat2Store.get_session()` for session metadata.
-- `PromptBuilder` uses `session_exists()` / `stream_events()` for recent
-  conversational events.
+- The Galet prompt-builder receives the `galet-memory` episodic interface.
+- `SqliteEpisodicMemory` supplies session metadata and conversational events.
 - `_get_digest_context()` performs similarity lookup over archived chat digests.
 - `_save_overflow_digest()` persists history dropped by the prompt token budget.
 
@@ -20,7 +18,7 @@ Lifecycle and curation sources:
 
 - `src/handlers/episodic_memory_handler.py` exposes session lifecycle
   operations (create, get, list, update, reset, delete), append_event and
-  recall over episodic memory, via the CoALA `Chat2EpisodicMemory` adapter.
+  recall over the `galet-memory` interface.
 - `src/handlers/curate_chat_handler.py` adds summarize/archive workflows,
   preview/publish controls, templates and digest embedding publication.
 - `src/http_endpoints/chats_endpoints.py` exposes session create/get/list,
@@ -28,19 +26,14 @@ Lifecycle and curation sources:
 - `app.py` wires those operations into `/chats` and also resolves or creates
   sessions for `/ask` via `resolve_or_create_session()`.
 
-Storage/facade structure:
+Storage structure:
 
-- `src/chat2/facade.py` is the high-level session/event API and is the natural
-  adaptation point for CoALA episodic memory.
-- `src/chat2/sqlite/backend.py` implements the generic Chat2 document/log
-  primitives using SQLite (`kv` + append-only `logs`, WAL mode). It should stay
-  in `src/chat2`; CoALA should not duplicate its storage mechanics.
-- `Chat2EpisodicMemory` wraps `Chat2Store`, so it works with SQLite, JSONL or
-  other Chat2 primitive backends.
-- `Chat2EpisodicMemory.from_sqlite(db_path)` is a convenience constructor using
-  `SqliteChat2Primitives` for the concrete SQLite deployment.
-- Archived digest similarity search is optional/injected because those digests
-  currently live in Lucy's embedding subsystem, not in the Chat2 SQLite store.
+- `container_config.py` constructs `galet_memory.SqliteEpisodicMemory` at the
+  composition root. Application code depends only on Galet interfaces.
+- `src/chat2` temporarily retains generic document/log primitives used by the
+  embedding store; it no longer contains Lucy's episodic storage facade.
+- Archived digest similarity search is injected because those digests
+  currently live in Lucy's embedding subsystem.
 
 Contracts:
 
@@ -48,8 +41,8 @@ Contracts:
 - `EpisodicMemory.save_overflow_digest(...)` owns prompt overflow persistence.
 - `EpisodicMemoryManager` owns session lifecycle plus filter/summarize/archive
   curation. It is deliberately separate from HTTP and handler schemas.
-- `Chat2EpisodicMemory` implements both contracts over the existing Chat2
-  facade; curation can be supplied by injecting the existing curation engine.
+- `SqliteEpisodicMemory` implements both contracts; Lucy handlers and curation
+  code do not depend on its storage medium.
 
 ### Semantic memory
 
@@ -108,5 +101,5 @@ Expected direction:
 ## Next step
 
 Wire the concrete adapters through Lucy's dependency/container setup and compare
-PromptBuilder output against the current direct Chat2/document/context reads
+PromptBuilder output against the current episodic/document/context reads
 before replacing those calls.

@@ -1,5 +1,5 @@
 """Tests that exercise GET /chats and GET /chats/<id> using the
-Chat2EpisodicMemory manager seam backed by SQLite primitives.
+Galet episodic-memory manager seam backed by SQLite.
 
 Expected to FAIL until HTTP endpoints accept Episodic manager semantics.
 """
@@ -10,10 +10,7 @@ from unittest.mock import Mock
 
 import pytest
 
-from galet_memory import EpisodicEvent
-from src.coala_memory.episodic import Chat2EpisodicMemory
-from src.chat2.facade import Chat2Store
-from src.chat2.sqlite import SqliteChat2Primitives
+from galet_memory import EpisodicEvent, SqliteEpisodicMemory
 from src.http_endpoints.chats_endpoints import get_chat_impl, get_chats_impl
 
 
@@ -24,11 +21,9 @@ def db_path(tmp_path) -> str:
 
 
 @pytest.fixture
-def mgr(db_path: str) -> Chat2EpisodicMemory:
-    primitives = SqliteChat2Primitives(db_path)
-    chat2 = Chat2Store(primitives)
-    mgr = Chat2EpisodicMemory(chat2)
-    return mgr
+def mgr(db_path: str) -> SqliteEpisodicMemory:
+    with SqliteEpisodicMemory(db_path) as memory:
+        yield memory
 
 
 @pytest.fixture
@@ -50,7 +45,7 @@ def agent_manager_strict() -> Mock:
 
 
 class TestGetChatsSQL:
-    def test_list_and_filters(self, mgr: Chat2EpisodicMemory, agent_manager: Mock) -> None:
+    def test_list_and_filters(self, mgr: SqliteEpisodicMemory, agent_manager: Mock) -> None:
         created = mgr.create_session(
             account_name="junwin",
             agent_name="lucy",
@@ -70,7 +65,7 @@ class TestGetChatsSQL:
         assert body[0]["session_type"] == "user"
         assert body[0]["messages"] == []
 
-    def test_agent_filter(self, mgr: Chat2EpisodicMemory, agent_manager: Mock) -> None:
+    def test_agent_filter(self, mgr: SqliteEpisodicMemory, agent_manager: Mock) -> None:
         mgr.create_session(account_name="junwin", agent_name="lucy", friendly_name="a", context_name="lucyproject")
         mgr.create_session(account_name="junwin", agent_name="glinda", friendly_name="b", context_name="lucyproject")
 
@@ -80,7 +75,7 @@ class TestGetChatsSQL:
 
 
 class TestGetChatSQL:
-    def test_get_existing(self, mgr: Chat2EpisodicMemory) -> None:
+    def test_get_existing(self, mgr: SqliteEpisodicMemory) -> None:
         created = mgr.create_session(
             account_name="junwin",
             agent_name="lucy",
@@ -105,7 +100,6 @@ class TestGetChatSQL:
         assert m.get("event_id")
         assert m.get("actor")
 
-    def test_get_unknown(self, mgr: Chat2EpisodicMemory) -> None:
+    def test_get_unknown(self, mgr: SqliteEpisodicMemory) -> None:
         body, status = get_chat_impl(mgr, "00000000-0000-0000-0000-000000000000")
         assert status == 404
-

@@ -298,7 +298,7 @@ def ask():
             else:
                 try:
                     conv_id = resolve_or_create_session(
-                        chat2_store=chat2_store,
+                        episodic_store=episodic_memory_manager,
                         account_name=account_name,
                         agent_name=agent_name,
                         friendly_name=str(friendly_name).strip() or None,

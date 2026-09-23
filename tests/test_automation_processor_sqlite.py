@@ -1,4 +1,4 @@
-"""Verify AutomationProcessor._ensure_chat2_session persists sessions and events into sqlite."""
+"""Verify AutomationProcessor persists sessions and events via galet-memory SQLite."""
 
 import json
 import uuid
@@ -7,9 +7,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from src.chat2.facade import Chat2Store
-from src.chat2.sqlite import SqliteChat2Primitives
-from src.coala_memory.episodic import Chat2EpisodicMemory
+from galet_memory import EpisodicSessionQuery, SqliteEpisodicMemory
 from src.message_processors.automation_processor import AutomationProcessor
 from src.message_processors.function_calling_processor import FCPResult
 from src.message_processors.run_metrics import RunMetrics
@@ -19,11 +17,9 @@ from src.tasklists.task_states import TASK_STATE_COMPLETED
 
 
 @pytest.fixture
-def chat2_store(tmp_path: Path) -> Chat2Store:
-    primitives = SqliteChat2Primitives(tmp_path / "chat2.sqlite")
-    store = Chat2Store(primitives)
-    yield store
-    primitives.close()
+def chat2_store(tmp_path: Path) -> SqliteEpisodicMemory:
+    with SqliteEpisodicMemory(tmp_path / "chat2.sqlite") as memory:
+        yield memory
 
 
 class RecordingFunctionProcessor:
@@ -74,7 +70,7 @@ def make_processor(chat2_store, storage):
         registry=None,
         storage=storage,
         prompt_builder=None,
-        episodic_store=Chat2EpisodicMemory(chat2_store),
+        episodic_store=chat2_store,
         llm_adapter=None,
         agent_manager=None,
     )
@@ -123,7 +119,7 @@ def test_execute_tasklist_writes_events_to_sqlite(chat2_store):
     tasklist = make_tasklist()
     result, tasklist, conversation_id = run_tasklist(fcp, tasklist, chat2_store)
 
-    events = list(chat2_store.stream_events(conversation_id))
+    events = chat2_store.get_session(conversation_id).events
     assert [e.kind for e in events] == ["system_note", "summary"]
     assert [e.role for e in events] == ["assistant", "assistant"]
     assert [e.actor for e in events] == ["test", "test"]
@@ -132,12 +128,12 @@ def test_execute_tasklist_writes_events_to_sqlite(chat2_store):
         "automation_summary",
     ]
 
-    task_event = json.loads(events[0].payload)
+    task_event = json.loads(events[0].content)
     assert task_event["task_name"] == "T1"
     assert task_event["outcome"] == "completed"
     assert task_event["error"] is None
 
-    summary_event = json.loads(events[1].payload)
+    summary_event = json.loads(events[1].content)
     assert summary_event["tasklist_id"] == "tl-1"
     assert summary_event["mode"] == "single-step"
     assert summary_event["executed_count"] == 1
@@ -148,9 +144,9 @@ def test_execute_tasklist_sessions_listed_for_account(chat2_store):
     tasklist = make_tasklist()
     result, tasklist, conversation_id = run_tasklist(fcp, tasklist, chat2_store)
 
-    sessions = chat2_store.list_sessions(account_name="acct")
+    sessions = chat2_store.list_sessions(EpisodicSessionQuery(account_name="acct"))
     assert [s.session_id for s in sessions] == [conversation_id]
-    assert chat2_store.list_sessions(account_name="other") == []
+    assert chat2_store.list_sessions(EpisodicSessionQuery(account_name="other")) == []
 
 
 def test_execute_tasklist_links_events_to_correlation(chat2_store):
@@ -160,7 +156,11 @@ def test_execute_tasklist_links_events_to_correlation(chat2_store):
         fcp, tasklist, chat2_store, correlation_id="corr-auto-1"
     )
 
-    linked = chat2_store.get_events_by_correlation("corr-auto-1")
+    linked = [
+        event
+        for event in chat2_store.get_session(conversation_id).events
+        if event.metadata.get("correlation_id") == "corr-auto-1"
+    ]
     assert [e.kind for e in linked] == ["system_note", "summary"]
     assert [e.metadata["correlation_id"] for e in linked] == ["corr-auto-1", "corr-auto-1"]
 
@@ -173,9 +173,9 @@ def test_execute_tasklist_reuses_existing_session(chat2_store):
         fcp, tasklist, chat2_store, conversation_id=conversation_id
     )
 
-    sessions = chat2_store.list_sessions(account_name="acct")
+    sessions = chat2_store.list_sessions(EpisodicSessionQuery(account_name="acct"))
     assert len(sessions) == 1
-    assert chat2_store.event_count(conversation_id) == 3
+    assert len(chat2_store.get_session(conversation_id).events) == 3
 
 
 def test_process_message_writes_command_event_to_sqlite(chat2_store):
@@ -197,9 +197,9 @@ def test_process_message_writes_command_event_to_sqlite(chat2_store):
 
     assert "state=Failed" not in result
     assert chat2_store.session_exists(conversation_id)
-    events = list(chat2_store.stream_events(conversation_id))
+    events = chat2_store.get_session(conversation_id).events
     assert [e.kind for e in events] == ["user_message", "system_note", "summary"]
     assert events[0].role == "user"
     assert events[0].actor == "acct"
-    assert events[0].payload == command
+    assert events[0].content == command
     assert events[0].metadata["automation_kind"] == "automation_command"

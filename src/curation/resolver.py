@@ -1,7 +1,7 @@
 """Session resolution by friendly name or session ID.
 
 Resolution is provider-neutral: curation depends only on the CoALA episodic
-session/event interface, never on Chat2 or a concrete storage backend.
+session/event interface, never on a concrete storage backend.
 """
 
 from __future__ import annotations

@@ -2,7 +2,7 @@
 
 The engine orchestrates session resolution, filtering, summarization, archive
 artifacts and digest publication. It depends on provider-neutral interfaces;
-concrete Chat2/JFS/SQLite details stay behind the episodic adapter.
+concrete storage details stay behind the galet-memory interface.
 """
 
 from __future__ import annotations

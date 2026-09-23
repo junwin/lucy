@@ -23,7 +23,7 @@ def resolve_or_create_session(
     context_name: Optional[str] = None,
     limit: int = 500,
 ) -> str:
-    """Resolve an existing chat2 session by friendly name or create a new one.
+    """Resolve an existing episodic session by friendly name or create a new one.
 
     Mirrors v1 semantics: case-insensitive substring match on friendly_name,
     scoped to account+agent, with an explicit limit so sessions beyond the

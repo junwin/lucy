@@ -32,7 +32,7 @@ def _next_archive_path(archive_account_dir: Path, session_id: str) -> Path:
 
 
 def _archive_record(event: EpisodicEvent) -> Dict[str, Any]:
-    """Return a stable JSONL representation without depending on Chat2 models.
+    """Return a stable JSONL representation without depending on backend models.
 
     Field names intentionally match the existing ChatEvent archive shape where
     possible so existing archives remain easy to inspect and migrate.

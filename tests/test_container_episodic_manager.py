@@ -5,15 +5,12 @@ from src.container_config import (
     CoALAMemoryModule,
     EndpointHandlersModule,
 )
-from galet_memory import EpisodicMemoryManager
-from src.coala_memory.episodic import Chat2EpisodicMemory
-from src.chat2.facade import Chat2Store
-from src.chat2.store_primitives import InMemoryStore
+from galet_memory import EpisodicMemoryManager, SqliteEpisodicMemory
 
 
-def test_provide_episodic_memory_manager_direct_call() -> None:
+def test_provide_episodic_memory_manager_direct_call(tmp_path) -> None:
     module = CoALAMemoryModule()
-    episodic = Chat2EpisodicMemory(Chat2Store(InMemoryStore()))
+    episodic = SqliteEpisodicMemory(tmp_path / "chat2.sqlite")
     assert isinstance(episodic, EpisodicMemoryManager)
     provided = module.provide_episodic_memory_manager(episodic)
     assert provided is episodic

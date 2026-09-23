@@ -406,12 +406,12 @@ def test_partial_sandbox_result_is_returned_to_model_unchanged(
 
 
 # ---------------------------------------------------------------------------
-# _ensure_chat2_session context_name passthrough tests
+# Episodic session context_name passthrough tests
 # ---------------------------------------------------------------------------
 
 
-class TestEnsureChat2SessionContextName:
-    """Verify context_name flows through _ensure_chat2_session → create_session."""
+class TestEnsureEpisodicSessionContextName:
+    """Verify context_name flows through episodic session creation."""
 
     def test_context_name_passed_to_create_session(self, make_proc, prompt_builder, llm_adapter):
         """When a new session is created, context_name is passed through."""
@@ -503,7 +503,7 @@ class TestEnsureChat2SessionContextName:
         # Events should still be written
         mock_store.add_events.assert_called_once()
 
-    def test_no_chat2_store_no_crash(self, make_proc, prompt_builder, llm_adapter):
+    def test_no_episodic_store_no_crash(self, make_proc, prompt_builder, llm_adapter):
         """When episodic_store is None, process_message still works fine."""
         from tests.conftest import FakeAgent
 
@@ -525,8 +525,8 @@ class TestEnsureChat2SessionContextName:
 
         assert out == "all good"
 
-    def test_save_responses_false_skips_chat2_write(self, make_proc, prompt_builder, llm_adapter):
-        """When save_responses is False, _ensure_chat2_session is never called."""
+    def test_save_responses_false_skips_episodic_write(self, make_proc, prompt_builder, llm_adapter):
+        """When save_responses is False, episodic memory is not written."""
         from tests.conftest import FakeAgent
 
         mock_store = Mock()

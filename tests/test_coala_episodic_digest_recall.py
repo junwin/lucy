@@ -2,13 +2,8 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-from galet_memory import EpisodicMemoryRequest
-from src.coala_memory.episodic import (
-    Chat2EpisodicMemory,
-    EmbeddingDigestRecall,
-)
-from src.chat2.facade import Chat2Store
-from src.chat2.store_primitives import InMemoryStore
+from galet_memory import EpisodicMemoryRequest, SqliteEpisodicMemory
+from src.coala_memory.episodic import EmbeddingDigestRecall
 
 
 class _EmbeddingFacade:
@@ -94,7 +89,7 @@ def test_embedding_digest_recall_failure_isolated():
     assert digests == []
 
 
-def test_chat2_episodic_memory_returns_archived_digests(tmp_path):
+def test_sqlite_episodic_memory_returns_archived_digests(tmp_path):
     digest_file = tmp_path / "session-a.md"
     digest_file.write_text("Earlier Lucy architecture discussion.", encoding="utf-8")
     recall = EmbeddingDigestRecall(
@@ -103,8 +98,8 @@ def test_chat2_episodic_memory_returns_archived_digests(tmp_path):
             [(_record("session-a", str(digest_file)), 0.44)]
         ),
     )
-    memory = Chat2EpisodicMemory(
-        Chat2Store(InMemoryStore()),
+    memory = SqliteEpisodicMemory(
+        tmp_path / "chat2.sqlite",
         digest_recall=recall,
     )
 
@@ -123,9 +118,9 @@ def test_chat2_episodic_memory_returns_archived_digests(tmp_path):
     assert [digest.session_id for digest in result.digests] == ["session-a"]
 
 
-def test_chat2_episodic_memory_persists_overflow_digest(tmp_path):
-    memory = Chat2EpisodicMemory(
-        Chat2Store(InMemoryStore()),
+def test_sqlite_episodic_memory_persists_overflow_digest(tmp_path):
+    memory = SqliteEpisodicMemory(
+        tmp_path / "chat2.sqlite",
         digests_root=tmp_path,
     )
 

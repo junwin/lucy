@@ -125,7 +125,7 @@ def build_registry_and_catalog() -> tuple[HandlerRegistry, ToolCatalog]:
 
     # CoALA semantic memory recall — integration-test seam for Lucy agents
     reg.register(SemanticMemoryHandler)
-    # CoALA episodic memory — integration-test seam over Chat2
+    # Episodic memory supplied through the galet-memory interface
     reg.register(EpisodicMemoryHandler)
 
     # Remote execution — query a remote Lucy instance's /ask endpoint
