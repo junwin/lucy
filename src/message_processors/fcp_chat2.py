@@ -46,6 +46,132 @@ class Chat2Recorder:
             )
 
 
+    def write_user_message(
+        self,
+        ctx: ProcessorContext,
+        user_message: str,
+        correlation_id: Optional[str] = None,
+    ) -> None:
+        """Persist the user side of a streaming turn before response delivery starts."""
+        if self.episodic_store is None:
+            return
+        try:
+            self.ensure_session(ctx)
+            event = self.episodic_store.append_event(
+                ctx.conversation_id,
+                EpisodicEvent(
+                    role="user",
+                    actor=ctx.account_id,
+                    kind="user_message",
+                    content=user_message,
+                    metadata={"agent": ctx.agent_name},
+                ),
+            )
+            if correlation_id:
+                self.episodic_store.link_event(
+                    correlation_id, ctx.conversation_id, event.event_id
+                )
+        except Exception:
+            logging.exception(
+                "chat2: failed to write streaming user message for session=%s",
+                ctx.conversation_id,
+            )
+
+    def write_streaming_event(
+        self,
+        ctx: ProcessorContext,
+        streamed_event: SSEEvent,
+        correlation_id: Optional[str] = None,
+    ) -> None:
+        """Persist one deliverable SSE event before it is yielded to the client."""
+        if self.episodic_store is None:
+            return
+
+        ev = streamed_event
+        event: Optional[EpisodicEvent] = None
+        if ev.type == "tool_call":
+            event = EpisodicEvent(
+                role="assistant",
+                actor=ctx.agent_name,
+                kind="assistant_tool_call",
+                content={"tool_name": ev.tool_name, "call_id": ev.call_id},
+                metadata={"agent": ctx.agent_name, "call_id": ev.call_id},
+            )
+        elif ev.type == "tool_result":
+            payload = {"call_id": ev.call_id, "ok": ev.ok}
+            if ev.status:
+                payload["status"] = ev.status
+            event = EpisodicEvent(
+                role="tool",
+                actor="system",
+                kind="tool_result",
+                content=payload,
+                metadata={"call_id": ev.call_id},
+            )
+        elif ev.type == "text" and ev.content:
+            event = EpisodicEvent(
+                role="assistant",
+                actor=ctx.agent_name,
+                kind="assistant_message",
+                content=ev.content,
+                metadata={"agent": ctx.agent_name},
+            )
+        elif ev.type == "image":
+            if ev.format == "svg":
+                content = {
+                    "format": "svg",
+                    "svg_markup": ev.svg_markup,
+                    "alt": ev.alt or "",
+                    "width": ev.width,
+                    "height": ev.height,
+                }
+                image_format = "svg"
+            else:
+                content = {
+                    "image_url": ev.image_url,
+                    "alt": ev.alt or "",
+                    "format": "png",
+                }
+                image_format = "png"
+            event = EpisodicEvent(
+                role="assistant",
+                actor=ctx.agent_name,
+                kind="generated_image",
+                content=content,
+                metadata={"agent": ctx.agent_name, "format": image_format},
+            )
+        elif ev.type == "video":
+            event = EpisodicEvent(
+                role="assistant",
+                actor=ctx.agent_name,
+                kind="generated_video",
+                content={
+                    "video_url": ev.video_url,
+                    "mime_type": ev.mime_type or "video/mp4",
+                    "download_name": ev.download_name or "fashion-reel.mp4",
+                    "video_id": ev.video_id,
+                },
+                metadata={"agent": ctx.agent_name, "format": "mp4"},
+            )
+
+        if event is None:
+            return
+
+        try:
+            self.ensure_session(ctx)
+            event = self.episodic_store.append_event(ctx.conversation_id, event)
+            if correlation_id:
+                self.episodic_store.link_event(
+                    correlation_id, ctx.conversation_id, event.event_id
+                )
+        except Exception:
+            logging.exception(
+                "chat2: failed to write streaming event type=%s for session=%s",
+                ev.type,
+                ctx.conversation_id,
+            )
+
+
     def write_streaming_events(
         self,
         ctx: ProcessorContext,
