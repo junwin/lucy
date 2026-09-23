@@ -476,6 +476,28 @@ class FunctionCallingProcessor(MessageProcessorInterface):
             ctx, user_message, streamed_events, correlation_id=correlation_id
         )
 
+    def _write_streaming_chat2_user_message(
+        self,
+        ctx: ProcessorContext,
+        user_message: str,
+        correlation_id: Optional[str] = None,
+    ) -> None:
+        self.chat2.episodic_store = self.episodic_store
+        self.chat2.write_user_message(
+            ctx, user_message, correlation_id=correlation_id
+        )
+
+    def _write_streaming_chat2_event(
+        self,
+        ctx: ProcessorContext,
+        event: SSEEvent,
+        correlation_id: Optional[str] = None,
+    ) -> None:
+        self.chat2.episodic_store = self.episodic_store
+        self.chat2.write_streaming_event(
+            ctx, event, correlation_id=correlation_id
+        )
+
     def _finalize_run(
         self,
         metrics: Dict[str, Any],
@@ -749,8 +771,9 @@ class FunctionCallingProcessor(MessageProcessorInterface):
         Same setup as process_message() but runs the LLMLoopRunner
         and yields SSE-formatted strings ("data: {json}\\n\\n").
 
-        Collects all SSE events during streaming so they can be persisted
-        to chat2 storage (including image and tool cards).
+        Persists the user message before model work and each deliverable event
+        before yielding it to the client. This keeps history recoverable when
+        SSE delivery stalls or the client disconnects.
         """
         start_ts = time.perf_counter()
         metrics: Dict[str, Any] = {
@@ -820,11 +843,14 @@ class FunctionCallingProcessor(MessageProcessorInterface):
             supports_images,
         )
 
-        # Collect all SSE events for chat2 persistence
-        streamed_events: List[SSEEvent] = []
-        events_persisted = False
+        last_persisted_text: Optional[str] = None
 
         try:
+            if ctx.store_this_call:
+                self._write_streaming_chat2_user_message(
+                    ctx, message, correlation_id=correlation_id
+                )
+
             setup = self._prepare_prompt_and_tools(
                 ctx=ctx,
                 primary_agent=primary_agent,
@@ -847,13 +873,19 @@ class FunctionCallingProcessor(MessageProcessorInterface):
                 metrics=metrics,
                 correlation_id=correlation_id,
             ):
-                streamed_events.append(event)
+                should_persist = True
+                if event.type == "text" and event.content:
+                    # LLMLoopRunner emits the same final text twice on the
+                    # no-tool path. Preserve distinct iteration text while
+                    # avoiding a duplicate history message.
+                    should_persist = event.content != last_persisted_text
+                    if should_persist:
+                        last_persisted_text = event.content
+                if ctx.store_this_call and should_persist:
+                    self._write_streaming_chat2_event(
+                        ctx, event, correlation_id=correlation_id
+                    )
                 yield event.to_sse()
-
-            # Write all collected events to chat2 storage
-            if ctx.store_this_call:
-                self._write_streaming_chat2_events(ctx, message, streamed_events, correlation_id=correlation_id)
-                events_persisted = True
 
         except ToolHandlerError:
             yield SSEEvent(type="error", message="A tool execution error occurred.").to_sse()
@@ -872,13 +904,11 @@ class FunctionCallingProcessor(MessageProcessorInterface):
                 e.message,
             )
             try:
-                self._write_streaming_chat2_events(
+                self._write_streaming_chat2_event(
                     ctx,
-                    message,
-                    [SSEEvent(type="text", content=e.message)],
+                    SSEEvent(type="text", content=e.message),
                     correlation_id=correlation_id,
                 )
-                events_persisted = True
             except Exception:
                 logging.exception(
                     "FunctionCallingProcessor(streaming): failed to store tool-selection error for session_id=%s",
@@ -900,13 +930,14 @@ class FunctionCallingProcessor(MessageProcessorInterface):
             error_message = "I ran into an internal error while processing your request. The issue has been logged."
 
             try:
-                self._write_streaming_chat2_events(
+                self._write_streaming_chat2_event(
                     ctx,
-                    message,
-                    [SSEEvent(type="text", content=error_message + f" (Details: {type(e).__name__})")],
+                    SSEEvent(
+                        type="text",
+                        content=error_message + f" (Details: {type(e).__name__})",
+                    ),
                     correlation_id=correlation_id,
                 )
-                events_persisted = True
             except Exception:
                 logging.exception(
                     "FunctionCallingProcessor(streaming): failed to store error conversation for session_id=%s",
@@ -918,11 +949,6 @@ class FunctionCallingProcessor(MessageProcessorInterface):
             yield SSEEvent(type="done", conversation_id=ctx.conversation_id).to_sse()
 
         finally:
-            # Best-effort: if the client disconnected mid-stream (GeneratorExit),
-            # persist whatever was streamed so far so history is not lost.
-            if not events_persisted and ctx.store_this_call:
-                self._write_streaming_chat2_events(ctx, message, streamed_events, correlation_id=correlation_id)
-
             latency_ms = int((time.perf_counter() - start_ts) * 1000)
             self._finalize_run(
                 metrics, ctx, correlation_id, started, latency_ms, correlation_token
