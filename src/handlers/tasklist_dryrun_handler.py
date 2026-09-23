@@ -21,7 +21,7 @@ class TasklistDryrunHandler(HandlerV2):
     NAME = "tasklist_dryrun"
     DRYRUN_AGENT = "colin"
     DRYRUN_CONTEXT = "dry-run-task"
-    ASSESSMENTS = {"ready", "decompose", "blocked", "invalid"}
+    FAILURE_REASONS = {"decompose", "blocked", "invalid"}
 
     def __init__(
         self,
@@ -90,30 +90,21 @@ class TasklistDryrunHandler(HandlerV2):
                             "id": {"type": "string"},
                             "name": {"type": "string"},
                             "persisted_state": {"type": "string"},
-                            "state": {
+                            "ready": {"type": ["boolean", "null"]},
+                            "reason": {
                                 "type": ["string", "null"],
-                                "enum": [
-                                    "ready",
-                                    "decompose",
-                                    "blocked",
-                                    "invalid",
-                                    None,
-                                ],
+                                "enum": ["decompose", "blocked", "invalid", None],
                             },
-                            "intended_implementation": {"type": "string"},
-                            "tests_to_add_or_run": {
-                                "type": "array",
-                                "items": {"type": "string"},
-                            },
+                            "detail": {"type": "string"},
                             "error": {"type": "string"},
                         },
                         "required": [
                             "id",
                             "name",
                             "persisted_state",
-                            "state",
-                            "intended_implementation",
-                            "tests_to_add_or_run",
+                            "ready",
+                            "reason",
+                            "detail",
                         ],
                         "additionalProperties": False,
                     },
@@ -171,9 +162,9 @@ class TasklistDryrunHandler(HandlerV2):
                     "id": task.id,
                     "name": task.name,
                     "persisted_state": task.state,
-                    "state": None,
-                    "intended_implementation": "",
-                    "tests_to_add_or_run": [],
+                    "ready": None,
+                    "reason": None,
+                    "detail": "",
                 }
                 try:
                     logger.info(
@@ -258,25 +249,34 @@ class TasklistDryrunHandler(HandlerV2):
 
         results = payload.get("task_results") if isinstance(payload, dict) else None
         if not isinstance(results, list) or len(results) != 1:
-            return None, "dry-run response must contain exactly one task_result"
+            count = len(results) if isinstance(results, list) else 0
+            return None, f"dry-run response returned {count} task_results; expected exactly 1"
 
         result = results[0]
         if not isinstance(result, dict):
             return None, "dry-run task_result must be an object"
 
-        state = str(result.get("state") or "").strip().lower()
-        if state not in cls.ASSESSMENTS:
-            return None, f"unexpected dry-run state: {state!r}"
+        ready = result.get("ready")
+        if not isinstance(ready, bool):
+            return None, "dry-run ready must be a boolean"
 
-        intended = result.get("intended_implementation")
-        tests = result.get("tests_to_add_or_run")
-        if not isinstance(intended, str):
-            return None, "dry-run intended_implementation must be a string"
-        if not isinstance(tests, list) or any(not isinstance(test, str) for test in tests):
-            return None, "dry-run tests_to_add_or_run must be a list of strings"
+        if ready:
+            return {
+                "ready": True,
+                "reason": None,
+                "detail": "",
+            }, None
+
+        reason = str(result.get("reason") or "").strip().lower()
+        if reason not in cls.FAILURE_REASONS:
+            return None, f"unexpected dry-run reason: {reason!r}"
+
+        detail = result.get("detail")
+        if not isinstance(detail, str) or not detail.strip():
+            return None, "dry-run detail must be a non-empty string when ready is false"
 
         return {
-            "state": state,
-            "intended_implementation": intended.strip(),
-            "tests_to_add_or_run": tests,
+            "ready": False,
+            "reason": reason,
+            "detail": detail.strip(),
         }, None
