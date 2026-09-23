@@ -446,6 +446,62 @@ def test_step7_selection_disabled_active_is_full_eligible():
     assert result.active == ["t1", "t2", "t3"]
 
 
+def test_discovery_controls_are_active_even_when_selector_omits_them():
+    result, llm = _resolve(
+        tool_names=["file_load", "discover_tools", "activate_tools"],
+        allowed=["file_load"],
+        llm_reply='["file_load"]',
+    )
+
+    assert llm.calls
+    assert result.prompt_based == ["file_load"]
+    assert result.active == ["file_load", "discover_tools", "activate_tools"]
+
+
+def test_discovery_controls_not_added_when_disabled_on_agent():
+    pipeline, llm, agent = _build(
+        tool_names=["file_load", "discover_tools", "activate_tools"],
+        allowed=["file_load"],
+        llm_reply='["file_load"]',
+    )
+    agent.tool_discovery_enabled = False
+
+    result = pipeline.resolve(
+        agent=agent,
+        account_name=ACCOUNT,
+        context_name=CONTEXT_ID,
+        prompt_text="load the file",
+    )
+
+    assert llm.calls
+    assert result.allowed == ["file_load"]
+    assert result.eligible == ["file_load"]
+    assert result.active == ["file_load"]
+
+
+def test_discovery_controls_do_not_change_domain_tool_selection():
+    result, _ = _resolve(
+        tool_names=[
+            "file_load",
+            "execute_command",
+            "web_search_handler",
+            "discover_tools",
+            "activate_tools",
+        ],
+        allowed=["file_load", "execute_command", "web_search_handler"],
+        llm_reply='["execute_command"]',
+    )
+
+    assert result.prompt_based == ["execute_command"]
+    assert "file_load" not in result.active
+    assert "web_search_handler" not in result.active
+    assert result.active == [
+        "execute_command",
+        "discover_tools",
+        "activate_tools",
+    ]
+
+
 # ---------------------------------------------------------------------------
 # Step 8 — schema budget (fail loud, never trim silently — D4)
 # ---------------------------------------------------------------------------
