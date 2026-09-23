@@ -918,14 +918,13 @@ def test_unknown_tool_returns_recoverable_error_to_llm(make_proc, prompt_builder
     assert "known" in second_call_input[0]["output"]
 
 
-def test_streaming_persists_on_generator_close(make_proc, prompt_builder, llm_adapter):
-    """When the client disconnects mid-stream (generator close), streamed events are still persisted to chat2."""
+def test_streaming_persists_before_generator_close(make_proc, prompt_builder, llm_adapter):
+    """A produced event is durable before SSE delivery can block or disconnect."""
     from tests.conftest import FakeAgent
 
     mock_store = Mock()
     mock_store.session_exists.return_value = False
     mock_store.create_session.return_value = Mock()
-    mock_store.add_events.return_value = []
 
     proc = make_proc()
     proc.episodic_store = mock_store
@@ -943,12 +942,14 @@ def test_streaming_persists_on_generator_close(make_proc, prompt_builder, llm_ad
         context_name="ctx",
     )
 
-    # Consume the first SSE event, then simulate the client disconnecting.
+    # The first text event has been persisted before control reaches the client.
     next(gen)
-    gen.close()
+    assert mock_store.append_event.call_count == 3
+    kinds = [call.args[1].kind for call in mock_store.append_event.call_args_list]
+    assert kinds == ["user_message", "prompt_report", "assistant_message"]
 
-    # The finally block must persist the streamed events to chat2.
-    mock_store.add_events.assert_called()
+    gen.close()
+    assert mock_store.append_event.call_count == 3
 
 # ---------------------------------------------------------------------------
 # Step 0 golden test (fcp-split): non-streaming vs streaming final-text equivalence

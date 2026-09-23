@@ -148,7 +148,7 @@ class TestChat2SqliteEndToEnd:
         assert chat2_store.get_session(sid) is None
         assert chat2_store.list_sessions(account_name="acct1") == []
 
-    def test_streaming_persists_events_on_generator_close(self, make_proc, prompt_builder, llm_adapter, chat2_store):
+    def test_streaming_persists_events_before_client_reads_next_event(self, make_proc, prompt_builder, llm_adapter, chat2_store):
         proc = make_proc(episodic_store=Chat2EpisodicMemory(chat2_store))
 
         prompt_builder.build_prompt.return_value = [{"role": "user", "content": "hi"}]
@@ -165,11 +165,36 @@ class TestChat2SqliteEndToEnd:
         )
 
         next(gen)
-        gen.close()
 
+        # Persistence happens before the SSE yield. A blocked socket therefore
+        # cannot hide an event that the model has already produced.
         meta = chat2_store.get_session(sid)
         assert meta is not None
         events = list(chat2_store.stream_events(sid))
-        assert [e.kind for e in events] == ["prompt_report", "user_message", "assistant_message"]
-        assert events[1].payload == "hi"
+        assert [e.kind for e in events] == ["user_message", "prompt_report", "assistant_message"]
+        assert events[0].payload == "hi"
         assert events[2].payload == "hello"
+
+        gen.close()
+        events_after_close = list(chat2_store.stream_events(sid))
+        assert [e.event_id for e in events_after_close] == [e.event_id for e in events]
+
+    def test_streaming_complete_does_not_duplicate_final_text(self, make_proc, prompt_builder, llm_adapter, chat2_store):
+        proc = make_proc(episodic_store=Chat2EpisodicMemory(chat2_store))
+
+        prompt_builder.build_prompt.return_value = [{"role": "user", "content": "hi"}]
+        llm_adapter.extract_tool_calls.return_value = []
+        llm_adapter.get_text.return_value = "hello"
+
+        sid = _session_id()
+        list(proc.process_message_streaming(
+            primary_agent=_saved_agent(),
+            account={"accountId": "acct1"},
+            message="hi",
+            conversation_id=sid,
+            context_name="ctx",
+        ))
+
+        events = list(chat2_store.stream_events(sid))
+        assert [e.kind for e in events] == ["user_message", "prompt_report", "assistant_message"]
+        assert [e.payload for e in events if e.kind == "assistant_message"] == ["hello"]
