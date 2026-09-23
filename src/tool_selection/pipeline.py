@@ -164,12 +164,15 @@ class ToolSelectionPipeline:
         else:
             active = _order_preserving_dedupe(required + prompt_based)
 
-        # Discovery and activation form a control-plane pair. If discovery is
-        # selected, expose activation too so the model can use a discovered
-        # tool on the following loop iteration. Permission remains bounded by
-        # the eligible set.
-        if "discover_tools" in active and "activate_tools" in eligible:
-            active = _order_preserving_dedupe(active + ["activate_tools"])
+        # Discovery controls are platform control-plane tools, not domain
+        # selections. Keep them active whenever discovery is enabled and they
+        # are eligible, so the system instruction to discover/activate tools is
+        # always actionable even when the prompt-based selector did not choose
+        # them explicitly.
+        discovery_controls = [
+            name for name in _DISCOVERY_CONTROL_TOOLS if name in eligible
+        ]
+        active = _order_preserving_dedupe(active + discovery_controls)
 
         active_defs = self._defs_by_name(active)
         meta["active_defs"] = active_defs
