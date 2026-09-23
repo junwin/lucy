@@ -43,9 +43,7 @@ class FakeDelegateHandler:
                     "task_results": [
                         {
                             "task": args["task"],
-                            "intended_implementation": "Implement it.",
-                            "tests_to_add_or_run": ["Run relevant tests."],
-                            "state": "ready",
+                            "ready": True,
                         }
                     ]
                 }
@@ -76,21 +74,17 @@ def _save_tasklist(handler, account_name="alice", tasklist_id="dryrun-1"):
     return tasklist
 
 
-def _result(state, implementation="Implement it.", tests=None):
+def _result(ready, reason=None, detail=""):
+    item = {
+        "task": "ignored by handler",
+        "ready": ready,
+    }
+    if not ready:
+        item["reason"] = reason
+        item["detail"] = detail
     return {
         "ok": True,
-        "result": json.dumps(
-            {
-                "task_results": [
-                    {
-                        "task": "ignored by handler",
-                        "intended_implementation": implementation,
-                        "tests_to_add_or_run": tests or ["Run tests."],
-                        "state": state,
-                    }
-                ]
-            }
-        ),
+        "result": json.dumps({"task_results": [item]}),
     }
 
 
@@ -98,8 +92,8 @@ def test_dryrun_returns_structured_results_in_order(tmp_path):
     handler = _handler(
         tmp_path,
         results=[
-            _result("ready", "Add the provider.", ["Run provider tests."]),
-            _result("DECOMPOSE", "Split the work.", ["Test each smaller task."]),
+            _result(True),
+            _result(False, "decompose", "Too large for the tool budget."),
         ],
     )
     _save_tasklist(handler)
@@ -119,17 +113,17 @@ def test_dryrun_returns_structured_results_in_order(tmp_path):
                 "id": "t1",
                 "name": "First",
                 "persisted_state": "Pending",
-                "state": "ready",
-                "intended_implementation": "Add the provider.",
-                "tests_to_add_or_run": ["Run provider tests."],
+                "ready": True,
+                "reason": None,
+                "detail": "",
             },
             {
                 "id": "t2",
                 "name": "Second",
                 "persisted_state": "Completed",
-                "state": "decompose",
-                "intended_implementation": "Split the work.",
-                "tests_to_add_or_run": ["Test each smaller task."],
+                "ready": False,
+                "reason": "decompose",
+                "detail": "Too large for the tool budget.",
             },
         ],
     }
@@ -186,7 +180,7 @@ def test_dryrun_records_delegate_failure_and_continues(tmp_path):
         tmp_path,
         results=[
             {"ok": False, "error": "no eligible machine"},
-            _result("blocked"),
+            _result(False, "blocked", "Missing dependency."),
         ],
     )
     _save_tasklist(handler)
@@ -198,12 +192,13 @@ def test_dryrun_records_delegate_failure_and_continues(tmp_path):
         "id": "t1",
         "name": "First",
         "persisted_state": "Pending",
-        "state": None,
-        "intended_implementation": "",
-        "tests_to_add_or_run": [],
+        "ready": None,
+        "reason": None,
+        "detail": "",
         "error": "no eligible machine",
     }
-    assert result["tasks"][1]["state"] == "blocked"
+    assert result["tasks"][1]["ready"] is False
+    assert result["tasks"][1]["reason"] == "blocked"
 
 
 def test_dryrun_records_invalid_json_and_continues(tmp_path):
@@ -211,27 +206,34 @@ def test_dryrun_records_invalid_json_and_continues(tmp_path):
         tmp_path,
         results=[
             {"ok": True, "result": "not json"},
-            _result("invalid"),
+            _result(False, "invalid", "Malformed task."),
         ],
     )
     _save_tasklist(handler)
 
     result = handler.execute({"tasklist_id": "dryrun-1"}, account_name="alice")
 
-    assert result["tasks"][0]["state"] is None
+    assert result["tasks"][0]["ready"] is None
     assert "invalid dry-run JSON" in result["tasks"][0]["error"]
-    assert result["tasks"][1]["state"] == "invalid"
+    assert result["tasks"][1]["ready"] is False
+    assert result["tasks"][1]["reason"] == "invalid"
 
 
-def test_dryrun_records_unexpected_state(tmp_path):
-    handler = _handler(tmp_path, results=[_result("maybe"), _result("ready")])
+def test_dryrun_records_unexpected_reason(tmp_path):
+    handler = _handler(
+        tmp_path,
+        results=[
+            _result(False, "maybe", "Not sure."),
+            _result(True),
+        ],
+    )
     _save_tasklist(handler)
 
     result = handler.execute({"tasklist_id": "dryrun-1"}, account_name="alice")
 
-    assert result["tasks"][0]["state"] is None
-    assert "unexpected dry-run state" in result["tasks"][0]["error"]
-    assert result["tasks"][1]["state"] == "ready"
+    assert result["tasks"][0]["ready"] is None
+    assert "unexpected dry-run reason" in result["tasks"][0]["error"]
+    assert result["tasks"][1]["ready"] is True
 
 
 def test_dryrun_requires_one_task_result_per_delegated_task(tmp_path):
@@ -239,18 +241,18 @@ def test_dryrun_requires_one_task_result_per_delegated_task(tmp_path):
         tmp_path,
         results=[
             {"ok": True, "result": json.dumps({"task_results": []})},
-            _result("ready"),
+            _result(True),
         ],
     )
     _save_tasklist(handler)
 
     result = handler.execute({"tasklist_id": "dryrun-1"}, account_name="alice")
 
-    assert result["tasks"][0]["state"] is None
+    assert result["tasks"][0]["ready"] is None
     assert result["tasks"][0]["error"] == (
-        "dry-run response must contain exactly one task_result"
+        "dry-run response returned 0 task_results; expected exactly 1"
     )
-    assert result["tasks"][1]["state"] == "ready"
+    assert result["tasks"][1]["ready"] is True
 
 
 def test_dryrun_records_raised_task_error_and_continues(tmp_path):
@@ -266,9 +268,9 @@ def test_dryrun_records_raised_task_error_and_continues(tmp_path):
     result = handler.execute({"tasklist_id": "dryrun-1"}, account_name="alice")
 
     assert result["ok"] is True
-    assert result["tasks"][0]["state"] is None
+    assert result["tasks"][0]["ready"] is None
     assert result["tasks"][0]["error"] == "boom"
-    assert result["tasks"][1]["state"] == "ready"
+    assert result["tasks"][1]["ready"] is True
 
 
 def test_dryrun_does_not_modify_persisted_tasklist(tmp_path):
@@ -307,8 +309,8 @@ def test_dryrun_logs_delegate_result(tmp_path, caplog):
     handler = _handler(
         tmp_path,
         results=[
-            _result("ready", "Add provider.", ["Run tests."]),
-            _result("blocked", "Need dependency.", ["Check dependency."]),
+            _result(True),
+            _result(False, "blocked", "Need dependency."),
         ],
     )
     _save_tasklist(handler)
@@ -332,7 +334,7 @@ def test_dryrun_logs_delegate_result(tmp_path, caplog):
     assert any(
         "tasklist_dryrun delegate result tasklist_id=dryrun-1 task_id=t1 "
         "ok=True" in message
-        and "Add provider." in message
+        and '"ready": true' in message.lower()
         for message in messages
     )
 
