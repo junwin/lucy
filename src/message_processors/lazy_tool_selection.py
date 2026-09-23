@@ -27,7 +27,7 @@ TASKLIST_SISTERS = ("tasklists_manage", "tasklists_run")
 
 
 def estimate_tokens(text: str) -> int:
-    """Mirror src.prompt_builders.prompt_builder.estimate_tokens_from_text (len/4).
+    """Match galet-prompt-builder's approximate token counter (len/4).
 
     Kept local so this module stays importable without optional deps.
     """

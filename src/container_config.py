@@ -37,7 +37,6 @@ from src.handlers.tool_catalog import ToolCatalog
 from src.message_processors.processor_factory import ProcessorFactory
 from src.message_processors.message_processor_interface import ProcessorFactoryInterface
 from src.prompt_builders.prompt_builder_interface import PromptBuilderInterface
-from src.prompt_builders.coala_prompt_builder import CoALAPromptBuilder
 from src.prompt_builders.galet_prompt_builder_adapter import (
     GaletPromptBuilderAdapter,
 )
@@ -261,16 +260,7 @@ class PromptBuilderModule(Module):
         episodic_memory: EpisodicMemory,
         procedural_memory: ProceduralMemory,
     ) -> PromptBuilderInterface:
-        if bool(config.get("galet_prompt_builder_enabled", False)):
-            return GaletPromptBuilderAdapter(
-                agent_manager=agent_manager,
-                config=config,
-                storage=storage,
-                semantic_memory=semantic_memory,
-                episodic_memory=episodic_memory,
-                procedural_memory=procedural_memory,
-            )
-        return CoALAPromptBuilder(
+        return GaletPromptBuilderAdapter(
             agent_manager=agent_manager,
             config=config,
             storage=storage,

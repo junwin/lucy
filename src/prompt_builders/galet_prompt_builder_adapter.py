@@ -25,7 +25,7 @@ from src.coala_memory.semantic import (
 )
 from src.config_manager import ConfigManager
 from src.prompt_builders.attachment_resolver import AttachmentResolver
-from src.prompt_builders.context_retrievers import DEFAULT_SEARCH_NAMESPACES
+from src.prompt_builders.constants import DEFAULT_SEARCH_NAMESPACES
 from src.prompt_builders.prompt_builder_interface import (
     ChatMessageDict,
     PromptBuilderInterface,

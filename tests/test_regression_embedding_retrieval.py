@@ -13,7 +13,6 @@ import pytest
 
 from src.http_endpoints.prompt_builder_endpoints import build_prompt_impl
 from src.http_endpoints.prompt_builder_metrics_endpoints import prompt_builder_metrics_impl
-from src.prompt_builders.prompt_builder import PromptBuilder
 from src.prompt_builders.prompt_builder_interface import PromptBuilderInterface
 
 
@@ -50,5 +49,4 @@ def test_prompt_builder_endpoints_resolve_interface_and_fail_loud() -> None:
         assert isinstance(result, dict)
         assert "error" in result
 
-    assert PromptBuilder not in requested
     assert PromptBuilderInterface in requested

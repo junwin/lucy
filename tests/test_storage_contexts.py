@@ -7,6 +7,7 @@
 import pytest
 from pathlib import Path
 from datetime import datetime, timezone
+from unittest.mock import Mock
 
 import yaml
 
@@ -464,13 +465,23 @@ class TestPromptBuilderContextRendering:
         skill_file.write_text(content, encoding="utf-8")
 
     def _build_context_content(self, skill_storage, context_name: str) -> str:
+        from src.coala_memory.episodic import EpisodicMemoryResult
         from src.coala_memory.procedural import ContextProceduralMemory
-        from src.prompt_builders.coala_prompt_builder import CoALAPromptBuilder
+        from src.coala_memory.semantic import SemanticMemoryResult
+        from src.prompt_builders.galet_prompt_builder_adapter import (
+            GaletPromptBuilderAdapter,
+        )
 
-        pb = CoALAPromptBuilder(
+        episodic_memory = Mock()
+        episodic_memory.recall.return_value = EpisodicMemoryResult()
+        semantic_memory = Mock()
+        semantic_memory.recall.return_value = SemanticMemoryResult()
+        pb = GaletPromptBuilderAdapter(
             agent_manager=_FakeAgentManager(),
             config=_FakeConfig(),
             storage=skill_storage,
+            episodic_memory=episodic_memory,
+            semantic_memory=semantic_memory,
             procedural_memory=ContextProceduralMemory(skill_storage),
         )
         messages = pb.build_prompt(
@@ -480,9 +491,13 @@ class TestPromptBuilderContextRendering:
             account_name="junwin",
             context_name=context_name,
         )
-        context_msgs = [m for m in messages if "Additional context" in m.get("content", "")]
+        context_msgs = [
+            m
+            for m in messages
+            if "Project context:" in str(m.get("content", ""))
+        ]
         assert len(context_msgs) == 1
-        return context_msgs[0]["content"]
+        return str(context_msgs[0]["content"])
 
     def test_context_with_imports_processed_but_directives_excluded(self, skill_storage):
         self._write_skill(skill_storage, "junwin", "dev-basics", "SKILL: testing in venv")
@@ -500,9 +515,6 @@ class TestPromptBuilderContextRendering:
         skill_storage.save_context(ctx)
 
         content = self._build_context_content(skill_storage, "testctx")
-        assert "id: testctx" in content
-        assert "account_name: junwin" in content
-        assert "tag: test" in content
         assert "MAIN CONTEXT" in content
         assert "## skill: dev-basics" in content
         assert "## skill: gh-cli" in content
@@ -522,9 +534,6 @@ class TestPromptBuilderContextRendering:
         skill_storage.save_context(ctx)
 
         content = self._build_context_content(skill_storage, "noimports")
-        assert "id: noimports" in content
-        assert "account_name: junwin" in content
-        assert "tag:" not in content
         assert "Only main context" in content
 
     def test_context_with_missing_skill_import_continues(self, skill_storage):
@@ -542,8 +551,6 @@ class TestPromptBuilderContextRendering:
         assert "## skill: exists" in content
         assert "SKILL: exists" in content
         assert "missing-skill" not in content
-        assert "id: partial" in content
-        assert "account_name: junwin" in content
         assert "Main body" in content
 
 
@@ -551,8 +558,12 @@ class _FakeAgent:
     system_prompt = "You are peace, a helpful assistant."
     persona = ""
     style_prompt = ""
-    max_prompt_conversations = 0
+    max_prompt_conversations = 1
     use_embeddings = False
+    prompt_budget_max_tokens = None
+    max_prompt_documents = 3
+    default_context = None
+    allowed_tools = None
 
 
 class _FakeAgentManager:

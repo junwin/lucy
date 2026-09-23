@@ -12,7 +12,6 @@ from unittest.mock import Mock
 from src.handlers.handler_registry import HandlerRegistry
 from src.http_endpoints.prompt_builder_metrics_endpoints import prompt_builder_metrics_impl
 from src.message_processors.function_calling_processor import resolve_tool_defs
-from src.prompt_builders.prompt_builder import PromptBuilder
 from src.prompt_builders.prompt_builder_interface import PromptBuilderInterface
 
 
@@ -33,7 +32,7 @@ def _make_deps(*, allowed_tools, tool_defs):
     prompt_builder._last_prompt_token_breakdown = {"total_without_handlers": 10}
 
     def _container_get(cls):
-        if cls is PromptBuilder or cls is PromptBuilderInterface:
+        if cls is PromptBuilderInterface:
             return prompt_builder
         if cls is HandlerRegistry:
             return registry
@@ -113,7 +112,7 @@ def test_metrics_tool_set_applies_context_tool_list():
         allowed_tools=["t1", "t2", "t3"],
         tool_defs=[{"name": "t1"}, {"name": "t2"}, {"name": "t3"}],
     )
-    prompt_builder = container.get(PromptBuilder)
+    prompt_builder = container.get(PromptBuilderInterface)
     prompt_builder._get_context_state.return_value = Context(
         id="ctx",
         account_name="junwin",
