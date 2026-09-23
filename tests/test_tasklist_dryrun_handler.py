@@ -303,6 +303,40 @@ def test_dryrun_requires_tasklist_id(tmp_path):
     assert handler.delegate_handler.calls == []
 
 
+def test_dryrun_logs_delegate_result(tmp_path, caplog):
+    handler = _handler(
+        tmp_path,
+        results=[
+            _result("ready", "Add provider.", ["Run tests."]),
+            _result("blocked", "Need dependency.", ["Check dependency."]),
+        ],
+    )
+    _save_tasklist(handler)
+
+    with caplog.at_level(logging.INFO):
+        handler.execute(
+            {
+                "tasklist_id": "dryrun-1",
+                "agentName": "colin",
+                "contextName": "dry-run-task",
+            },
+            account_name="alice",
+        )
+
+    messages = [record.getMessage() for record in caplog.records]
+    assert any(
+        "tasklist_dryrun delegate start tasklist_id=dryrun-1 task_id=t1 "
+        "agent=colin context=dry-run-task" in message
+        for message in messages
+    )
+    assert any(
+        "tasklist_dryrun delegate result tasklist_id=dryrun-1 task_id=t1 "
+        "ok=True" in message
+        and "Add provider." in message
+        for message in messages
+    )
+
+
 def test_dryrun_logs_start_and_end(tmp_path, caplog):
     handler = _handler(tmp_path)
     _save_tasklist(handler)
