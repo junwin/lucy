@@ -12,7 +12,7 @@ from pathlib import Path
 
 from galet.interface import LLMApi
 
-from src.coala_memory.episodic import EpisodicMemoryManager
+from galet_memory import EpisodicMemoryManager
 from src.config_manager import ConfigManager
 from src.curation.core import CurationEngine
 from src.embeddings.facade import EmbeddingFacade

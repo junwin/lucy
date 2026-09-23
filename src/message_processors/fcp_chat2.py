@@ -1,7 +1,7 @@
 import logging
 from typing import Dict, List, Optional
 
-from src.coala_memory.episodic import EpisodicEvent, EpisodicMemoryManager
+from galet_memory import EpisodicEvent, EpisodicMemoryManager
 from src.message_processors.fcp_models import ProcessorContext
 from src.message_processors.sse_events import SSEEvent
 

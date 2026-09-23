@@ -8,7 +8,7 @@ from src.config_manager import ConfigManager
 from src.storage.base import Storage
 from src.message_processors.processor_factory import ProcessorFactory
 from src.message_processors.function_calling_processor import ToolHandlerError
-from src.coala_memory.episodic import (
+from galet_memory import (
     EpisodicEvent,
     EpisodicMemoryManager,
     EpisodicSessionQuery,

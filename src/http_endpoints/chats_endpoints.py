@@ -10,12 +10,12 @@ import json
 from typing import Any, Dict, List, Optional
 
 from src.agent import AgentManager
-from src.coala_memory.episodic.management import (
+from galet_memory import (
+    EpisodicEvent,
     EpisodicMemoryManager,
+    EpisodicSession,
     EpisodicSessionQuery,
 )
-from src.coala_memory.episodic.management import EpisodicSession
-from src.coala_memory.episodic.interface import EpisodicEvent
 
 
 def _episodic_session_to_response(session: EpisodicSession, include_events: bool = True) -> Dict[str, Any]:

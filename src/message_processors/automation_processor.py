@@ -28,7 +28,7 @@ from src.storage.interfaces import TasklistStore
 if TYPE_CHECKING:
     from src.storage.interfaces import TasklistStore
 
-from src.coala_memory.episodic import EpisodicEvent, EpisodicMemoryManager
+from galet_memory import EpisodicEvent, EpisodicMemoryManager
 
 from src.tasklists.task import Task
 from src.tasklists.task_list import TaskList

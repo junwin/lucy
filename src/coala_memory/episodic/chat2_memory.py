@@ -4,21 +4,21 @@ import json
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
-from src.chat2.facade import Chat2Store
-from src.chat2.models import ChatEvent, SessionLinks
-
-from .interface import (
+from galet_memory import (
+    EventScope,
+    EpisodicConcurrencyError,
     EpisodicDigest,
     EpisodicEvent,
     EpisodicMemory,
+    EpisodicMemoryManager,
     EpisodicMemoryRequest,
     EpisodicMemoryResult,
-)
-from .management import (
-    EpisodicMemoryManager,
     EpisodicSession,
     EpisodicSessionQuery,
 )
+
+from src.chat2.facade import Chat2Store
+from src.chat2.models import ChatEvent, SessionLinks
 
 DigestRecall = Callable[[EpisodicMemoryRequest], List[EpisodicDigest]]
 
@@ -180,11 +180,19 @@ class Chat2EpisodicMemory(EpisodicMemory, EpisodicMemoryManager):
             meta = self.chat2_store.update_session(meta.session_id, metadata=metadata)
         return self._to_session(meta)
 
-    def get_session(self, session_id: str, *, include_events: bool = True) -> Optional[EpisodicSession]:
+    def get_session(
+        self,
+        session_id: str,
+        *,
+        include_events: bool = True,
+        event_scope: EventScope = "active",
+    ) -> Optional[EpisodicSession]:
         meta = self.chat2_store.get_session(session_id)
         if meta is None:
             return None
         events = list(self.chat2_store.stream_events(session_id)) if include_events else []
+        if include_events:
+            events = self._select_event_scope(events, event_scope)
         return self._to_session(meta, events)
 
     def session_exists(self, session_id: str) -> bool:
@@ -210,6 +218,21 @@ class Chat2EpisodicMemory(EpisodicMemory, EpisodicMemoryManager):
     def append_event(self, session_id: str, event: EpisodicEvent) -> EpisodicEvent:
         stored = self.chat2_store.add_event(session_id, self._to_chat_event(event))
         return self._to_episodic_event(stored)
+
+    def append_event_if_tail(
+        self,
+        session_id: str,
+        event: EpisodicEvent,
+        *,
+        expected_last_event_id: Optional[str],
+    ) -> EpisodicEvent:
+        events = list(self.chat2_store.stream_events(session_id))
+        actual = events[-1].event_id if events else None
+        if actual != expected_last_event_id:
+            raise EpisodicConcurrencyError(
+                f"event tail changed for session {session_id!r}"
+            )
+        return self.append_event(session_id, event)
 
     def add_events(self, session_id: str, events: List[EpisodicEvent]) -> List[EpisodicEvent]:
         chat_events = [self._to_chat_event(event) for event in events]
@@ -312,6 +335,30 @@ class Chat2EpisodicMemory(EpisodicMemory, EpisodicMemoryManager):
     @staticmethod
     def _payload_text(payload: Any) -> str:
         return payload if isinstance(payload, str) else json.dumps(payload, ensure_ascii=False)
+
+    @classmethod
+    def _select_event_scope(
+        cls, events: List[ChatEvent], event_scope: EventScope
+    ) -> List[ChatEvent]:
+        if event_scope not in ("active", "all", "archived"):
+            raise ValueError(f"unsupported event scope: {event_scope!r}")
+        if event_scope == "all":
+            return events
+        boundary = None
+        for index in range(len(events) - 1, -1, -1):
+            event = events[index]
+            if (
+                event.kind == "session_digest"
+                and event.metadata.get("visibility_boundary") is True
+            ) or (
+                event.kind == "summary"
+                and event.metadata.get("curation_mode") == "archive"
+            ):
+                boundary = index
+                break
+        if boundary is None:
+            return events if event_scope == "active" else []
+        return events[boundary:] if event_scope == "active" else events[:boundary]
 
 
 __all__ = ["Chat2EpisodicMemory"]

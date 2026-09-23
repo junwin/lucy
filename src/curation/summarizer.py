@@ -10,7 +10,7 @@ import json
 import logging
 from typing import List
 
-from src.coala_memory.episodic import EpisodicEvent
+from galet_memory import EpisodicEvent
 from galet.dto import LLMResponse
 from galet.interface import LLMApi
 

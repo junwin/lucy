@@ -11,7 +11,7 @@ import logging
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from src.coala_memory.episodic import (
+from galet_memory import (
     EpisodicMemoryManager,
     EpisodicSession,
     EpisodicSessionQuery,

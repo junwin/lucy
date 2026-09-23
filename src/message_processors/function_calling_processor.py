@@ -32,7 +32,7 @@ from galet.adapter_interface import LLMAdapter
 from galet.provider_registry import ProviderRegistry
 from galet_prompt_builder import ApproximateTokenCounter
 
-from src.coala_memory.episodic import EpisodicMemoryManager
+from galet_memory import EpisodicMemoryManager
 
 from src.message_processors.fcp_models import ProcessorContext, ToolHandlerError, DEFAULT_MAX_HANDLER_SCHEMA_TOKENS
 from src.message_processors.fcp_chat2 import Chat2Recorder

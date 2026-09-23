@@ -1,7 +1,8 @@
 import json
 
 from src.config_manager import ConfigManager
-from src.coala_memory.episodic import Chat2EpisodicMemory, EpisodicEvent
+from galet_memory import EpisodicEvent
+from src.coala_memory.episodic import Chat2EpisodicMemory
 from src.handlers.episodic_memory_handler import EpisodicMemoryHandler
 
 

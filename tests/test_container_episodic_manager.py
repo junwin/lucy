@@ -5,7 +5,8 @@ from src.container_config import (
     CoALAMemoryModule,
     EndpointHandlersModule,
 )
-from src.coala_memory.episodic import Chat2EpisodicMemory, EpisodicMemoryManager
+from galet_memory import EpisodicMemoryManager
+from src.coala_memory.episodic import Chat2EpisodicMemory
 from src.chat2.facade import Chat2Store
 from src.chat2.store_primitives import InMemoryStore
 

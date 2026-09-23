@@ -15,7 +15,7 @@ from typing import Any, Dict, List, Optional
 
 from galet.interface import LLMApi
 
-from src.coala_memory.episodic import EpisodicEvent, EpisodicMemoryManager
+from galet_memory import EpisodicEvent, EpisodicMemoryManager
 from src.curation.archiver import archive_session
 from src.curation.resolver import resolve_session
 from src.curation.summarizer import summarize_session

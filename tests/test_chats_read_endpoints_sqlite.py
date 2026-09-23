@@ -10,7 +10,8 @@ from unittest.mock import Mock
 
 import pytest
 
-from src.coala_memory.episodic import Chat2EpisodicMemory, EpisodicEvent
+from galet_memory import EpisodicEvent
+from src.coala_memory.episodic import Chat2EpisodicMemory
 from src.chat2.facade import Chat2Store
 from src.chat2.sqlite import SqliteChat2Primitives
 from src.http_endpoints.chats_endpoints import get_chat_impl, get_chats_impl
@@ -107,5 +108,4 @@ class TestGetChatSQL:
     def test_get_unknown(self, mgr: Chat2EpisodicMemory) -> None:
         body, status = get_chat_impl(mgr, "00000000-0000-0000-0000-000000000000")
         assert status == 404
-
 

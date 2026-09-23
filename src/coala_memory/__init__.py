@@ -1,22 +1,8 @@
-"""CoALA-inspired memory contracts for Lucy.
+"""Lucy-specific semantic and procedural memory implementations.
 
-This package separates prompt-time memory access into episodic, semantic and
-procedural concerns. It also defines episodic lifecycle/curation contracts so
-PromptBuilder, handlers and HTTP endpoints can converge on the same domain seam.
+Episodic memory contracts and models are owned by :mod:`galet_memory`.
 """
 
-from .episodic import (
-    EpisodicMemory,
-    EpisodicMemoryRequest,
-    EpisodicMemoryResult,
-    EpisodicMemoryManager,
-    EpisodicSession,
-    EpisodicSessionQuery,
-    EpisodicCurationRequest,
-    EpisodicCurationResult,
-    Chat2EpisodicMemory,
-    EmbeddingDigestRecall,
-)
 from .semantic import (
     SemanticMemory,
     SemanticMemoryRequest,
@@ -31,16 +17,6 @@ from .procedural import (
 )
 
 __all__ = [
-    "EpisodicMemory",
-    "EpisodicMemoryRequest",
-    "EpisodicMemoryResult",
-    "EpisodicMemoryManager",
-    "EpisodicSession",
-    "EpisodicSessionQuery",
-    "EpisodicCurationRequest",
-    "EpisodicCurationResult",
-    "Chat2EpisodicMemory",
-    "EmbeddingDigestRecall",
     "SemanticMemory",
     "SemanticMemoryRequest",
     "SemanticMemoryResult",

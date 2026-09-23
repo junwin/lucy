@@ -2,10 +2,10 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
+from galet_memory import EpisodicMemoryRequest
 from src.coala_memory.episodic import (
     Chat2EpisodicMemory,
     EmbeddingDigestRecall,
-    EpisodicMemoryRequest,
 )
 from src.chat2.facade import Chat2Store
 from src.chat2.store_primitives import InMemoryStore

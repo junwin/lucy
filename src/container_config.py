@@ -23,12 +23,11 @@ from src.storage.interfaces import ContextStore, DocumentStore, EmbeddingStore, 
 from src.storage.json_file_storage import JsonFileStorage
 from src.storage.primitives_embedding_store import build_primitives_embedding_store
 from src.coala_memory.semantic import SemanticMemory, SqliteVecSemanticMemory
-from src.coala_memory.episodic import (
+from galet_memory import (
     EpisodicMemory,
     EpisodicMemoryManager,
-    Chat2EpisodicMemory,
-    EmbeddingDigestRecall,
 )
+from src.coala_memory.episodic import Chat2EpisodicMemory, EmbeddingDigestRecall
 from src.coala_memory.procedural import ProceduralMemory, ContextProceduralMemory
 
 from src.handlers.handler_registry import HandlerRegistry

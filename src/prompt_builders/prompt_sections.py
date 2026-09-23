@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 from src.agent import Agent
-from src.coala_memory.episodic import EpisodicMemoryResult
+from galet_memory import EpisodicMemoryResult
 
 
 class PromptSections:

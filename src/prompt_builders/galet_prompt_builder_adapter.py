@@ -9,12 +9,9 @@ from galet_prompt_builder import (
     PromptLimits,
     PromptRequest,
 )
+from galet_memory import EpisodicMemory
 
 from src.agent import Agent, AgentManager
-from src.coala_memory.episodic import (
-    EpisodicMemory,
-    EpisodicMemoryRequest,
-)
 from src.coala_memory.procedural import (
     ProceduralMemory,
     ProceduralMemoryRequest,
@@ -96,37 +93,6 @@ class _LucySemanticMemoryAdapter:
                 score_threshold=request.score_threshold,
             )
         )
-
-
-class _LucyEpisodicMemoryAdapter:
-    def __init__(self, memory: EpisodicMemory, agent_name: str) -> None:
-        self.memory = memory
-        self.agent_name = agent_name
-
-    def recall(self, request: Any) -> Any:
-        return self.memory.recall(
-            EpisodicMemoryRequest(
-                account_name=request.account_name,
-                agent_name=self.agent_name,
-                conversation_id=request.conversation_id,
-                query=request.query,
-                max_events=request.max_events,
-                token_budget=getattr(request, "token_budget", None),
-                digest_top_k=request.digest_top_k,
-                digest_max_chars=request.digest_max_chars,
-                event_kinds=(
-                    list(request.event_kinds)
-                    if request.event_kinds is not None
-                    else None
-                ),
-                include_session_metadata=request.include_session_metadata,
-                include_recent_history=request.include_recent_history,
-                include_archived_digests=request.include_archived_digests,
-            )
-        )
-
-    def save_overflow_digest(self, **kwargs: Any) -> Optional[str]:
-        return self.memory.save_overflow_digest(**kwargs)
 
 
 class _LucyProceduralMemoryAdapter:
@@ -219,9 +185,7 @@ class GaletPromptBuilderAdapter(PromptBuilderInterface):
             procedural_memory=_LucyProceduralMemoryAdapter(
                 self.procedural_memory
             ),
-            episodic_memory=_LucyEpisodicMemoryAdapter(
-                self.episodic_memory, agent_name
-            ),
+            episodic_memory=self.episodic_memory,
             semantic_memory=_LucySemanticMemoryAdapter(self.semantic_memory),
         )
         compiled = compiler.compile(

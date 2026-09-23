@@ -52,7 +52,7 @@ from src.http_endpoints.upload_endpoints import (
     post_upload_image_impl,
 )
 from src.coala_memory.semantic import SemanticMemory
-from src.coala_memory.episodic import EpisodicMemoryManager
+from galet_memory import EpisodicMemoryManager
 from src.api_key import validate_api_key
 
 

@@ -3,11 +3,10 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+from galet_memory import EpisodicDigest, EpisodicMemoryRequest
+
 from src.storage.interfaces import EmbeddingStore
 from src.utils.text_snippet_loader import load_text_snippet
-
-from .interface import EpisodicDigest, EpisodicMemoryRequest
-
 
 class EmbeddingDigestRecall:
     """Recall archived episodic digests through Lucy's embedding store."""

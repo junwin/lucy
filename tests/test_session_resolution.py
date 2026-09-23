@@ -10,11 +10,11 @@ import pytest
 
 from src.chat2.facade import Chat2Store
 from src.chat2.store_primitives import InMemoryStore
-from src.coala_memory.episodic import (
-    Chat2EpisodicMemory,
+from galet_memory import (
     EpisodicMemoryManager,
     EpisodicSessionQuery,
 )
+from src.coala_memory.episodic import Chat2EpisodicMemory
 from src.message_endpoints.ask_request_handler import resolve_or_create_session
 
 UUID_RE = re.compile(

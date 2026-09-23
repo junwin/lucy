@@ -1,11 +1,11 @@
 from uuid import uuid4
 
-from src.coala_memory.episodic import (
-    Chat2EpisodicMemory,
+from galet_memory import (
     EpisodicEvent,
     EpisodicMemoryRequest,
     EpisodicSessionQuery,
 )
+from src.coala_memory.episodic import Chat2EpisodicMemory
 
 
 def test_chat2_episodic_memory_sqlite_round_trip(tmp_path):
