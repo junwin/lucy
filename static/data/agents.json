@@ -28,6 +28,7 @@
       "web_search_handler",
       "tasklists_manage",
       "tasklists_run",
+      "tasklist_dryrun",
       "episodic_memory",
       "context_handler",
       "curate_chat",

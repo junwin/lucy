@@ -20,6 +20,7 @@ from src.handlers.scrape_web_page_handler2 import ScrapeWebPageHandler2
 from src.handlers.web_search_handler2 import WebSearchHandler2
 from src.handlers.tasklists_manage_handler import TasklistsManageHandler
 from src.handlers.tasklists_run_handler import TasklistsRunHandler
+from src.handlers.tasklist_dryrun_handler import TasklistDryrunHandler
 from src.handlers.curate_chat_handler import CurateChatHandler
 from src.handlers.generate_doc_handler import GenerateDocHandler
 from src.handlers.sandbox_execute_handler import SandboxExecuteHandler
@@ -101,6 +102,8 @@ def build_registry_and_catalog() -> tuple[HandlerRegistry, ToolCatalog]:
     reg.register(TasklistsManageHandler)
     # Tasklist execution (run)
     reg.register(TasklistsRunHandler)
+    # Tasklist dry-run inspection (read-only)
+    reg.register(TasklistDryrunHandler)
     # Chat curation (summarize, archive, filter)
     reg.register(CurateChatHandler)
     # Doc generation (LLM-powered module documentation)
