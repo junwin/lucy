@@ -30,14 +30,14 @@ from src.agent.caps import resolve_effective_cap
 
 from galet.adapter_interface import LLMAdapter
 from galet.provider_registry import ProviderRegistry
+from galet_prompt_builder import ApproximateTokenCounter
 
 from src.coala_memory.episodic import EpisodicMemoryManager
 
 from src.message_processors.fcp_models import ProcessorContext, ToolHandlerError, DEFAULT_MAX_HANDLER_SCHEMA_TOKENS
 from src.message_processors.fcp_chat2 import Chat2Recorder
 
-# Import token estimator from prompt_builder
-from src.prompt_builders.prompt_builder import estimate_tokens_from_text
+_TOKEN_COUNTER = ApproximateTokenCounter()
 
 from src.tool_selection import ToolSelectionError, ToolSelectionPipeline
 from src.message_processors.fcp_tool_executor import ToolExecutor, load_context_state
@@ -196,7 +196,7 @@ def _handler_schema_tokens(function_defs: List[Dict[str, Any]]) -> int:
         text = json.dumps(function_defs, ensure_ascii=False)
     except Exception:
         return 0
-    return estimate_tokens_from_text(text)
+    return _TOKEN_COUNTER.count(text)
 
 
 def apply_handler_schema_budget(

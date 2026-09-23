@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import List, Any
 
 from src.coala_memory.semantic import SemanticMemory, SemanticMemoryRequest
-from src.prompt_builders.prompt_builder import DEFAULT_SEARCH_NAMESPACES
+from src.prompt_builders.constants import DEFAULT_SEARCH_NAMESPACES
 
 
 def _parse_namespaces(raw) -> List[str]:

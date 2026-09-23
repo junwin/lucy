@@ -398,9 +398,11 @@ def _big_tool_def(name: str, desc_len: int = 300) -> dict:
 def _schema_tokens(function_defs) -> int:
     import json as _json
 
-    from src.prompt_builders.prompt_builder import estimate_tokens_from_text
+    from galet_prompt_builder import ApproximateTokenCounter
 
-    return estimate_tokens_from_text(_json.dumps(function_defs, ensure_ascii=False))
+    return ApproximateTokenCounter().count(
+        _json.dumps(function_defs, ensure_ascii=False)
+    )
 
 
 def test_handler_schema_cap_over_budget_returns_error(make_proc, registry, llm_adapter, config):

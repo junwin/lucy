@@ -15,7 +15,6 @@ from src.storage.base import Storage
 from src.agent import AgentManager
 from src.container_config import container
 from src.config_manager import ConfigManager
-from src.prompt_builders.prompt_builder import PromptBuilder
 from src.message_endpoints.ask_request_handler import (
     AskRequestHandler,
     resolve_or_create_session,
@@ -52,7 +51,6 @@ from src.http_endpoints.upload_endpoints import (
     get_video_download_impl,
     post_upload_image_impl,
 )
-from src.chat2.facade import Chat2Store
 from src.coala_memory.semantic import SemanticMemory
 from src.coala_memory.episodic import EpisodicMemoryManager
 from src.api_key import validate_api_key

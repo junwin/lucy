@@ -17,16 +17,20 @@ import json
 import logging
 from typing import Any, Dict, List, Tuple
 
+from galet_prompt_builder import ApproximateTokenCounter
+
 from src.agent.caps import resolve_effective_cap
 from src.handlers.handler_registry import HandlerRegistry
 from src.message_processors.fcp_models import DEFAULT_MAX_HANDLER_SCHEMA_TOKENS
-from src.prompt_builders.prompt_builder import estimate_tokens_from_text
 from src.prompt_builders.prompt_builder_interface import PromptBuilderInterface
 from src.message_processors.function_calling_processor import (
     apply_handler_schema_budget,
     load_context_state,
     resolve_tool_defs,
 )
+
+
+_TOKEN_COUNTER = ApproximateTokenCounter()
 
 
 def _handler_schema_metrics(
@@ -43,13 +47,13 @@ def _handler_schema_metrics(
         text = json.dumps(fd, ensure_ascii=False)
         handlers_table.append({
             "name": fd.get("name", ""),
-            "tokens": estimate_tokens_from_text(text),
+            "tokens": _TOKEN_COUNTER.count(text),
             "chars": len(text),
             "preview": text[:120],
         })
 
     handlers_text = json.dumps(function_defs, ensure_ascii=False)
-    total_tokens = estimate_tokens_from_text(handlers_text)
+    total_tokens = _TOKEN_COUNTER.count(handlers_text)
     return total_tokens, handlers_table
 
 
@@ -128,7 +132,7 @@ def prompt_builder_metrics_impl(
         for i, msg in enumerate(prompt):
             content = msg.get("content")
             content_str = content if isinstance(content, str) else str(content)
-            tokens = estimate_tokens_from_text(content_str)
+            tokens = _TOKEN_COUNTER.count(content_str)
             chars = len(content_str)
             total_tokens_actual += tokens
             messages_table.append({
