@@ -176,6 +176,13 @@ class TasklistDryrunHandler(HandlerV2):
                     "tests_to_add_or_run": [],
                 }
                 try:
+                    logger.info(
+                        "tasklist_dryrun delegate start tasklist_id=%s task_id=%s agent=%s context=%s",
+                        tasklist_id,
+                        task.id,
+                        agent_name,
+                        context_name,
+                    )
                     delegated = self.delegate_handler.execute(
                         {
                             "task": task.instructions,
@@ -188,6 +195,16 @@ class TasklistDryrunHandler(HandlerV2):
                             "timeout_seconds": self.delegate_handler.DEFAULT_TIMEOUT,
                         },
                         account_name=account_name,
+                    )
+                    logger.info(
+                        "tasklist_dryrun delegate result tasklist_id=%s task_id=%s ok=%s machine=%s model=%s result=%r error=%r",
+                        tasklist_id,
+                        task.id,
+                        delegated.get("ok"),
+                        delegated.get("machine"),
+                        delegated.get("model"),
+                        delegated.get("result"),
+                        delegated.get("error"),
                     )
                     assessment, error = self._result_from_delegate(delegated)
                     if assessment is not None:
