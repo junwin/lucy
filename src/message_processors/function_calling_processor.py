@@ -253,6 +253,7 @@ class _PromptSetupResult(NamedTuple):
     prompt_messages: List[Dict[str, Any]]
     filtered_function_defs: List[Dict[str, Any]]
     supports_images: bool
+    prompt_breakdown: Dict[str, int]
 
 
 class FCPResult(NamedTuple):
@@ -449,13 +450,12 @@ class FunctionCallingProcessor(MessageProcessorInterface):
         )
 
         breakdown = _log_token_breakdown(ctx, self.prompt_builder, filtered_function_defs)
-        if ctx.store_this_call:
-            self.chat2.write_prompt_report(ctx, breakdown, correlation_id=correlation_id)
 
         return _PromptSetupResult(
             prompt_messages=prompt_messages,
             filtered_function_defs=filtered_function_defs,
             supports_images=supports_images,
+            prompt_breakdown=breakdown,
         )
 
 
@@ -616,6 +616,12 @@ class FunctionCallingProcessor(MessageProcessorInterface):
                 file_ids=file_ids,
                 correlation_id=correlation_id,
             )
+            if ctx.store_this_call:
+                self.chat2.write_prompt_report(
+                    ctx,
+                    setup.prompt_breakdown,
+                    correlation_id=correlation_id,
+                )
 
             logging.info(
                 "FunctionCallingProcessor: start account=%s agent=%s session_id=%s context_type=%s max_iterations=%d supports_images=%s",
@@ -771,7 +777,9 @@ class FunctionCallingProcessor(MessageProcessorInterface):
         Same setup as process_message() but runs the LLMLoopRunner
         and yields SSE-formatted strings ("data: {json}\\n\\n").
 
-        Persists the user message before model work and each deliverable event
+        Builds the prompt before persisting the current user message, so the
+        message cannot be recalled as both history and current input. It then
+        persists the user message before model work and each deliverable event
         before yielding it to the client. This keeps history recoverable when
         SSE delivery stalls or the client disconnects.
         """
@@ -846,11 +854,6 @@ class FunctionCallingProcessor(MessageProcessorInterface):
         last_persisted_text: Optional[str] = None
 
         try:
-            if ctx.store_this_call:
-                self._write_streaming_chat2_user_message(
-                    ctx, message, correlation_id=correlation_id
-                )
-
             setup = self._prepare_prompt_and_tools(
                 ctx=ctx,
                 primary_agent=primary_agent,
@@ -860,6 +863,16 @@ class FunctionCallingProcessor(MessageProcessorInterface):
                 correlation_id=correlation_id,
                 supports_images=supports_images,
             )
+
+            if ctx.store_this_call:
+                self._write_streaming_chat2_user_message(
+                    ctx, message, correlation_id=correlation_id
+                )
+                self.chat2.write_prompt_report(
+                    ctx,
+                    setup.prompt_breakdown,
+                    correlation_id=correlation_id,
+                )
 
             self.tool_executor.episodic_store = self.episodic_store
             for event in self.loop_runner.run(

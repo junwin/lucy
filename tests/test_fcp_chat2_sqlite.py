@@ -179,6 +179,42 @@ class TestChat2SqliteEndToEnd:
         events_after_close = list(chat2_store.stream_events(sid))
         assert [e.event_id for e in events_after_close] == [e.event_id for e in events]
 
+    def test_streaming_builds_prompt_before_persisting_current_user_message(
+        self, make_proc, prompt_builder, llm_adapter, chat2_store
+    ):
+        episodic_store = Chat2EpisodicMemory(chat2_store)
+        proc = make_proc(episodic_store=episodic_store)
+        llm_adapter.extract_tool_calls.return_value = []
+        llm_adapter.get_text.return_value = "hello"
+
+        sid = _session_id()
+        seen_events = []
+
+        def build_prompt(**kwargs):
+            session = episodic_store.get_session(sid)
+            seen_events.extend(session.events if session is not None else [])
+            return [{"role": "user", "content": kwargs["content_text"]}]
+
+        prompt_builder.build_prompt.side_effect = build_prompt
+
+        list(
+            proc.process_message_streaming(
+                primary_agent=_saved_agent(),
+                account={"accountId": "acct1"},
+                message="hi",
+                conversation_id=sid,
+                context_name="ctx",
+            )
+        )
+
+        assert seen_events == []
+        events = list(chat2_store.stream_events(sid))
+        assert [event.kind for event in events] == [
+            "user_message",
+            "prompt_report",
+            "assistant_message",
+        ]
+
     def test_streaming_complete_does_not_duplicate_final_text(self, make_proc, prompt_builder, llm_adapter, chat2_store):
         proc = make_proc(episodic_store=Chat2EpisodicMemory(chat2_store))
 
