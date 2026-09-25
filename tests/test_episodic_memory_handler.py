@@ -144,7 +144,7 @@ def test_handler_deletes_selected_sessions_in_one_request(tmp_path):
         _base_args(action="delete_sessions", session_id=["one", "missing", "one", "two"]),
         account_name="junwin",
     )
-    assert result["ok"] is True
+    assert result["ok"] is True, result
     assert result["session_ids"] == ["one", "two"]
     assert result["count"] == 2
     assert handler.memory.session_exists("keep")
