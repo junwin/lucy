@@ -47,10 +47,10 @@ class EpisodicMemoryHandler(HandlerV2):
                         "type": "string",
                         "enum": [
                             "recall", "get_session", "list_sessions", "append_event",
-                            "create_session", "update_session", "reset_session", "delete_session",
+                            "create_session", "update_session", "reset_session", "delete_session", "delete_sessions",
                         ],
                     },
-                    "session_id": {"type": "string", "default": ""},
+                    "session_id": {"anyOf": [{"type": "string"}, {"type": "array", "items": {"type": "string"}}]},
                     "account_name": {"type": "string", "default": ""},
                     "agent_name": {"type": "string", "default": ""},
                     "query": {"type": "string", "default": ""},
@@ -94,7 +94,8 @@ class EpisodicMemoryHandler(HandlerV2):
             return self._error(action, "episodic_store not available")
         requested_account = str(args.get("account_name") or "").strip()
         resolved_account = requested_account or str(account_name or "").strip()
-        session_id = str(args.get("session_id") or "").strip()
+        raw_session_id = args.get("session_id")
+        session_id = raw_session_id.strip() if isinstance(raw_session_id, str) else ""
 
         try:
             if action == "recall":
@@ -240,6 +241,21 @@ class EpisodicMemoryHandler(HandlerV2):
                     return self._error(action, "session_id is required")
                 memory.reset_session(session_id)
                 return {"ok": True, "tool": self.NAME, "action": action, "session_id": session_id}
+
+            if action == "delete_sessions":
+                ids = raw_session_id
+                if not isinstance(ids, list) or not ids or any(
+                    not isinstance(sid, str) or not sid.strip() for sid in ids
+                ):
+                    return self._error(action, "session_id must be a nonempty array of session IDs for delete_sessions")
+                if len(ids) > 100:
+                    return self._error(action, "at most 100 session IDs per request")
+                selected = list(dict.fromkeys(sid.strip() for sid in ids))
+                deleted = memory.delete_sessions(selected)
+                return {
+                    "ok": True, "tool": self.NAME, "action": action,
+                    "session_ids": deleted, "count": len(deleted),
+                }
 
             if action == "delete_session":
                 if not session_id:

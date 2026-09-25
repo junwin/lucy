@@ -52,7 +52,7 @@ def test_tool_def_exposes_expected_integration_actions():
     enum = tool["parameters"]["properties"]["action"]["enum"]
     assert enum == [
         "recall", "get_session", "list_sessions", "append_event",
-        "create_session", "update_session", "reset_session", "delete_session",
+        "create_session", "update_session", "reset_session", "delete_session", "delete_sessions",
     ]
 
 
@@ -132,3 +132,30 @@ def test_handler_append_event_round_trips_through_coala_layer(tmp_path):
     assert appended["event"]["content"] == "remember this"
     assert fetched["ok"] is True
     assert fetched["session"]["events"][0]["content"] == "remember this"
+
+
+def test_handler_deletes_selected_sessions_in_one_request(tmp_path):
+    handler = _handler(tmp_path)
+    for sid in ("one", "two", "keep"):
+        handler.memory.create_session(
+            account_name="junwin", agent_name="peace", session_id=sid
+        )
+    result = handler.execute(
+        _base_args(action="delete_sessions", session_id=["one", "missing", "one", "two"]),
+        account_name="junwin",
+    )
+    assert result["ok"] is True, result
+    assert result["session_ids"] == ["one", "two"]
+    assert result["count"] == 2
+    assert handler.memory.session_exists("keep")
+    assert not handler.memory.session_exists("one")
+    assert not handler.memory.session_exists("two")
+
+
+def test_handler_rejects_invalid_bulk_selection(tmp_path):
+    handler = _handler(tmp_path)
+    result = handler.execute(
+        _base_args(action="delete_sessions", session_id=[]),
+        account_name="junwin",
+    )
+    assert result["ok"] is False
