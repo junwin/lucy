@@ -50,16 +50,16 @@ mcp==2.1.1
 # It is a provider-agnostic LLM/embedding/image-generation stack extracted from Lucy.
 # Pinned to a released PyPI artefact rather than a VCS commit so installs are
 # reproducible without git access and every dependency resolves from one index.
-galet==0.1.5
+galet==0.1.6
 
 # Galet memory (separate repo, published to PyPI)
 # Owns provider-neutral memory implementations and sqlite-vec/vec0 support.
 # Include the vec extra so a normal Lucy install has sqlite-vec available when
 # embedding_store_backend=sqlite_vec is configured.
-galet-memory[vec]==0.1.3
+galet-memory[vec]==0.1.4
 
 # Provider-neutral prompt selection, budgeting, and compilation.
-galet-prompt-builder==0.1.4
+galet-prompt-builder==0.1.5
 
 # Shared handler ABI and external handler discovery.
-galet-tools==0.1.3
+galet-tools==0.1.4
