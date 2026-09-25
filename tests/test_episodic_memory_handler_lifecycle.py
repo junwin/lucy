@@ -2,7 +2,7 @@ import json
 from uuid import uuid4
 
 from src.config_manager import ConfigManager
-from src.coala_memory.episodic import EpisodicEvent
+from galet_memory import EpisodicEvent
 from src.handlers.episodic_memory_handler import EpisodicMemoryHandler
 
 from tests.test_episodic_memory_handler import _base_args, _handler

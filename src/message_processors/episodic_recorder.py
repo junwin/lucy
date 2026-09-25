@@ -1,18 +1,20 @@
+"""Record function-calling activity through the galet-memory interface."""
+
 import logging
 from typing import Dict, List, Optional
 
-from src.coala_memory.episodic import EpisodicEvent, EpisodicMemoryManager
+from galet_memory import EpisodicEvent, EpisodicMemoryManager
 from src.message_processors.fcp_models import ProcessorContext
 from src.message_processors.sse_events import SSEEvent
 
 
-class Chat2Recorder:
+class EpisodicRecorder:
 
     def __init__(self, episodic_store: Optional[EpisodicMemoryManager] = None) -> None:
         self.episodic_store = episodic_store
 
     def ensure_session(self, ctx: ProcessorContext) -> None:
-        """Create a chat2 session if one doesn't exist for this conversation_id.
+        """Create an episodic session if one doesn't exist for this conversation_id.
 
         Uses the existing conversation_id as the session_id so IDs stay
         consistent across storage layers.
@@ -33,14 +35,14 @@ class Chat2Recorder:
                 context_name=ctx.context_name or None,
             )
             logging.info(
-                "chat2: created session %s for account=%s agent=%s",
+                "episodic: created session %s for account=%s agent=%s",
                 ctx.conversation_id,
                 ctx.account_id,
                 ctx.agent_name,
             )
         except Exception:
             logging.exception(
-                "chat2: failed to create session %s for account=%s",
+                "episodic: failed to create session %s for account=%s",
                 ctx.conversation_id,
                 ctx.account_id,
             )
@@ -73,7 +75,7 @@ class Chat2Recorder:
                 )
         except Exception:
             logging.exception(
-                "chat2: failed to write streaming user message for session=%s",
+                "episodic: failed to write streaming user message for session=%s",
                 ctx.conversation_id,
             )
 
@@ -166,7 +168,7 @@ class Chat2Recorder:
                 )
         except Exception:
             logging.exception(
-                "chat2: failed to write streaming event type=%s for session=%s",
+                "episodic: failed to write streaming event type=%s for session=%s",
                 ev.type,
                 ctx.conversation_id,
             )
@@ -179,7 +181,7 @@ class Chat2Recorder:
         streamed_events: List[SSEEvent],
         correlation_id: Optional[str] = None,
     ) -> None:
-        """Write streaming events to chat2 storage, preserving image and tool cards.
+        """Write streaming events to episodic storage, preserving media and tool cards.
 
         When *correlation_id* is provided, every written event is linked to it
         in the correlation sidecar index. Falsy correlation ids write no links.
@@ -284,13 +286,13 @@ class Chat2Recorder:
                     correlation_id, ctx.conversation_id, event.event_id
                 )
             logging.info(
-                "chat2: wrote %d streaming events for session=%s (user+tool+text+image)",
+                "episodic: wrote %d streaming events for session=%s (user+tool+text+image)",
                 len(chat_events),
                 ctx.conversation_id,
             )
         except Exception:
             logging.exception(
-                "chat2: failed to write streaming events for session=%s",
+                "episodic: failed to write streaming events for session=%s",
                 ctx.conversation_id,
             )
 
@@ -301,7 +303,7 @@ class Chat2Recorder:
         breakdown: Dict[str, int],
         correlation_id: Optional[str] = None,
     ) -> None:
-        """Write a prompt token breakdown as a chat2 'prompt_report' system event.
+        """Write a prompt token breakdown as a ``prompt_report`` system event.
 
         The event is attributed to the agent that built the prompt and, when
         *correlation_id* is provided, linked to it in the correlation sidecar
@@ -325,12 +327,12 @@ class Chat2Recorder:
                     correlation_id, ctx.conversation_id, event.event_id
                 )
             logging.info(
-                "chat2: wrote prompt_report for session=%s (correlation=%s)",
+                "episodic: wrote prompt_report for session=%s (correlation=%s)",
                 ctx.conversation_id,
                 correlation_id,
             )
         except Exception:
             logging.exception(
-                "chat2: failed to write prompt_report for session=%s",
+                "episodic: failed to write prompt_report for session=%s",
                 ctx.conversation_id,
             )

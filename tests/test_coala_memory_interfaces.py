@@ -1,16 +1,21 @@
-from src.coala_memory import (
+from galet_memory import (
     EpisodicCurationRequest,
     EpisodicMemoryRequest,
     EpisodicMemoryResult,
     EpisodicSessionQuery,
+    EpisodicDigest,
+    EpisodicEvent,
+)
+from src.coala_memory.procedural import (
     ProceduralMemoryRequest,
     ProceduralMemoryResult,
+    ProceduralSkill,
+)
+from src.coala_memory.semantic import (
+    SemanticDocument,
     SemanticMemoryRequest,
     SemanticMemoryResult,
 )
-from src.coala_memory.episodic import EpisodicDigest, EpisodicEvent
-from src.coala_memory.procedural import ProceduralSkill
-from src.coala_memory.semantic import SemanticDocument
 
 
 def test_episodic_request_matches_prompt_history_and_digest_inputs():

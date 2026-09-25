@@ -1,7 +1,7 @@
 import json
 
 from src.config_manager import ConfigManager
-from src.coala_memory.episodic import Chat2EpisodicMemory, EpisodicEvent
+from galet_memory import EpisodicEvent, SqliteEpisodicMemory
 from src.handlers.episodic_memory_handler import EpisodicMemoryHandler
 
 
@@ -11,8 +11,7 @@ def _config(tmp_path):
         json.dumps(
             {
                 "code_sandbox_path": str(tmp_path),
-                "chat2_store_backend": "sqlite",
-                "chat2_store_db_path": str(tmp_path / "chat2.sqlite"),
+                "episodic_memory_db_path": str(tmp_path / "chat2.sqlite"),
                 "storage_root_path": str(tmp_path),
                 "storage_namespace": "data",
             }
@@ -25,7 +24,7 @@ def _config(tmp_path):
 def _handler(tmp_path):
     return EpisodicMemoryHandler(
         _config(tmp_path),
-        memory=Chat2EpisodicMemory.from_sqlite(tmp_path / "chat2.sqlite"),
+        memory=SqliteEpisodicMemory(tmp_path / "chat2.sqlite"),
     )
 
 
@@ -57,7 +56,7 @@ def test_tool_def_exposes_expected_integration_actions():
     ]
 
 
-def test_handler_recall_uses_sqlite_chat2_and_returns_recent_events(tmp_path):
+def test_handler_recall_uses_sqlite_episodic_memory_and_returns_recent_events(tmp_path):
     handler = _handler(tmp_path)
     session = handler.memory.create_session(
         account_name="junwin",

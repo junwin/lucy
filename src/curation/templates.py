@@ -12,7 +12,7 @@ import logging
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
-from src.coala_memory.episodic import EpisodicEvent
+from galet_memory import EpisodicEvent
 
 logger = logging.getLogger(__name__)
 

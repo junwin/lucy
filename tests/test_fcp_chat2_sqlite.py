@@ -2,17 +2,13 @@ from uuid import uuid4
 
 import pytest
 
-from src.chat2.facade import Chat2Store
-from src.chat2.sqlite import SqliteChat2Primitives
-from src.coala_memory.episodic import Chat2EpisodicMemory
+from galet_memory import EpisodicSessionQuery, SqliteEpisodicMemory
 
 
 @pytest.fixture
 def chat2_store(tmp_path):
-    primitives = SqliteChat2Primitives(tmp_path / "chat2.sqlite")
-    store = Chat2Store(primitives)
-    yield store
-    primitives.close()
+    with SqliteEpisodicMemory(tmp_path / "chat2.sqlite") as memory:
+        yield memory
 
 
 def _session_id() -> str:
@@ -30,7 +26,7 @@ def _saved_agent(**overrides):
 class TestChat2SqliteEndToEnd:
 
     def test_no_tool_call_records_session_and_event(self, make_proc, prompt_builder, llm_adapter, chat2_store):
-        proc = make_proc(episodic_store=Chat2EpisodicMemory(chat2_store))
+        proc = make_proc(episodic_store=chat2_store)
 
         prompt_builder.build_prompt.return_value = [{"role": "user", "content": "hi"}]
         llm_adapter.extract_tool_calls.return_value = []
@@ -50,13 +46,13 @@ class TestChat2SqliteEndToEnd:
         assert meta is not None
         assert meta.session_id == sid
         assert meta.account_name == "acct1"
-        events = list(chat2_store.stream_events(sid))
+        events = meta.events
         assert [e.kind for e in events] == ["prompt_report", "user_message", "assistant_message"]
-        assert events[1].payload == "hi"
-        assert events[2].payload == "hello"
+        assert events[1].content == "hi"
+        assert events[2].content == "hello"
 
     def test_context_name_persisted_in_session_meta(self, make_proc, prompt_builder, llm_adapter, chat2_store):
-        proc = make_proc(episodic_store=Chat2EpisodicMemory(chat2_store))
+        proc = make_proc(episodic_store=chat2_store)
 
         prompt_builder.build_prompt.return_value = [{"role": "user", "content": "hi"}]
         llm_adapter.extract_tool_calls.return_value = []
@@ -79,7 +75,7 @@ class TestChat2SqliteEndToEnd:
         assert meta.agent_name == "lucy"
 
     def test_empty_context_name_persisted_as_none(self, make_proc, prompt_builder, llm_adapter, chat2_store):
-        proc = make_proc(episodic_store=Chat2EpisodicMemory(chat2_store))
+        proc = make_proc(episodic_store=chat2_store)
 
         prompt_builder.build_prompt.return_value = [{"role": "user", "content": "hi"}]
         llm_adapter.extract_tool_calls.return_value = []
@@ -100,7 +96,7 @@ class TestChat2SqliteEndToEnd:
         assert meta.friendly_name is None
 
     def test_existing_session_reused_not_recreated(self, make_proc, prompt_builder, llm_adapter, chat2_store):
-        proc = make_proc(episodic_store=Chat2EpisodicMemory(chat2_store))
+        proc = make_proc(episodic_store=chat2_store)
 
         prompt_builder.build_prompt.return_value = [{"role": "user", "content": "hi"}]
         llm_adapter.extract_tool_calls.return_value = []
@@ -122,14 +118,14 @@ class TestChat2SqliteEndToEnd:
             context_name="lucyproject",
         )
 
-        sessions = chat2_store.list_sessions(account_name="acct1")
+        sessions = chat2_store.list_sessions(EpisodicSessionQuery(account_name="acct1"))
         assert len(sessions) == 1
         assert sessions[0].session_id == sid
-        events = list(chat2_store.stream_events(sid))
+        events = chat2_store.get_session(sid).events
         assert len(events) == 6
 
     def test_save_responses_false_skips_chat2_write(self, make_proc, prompt_builder, llm_adapter, chat2_store):
-        proc = make_proc(episodic_store=Chat2EpisodicMemory(chat2_store))
+        proc = make_proc(episodic_store=chat2_store)
 
         prompt_builder.build_prompt.return_value = [{"role": "user", "content": "hi"}]
         llm_adapter.extract_tool_calls.return_value = []
@@ -146,10 +142,10 @@ class TestChat2SqliteEndToEnd:
 
         assert out == "transient"
         assert chat2_store.get_session(sid) is None
-        assert chat2_store.list_sessions(account_name="acct1") == []
+        assert chat2_store.list_sessions(EpisodicSessionQuery(account_name="acct1")) == []
 
     def test_streaming_persists_events_before_client_reads_next_event(self, make_proc, prompt_builder, llm_adapter, chat2_store):
-        proc = make_proc(episodic_store=Chat2EpisodicMemory(chat2_store))
+        proc = make_proc(episodic_store=chat2_store)
 
         prompt_builder.build_prompt.return_value = [{"role": "user", "content": "hi"}]
         llm_adapter.extract_tool_calls.return_value = []
@@ -170,17 +166,53 @@ class TestChat2SqliteEndToEnd:
         # cannot hide an event that the model has already produced.
         meta = chat2_store.get_session(sid)
         assert meta is not None
-        events = list(chat2_store.stream_events(sid))
+        events = meta.events
         assert [e.kind for e in events] == ["user_message", "prompt_report", "assistant_message"]
-        assert events[0].payload == "hi"
-        assert events[2].payload == "hello"
+        assert events[0].content == "hi"
+        assert events[2].content == "hello"
 
         gen.close()
-        events_after_close = list(chat2_store.stream_events(sid))
+        events_after_close = chat2_store.get_session(sid).events
         assert [e.event_id for e in events_after_close] == [e.event_id for e in events]
 
+    def test_streaming_builds_prompt_before_persisting_current_user_message(
+        self, make_proc, prompt_builder, llm_adapter, chat2_store
+    ):
+        episodic_store = chat2_store
+        proc = make_proc(episodic_store=episodic_store)
+        llm_adapter.extract_tool_calls.return_value = []
+        llm_adapter.get_text.return_value = "hello"
+
+        sid = _session_id()
+        seen_events = []
+
+        def build_prompt(**kwargs):
+            session = episodic_store.get_session(sid)
+            seen_events.extend(session.events if session is not None else [])
+            return [{"role": "user", "content": kwargs["content_text"]}]
+
+        prompt_builder.build_prompt.side_effect = build_prompt
+
+        list(
+            proc.process_message_streaming(
+                primary_agent=_saved_agent(),
+                account={"accountId": "acct1"},
+                message="hi",
+                conversation_id=sid,
+                context_name="ctx",
+            )
+        )
+
+        assert seen_events == []
+        events = chat2_store.get_session(sid).events
+        assert [event.kind for event in events] == [
+            "user_message",
+            "prompt_report",
+            "assistant_message",
+        ]
+
     def test_streaming_complete_does_not_duplicate_final_text(self, make_proc, prompt_builder, llm_adapter, chat2_store):
-        proc = make_proc(episodic_store=Chat2EpisodicMemory(chat2_store))
+        proc = make_proc(episodic_store=chat2_store)
 
         prompt_builder.build_prompt.return_value = [{"role": "user", "content": "hi"}]
         llm_adapter.extract_tool_calls.return_value = []
@@ -195,6 +227,6 @@ class TestChat2SqliteEndToEnd:
             context_name="ctx",
         ))
 
-        events = list(chat2_store.stream_events(sid))
+        events = chat2_store.get_session(sid).events
         assert [e.kind for e in events] == ["user_message", "prompt_report", "assistant_message"]
-        assert [e.payload for e in events if e.kind == "assistant_message"] == ["hello"]
+        assert [e.content for e in events if e.kind == "assistant_message"] == ["hello"]

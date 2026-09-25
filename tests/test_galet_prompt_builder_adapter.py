@@ -3,7 +3,7 @@ from types import SimpleNamespace
 from galet_prompt_builder import CompiledPrompt, PromptMessage, PromptMetrics
 from galet_prompt_builder.metrics import SectionMetrics
 
-from src.coala_memory.episodic import (
+from galet_memory import (
     EpisodicEvent,
     EpisodicMemoryResult,
 )
@@ -133,6 +133,10 @@ def test_adapter_translates_lucy_call_to_explicit_galet_policy():
     )
 
     request, budgets, limits = _RecordingCompiler.instance.compile_args
+    assert (
+        _RecordingCompiler.instance.memories["episodic_memory"]
+        is adapter.episodic_memory
+    )
     assert request.current_input == "What did I write about attention?"
     assert request.context_name == "lucyproject"
     assert request.semantic_namespaces == ("vol_6", "documents")

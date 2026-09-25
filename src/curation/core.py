@@ -2,7 +2,7 @@
 
 The engine orchestrates session resolution, filtering, summarization, archive
 artifacts and digest publication. It depends on provider-neutral interfaces;
-concrete Chat2/JFS/SQLite details stay behind the episodic adapter.
+concrete storage details stay behind the galet-memory interface.
 """
 
 from __future__ import annotations
@@ -15,7 +15,7 @@ from typing import Any, Dict, List, Optional
 
 from galet.interface import LLMApi
 
-from src.coala_memory.episodic import EpisodicEvent, EpisodicMemoryManager
+from galet_memory import EpisodicEvent, EpisodicMemoryManager
 from src.curation.archiver import archive_session
 from src.curation.resolver import resolve_session
 from src.curation.summarizer import summarize_session

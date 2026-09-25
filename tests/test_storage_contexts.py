@@ -465,7 +465,7 @@ class TestPromptBuilderContextRendering:
         skill_file.write_text(content, encoding="utf-8")
 
     def _build_context_content(self, skill_storage, context_name: str) -> str:
-        from src.coala_memory.episodic import EpisodicMemoryResult
+        from galet_memory import EpisodicMemoryResult
         from src.coala_memory.procedural import ContextProceduralMemory
         from src.coala_memory.semantic import SemanticMemoryResult
         from src.prompt_builders.galet_prompt_builder_adapter import (

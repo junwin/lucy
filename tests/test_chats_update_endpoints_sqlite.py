@@ -5,9 +5,7 @@ from unittest.mock import Mock
 
 import pytest
 
-from src.coala_memory.episodic.chat2_memory import Chat2EpisodicMemory
-from src.chat2.facade import Chat2Store
-from src.chat2.sqlite import SqliteChat2Primitives
+from galet_memory import SqliteEpisodicMemory
 from src.http_endpoints.chats_endpoints import (
     delete_chat_impl,
     get_chat_impl,
@@ -16,20 +14,9 @@ from src.http_endpoints.chats_endpoints import (
 
 
 @pytest.fixture
-def store(tmp_path: Path) -> SqliteChat2Primitives:
-    primitives = SqliteChat2Primitives(tmp_path / "chat2.sqlite")
-    yield primitives
-    primitives.close()
-
-
-@pytest.fixture
-def chat2_store(store: SqliteChat2Primitives) -> Chat2Store:
-    return Chat2Store(store)
-
-
-@pytest.fixture
-def manager(chat2_store: Chat2Store) -> Chat2EpisodicMemory:
-    return Chat2EpisodicMemory(chat2_store)
+def manager(tmp_path: Path) -> SqliteEpisodicMemory:
+    with SqliteEpisodicMemory(tmp_path / "chat2.sqlite") as memory:
+        yield memory
 
 
 @pytest.fixture
@@ -51,7 +38,7 @@ def agent_manager_strict() -> Mock:
 
 
 class TestUpdateChatSqlite:
-    def test_update_friendly_name(self, manager: Chat2EpisodicMemory, agent_manager: Mock) -> None:
+    def test_update_friendly_name(self, manager: SqliteEpisodicMemory, agent_manager: Mock) -> None:
         created = manager.create_session(account_name="junwin", agent_name="lucy", friendly_name="Old name")
         session_id = created.session_id
 
@@ -63,7 +50,7 @@ class TestUpdateChatSqlite:
         assert status == 200
         assert meta["friendly_name"] == "New name"
 
-    def test_update_tags_and_metadata(self, manager: Chat2EpisodicMemory, agent_manager: Mock) -> None:
+    def test_update_tags_and_metadata(self, manager: SqliteEpisodicMemory, agent_manager: Mock) -> None:
         created = manager.create_session(account_name="junwin", agent_name="lucy", tags=["old"])
         session_id = created.session_id
 
@@ -76,7 +63,7 @@ class TestUpdateChatSqlite:
         assert meta["tags"] == ["new", "important"]
         assert meta["metadata"] == {"key": "value"}
 
-    def test_update_context_name(self, manager: Chat2EpisodicMemory, agent_manager: Mock) -> None:
+    def test_update_context_name(self, manager: SqliteEpisodicMemory, agent_manager: Mock) -> None:
         created = manager.create_session(account_name="junwin", agent_name="lucy")
         session_id = created.session_id
 
@@ -88,11 +75,11 @@ class TestUpdateChatSqlite:
         assert status == 200
         assert meta.get("context_name") == "foo"
 
-    def test_update_nonexistent_session(self, manager: Chat2EpisodicMemory) -> None:
+    def test_update_nonexistent_session(self, manager: SqliteEpisodicMemory) -> None:
         body, status = update_chat_impl(manager, "00000000-0000-0000-0000-000000000000", {"friendlyName": "nope"})
         assert status == 404
 
-    def test_delete_session(self, manager: Chat2EpisodicMemory, agent_manager: Mock) -> None:
+    def test_delete_session(self, manager: SqliteEpisodicMemory, agent_manager: Mock) -> None:
         created = manager.create_session(account_name="junwin", agent_name="lucy")
         session_id = created.session_id
 

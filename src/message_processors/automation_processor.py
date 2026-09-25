@@ -28,7 +28,7 @@ from src.storage.interfaces import TasklistStore
 if TYPE_CHECKING:
     from src.storage.interfaces import TasklistStore
 
-from src.coala_memory.episodic import EpisodicEvent, EpisodicMemoryManager
+from galet_memory import EpisodicEvent, EpisodicMemoryManager
 
 from src.tasklists.task import Task
 from src.tasklists.task_list import TaskList
@@ -179,7 +179,7 @@ def _parse_json_command(message: str) -> Tuple[Optional[dict], Optional[str]]:
 # ---------------------------------------------------------------------------
 # Episodic event kind mapping
 # ---------------------------------------------------------------------------
-# The Chat2 adapter currently accepts these event kinds:
+# Galet episodic memory accepts these event kinds:
 #   "user_message", "assistant_message", "assistant_tool_call",
 #   "tool_result", "system_note", "summary"
 #
@@ -194,7 +194,7 @@ _AUTOMATION_KIND_MAP = {
 }
 
 
-def _map_chat2_kind(automation_kind: str) -> str:
+def _map_episodic_kind(automation_kind: str) -> str:
     """Map an automation-specific kind to a valid persisted event kind."""
     return _AUTOMATION_KIND_MAP.get(automation_kind, "system_note")
 
@@ -234,17 +234,17 @@ class AutomationProcessor(MessageProcessorInterface):
         self.agent_manager = agent_manager
 
     # ------------------------------------------------------------------
-    # Chat2 event helpers
+    # Episodic memory helpers
     # ------------------------------------------------------------------
 
-    def _ensure_chat2_session(
+    def _ensure_episodic_session(
         self,
         conversation_id: str,
         account_name: str,
         agent_name: str,
         friendly_name: Optional[str] = None,
     ) -> None:
-        """Create a chat2 session if one doesn't exist for this conversation_id.
+        """Create an episodic session if one doesn't exist for this conversation_id.
 
         Best-effort: failures are logged but not propagated.
         """
@@ -261,7 +261,7 @@ class AutomationProcessor(MessageProcessorInterface):
                 friendly_name=friendly_name,
             )
             logger.info(
-                "chat2: created session %s for account=%s agent=%s friendly_name=%s",
+                "episodic memory: created session %s for account=%s agent=%s friendly_name=%s",
                 conversation_id,
                 account_name,
                 agent_name,
@@ -269,12 +269,12 @@ class AutomationProcessor(MessageProcessorInterface):
             )
         except Exception:
             logger.exception(
-                "chat2: failed to create session %s for account=%s",
+                "episodic memory: failed to create session %s for account=%s",
                 conversation_id,
                 account_name,
             )
 
-    def _write_chat2_event(
+    def _write_episodic_event(
         self,
         conversation_id: str,
         account_name: str,
@@ -286,7 +286,7 @@ class AutomationProcessor(MessageProcessorInterface):
         friendly_name: Optional[str] = None,
         correlation_id: Optional[str] = None,
     ) -> None:
-        """Write a single event to chat2 storage.
+        """Write a single event to episodic memory.
 
         When *correlation_id* is provided, the written event is linked to it
         in the correlation sidecar index. Falsy correlation ids write no link.
@@ -296,13 +296,13 @@ class AutomationProcessor(MessageProcessorInterface):
         if self.episodic_store is None:
             return
         try:
-            self._ensure_chat2_session(
+            self._ensure_episodic_session(
                 conversation_id, account_name, agent_name,
                 friendly_name=friendly_name,
             )
 
             # Map the automation-specific kind to a valid persisted event kind.
-            mapped_kind = _map_chat2_kind(kind)
+            mapped_kind = _map_episodic_kind(kind)
             meta = dict(metadata or {})
             # Preserve the original kind so consumers can distinguish automation events.
             meta["automation_kind"] = kind
@@ -319,7 +319,7 @@ class AutomationProcessor(MessageProcessorInterface):
                 correlation_id, conversation_id, stored.event_id
             )
             logger.info(
-                "chat2: wrote %s event for session=%s kind=%s (mapped from %s)",
+                "episodic memory: wrote %s event for session=%s kind=%s (mapped from %s)",
                 role,
                 conversation_id,
                 mapped_kind,
@@ -327,7 +327,7 @@ class AutomationProcessor(MessageProcessorInterface):
             )
         except Exception:
             logger.exception(
-                "chat2: failed to write event for session=%s",
+                "episodic memory: failed to write event for session=%s",
                 conversation_id,
             )
 
@@ -533,13 +533,13 @@ class AutomationProcessor(MessageProcessorInterface):
         if correlation_id:
             tasklist.meta["correlation_id"] = correlation_id
 
-        # Derive a friendly_name for the chat2 session so automated runs
+        # Derive a friendly name for the episodic session so automated runs
         # don't create sketchy null-name sessions.
         auto_friendly_name = f"auto_{resolved_key}"
 
-        # Ensure the chat2 session exists BEFORE any sub-calls to FCP
+        # Ensure the episodic session exists before any sub-calls to FCP
         # (which would otherwise create it with a null friendly_name).
-        self._ensure_chat2_session(
+        self._ensure_episodic_session(
             conversation_id=conversation_id,
             account_name=account_name,
             agent_name=agent_name,
@@ -821,9 +821,9 @@ class AutomationProcessor(MessageProcessorInterface):
                     f"error='Failed to append task execution record: {e}'"
                 )
 
-            # Write task result event to chat2
+            # Write task result event to episodic memory
             task_outcome = "completed" if task_error is None else "failed"
-            self._write_chat2_event(
+            self._write_episodic_event(
                 conversation_id=conversation_id,
                 account_name=account_name,
                 agent_name=task_agent_name,
@@ -896,10 +896,10 @@ class AutomationProcessor(MessageProcessorInterface):
         except Exception:
             logger.exception("Failed final persist")
 
-        # Write final summary event to chat2.
+        # Write final summary event to episodic memory.
         # Use the resolved worker name when active, otherwise the caller's agent_name.
         summary_agent = resolved_worker_name if resolved_worker_name is not None else agent_name
-        self._write_chat2_event(
+        self._write_episodic_event(
             conversation_id=conversation_id,
             account_name=account_name,
             agent_name=summary_agent,
@@ -1014,11 +1014,11 @@ class AutomationProcessor(MessageProcessorInterface):
         )
         logger.debug("Incoming message preview: %s", _safe_preview(message, 800))
 
-        # Derive a friendly_name for the chat2 session.
+        # Derive a friendly name for the episodic session.
         auto_friendly_name = f"auto_{tasklist_id}"
 
-        # Write user command event to chat2
-        self._write_chat2_event(
+        # Write user command event to episodic memory
+        self._write_episodic_event(
             conversation_id=conversation_id,
             account_name=account_name,
             agent_name=agent_name,

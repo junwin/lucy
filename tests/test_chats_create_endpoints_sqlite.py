@@ -10,22 +10,14 @@ from unittest.mock import Mock
 
 import pytest
 
-from src.chat2.facade import Chat2Store
-from src.chat2.sqlite import SqliteChat2Primitives
+from galet_memory import SqliteEpisodicMemory
 from src.http_endpoints.chats_endpoints import post_chat_impl, post_chat_message_impl, get_chat_impl
-from src.coala_memory.episodic import Chat2EpisodicMemory
 
 
 @pytest.fixture
-def store(tmp_path: Path) -> SqliteChat2Primitives:
-    primitives = SqliteChat2Primitives(tmp_path / "chat2.sqlite")
-    yield primitives
-    primitives.close()
-
-
-@pytest.fixture
-def mgr(store: SqliteChat2Primitives) -> Chat2EpisodicMemory:
-    return Chat2EpisodicMemory(Chat2Store(store))
+def mgr(tmp_path: Path) -> SqliteEpisodicMemory:
+    with SqliteEpisodicMemory(tmp_path / "chat2.sqlite") as memory:
+        yield memory
 
 
 @pytest.fixture
@@ -47,7 +39,7 @@ def agent_manager_strict() -> Mock:
 
 
 class TestPostChat:
-    def test_create_session_minimal(self, mgr: Chat2EpisodicMemory, agent_manager: Mock) -> None:
+    def test_create_session_minimal(self, mgr: SqliteEpisodicMemory, agent_manager: Mock) -> None:
         body, status = post_chat_impl(
             mgr,
             agent_manager,
@@ -60,7 +52,7 @@ class TestPostChat:
         assert body["user_id"] == "junwin"
         assert body["session_type"] == "user"
 
-    def test_create_session_with_context(self, mgr: Chat2EpisodicMemory, agent_manager: Mock) -> None:
+    def test_create_session_with_context(self, mgr: SqliteEpisodicMemory, agent_manager: Mock) -> None:
         body, status = post_chat_impl(
             mgr,
             agent_manager,
@@ -74,7 +66,7 @@ class TestPostChat:
         assert session is not None
         assert session.context_name == "lucyproject"
 
-    def test_invalid_agent(self, mgr: Chat2EpisodicMemory, agent_manager_strict: Mock) -> None:
+    def test_invalid_agent(self, mgr: SqliteEpisodicMemory, agent_manager_strict: Mock) -> None:
         body, status = post_chat_impl(
             mgr,
             agent_manager_strict,
@@ -85,7 +77,7 @@ class TestPostChat:
 
 
 class TestPostMessage:
-    def test_post_message_and_get(self, mgr: Chat2EpisodicMemory, agent_manager: Mock) -> None:
+    def test_post_message_and_get(self, mgr: SqliteEpisodicMemory, agent_manager: Mock) -> None:
         created, _ = post_chat_impl(mgr, agent_manager, {"agentName": "lucy", "accountName": "junwin"})
         session_id = created["id"]
 
@@ -101,7 +93,7 @@ class TestPostMessage:
         assert msg["content"] == "Hello"
         assert "utc_timestamp" in msg
 
-    def test_message_to_unknown_session(self, mgr: Chat2EpisodicMemory) -> None:
+    def test_message_to_unknown_session(self, mgr: SqliteEpisodicMemory) -> None:
         body, status = post_chat_message_impl(mgr, "00000000-0000-0000-0000-000000000000", {"role": "user", "content": "x"})
         assert status == 404
         assert "error" in body

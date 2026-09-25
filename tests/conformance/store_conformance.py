@@ -1,11 +1,10 @@
 """
-Conformance suite for the generic-store doc/log protocol (chat2 primitives).
+Conformance suite for Lucy's generic-store document/log protocol.
 
 Every test in this file is parameterized over three backend factories —
 memory, file, sqlite — and must pass identically on all of them. That is
-what makes the backends interchangeable: a consumer (Chat2Store facade,
-jsonl_store, correlation) must not be able to tell which backend it is
-talking to.
+what makes the backends interchangeable: a consumer must not be able to tell
+which backend it is talking to.
 
 Protocol under test (the "generic store"):
 

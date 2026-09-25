@@ -8,12 +8,10 @@ from unittest.mock import Mock
 
 import pytest
 
-from src.chat2.facade import Chat2Store
-from src.chat2.store_primitives import InMemoryStore
-from src.coala_memory.episodic import (
-    Chat2EpisodicMemory,
+from galet_memory import (
     EpisodicMemoryManager,
     EpisodicSessionQuery,
+    SqliteEpisodicMemory,
 )
 from src.message_endpoints.ask_request_handler import resolve_or_create_session
 
@@ -23,8 +21,9 @@ UUID_RE = re.compile(
 
 
 @pytest.fixture
-def chat2() -> EpisodicMemoryManager:
-    return Chat2EpisodicMemory(Chat2Store(InMemoryStore()))
+def chat2(tmp_path) -> EpisodicMemoryManager:
+    with SqliteEpisodicMemory(tmp_path / "chat2.sqlite") as memory:
+        yield memory
 
 
 def _seed(

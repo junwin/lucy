@@ -23,12 +23,12 @@ from src.storage.interfaces import ContextStore, DocumentStore, EmbeddingStore, 
 from src.storage.json_file_storage import JsonFileStorage
 from src.storage.primitives_embedding_store import build_primitives_embedding_store
 from src.coala_memory.semantic import SemanticMemory, SqliteVecSemanticMemory
-from src.coala_memory.episodic import (
+from galet_memory import (
     EpisodicMemory,
     EpisodicMemoryManager,
-    Chat2EpisodicMemory,
-    EmbeddingDigestRecall,
+    SqliteEpisodicMemory,
 )
+from src.coala_memory.episodic.embedding_digest_recall import EmbeddingDigestRecall
 from src.coala_memory.procedural import ProceduralMemory, ContextProceduralMemory
 
 from src.handlers.handler_registry import HandlerRegistry
@@ -51,8 +51,6 @@ from galet.openai_responses_adapter import OpenAIResponsesAdapter
 from galet.router_api import RouterApi
 from galet.settings import Settings
 
-from src.chat2.facade import Chat2Store
-from src.chat2.adapters.jfs_adapter import JfsChat2Primitives
 from src.message_processors.automation_processor import AutomationProcessor
 from src.metrics import MetricsRepository
 from src.embeddings.facade import EmbeddingFacade
@@ -121,26 +119,6 @@ class StorageModule(Module):
             )
         return build_primitives_embedding_store(config)
 
-    @provider
-    @singleton
-    def provide_chat2_store(self, storage: Storage) -> Chat2Store:
-        backend = str(config.get("chat2_store_backend", "") or "").strip().lower()
-        if backend == "sqlite":
-            from src.chat2.sqlite import SqliteChat2Primitives
-
-            db_path = config.get("chat2_store_db_path")
-            if not db_path:
-                storage_root = config.get("storage_root_path") or "/home/junwin/lucydata"
-                storage_namespace = config.get("storage_namespace") or "data"
-                db_path = str(Path(storage_root) / storage_namespace / "chat2.sqlite")
-            return Chat2Store(SqliteChat2Primitives(db_path))
-        if not backend or backend == "jsonl":
-            return Chat2Store(JfsChat2Primitives(storage))
-        raise ValueError(
-            "Unknown chat2_store_backend %r: expected 'jsonl' or 'sqlite'" % backend
-        )
-
-
 class MetricsModule(Module):
     @provider
     @singleton
@@ -193,13 +171,21 @@ class CoALAMemoryModule(Module):
     @singleton
     def provide_episodic_memory(
         self,
-        chat2_store: Chat2Store,
         embedding_facade: EmbeddingFacade,
         embedding_store: EmbeddingStore,
     ) -> EpisodicMemory:
-        return Chat2EpisodicMemory(
-            chat2_store,
-            digests_root=Path("data") / "digests",
+        storage_root = config.get("storage_root_path") or "/home/junwin/lucydata"
+        storage_namespace = config.get("storage_namespace") or "data"
+        storage_base = Path(storage_root) / storage_namespace
+        storage_base.mkdir(parents=True, exist_ok=True)
+        db_path = (
+            config.get("episodic_memory_db_path")
+            or config.get("chat2_store_db_path")
+            or storage_base / "chat2.sqlite"
+        )
+        return SqliteEpisodicMemory(
+            db_path,
+            digests_root=storage_base / "digests",
             digest_recall=EmbeddingDigestRecall(
                 embedding_facade=embedding_facade,
                 embedding_store=embedding_store,

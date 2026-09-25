@@ -6,7 +6,7 @@ from typing import Any, Dict, Iterable, List, Optional, Tuple
 from src.agent import Agent
 from src.agent.agent_manager import AgentManager
 from src.agent.caps import resolve_effective_cap
-from src.coala_memory.episodic import EpisodicMemoryManager
+from galet_memory import EpisodicMemoryManager
 from src.config_manager import ConfigManager
 from src.handlers.handler_registry import HandlerRegistry
 from galet.adapter_interface import LLMAdapter

@@ -264,7 +264,8 @@
       "agents_manage",
       "remote_execute",
       "tool_selection_probe",
-      "tool_handler_meta"
+      "tool_handler_meta",
+      "video_generate"
     ],
     "provider": null,
     "use_embeddings": true,

@@ -52,7 +52,7 @@ from src.http_endpoints.upload_endpoints import (
     post_upload_image_impl,
 )
 from src.coala_memory.semantic import SemanticMemory
-from src.coala_memory.episodic import EpisodicMemoryManager
+from galet_memory import EpisodicMemoryManager
 from src.api_key import validate_api_key
 
 
@@ -298,7 +298,7 @@ def ask():
             else:
                 try:
                     conv_id = resolve_or_create_session(
-                        chat2_store=chat2_store,
+                        episodic_store=episodic_memory_manager,
                         account_name=account_name,
                         agent_name=agent_name,
                         friendly_name=str(friendly_name).strip() or None,
