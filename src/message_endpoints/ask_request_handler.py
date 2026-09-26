@@ -89,6 +89,20 @@ def _backfill_session_context(
         )
 
 
+def _execution_identity(payload: Dict[str, Any]) -> ExecutionIdentity:
+    """Use remote lineage when valid, but always mint the local run ID."""
+    trace = payload.get("executionTrace")
+    if isinstance(trace, dict):
+        try:
+            return ExecutionIdentity.remote_child(
+                trace_id=trace["trace_id"],
+                parent_run_id=trace["parent_run_id"],
+            )
+        except (KeyError, TypeError, ValueError):
+            logging.warning("/ask: invalid remote execution lineage; starting a new trace")
+    return ExecutionIdentity.root(message_id=payload.get("messageId"))
+
+
 class AskRequestHandler:
     """Handle the /ask endpoint.
 
@@ -143,7 +157,7 @@ class AskRequestHandler:
 
         # The existing correlation ID is this server-owned root run ID.
         # A client-supplied message ID cannot define trace uniqueness.
-        identity = ExecutionIdentity.root(message_id=payload.get("messageId"))
+        identity = _execution_identity(payload)
         correlation_id = identity.run_id
 
         self.logger.info(
@@ -304,11 +318,12 @@ class AskRequestHandler:
                 file_ids=file_ids,
                 processor_factory=self.processor_factory,
                 correlation_id=correlation_id,
+                trace_id=identity.trace_id,
             )
             response_text = result.text
 
             # Return the conversation id so callers can persist it for future requests
-            return 200, {"response": response_text, "conversation_id": conversationId}
+            return 200, {"response": response_text, "conversation_id": conversationId, "trace_id": identity.trace_id, "run_id": identity.run_id, "parent_run_id": identity.parent_run_id}
 
         except ToolHandlerError as e:
             error_message = f"Tool execution failed: {str(e)}"
@@ -377,7 +392,7 @@ class AskRequestHandler:
 
         # The existing correlation ID is this server-owned root run ID.
         # A client-supplied message ID cannot define trace uniqueness.
-        identity = ExecutionIdentity.root(message_id=payload.get("messageId"))
+        identity = _execution_identity(payload)
         correlation_id = identity.run_id
 
         self.logger.info(
@@ -495,6 +510,7 @@ class AskRequestHandler:
                 file_ids=file_ids,
                 processor_factory=self.processor_factory,
                 correlation_id=correlation_id,
+                trace_id=identity.trace_id,
             ):
                 yield sse_line
 
