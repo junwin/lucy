@@ -50,8 +50,8 @@ class CurateChatHandler(GaletCurateChatHandler):
         # Lucy's old filter and Markdown publication features have no equivalent
         # in CurationService. Preserve those explicit legacy calls for now.
         if mode == "filter" or args.get("publish") or (friendly_name and not session_id):
-            engine = self._engine(context)
             try:
+                engine = self._engine(context)
                 raw = args.get("curation_rules") or ""
                 if isinstance(raw, str):
                     import json
@@ -80,15 +80,20 @@ class CurateChatHandler(GaletCurateChatHandler):
         # session. The new schema omits preview, so archive means archive.
         if mode == "summarize" or (mode == "archive" and args.get("preview") is True):
             mode = "digest"
-        engine = None
-        service = context.get("curation_service") or self.service
-        if service is None:
-            engine = self._engine(context)
-            service = CurationService(
-                engine.episodic_store, LucyDigestGenerator(engine)
-            )
-        delegate = GaletCurateChatHandler(service)
-        max_chars = args.get("max_chars", self.config.get("curation_max_chars", 32000))
+        try:
+            service = context.get("curation_service") or self.service
+            if service is None:
+                engine = self._engine(context)
+                service = CurationService(
+                    engine.episodic_store, LucyDigestGenerator(engine)
+                )
+            delegate = GaletCurateChatHandler(service)
+            max_chars = args.get("max_chars", self.config.get("curation_max_chars", 32000))
+        except Exception as exc:
+            return {
+                "ok": False, "tool": self.NAME, "status": "error",
+                "error": f"{type(exc).__name__}: {exc}",
+            }
         result = delegate.execute(
             {
                 "session_id": session_id,
