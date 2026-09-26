@@ -215,3 +215,20 @@ def test_tasklist_worker_gets_distinct_run_with_parent_lineage():
     assert record["trace_id"] == "parent-run"
     assert record["run_id"] == child_run
     assert record["parent_run_id"] == "parent-run"
+
+
+def test_nested_tasklist_worker_keeps_original_trace():
+    fcp = MetricsFunctionProcessor()
+    _, storage, _ = run_tasklist(
+        fcp,
+        make_tasklist(),
+        correlation_id="parent-child-run",
+        trace_id="original-root-run",
+    )
+
+    worker_call = fcp.calls[0]
+    record = storage.records[0][2]
+    assert worker_call["trace_id"] == "original-root-run"
+    assert worker_call["correlation_id"] == record["run_id"]
+    assert record["trace_id"] == "original-root-run"
+    assert record["parent_run_id"] == "parent-child-run"
