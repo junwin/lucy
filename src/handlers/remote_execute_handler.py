@@ -103,7 +103,7 @@ class RemoteExecuteHandler(HandlerV2):
     # execute
     # ------------------------------------------------------------------
 
-    def execute(self, args: Dict[str, Any], *, account_name: str = "auto") -> Dict[str, Any]:
+    def execute(self, args: Dict[str, Any], *, account_name: str = "auto", **context: Any) -> Dict[str, Any]:
         machine_key = (args.get("machine") or "").strip()
         question = (args.get("question") or "").strip()
 
@@ -134,6 +134,14 @@ class RemoteExecuteHandler(HandlerV2):
             "contextName": context_name,
             "sessionId": machine.session_id_for(agent_name),
         }
+
+        parent_run_id = context.get("correlation_id")
+        trace_id = context.get("trace_id") or parent_run_id
+        if trace_id and parent_run_id and parent_run_id != "-":
+            body["executionTrace"] = {
+                "trace_id": trace_id,
+                "parent_run_id": parent_run_id,
+            }
 
         headers = {
             "Content-Type": "application/json",
@@ -170,13 +178,22 @@ class RemoteExecuteHandler(HandlerV2):
                 raw=raw[:500],
             )
 
-        return {
+        result = {
             "ok": True,
             "tool": self.NAME,
             "machine": machine_key,
             "question": question,
             "result": answer,
         }
+        try:
+            remote = json.loads(raw)
+        except json.JSONDecodeError:
+            remote = None
+        if isinstance(remote, dict):
+            for key in ("trace_id", "run_id", "parent_run_id"):
+                if key in remote:
+                    result[key] = remote[key]
+        return result
 
     # ------------------------------------------------------------------
     # helpers
@@ -277,5 +294,5 @@ class RemoteExecuteHandler(HandlerV2):
             args = json.loads(arguments_raw or "{}")
         except Exception:
             args = {}
-        result = self.execute(args if isinstance(args, dict) else {}, account_name=account_name)
+        result = self.execute(args if isinstance(args, dict) else {}, account_name=account_name, **context)
         return json.dumps(result, ensure_ascii=False)
