@@ -1,8 +1,7 @@
 """Lucy composition adapter for galet-tools' curate_chat handler.
 
-The advertised tool contract is galet-tools' digest/archive contract. Legacy
-Lucy calls that request filtering, publication, or friendly-name resolution
-still use Lucy's application curation engine during the transition.
+The advertised tool contract is galet-tools' digest/archive contract. Legacy filter and friendly-name resolution still use Lucy's application
+curation engine during the transition.
 """
 
 from __future__ import annotations
@@ -10,9 +9,11 @@ from __future__ import annotations
 from typing import Any
 
 from galet_memory.curation import CurationService, DigestGenerationRequest
+from galet_memory.publication import EmbeddingDigestPublisher, FilesystemDigestStore
 from galet_tools.tools.curate_chat_handler import CurateChatHandler as GaletCurateChatHandler
 
 from src.curation.container_factory import get_curation_engine
+from src.curation.digest_publication_adapters import LucyEmbeddingIndex, LucyEmbeddingProvider
 from src.curation.summarizer import summarize_session
 
 
@@ -47,9 +48,8 @@ class CurateChatHandler(GaletCurateChatHandler):
         friendly_name = str(args.get("friendly_name") or "").strip()
         account = str(args.get("account") or account_name or "").strip()
 
-        # Lucy's old filter and Markdown publication features have no equivalent
-        # in CurationService. Preserve those explicit legacy calls for now.
-        if mode == "filter" or args.get("publish") or (friendly_name and not session_id):
+        # Preserve the explicit legacy filter and friendly-name calls.
+        if mode == "filter" or (friendly_name and not session_id):
             try:
                 engine = self._engine(context)
                 raw = args.get("curation_rules") or ""
@@ -84,8 +84,16 @@ class CurateChatHandler(GaletCurateChatHandler):
             service = context.get("curation_service") or self.service
             if service is None:
                 engine = self._engine(context)
+                publisher = None
+                if engine.embedding_facade is not None and engine.storage is not None:
+                    publisher = EmbeddingDigestPublisher(
+                        FilesystemDigestStore(engine.digests_root),
+                        LucyEmbeddingProvider(engine.embedding_facade),
+                        LucyEmbeddingIndex(engine.storage),
+                    )
                 service = CurationService(
-                    engine.episodic_store, LucyDigestGenerator(engine)
+                    engine.episodic_store, LucyDigestGenerator(engine),
+                    digest_publisher=publisher,
                 )
             delegate = GaletCurateChatHandler(service)
             max_chars = args.get("max_chars", self.config.get("curation_max_chars", 32000))
@@ -100,12 +108,12 @@ class CurateChatHandler(GaletCurateChatHandler):
                 "mode": mode,
                 "max_chars": max_chars,
                 "idempotency_key": args.get("idempotency_key", ""),
+                "publish": args.get("publish", False) if args.get("preview") is not True else False,
             },
             account_name=account,
         )
         if result.get("ok"):
             result["note_text"] = result["digest"]
-            result["output_path"] = None
         return result
 
 
