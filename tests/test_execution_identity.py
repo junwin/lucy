@@ -23,3 +23,20 @@ def test_child_and_retry_keep_trace_but_get_distinct_runs():
     assert child.parent_run_id == retry.parent_run_id == root.run_id
     assert grandchild.parent_run_id == child.run_id
     assert grandchild.message_id == "client-message"
+
+
+def test_remote_child_mints_own_run_and_rejects_bogus_lineage():
+    import pytest
+
+    root = ExecutionIdentity.root()
+    child = ExecutionIdentity.remote_child(
+        trace_id=root.trace_id, parent_run_id=root.run_id
+    )
+    assert child.trace_id == root.trace_id
+    assert child.parent_run_id == root.run_id
+    assert child.run_id != root.run_id
+
+    with pytest.raises(ValueError):
+        ExecutionIdentity.remote_child(
+            trace_id="bogus", parent_run_id=root.run_id
+        )
