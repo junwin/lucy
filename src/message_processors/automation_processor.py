@@ -436,6 +436,7 @@ class AutomationProcessor(MessageProcessorInterface):
         processor_factory: Optional[Any] = None,
         worker_agent: Optional[str] = None,
         correlation_id: Optional[str] = None,
+        trace_id: Optional[str] = None,
     ) -> str:
         """Execute a persisted tasklist by ID.
 
@@ -654,7 +655,7 @@ class AutomationProcessor(MessageProcessorInterface):
             # retaining the caller's trace and direct parent relationship.
             child_identity = (
                 ExecutionIdentity(
-                    trace_id=correlation_id,
+                    trace_id=trace_id or correlation_id,
                     run_id=correlation_id,
                 ).child()
                 if correlation_id and function_processor is not None
@@ -728,6 +729,7 @@ class AutomationProcessor(MessageProcessorInterface):
                             image_ids=image_ids,
                             file_ids=file_ids,
                             correlation_id=(child_identity.run_id if child_identity else correlation_id),
+                            trace_id=(child_identity.trace_id if child_identity else trace_id),
                         )
 
                         response = fcp_result.text
