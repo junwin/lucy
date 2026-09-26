@@ -114,6 +114,7 @@ class LLMLoopRunner:
         account: Dict[str, Any],
         metrics: Dict[str, Any],
         correlation_id: Optional[str] = None,
+        trace_id: Optional[str] = None,
     ) -> Generator[SSEEvent, None, None]:
         """Single streaming-native agentic loop yielding SSEEvent objects.
 
@@ -272,6 +273,7 @@ class LLMLoopRunner:
                         ctx=ctx,
                         metrics=metrics,
                         correlation_id=correlation_id,
+                        trace_id=trace_id or correlation_id,
                     )
                 except (ToolHandlerError, ToolResultTooLargeError) as e:
                     for tc in tool_calls:
