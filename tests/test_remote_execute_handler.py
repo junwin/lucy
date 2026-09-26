@@ -147,3 +147,30 @@ def test_invalid_machine_catalog_fails_closed(tmp_path):
 
     assert result["ok"] is False
     assert "Unknown machine" in result["error"]
+
+
+def test_remote_execute_propagates_trace_and_returns_remote_run(monkeypatch, temp_config):
+    cfg = ConfigManager(temp_config)
+    captured = {}
+
+    def fake_post(url, json=None, headers=None, timeout=None):
+        captured["body"] = json
+        return FakeResponse(
+            '{"response":"remote answer","trace_id":"root-run",'
+            '"run_id":"remote-run","parent_run_id":"caller-run"}'
+        )
+
+    monkeypatch.setattr("requests.post", fake_post)
+    result = RemoteExecuteHandler(cfg).execute(
+        {"machine": "pi4", "question": "ping"},
+        account_name="junwin",
+        correlation_id="caller-run",
+        trace_id="root-run",
+    )
+
+    assert captured["body"]["executionTrace"] == {
+        "trace_id": "root-run",
+        "parent_run_id": "caller-run",
+    }
+    assert result["result"] == "remote answer"
+    assert result["run_id"] == "remote-run"
