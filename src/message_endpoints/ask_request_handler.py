@@ -5,6 +5,7 @@ from typing import Any, Dict, Tuple, Optional, Generator
 
 from src.agent import AgentManager, Agent
 from src.config_manager import ConfigManager
+from src.execution_identity import ExecutionIdentity
 from src.storage.base import Storage
 from src.message_processors.processor_factory import ProcessorFactory
 from src.message_processors.function_calling_processor import ToolHandlerError
@@ -140,7 +141,10 @@ class AskRequestHandler:
         if context_name is not None:
             context_name = str(context_name).strip() or None
 
-        correlation_id = str(uuid.uuid4())
+        # The existing correlation ID is this server-owned root run ID.
+        # A client-supplied message ID cannot define trace uniqueness.
+        identity = ExecutionIdentity.root(message_id=payload.get("messageId"))
+        correlation_id = identity.run_id
 
         self.logger.info(
             "/ask: correlation_id=%s user_id=%s agentName=%s context_type=%s context_name=%s conversationId=%s partnerAgentName=%s",
@@ -371,7 +375,10 @@ class AskRequestHandler:
         if context_name is not None:
             context_name = str(context_name).strip() or None
 
-        correlation_id = str(uuid.uuid4())
+        # The existing correlation ID is this server-owned root run ID.
+        # A client-supplied message ID cannot define trace uniqueness.
+        identity = ExecutionIdentity.root(message_id=payload.get("messageId"))
+        correlation_id = identity.run_id
 
         self.logger.info(
             "/ask(streaming): correlation_id=%s user_id=%s agentName=%s context_type=%s context_name=%s conversationId=%s partnerAgentName=%s",
