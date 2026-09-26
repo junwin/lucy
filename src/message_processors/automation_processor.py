@@ -976,6 +976,7 @@ class AutomationProcessor(MessageProcessorInterface):
         secondary_agent: Optional[Agent] = None,
         processor_factory: Optional[Any] = None,
         correlation_id: Optional[str] = None,
+        trace_id: Optional[str] = None,
     ) -> str:
         agent_name = (getattr(primary_agent, "name", "") or "").lower().strip()
 
@@ -1067,4 +1068,5 @@ class AutomationProcessor(MessageProcessorInterface):
             secondary_agent=secondary_agent,
             processor_factory=processor_factory,
             correlation_id=correlation_id,
+            trace_id=trace_id or correlation_id,
         )
