@@ -23,6 +23,24 @@ class ExecutionIdentity:
             message_id=message_id,
         )
 
+    @classmethod
+    def remote_child(
+        cls, *, trace_id: str, parent_run_id: str
+    ) -> "ExecutionIdentity":
+        """Join a caller's trace while minting this instance's own run ID."""
+        from uuid import UUID
+
+        # Reject malformed or noncanonical external IDs. An authenticated
+        # remote caller supplies lineage, never the identity of this run.
+        for value in (trace_id, parent_run_id):
+            if not isinstance(value, str) or str(UUID(value)) != value:
+                raise ValueError("trace and parent run IDs must be canonical UUIDs")
+        return cls(
+            trace_id=trace_id,
+            run_id=str(uuid4()),
+            parent_run_id=parent_run_id,
+        )
+
     def child(self) -> "ExecutionIdentity":
         return type(self)(
             trace_id=self.trace_id,
