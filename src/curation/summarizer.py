@@ -50,7 +50,6 @@ If a section has no content, write "None." for that section."""
 def _build_events_text(events: List[EpisodicEvent], max_chars: int = 32000) -> str:
     """Build a text representation of events for the LLM."""
     lines: List[str] = []
-    total = 0
 
     for e in events:
         content_str = (
@@ -59,14 +58,36 @@ def _build_events_text(events: List[EpisodicEvent], max_chars: int = 32000) -> s
             else str(e.content)
         )
         timestamp = e.created_at.isoformat() if e.created_at is not None else ""
-        line = f"[{timestamp}] {e.role}/{e.actor} ({e.kind}): {content_str[:500]}"
-        total += len(line) + 1
-        if total > max_chars:
-            lines.append("... (truncated)")
-            break
-        lines.append(line)
+        lines.append(f"[{timestamp}] {e.role}/{e.actor} ({e.kind}): {content_str[:500]}")
 
-    return "\n".join(lines)
+    if max_chars <= 0 or not lines:
+        return ""
+
+    # Work backwards to keep the most recent events, then restore their
+    # chronological order for the summarizer. Earlier events are the ones
+    # omitted when the input exceeds the budget.
+    selected: List[str] = []
+    total = 0
+    for line in reversed(lines):
+        cost = len(line) + (1 if selected else 0)
+        if total + cost > max_chars:
+            break
+        selected.append(line)
+        total += cost
+
+    if not selected:
+        return lines[-1][:max_chars]
+
+    if len(selected) == len(lines):
+        return "\n".join(reversed(selected))
+
+    marker = "... (older events omitted)"
+    while selected and total + len(marker) + 1 > max_chars:
+        removed = selected.pop()
+        total -= len(removed) + (1 if selected else 0)
+    if not selected:
+        return lines[-1][:max_chars]
+    return marker + "\n" + "\n".join(reversed(selected))
 
 
 def summarize_session(
