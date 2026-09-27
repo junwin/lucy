@@ -178,12 +178,23 @@ class CoALAMemoryModule(Module):
         storage_namespace = config.get("storage_namespace") or "data"
         storage_base = Path(storage_root) / storage_namespace
         storage_base.mkdir(parents=True, exist_ok=True)
-        db_path = (
-            config.get("episodic_memory_db_path")
-            or config.get("chat2_store_db_path")
-            or storage_base / "chat2.sqlite"
-        )
-        return SqliteEpisodicMemory(
+        backend = str(config.get("episodic_memory_backend", "legacy_sqlite") or "legacy_sqlite").strip().lower()
+        if backend == "legacy_sqlite":
+            store_type = SqliteEpisodicMemory
+            db_path = (
+                config.get("episodic_memory_db_path")
+                or config.get("chat2_store_db_path")
+                or storage_base / "chat2.sqlite"
+            )
+        elif backend == "relational_sqlite":
+            # Opt in only after copying the legacy data into a new database.
+            from galet_memory import RelationalSqliteEpisodicMemory
+
+            store_type = RelationalSqliteEpisodicMemory
+            db_path = config.get("episodic_memory_db_path") or storage_base / "chat2-relational.sqlite"
+        else:
+            raise ValueError(f"Unknown episodic_memory_backend: {backend!r}")
+        return store_type(
             db_path,
             digests_root=storage_base / "digests",
             digest_recall=EmbeddingDigestRecall(
