@@ -9,13 +9,9 @@ from galet_prompt_builder import (
     PromptLimits,
     PromptRequest,
 )
-from galet_memory import EpisodicMemory
+from galet_memory import EpisodicMemory, ProceduralMemory, ProceduralMemoryRequest
 
 from src.agent import Agent, AgentManager
-from src.coala_memory.procedural import (
-    ProceduralMemory,
-    ProceduralMemoryRequest,
-)
 from src.coala_memory.semantic import (
     SemanticMemory,
     SemanticMemoryRequest,
@@ -95,23 +91,6 @@ class _LucySemanticMemoryAdapter:
         )
 
 
-class _LucyProceduralMemoryAdapter:
-    def __init__(self, memory: ProceduralMemory) -> None:
-        self.memory = memory
-
-    def recall(self, request: Any) -> Any:
-        return self.memory.recall(
-            ProceduralMemoryRequest(
-                account_name=request.account_name,
-                context_name=request.context_name,
-                create_if_missing=request.create_if_missing,
-                include_resolved_text=request.include_resolved_text,
-                include_skills=request.include_skills,
-                include_required_tools=request.include_required_tools,
-            )
-        )
-
-
 class GaletPromptBuilderAdapter(PromptBuilderInterface):
     """Adapt Lucy's prompt contract to the standalone Galet compiler.
 
@@ -182,9 +161,7 @@ class GaletPromptBuilderAdapter(PromptBuilderInterface):
         )
 
         compiler = self.compiler_class(
-            procedural_memory=_LucyProceduralMemoryAdapter(
-                self.procedural_memory
-            ),
+            procedural_memory=self.procedural_memory,
             episodic_memory=self.episodic_memory,
             semantic_memory=_LucySemanticMemoryAdapter(self.semantic_memory),
         )
