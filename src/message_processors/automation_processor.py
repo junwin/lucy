@@ -18,6 +18,7 @@ except Exception:
 from src.agent import Agent
 from src.agent.agent_manager import AgentManager
 from src.config_manager import ConfigManager
+from src.execution_identity import ExecutionIdentity
 from src.handlers.handler_registry import HandlerRegistry
 from src.message_processors.message_processor_interface import MessageProcessorInterface
 from src.prompt_builders.prompt_builder_interface import PromptBuilderInterface
@@ -435,6 +436,7 @@ class AutomationProcessor(MessageProcessorInterface):
         processor_factory: Optional[Any] = None,
         worker_agent: Optional[str] = None,
         correlation_id: Optional[str] = None,
+        trace_id: Optional[str] = None,
     ) -> str:
         """Execute a persisted tasklist by ID.
 
@@ -649,6 +651,17 @@ class AutomationProcessor(MessageProcessorInterface):
                     f"error='Failed to persist RUNNING checkpoint: {e}'"
                 )
 
+            # Each worker execution has its own correlation/run ID while
+            # retaining the caller's trace and direct parent relationship.
+            child_identity = (
+                ExecutionIdentity(
+                    trace_id=trace_id or correlation_id,
+                    run_id=correlation_id,
+                ).child()
+                if correlation_id and function_processor is not None
+                else None
+            )
+
             # Execute the task using the FunctionCallingProcessor if available;
             # otherwise attach a placeholder result.
             task_result = None
@@ -715,7 +728,8 @@ class AutomationProcessor(MessageProcessorInterface):
                             processor_factory=processor_factory,
                             image_ids=image_ids,
                             file_ids=file_ids,
-                            correlation_id=correlation_id,
+                            correlation_id=(child_identity.run_id if child_identity else correlation_id),
+                            trace_id=(child_identity.trace_id if child_identity else trace_id),
                         )
 
                         response = fcp_result.text
@@ -779,6 +793,10 @@ class AutomationProcessor(MessageProcessorInterface):
             correlation = task_meta.get("correlation_id")
             if correlation:
                 record["correlation_id"] = correlation
+            if child_identity is not None:
+                record["trace_id"] = child_identity.trace_id
+                record["run_id"] = child_identity.run_id
+                record["parent_run_id"] = child_identity.parent_run_id
             if task_error is not None:
                 record["error"] = task_error
                 if error_detail is not None:
@@ -958,6 +976,7 @@ class AutomationProcessor(MessageProcessorInterface):
         secondary_agent: Optional[Agent] = None,
         processor_factory: Optional[Any] = None,
         correlation_id: Optional[str] = None,
+        trace_id: Optional[str] = None,
     ) -> str:
         agent_name = (getattr(primary_agent, "name", "") or "").lower().strip()
 
@@ -1049,4 +1068,5 @@ class AutomationProcessor(MessageProcessorInterface):
             secondary_agent=secondary_agent,
             processor_factory=processor_factory,
             correlation_id=correlation_id,
+            trace_id=trace_id or correlation_id,
         )

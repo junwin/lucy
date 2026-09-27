@@ -556,6 +556,7 @@ class FunctionCallingProcessor(MessageProcessorInterface):
         image_ids: Optional[List[str]] = None,
         file_ids: Optional[List[str]] = None,
         correlation_id: Optional[str] = None,
+        trace_id: Optional[str] = None,
     ) -> FCPResult:
         start_ts = time.perf_counter()
         metrics: Dict[str, Any] = {
@@ -646,6 +647,7 @@ class FunctionCallingProcessor(MessageProcessorInterface):
                 account=account,
                 metrics=metrics,
                 correlation_id=correlation_id,
+                trace_id=trace_id or correlation_id,
             ):
                 if event.type == "text" and event.content:
                     response_text = event.content
@@ -769,6 +771,7 @@ class FunctionCallingProcessor(MessageProcessorInterface):
         image_ids: Optional[List[str]] = None,
         file_ids: Optional[List[str]] = None,
         correlation_id: Optional[str] = None,
+        trace_id: Optional[str] = None,
     ) -> Generator[str, None, None]:
         """Streaming variant of process_message.
 
@@ -883,6 +886,7 @@ class FunctionCallingProcessor(MessageProcessorInterface):
                 account=account,
                 metrics=metrics,
                 correlation_id=correlation_id,
+                trace_id=trace_id or correlation_id,
             ):
                 should_persist = True
                 if event.type == "text" and event.content:

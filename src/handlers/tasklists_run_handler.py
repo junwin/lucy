@@ -189,6 +189,7 @@ class TasklistsRunHandler(HandlerV2):
                 agent_name=agent_name,
                 conversation_id=conversation_id,
                 correlation_id=correlation_id,
+                trace_id=context.get("trace_id") or correlation_id,
                 context_name="",
                 primary_agent=primary_agent,
                 account=account,

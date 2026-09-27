@@ -112,3 +112,38 @@ class TestAskRequestHandlerHandle:
         assert call["image_ids"] == ["img-1"]
         assert call["file_ids"] == ["file-1"]
         assert call["correlation_id"]
+
+
+def test_remote_ask_preserves_trace_but_mints_local_run():
+    import uuid
+
+    processor = FakeProcessor(FCPResult(text="ok", metrics=RunMetrics()))
+    handler = make_handler(processor, make_agent())
+    root_id = str(uuid.uuid4())
+    parent_id = str(uuid.uuid4())
+
+    status, body = handler.handle(make_payload(
+        conversationId="conv-remote",
+        executionTrace={"trace_id": root_id, "parent_run_id": parent_id},
+    ))
+
+    assert status == 200
+    assert body["trace_id"] == root_id
+    assert body["parent_run_id"] == parent_id
+    assert body["run_id"] != parent_id
+    assert processor.calls[0]["correlation_id"] == body["run_id"]
+    assert processor.calls[0]["trace_id"] == root_id
+
+
+def test_invalid_remote_lineage_starts_new_trace():
+    processor = FakeProcessor(FCPResult(text="ok", metrics=RunMetrics()))
+    handler = make_handler(processor, make_agent())
+
+    status, body = handler.handle(make_payload(
+        conversationId="conv-remote",
+        executionTrace={"trace_id": "bogus", "parent_run_id": "also-bogus"},
+    ))
+
+    assert status == 200
+    assert body["trace_id"] == body["run_id"]
+    assert body["parent_run_id"] is None

@@ -5,6 +5,7 @@ from typing import Any, Dict, Tuple, Optional, Generator
 
 from src.agent import AgentManager, Agent
 from src.config_manager import ConfigManager
+from src.execution_identity import ExecutionIdentity
 from src.storage.base import Storage
 from src.message_processors.processor_factory import ProcessorFactory
 from src.message_processors.function_calling_processor import ToolHandlerError
@@ -88,6 +89,20 @@ def _backfill_session_context(
         )
 
 
+def _execution_identity(payload: Dict[str, Any]) -> ExecutionIdentity:
+    """Use remote lineage when valid, but always mint the local run ID."""
+    trace = payload.get("executionTrace")
+    if isinstance(trace, dict):
+        try:
+            return ExecutionIdentity.remote_child(
+                trace_id=trace["trace_id"],
+                parent_run_id=trace["parent_run_id"],
+            )
+        except (KeyError, TypeError, ValueError):
+            logging.warning("/ask: invalid remote execution lineage; starting a new trace")
+    return ExecutionIdentity.root(message_id=payload.get("messageId"))
+
+
 class AskRequestHandler:
     """Handle the /ask endpoint.
 
@@ -140,7 +155,10 @@ class AskRequestHandler:
         if context_name is not None:
             context_name = str(context_name).strip() or None
 
-        correlation_id = str(uuid.uuid4())
+        # The existing correlation ID is this server-owned root run ID.
+        # A client-supplied message ID cannot define trace uniqueness.
+        identity = _execution_identity(payload)
+        correlation_id = identity.run_id
 
         self.logger.info(
             "/ask: correlation_id=%s user_id=%s agentName=%s context_type=%s context_name=%s conversationId=%s partnerAgentName=%s",
@@ -300,11 +318,12 @@ class AskRequestHandler:
                 file_ids=file_ids,
                 processor_factory=self.processor_factory,
                 correlation_id=correlation_id,
+                trace_id=identity.trace_id,
             )
             response_text = result.text
 
             # Return the conversation id so callers can persist it for future requests
-            return 200, {"response": response_text, "conversation_id": conversationId}
+            return 200, {"response": response_text, "conversation_id": conversationId, "trace_id": identity.trace_id, "run_id": identity.run_id, "parent_run_id": identity.parent_run_id}
 
         except ToolHandlerError as e:
             error_message = f"Tool execution failed: {str(e)}"
@@ -371,7 +390,10 @@ class AskRequestHandler:
         if context_name is not None:
             context_name = str(context_name).strip() or None
 
-        correlation_id = str(uuid.uuid4())
+        # The existing correlation ID is this server-owned root run ID.
+        # A client-supplied message ID cannot define trace uniqueness.
+        identity = _execution_identity(payload)
+        correlation_id = identity.run_id
 
         self.logger.info(
             "/ask(streaming): correlation_id=%s user_id=%s agentName=%s context_type=%s context_name=%s conversationId=%s partnerAgentName=%s",
@@ -488,6 +510,7 @@ class AskRequestHandler:
                 file_ids=file_ids,
                 processor_factory=self.processor_factory,
                 correlation_id=correlation_id,
+                trace_id=identity.trace_id,
             ):
                 yield sse_line
 
