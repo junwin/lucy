@@ -26,10 +26,12 @@ from src.coala_memory.semantic import SemanticMemory, SqliteVecSemanticMemory
 from galet_memory import (
     EpisodicMemory,
     EpisodicMemoryManager,
+    FileProceduralMemory,
+    ProceduralLayout,
     SqliteEpisodicMemory,
 )
 from src.coala_memory.episodic.embedding_digest_recall import EmbeddingDigestRecall
-from src.coala_memory.procedural import ProceduralMemory, ContextProceduralMemory
+from galet_memory import ProceduralMemory
 
 from src.handlers.handler_registry import HandlerRegistry
 from src.handlers.registry_bootstrap import build_registry_and_catalog
@@ -205,9 +207,12 @@ class CoALAMemoryModule(Module):
     @singleton
     def provide_procedural_memory(
         self,
-        context_store: ContextStore,
     ) -> ProceduralMemory:
-        return ContextProceduralMemory(context_store)
+        storage_root = config.get("storage_root_path") or "/home/junwin/lucydata"
+        storage_namespace = config.get("storage_namespace") or "data"
+        paths = StoragePaths(storage_root_path=storage_root,
+                             storage_namespace=storage_namespace)
+        return FileProceduralMemory(paths.base, ProceduralLayout.lucy())
 
 
 class HandlerRegistryModule(Module):

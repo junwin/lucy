@@ -465,8 +465,9 @@ class TestPromptBuilderContextRendering:
         skill_file.write_text(content, encoding="utf-8")
 
     def _build_context_content(self, skill_storage, context_name: str) -> str:
-        from galet_memory import EpisodicMemoryResult
-        from src.coala_memory.procedural import ContextProceduralMemory
+        from galet_memory import (
+            EpisodicMemoryResult, FileProceduralMemory, ProceduralLayout,
+        )
         from src.coala_memory.semantic import SemanticMemoryResult
         from src.prompt_builders.galet_prompt_builder_adapter import (
             GaletPromptBuilderAdapter,
@@ -482,7 +483,9 @@ class TestPromptBuilderContextRendering:
             storage=skill_storage,
             episodic_memory=episodic_memory,
             semantic_memory=semantic_memory,
-            procedural_memory=ContextProceduralMemory(skill_storage),
+            procedural_memory=FileProceduralMemory(
+                skill_storage.storage_paths.base, ProceduralLayout.lucy()
+            ),
         )
         messages = pb.build_prompt(
             content_text="hello",
@@ -497,7 +500,12 @@ class TestPromptBuilderContextRendering:
             if "Project context:" in str(m.get("content", ""))
         ]
         assert len(context_msgs) == 1
-        return str(context_msgs[0]["content"])
+        procedural_msgs = [
+            m for m in messages
+            if "Project context:" in str(m.get("content", ""))
+            or str(m.get("content", "")).startswith("Skill: ")
+        ]
+        return "\n".join(str(m["content"]) for m in procedural_msgs)
 
     def test_context_with_imports_processed_but_directives_excluded(self, skill_storage):
         self._write_skill(skill_storage, "junwin", "dev-basics", "SKILL: testing in venv")
@@ -516,8 +524,8 @@ class TestPromptBuilderContextRendering:
 
         content = self._build_context_content(skill_storage, "testctx")
         assert "MAIN CONTEXT" in content
-        assert "## skill: dev-basics" in content
-        assert "## skill: gh-cli" in content
+        assert "Skill: dev-basics" in content
+        assert "Skill: gh-cli" in content
         assert "SKILL: testing in venv" in content
         assert "SKILL: use gh CLI" in content
         assert "web_search_handler" not in content
@@ -548,7 +556,7 @@ class TestPromptBuilderContextRendering:
         skill_storage.save_context(ctx)
 
         content = self._build_context_content(skill_storage, "partial")
-        assert "## skill: exists" in content
+        assert "Skill: exists" in content
         assert "SKILL: exists" in content
         assert "missing-skill" not in content
         assert "Main body" in content
