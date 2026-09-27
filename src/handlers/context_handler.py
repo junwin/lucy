@@ -1,4 +1,4 @@
-"""context_handler — manage conversation contexts stored as Markdown + YAML.
+"""Tool interface for galet-memory procedural contexts.
 
 A context ("whiteboard") is a Markdown file under contexts/<account>/<name>.md.
 The YAML frontmatter holds operational keys (allowed_tools, mandatory_tools,
@@ -11,20 +11,18 @@ Actions
 - set_mandatory_tools  : replace the context's mandatory_tools list and save
 - save                 : create/update a context (text and/or frontmatter data)
 
-The handler prefers the injected ``storage`` from the FCP execution context;
-otherwise it builds a JsonFileStorage from config (same as other handlers).
+The handler delegates context and skill behavior to galet-memory.
 """
 
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
+
+from galet_memory import FileProceduralMemory, ProceduralLayout, ProceduralMemoryRequest
 
 from src.config_manager import ConfigManager
 from src.handlers.handler_v2 import HandlerV2
-from src.storage.interfaces import ContextStore
-from src.storage.json_file_storage import JsonFileStorage
 from src.storage_paths.storage_paths import StoragePaths
 
 logger = logging.getLogger(__name__)
@@ -37,7 +35,7 @@ class ContextHandler(HandlerV2):
 
     def __init__(self, config: Optional[ConfigManager]):
         self.config = config
-        self.storage: Optional[ContextStore] = self._build_storage(config)
+        self.memory: Optional[FileProceduralMemory] = self._build_memory(config)
 
     # ------------------------------------------------------------------
     # HandlerV2 contract
@@ -146,7 +144,7 @@ class ContextHandler(HandlerV2):
 
         try:
             if action == "list":
-                return self._handle_list(account_name, args)
+                return self._handle_list(account_name, args, context)
             elif action == "load":
                 return self._handle_load(account_name, args, context)
             elif action == "set_mandatory_tools":
@@ -167,14 +165,12 @@ class ContextHandler(HandlerV2):
     # Helpers
     # ------------------------------------------------------------------
 
-    def _get_storage(self, context: Dict[str, Any]) -> Optional[ContextStore]:
-        storage = context.get("storage")
-        if storage is not None:
-            return storage
-        return self.storage
+    def _get_memory(self, context: Dict[str, Any]) -> Optional[FileProceduralMemory]:
+        memory = context.get("procedural_memory")
+        return memory if isinstance(memory, FileProceduralMemory) else self.memory
 
     @staticmethod
-    def _build_storage(config: Optional[ConfigManager]):
+    def _build_memory(config: Optional[ConfigManager]):
         if config is None:
             return None
         try:
@@ -182,9 +178,9 @@ class ContextHandler(HandlerV2):
             storage_ns = config.get("storage_namespace")
             if storage_root:
                 sp = StoragePaths(storage_root, storage_ns)
-                return JsonFileStorage(sp)
+                return FileProceduralMemory(sp.base, ProceduralLayout.lucy())
         except Exception as exc:  # pragma: no cover - defensive
-            logger.warning("context_handler: failed to build storage from config: %s", exc)
+            logger.warning("context_handler: failed to build procedural memory from config: %s", exc)
         return None
 
     @staticmethod
@@ -234,14 +230,14 @@ class ContextHandler(HandlerV2):
     # Actions
     # ------------------------------------------------------------------
 
-    def _handle_list(self, account_name: str, args: Dict[str, Any]) -> Dict[str, Any]:
-        account = self._resolve_account_name(account_name, {})
-        storage = self.storage
-        if storage is None:
+    def _handle_list(self, account_name: str, args: Dict[str, Any], context: Dict[str, Any]) -> Dict[str, Any]:
+        account = self._resolve_account_name(account_name, context)
+        memory = self._get_memory(context)
+        if memory is None:
             return {"ok": False, "tool": self.NAME, "action": "list",
                     "error": {"code": "no_storage", "message": "No storage available"}}
 
-        names = storage.list_context_names(account)
+        names = memory.repository.list_context_names(account)
         try:
             limit = int(args.get("limit") or DEFAULT_LIST_LIMIT)
         except (TypeError, ValueError):
@@ -262,13 +258,13 @@ class ContextHandler(HandlerV2):
         if err:
             return err
         account = self._resolve_account_name(account_name, context)
-        storage = self._get_storage(context)
-        if storage is None:
+        memory = self._get_memory(context)
+        if memory is None:
             return {"ok": False, "tool": self.NAME, "action": "load",
                     "error": {"code": "no_storage", "message": "No storage available"}}
 
-        ctx = storage.get_context(account, name)
-        if ctx is None:
+        raw = memory.repository.read_context(account, name)
+        if raw is None:
             return {
                 "ok": False,
                 "tool": self.NAME,
@@ -277,18 +273,32 @@ class ContextHandler(HandlerV2):
                 "error": {"code": "not_found", "message": f"context '{name}' not found"},
             }
 
+        frontmatter, body = raw
+        result = memory.recall(ProceduralMemoryRequest(
+            account_name=account, context_name=name,
+        ))
+        typed = ("tag", "imports", "mandatory_tools", "search_namespaces", "updated_at")
+        data = {
+            "id": name, "account_name": account, "text": body,
+            "tag": frontmatter.get("tag"),
+            "imports": list(result.imports),
+            "mandatory_tools": list(frontmatter.get("mandatory_tools") or []),
+            "search_namespaces": list(result.search_namespaces),
+            "updated_at": frontmatter.get("updated_at"),
+            "extra": {k: v for k, v in frontmatter.items() if k not in typed},
+        }
         return {
             "ok": True,
             "tool": self.NAME,
             "action": "load",
             "context_name": name,
             "account_name": account,
-            "data": ctx.to_data(),
-            "skills": [s.name for s in ctx.resolved_skills],
-            "missing_skills": list(ctx.missing_imports),
-            "resolved_text": ctx.resolved_text,
-            "mandatory_tools": list(ctx.mandatory_tools),
-            "required_tools": ctx.required_tools,
+            "data": data,
+            "skills": [s.name for s in result.skills],
+            "missing_skills": list(result.missing_imports),
+            "resolved_text": result.resolved_text,
+            "mandatory_tools": data["mandatory_tools"],
+            "required_tools": result.required_tools,
         }
 
     def _handle_set_mandatory_tools(self, account_name: str, args: Dict[str, Any], context: Dict[str, Any]) -> Dict[str, Any]:
@@ -313,14 +323,15 @@ class ContextHandler(HandlerV2):
                 tool_names.append(s)
 
         account = self._resolve_account_name(account_name, context)
-        storage = self._get_storage(context)
-        if storage is None:
+        memory = self._get_memory(context)
+        if memory is None:
             return {"ok": False, "tool": self.NAME, "action": "set_mandatory_tools",
                     "error": {"code": "no_storage", "message": "No storage available"}}
 
-        ctx = storage.get_or_create_context(account, name)
-        ctx.mandatory_tools = tool_names
-        storage.save_context(ctx)
+        memory.repository.update_context(
+            account_name=account, context_name=name,
+            frontmatter={"mandatory_tools": tool_names},
+        )
 
         return {
             "ok": True,
@@ -337,43 +348,33 @@ class ContextHandler(HandlerV2):
             return err
 
         account = self._resolve_account_name(account_name, context)
-        storage = self._get_storage(context)
-        if storage is None:
+        memory = self._get_memory(context)
+        if memory is None:
             return {"ok": False, "tool": self.NAME, "action": "save",
                     "error": {"code": "no_storage", "message": "No storage available"}}
 
-        ctx = storage.get_or_create_context(account, name)
-
-        if "text" in args and args["text"] is not None:
-            ctx.text = str(args["text"])
-
+        text = str(args["text"]) if args.get("text") is not None else None
+        frontmatter: Dict[str, Any] = {}
         data = args.get("data")
         if isinstance(data, dict):
             for key, value in data.items():
                 if key == "text":
-                    ctx.text = str(value) if value is not None else ""
+                    text = str(value) if value is not None else ""
                 elif key == "tag":
                     if isinstance(value, str):
-                        ctx.tag = value
+                        frontmatter[key] = value
                     else:
-                        ctx.extra[key] = value
+                        frontmatter[key] = value
                 elif key in ("imports", "mandatory_tools", "search_namespaces"):
                     if isinstance(value, list):
-                        setattr(ctx, key, [v for v in value if isinstance(v, str)])
+                        frontmatter[key] = [v for v in value if isinstance(v, str)]
                     else:
-                        ctx.extra[key] = value
-                elif key == "updated_at" and isinstance(value, str):
-                    try:
-                        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
-                        if parsed.tzinfo is None:
-                            parsed = parsed.replace(tzinfo=timezone.utc)
-                        ctx.updated_at = parsed
-                    except Exception:
-                        ctx.extra[key] = value
+                        frontmatter[key] = value
                 else:
-                    ctx.extra[key] = value
-
-        storage.save_context(ctx)
+                    frontmatter[key] = value
+        memory.repository.update_context(account_name=account, context_name=name,
+                                         text=text, frontmatter=frontmatter)
+        loaded = self._handle_load(account_name, {"context_name": name}, context)
 
         return {
             "ok": True,
@@ -381,6 +382,5 @@ class ContextHandler(HandlerV2):
             "action": "save",
             "context_name": name,
             "account_name": account,
-            "data": ctx.to_data(),
+            "data": loaded["data"],
         }
-
