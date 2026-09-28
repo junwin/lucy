@@ -1,12 +1,11 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, fields
 from typing import Any, Dict, List, Optional
 
 from galet_prompt_builder import (
-    PromptBudgets,
     PromptCompiler,
-    PromptLimits,
+    PromptPolicy,
     PromptRequest,
 )
 from galet_memory import EpisodicMemory, ProceduralMemory, ProceduralMemoryRequest
@@ -35,21 +34,10 @@ CONVERSATION_EVENT_KINDS = (
 
 
 @dataclass(frozen=True)
-class GaletPromptPolicy:
-    total_tokens: int = 8000
-    safety_margin_tokens: int = 500
+class GaletPromptPolicy(PromptPolicy):
+    """Lucy config and agent overrides for the Galet prompt policy."""
+
     procedural_tokens: int = 1500
-    episodic_event_tokens: int = 1000
-    episodic_digest_tokens: int = 500
-    semantic_tokens: int = 1000
-    maximum_events: int = 6
-    maximum_digests: int = 2
-    maximum_semantic_documents: int = 3
-    semantic_score_threshold: float = 0.30
-    digest_score_threshold: float = 0.40
-    episodic_event_max_chars: int = 4000
-    episodic_digest_max_chars: int = 1800
-    semantic_item_max_chars: int = 1800
 
     @classmethod
     def from_config(
@@ -61,10 +49,9 @@ class GaletPromptPolicy:
         if not isinstance(configured, dict):
             raise ValueError("galet_prompt_builder must be an object")
 
-        values = {
-            field: configured.get(field, default)
-            for field, default in cls().__dict__.items()
-        }
+        defaults = cls()
+        values = {item.name: configured.get(item.name, getattr(defaults, item.name))
+                  for item in fields(cls)}
         if agent is not None:
             if agent.prompt_budget_max_tokens is not None:
                 values["total_tokens"] = agent.prompt_budget_max_tokens
@@ -165,7 +152,7 @@ class GaletPromptBuilderAdapter(PromptBuilderInterface):
             episodic_memory=self.episodic_memory,
             semantic_memory=_LucySemanticMemoryAdapter(self.semantic_memory),
         )
-        compiled = compiler.compile(
+        compiled = compiler.build(
             PromptRequest(
                 account_name=account_name,
                 current_input=content_text,
@@ -179,50 +166,14 @@ class GaletPromptBuilderAdapter(PromptBuilderInterface):
                     context_name if context_name != "none" else ""
                 ),
                 semantic_namespaces=tuple(namespaces),
-                semantic_score_threshold=policy.semantic_score_threshold,
                 episodic_event_kinds=CONVERSATION_EVENT_KINDS,
                 include_structured_episodic_events=False,
-                episodic_digest_score_threshold=(
-                    policy.digest_score_threshold
-                ),
                 include_procedural=bool(context_name),
                 include_episodic=True,
                 include_semantic=include_semantic,
                 include_digests=True,
             ),
-            PromptBudgets(
-                total_tokens=policy.total_tokens,
-                procedural_tokens=policy.procedural_tokens,
-                episodic_event_tokens=policy.episodic_event_tokens,
-                episodic_digest_tokens=policy.episodic_digest_tokens,
-                semantic_tokens=(
-                    policy.semantic_tokens if include_semantic else 0
-                ),
-                safety_margin_tokens=policy.safety_margin_tokens,
-            ),
-            PromptLimits(
-                maximum_total_tokens=policy.total_tokens,
-                maximum_procedural_tokens=max(policy.procedural_tokens, 1),
-                maximum_episodic_event_tokens=max(
-                    policy.episodic_event_tokens, 1
-                ),
-                maximum_episodic_digest_tokens=max(
-                    policy.episodic_digest_tokens, 1
-                ),
-                maximum_semantic_tokens=max(policy.semantic_tokens, 1),
-                maximum_events=policy.maximum_events,
-                maximum_digests=policy.maximum_digests,
-                maximum_semantic_documents=(
-                    policy.maximum_semantic_documents
-                ),
-                maximum_episodic_event_chars=(
-                    policy.episodic_event_max_chars
-                ),
-                maximum_episodic_digest_chars=(
-                    policy.episodic_digest_max_chars
-                ),
-                maximum_semantic_item_chars=policy.semantic_item_max_chars,
-            ),
+            policy,
         )
         self._last_compiled_prompt = compiled
         self._last_prompt_token_breakdown = self._metrics_breakdown(
