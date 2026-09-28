@@ -4,6 +4,9 @@ version = "0.1.0"
 description = "a chat agent based that uses openai completion"
 authors = ["junwin <jdunwin@gmail.com>"]
 readme = "README.md"
+# The import package is named `src` throughout Lucy; Poetry otherwise looks
+# for a directory named after the distribution (`lucy`).
+packages = [{ include = "src" }]
 
 [tool.poetry.dependencies]
 python = "^3.11"
