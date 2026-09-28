@@ -86,6 +86,11 @@ class _RecordingCompiler:
             metrics=metrics,
         )
 
+    def build(self, request, policy):
+        self.policy = policy
+        return self.compile(request, policy.budgets(include_semantic=request.include_semantic),
+                            policy.limits())
+
 
 def _agent(**overrides):
     values = dict(
@@ -140,7 +145,7 @@ def test_adapter_translates_lucy_call_to_explicit_galet_policy():
     assert request.current_input == "What did I write about attention?"
     assert request.context_name == "lucyproject"
     assert request.semantic_namespaces == ("vol_6", "documents")
-    assert request.semantic_score_threshold == 0.25
+    assert _RecordingCompiler.instance.policy.semantic_score_threshold == 0.25
     assert request.episodic_event_kinds == (
         "user_message",
         "assistant_message",
