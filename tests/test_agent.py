@@ -161,6 +161,13 @@ def test_model_policy_round_trips():
     assert restored.model_policy == agent.model_policy
 
 
+def test_prompt_policy_overrides_round_trip():
+    agent = Agent.from_dict({"name": "colin", "prompt_policy": {"procedural_tokens": 300}})
+    assert agent.to_dict()["prompt_policy"] == {"procedural_tokens": 300}
+    with pytest.raises(ValueError, match="prompt_policy must be an object"):
+        Agent.from_dict({"name": "colin", "prompt_policy": "small"})
+
+
 def test_legacy_agent_builds_fixed_model_requirements():
     agent = Agent.from_dict(
         {
