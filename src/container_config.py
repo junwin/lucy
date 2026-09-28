@@ -24,13 +24,15 @@ from src.storage.json_file_storage import JsonFileStorage
 from src.storage.primitives_embedding_store import build_primitives_embedding_store
 from src.coala_memory.semantic import SemanticMemory, SqliteVecSemanticMemory
 from galet_memory import (
+    EmbeddingDigestRecall,
     EpisodicMemory,
     EpisodicMemoryManager,
     FileProceduralMemory,
     ProceduralLayout,
     SqliteEpisodicMemory,
 )
-from src.coala_memory.episodic.embedding_digest_recall import EmbeddingDigestRecall
+from galet_memory.ports import FileTextLoader
+from src.curation.digest_publication_adapters import LucyEmbeddingIndex, LucyEmbeddingProvider
 from galet_memory import ProceduralMemory
 
 from src.handlers.handler_registry import HandlerRegistry
@@ -189,8 +191,9 @@ class CoALAMemoryModule(Module):
             db_path,
             digests_root=storage_base / "digests",
             digest_recall=EmbeddingDigestRecall(
-                embedding_facade=embedding_facade,
-                embedding_store=embedding_store,
+                embeddings=LucyEmbeddingProvider(embedding_facade),
+                index=LucyEmbeddingIndex(embedding_store),
+                text_loader=FileTextLoader(),
             ),
         )
 
