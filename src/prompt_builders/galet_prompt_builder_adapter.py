@@ -43,12 +43,18 @@ def prompt_policy_from_config(config: ConfigManager, agent: Optional[Agent]) -> 
     if unknown:
         raise ValueError(f"unknown galet_prompt_builder settings: {', '.join(sorted(unknown))}")
 
-    values = dict(global_values)
+    values = {}
+    legacy_total = config.get("prompt_budget_max_tokens")
+    if legacy_total is not None:
+        values["total_tokens"] = legacy_total
+    values.update(global_values)
     if agent is not None:
         if agent.prompt_budget_max_tokens is not None:
             values["total_tokens"] = agent.prompt_budget_max_tokens
-        values["maximum_events"] = agent.max_prompt_conversations
-        values["maximum_semantic_documents"] = agent.max_prompt_documents
+        if "maximum_events" not in global_values:
+            values["maximum_events"] = agent.max_prompt_conversations
+        if "maximum_semantic_documents" not in global_values:
+            values["maximum_semantic_documents"] = agent.max_prompt_documents
         overrides = getattr(agent, "prompt_policy", None) or {}
         if not isinstance(overrides, dict):
             raise ValueError("agent prompt_policy must be an object")

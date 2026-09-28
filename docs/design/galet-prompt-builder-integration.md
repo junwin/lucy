@@ -40,15 +40,19 @@ Policy is explicit and may be tuned independently of agent configuration:
 }
 ```
 
-An agent's `prompt_budget_max_tokens`, `max_prompt_conversations`, and
-`max_prompt_documents` override the corresponding global policy values. This
-preserves existing per-agent safety caps while avoiding any dependency on an
-agent object inside `galet-prompt-builder`.
+`ConfigManager` deep-merges `config.local.json` over `config.json`, including
+individual keys in `galet_prompt_builder`. The adapter reads that effective
+section. Lucy's older global `prompt_budget_max_tokens` supplies `total_tokens`
+only when the policy section does not specify it.
 
 Lucy passes a plain `PromptPolicy` to galet-prompt-builder. Its defaults come
-from that package; the `galet_prompt_builder` object in Lucy's config overrides
-them. An agent can override any policy field using `prompt_policy`, applied
-after the existing agent fields. For example:
+from that package; the `galet_prompt_builder` object in Lucy's effective config
+overrides them. Legacy agent fields `max_prompt_conversations` and
+`max_prompt_documents` supply limits only when those keys are absent from the
+policy section; their dataclass defaults must not overwrite configured policy.
+An agent's `prompt_budget_max_tokens`, when set, overrides `total_tokens`.
+An agent can override any policy field using `prompt_policy`, applied last.
+For example:
 
 ```json
 {

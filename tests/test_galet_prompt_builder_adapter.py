@@ -225,6 +225,30 @@ def test_policy_config_and_agent_overrides_are_explicit():
     assert policy.semantic_score_threshold == 0.35
 
 
+def test_explicit_global_policy_is_not_replaced_by_legacy_agent_defaults():
+    policy = prompt_policy_from_config(
+        _Config({
+            "prompt_budget_max_tokens": 7000,
+            "galet_prompt_builder": {
+                "maximum_events": 8,
+                "maximum_semantic_documents": 5,
+                "procedural_tokens": 1500,
+            },
+        }),
+        _agent(prompt_budget_max_tokens=None),
+    )
+    assert policy.total_tokens == 7000
+    assert policy.maximum_events == 8
+    assert policy.maximum_semantic_documents == 5
+    assert policy.procedural_tokens == 1500
+
+    overridden = prompt_policy_from_config(
+        _Config({"galet_prompt_builder": {"maximum_events": 8}}),
+        _agent(prompt_policy={"maximum_events": 2}),
+    )
+    assert overridden.maximum_events == 2
+
+
 def test_adapter_compiles_with_lucy_memory_contracts():
     class Semantic:
         def recall(self, request):
