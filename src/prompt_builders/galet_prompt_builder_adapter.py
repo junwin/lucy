@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, fields
+from dataclasses import fields
 from typing import Any, Dict, List, Optional
 
 from galet_prompt_builder import (
@@ -33,31 +33,30 @@ CONVERSATION_EVENT_KINDS = (
 )
 
 
-@dataclass(frozen=True)
-class GaletPromptPolicy(PromptPolicy):
-    """Lucy config and agent overrides for the Galet prompt policy."""
+def prompt_policy_from_config(config: ConfigManager, agent: Optional[Agent]) -> PromptPolicy:
+    """Merge Galet defaults, Lucy settings, and explicit agent overrides."""
+    allowed = {item.name for item in fields(PromptPolicy)}
+    global_values = config.get("galet_prompt_builder", {}) or {}
+    if not isinstance(global_values, dict):
+        raise ValueError("galet_prompt_builder must be an object")
+    unknown = set(global_values) - allowed
+    if unknown:
+        raise ValueError(f"unknown galet_prompt_builder settings: {', '.join(sorted(unknown))}")
 
-    procedural_tokens: int = 1500
-
-    @classmethod
-    def from_config(
-        cls,
-        config: ConfigManager,
-        agent: Optional[Agent],
-    ) -> "GaletPromptPolicy":
-        configured = config.get("galet_prompt_builder", {}) or {}
-        if not isinstance(configured, dict):
-            raise ValueError("galet_prompt_builder must be an object")
-
-        defaults = cls()
-        values = {item.name: configured.get(item.name, getattr(defaults, item.name))
-                  for item in fields(cls)}
-        if agent is not None:
-            if agent.prompt_budget_max_tokens is not None:
-                values["total_tokens"] = agent.prompt_budget_max_tokens
-            values["maximum_events"] = agent.max_prompt_conversations
-            values["maximum_semantic_documents"] = agent.max_prompt_documents
-        return cls(**values)
+    values = dict(global_values)
+    if agent is not None:
+        if agent.prompt_budget_max_tokens is not None:
+            values["total_tokens"] = agent.prompt_budget_max_tokens
+        values["maximum_events"] = agent.max_prompt_conversations
+        values["maximum_semantic_documents"] = agent.max_prompt_documents
+        overrides = getattr(agent, "prompt_policy", None) or {}
+        if not isinstance(overrides, dict):
+            raise ValueError("agent prompt_policy must be an object")
+        unknown = set(overrides) - allowed
+        if unknown:
+            raise ValueError(f"unknown agent prompt_policy settings: {', '.join(sorted(unknown))}")
+        values.update(overrides)
+    return PromptPolicy(**values)
 
 
 class _LucySemanticMemoryAdapter:
@@ -127,7 +126,7 @@ class GaletPromptBuilderAdapter(PromptBuilderInterface):
         if not context_name and agent is not None and agent.default_context:
             context_name = str(agent.default_context).strip()
 
-        policy = GaletPromptPolicy.from_config(self.config, agent)
+        policy = prompt_policy_from_config(self.config, agent)
         namespaces = self._semantic_namespaces(account_name, context_name)
         include_semantic = bool(
             agent
@@ -250,4 +249,4 @@ class GaletPromptBuilderAdapter(PromptBuilderInterface):
         }
 
 
-__all__ = ["GaletPromptBuilderAdapter", "GaletPromptPolicy"]
+__all__ = ["GaletPromptBuilderAdapter", "prompt_policy_from_config"]

@@ -133,6 +133,7 @@ class Agent:
     max_handler_schema_tokens: Optional[int] = None
     context_text_soft_max_tokens: Optional[int] = None
     prompt_budget_max_tokens: Optional[int] = None
+    prompt_policy: Optional[Dict[str, Any]] = None
 
     @staticmethod
     def _coerce_bool(value: Any) -> bool:
@@ -225,6 +226,10 @@ class Agent:
                 raise ValueError(
                     f"Agent '{agent_name}' has invalid model_policy: {exc}"
                 ) from exc
+
+        if "prompt_policy" in raw and raw["prompt_policy"] is not None:
+            if not isinstance(raw["prompt_policy"], dict):
+                raise ValueError(f"Agent '{agent_name}' prompt_policy must be an object")
 
         # Validate/coerce specific fields to be forgiving where possible
         # allowed_tools: should be None or a list of strings
@@ -360,6 +365,8 @@ class Agent:
             result["context_text_soft_max_tokens"] = self.context_text_soft_max_tokens
         if self.prompt_budget_max_tokens is not None:
             result["prompt_budget_max_tokens"] = self.prompt_budget_max_tokens
+        if self.prompt_policy is not None:
+            result["prompt_policy"] = dict(self.prompt_policy)
         return result
 
     def model_requirements(self):

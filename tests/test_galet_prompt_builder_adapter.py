@@ -15,7 +15,7 @@ from src.coala_memory.semantic import (
 
 from src.prompt_builders.galet_prompt_builder_adapter import (
     GaletPromptBuilderAdapter,
-    GaletPromptPolicy,
+    prompt_policy_from_config,
 )
 
 
@@ -202,13 +202,27 @@ def test_adapter_disables_semantic_budget_when_agent_disables_embeddings():
 
 
 def test_policy_defaults_are_explicit_and_agent_limits_win():
-    policy = GaletPromptPolicy.from_config(_Config(), _agent())
+    policy = prompt_policy_from_config(_Config(), _agent())
 
     assert policy.total_tokens == 5000
     assert policy.maximum_events == 4
     assert policy.maximum_semantic_documents == 2
     assert policy.episodic_event_tokens == 1000
     assert policy.semantic_score_threshold == 0.30
+    assert policy.procedural_tokens == 1000
+
+
+def test_policy_config_and_agent_overrides_are_explicit():
+    policy = prompt_policy_from_config(
+        _Config({"galet_prompt_builder": {
+            "procedural_tokens": 1500, "semantic_tokens": 900,
+        }}),
+        _agent(prompt_policy={"procedural_tokens": 300,
+                              "semantic_score_threshold": 0.35}),
+    )
+    assert policy.procedural_tokens == 300
+    assert policy.semantic_tokens == 900
+    assert policy.semantic_score_threshold == 0.35
 
 
 def test_adapter_compiles_with_lucy_memory_contracts():
