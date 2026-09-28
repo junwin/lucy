@@ -1,6 +1,9 @@
 {
   "storage_root_path": "C:/Users/junwi/lucy_storage",
   "storage_namespace": "data",
+  "galet_prompt_builder": {
+    "procedural_tokens": 1500
+  },
   "external_roots": {
     "repo_lucy": "/home/junwin/src/repos/lucy",
     "repos": "/home/junwin/src/repos",
