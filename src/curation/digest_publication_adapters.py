@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-from galet_memory.ports.embeddings import StoredEmbedding
+from galet_memory.ports.embeddings import (
+    EmbeddingMatch, EmbeddingRecord as GaletEmbeddingRecord, StoredEmbedding,
+)
 from src.storage.models import EmbeddingRecord
 
 
@@ -32,3 +34,15 @@ class LucyEmbeddingIndex:
             provider=embedding.provider,
             dimensions=len(embedding.vector),
         ))
+
+    def query(self, *, account_name, namespaces, vector, limit, filters=None):
+        matches = self.storage.query_embeddings(
+            account_name=account_name, namespaces=list(namespaces),
+            query_vector=list(vector), top_k=limit, filter=filters,
+        )
+        return [EmbeddingMatch(
+            GaletEmbeddingRecord(id=record.id, source_id=record.source_id,
+                                 source_type=record.source_type,
+                                 metadata=dict(record.source_metadata or {})),
+            float(score),
+        ) for record, score in matches]
