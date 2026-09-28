@@ -45,6 +45,18 @@ An agent's `prompt_budget_max_tokens`, `max_prompt_conversations`, and
 preserves existing per-agent safety caps while avoiding any dependency on an
 agent object inside `galet-prompt-builder`.
 
+Lucy passes a plain `PromptPolicy` to galet-prompt-builder. Its defaults come
+from that package; the `galet_prompt_builder` object in Lucy's config overrides
+them. An agent can override any policy field using `prompt_policy`, applied
+after the existing agent fields. For example:
+
+```json
+{
+  "name": "colin",
+  "prompt_policy": {"procedural_tokens": 300, "semantic_score_threshold": 0.35}
+}
+```
+
 The adapter translates Lucy's current CoALA memory contracts to the standalone
 compiler. It also maps compiler metrics back to Lucy's existing prompt-token
 breakdown so FCP prompt reports continue to work during migration.
