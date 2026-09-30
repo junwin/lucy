@@ -383,6 +383,7 @@ class FunctionCallingProcessor(MessageProcessorInterface):
         pipeline = ToolSelectionPipeline(
             registry=self.registry,
             storage=getattr(self.prompt_builder, "storage", None),
+            procedural_memory=getattr(self.prompt_builder, "procedural_memory", None),
             llm_adapter=self.llm_adapter,
             config=self.config,
         )

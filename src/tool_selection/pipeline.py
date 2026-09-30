@@ -113,11 +113,12 @@ class LLMResolver:
         return self.llm_adapter.get_text(response) or ""
 
 class ToolSelectionPipeline:
-    def __init__(self, registry, storage, llm_adapter, config):
+    def __init__(self, registry, storage, llm_adapter, config, procedural_memory=None):
         self.registry = registry
         self.storage = storage
         self.llm_adapter = llm_adapter
         self.config = config
+        self.procedural_memory = procedural_memory
 
     def resolve(self, agent, account_name: str, context_name: str, prompt_text: str) -> ToolSelection:
         meta: Dict[str, Any] = {}
@@ -147,6 +148,15 @@ class ToolSelectionPipeline:
         allowed_set = set(allowed)
         eligible = [name for name in all_tools if name in allowed_set]
         required = get_required_tools(self.storage, account_name, context_name)
+        skill_names = tuple(getattr(agent, "skills", ()) or ())
+        if skill_names and self.procedural_memory is not None:
+            from galet_memory import ProceduralMemoryRequest
+            result = self.procedural_memory.recall(ProceduralMemoryRequest(
+                account_name=account_name, context_name=context_name or "",
+                skill_names=skill_names, include_resolved_text=False,
+                include_skills=False, include_required_tools=True,
+            ))
+            required = _order_preserving_dedupe(required + list(result.required_tools))
         _validate_required(required, allowed_set, registry_names)
 
         should_select, skip_meta = self._should_select_prompt_based(eligible)

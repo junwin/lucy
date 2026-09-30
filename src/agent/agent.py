@@ -14,7 +14,7 @@ Design goals:
 
 from __future__ import annotations
 
-from dataclasses import dataclass, fields as dataclass_fields
+from dataclasses import dataclass, field, fields as dataclass_fields
 from typing import Optional, List, Any, Dict, Tuple
 import logging
 
@@ -129,6 +129,8 @@ class Agent:
     use_embeddings: bool = False
     # Optional default context name for this agent (can be overridden at runtime)
     default_context: Optional[str] = None
+    skills: List[str] = field(default_factory=list)
+    skillset: List[str] = field(default_factory=list)
     max_tool_result_chars: Optional[int] = None
     max_handler_schema_tokens: Optional[int] = None
     context_text_soft_max_tokens: Optional[int] = None
@@ -230,6 +232,14 @@ class Agent:
         if "prompt_policy" in raw and raw["prompt_policy"] is not None:
             if not isinstance(raw["prompt_policy"], dict):
                 raise ValueError(f"Agent '{agent_name}' prompt_policy must be an object")
+
+        for name in ("skills", "skillset"):
+            value = raw.get(name, [])
+            if not isinstance(value, list) or any(
+                not isinstance(item, str) or not item.strip() for item in value
+            ):
+                raise ValueError(f"Agent '{agent_name}' {name} must be a list of non-empty strings")
+            raw[name] = list(dict.fromkeys(item.strip() for item in value))
 
         # Validate/coerce specific fields to be forgiving where possible
         # allowed_tools: should be None or a list of strings
@@ -354,6 +364,8 @@ class Agent:
             "provider": self.provider,
             "use_embeddings": self.use_embeddings,
             "default_context": self.default_context,
+            "skills": list(self.skills),
+            "skillset": list(self.skillset),
         }
         if self.model_policy is not None:
             result["model_policy"] = self.model_policy.to_dict()

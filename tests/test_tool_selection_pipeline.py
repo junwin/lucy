@@ -607,3 +607,21 @@ def test_budget_agent_non_positive_disables_despite_tiny_config_cap(agent_cap):
 
     assert result.meta["schema_cap"] is None
     assert result.active == ["t1", "t2"]
+
+
+def test_agent_skill_required_tools_are_enforced(tmp_path):
+    from galet_memory import FileProceduralMemory, ProceduralLayout
+    from src.agent import Agent
+    from types import SimpleNamespace
+    memory = FileProceduralMemory(tmp_path, ProceduralLayout.lucy())
+    memory.repository.save_skill(account_name="alice", skill_name="images", text="Use image CLI",
+                                 frontmatter={"mandatory_tools": ["execute_command"]})
+    registry = SimpleNamespace(tools=lambda: [{"name": "execute_command"}])
+    pipeline = ToolSelectionPipeline(registry, None, None, {}, procedural_memory=memory)
+    agent = Agent(name="lumia", skills=["images"], allowed_tools=["execute_command"])
+    result = pipeline.resolve(agent, "alice", "", "hello")
+    assert result.required == ["execute_command"]
+    assert result.active == ["execute_command"]
+    agent.allowed_tools = []
+    with pytest.raises(ToolSelectionError):
+        pipeline.resolve(agent, "alice", "", "hello")
