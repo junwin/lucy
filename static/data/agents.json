@@ -267,6 +267,22 @@
       "tool_handler_meta",
       "video_generate"
     ],
+    "prompt_policy": {
+      "total_tokens": 12000,
+      "safety_margin_tokens": 1000,
+      "procedural_tokens": 4000,
+      "episodic_event_tokens": 2000,
+      "episodic_digest_tokens": 2000,
+      "semantic_tokens": 4000,
+      "maximum_events": 4,
+      "maximum_digests": 2,
+      "maximum_semantic_documents": 1,
+      "semantic_score_threshold": 0.45,
+      "digest_score_threshold": 0.45,
+      "episodic_event_max_chars": 500,
+      "episodic_digest_max_chars": 500,
+      "semantic_item_max_chars": 1500
+    },
     "provider": null,
     "use_embeddings": true,
     "default_context": "lucyproject",
@@ -350,6 +366,22 @@
       "delegate_task",
       "sandbox_execute"
     ],
+    "prompt_policy": {
+      "total_tokens": 8000,
+      "safety_margin_tokens": 1000,
+      "procedural_tokens": 4000,
+      "episodic_event_tokens": 2000,
+      "episodic_digest_tokens": 2000,
+      "semantic_tokens": 0,
+      "maximum_events": 4,
+      "maximum_digests": 2,
+      "maximum_semantic_documents": 0,
+      "semantic_score_threshold": 0.45,
+      "digest_score_threshold": 0.45,
+      "episodic_event_max_chars": 500,
+      "episodic_digest_max_chars": 500,
+      "semantic_item_max_chars": 1500
+    },
     "provider": null,
     "use_embeddings": false,
     "default_context": "skinny",
@@ -402,6 +434,22 @@
       "agents_manage"
     ],
     "provider": null,
+    "prompt_policy": {
+      "total_tokens": 12000,
+      "safety_margin_tokens": 1000,
+      "procedural_tokens": 4000,
+      "episodic_event_tokens": 2000,
+      "episodic_digest_tokens": 2000,
+      "semantic_tokens": 4000,
+      "maximum_events": 4,
+      "maximum_digests": 2,
+      "maximum_semantic_documents": 4,
+      "semantic_score_threshold": 0.35,
+      "digest_score_threshold": 0.35,
+      "episodic_event_max_chars": 500,
+      "episodic_digest_max_chars": 500,
+      "semantic_item_max_chars": 1500
+    },
     "use_embeddings": true,
     "default_context": null,
     "model_policy": {
