@@ -170,10 +170,14 @@ class GaletPromptBuilderAdapter(PromptBuilderInterface):
                 context_name=(
                     context_name if context_name != "none" else ""
                 ),
+                skill_names=tuple(getattr(agent, "skills", ()) or ()),
                 semantic_namespaces=tuple(namespaces),
                 episodic_event_kinds=CONVERSATION_EVENT_KINDS,
                 include_structured_episodic_events=False,
-                include_procedural=bool(context_name),
+                include_procedural=bool(
+                    (context_name and context_name != "none")
+                    or getattr(agent, "skills", None)
+                ),
                 include_episodic=True,
                 include_semantic=include_semantic,
                 include_digests=True,

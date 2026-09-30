@@ -218,3 +218,18 @@ def test_tool_discovery_can_be_disabled_and_coerces_boolean_strings() -> None:
     dumped = agent.to_dict()
     assert dumped["tool_discovery_enabled"] is False
     assert Agent.from_dict(dumped).tool_discovery_enabled is False
+
+
+def test_agent_skills_and_capabilities_round_trip():
+    agent = Agent.from_dict({"name": "lumia", "skills": [" image-cli ", "filepaths", "image-cli"],
+                             "skillset": ["image-processing", "image-processing"]})
+    assert agent.skills == ["image-cli", "filepaths"]
+    assert agent.skillset == ["image-processing"]
+    assert Agent.from_dict(agent.to_dict()) == agent
+
+
+@pytest.mark.parametrize("value", [None, "image-cli", [""], [1]])
+@pytest.mark.parametrize("name", ["skills", "skillset"])
+def test_invalid_agent_skill_lists_are_rejected(name, value):
+    with pytest.raises(ValueError, match="list of non-empty strings"):
+        Agent.from_dict({"name": "lumia", name: value})

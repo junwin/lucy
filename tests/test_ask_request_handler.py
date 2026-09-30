@@ -147,3 +147,28 @@ def test_invalid_remote_lineage_starts_new_trace():
     assert status == 200
     assert body["trace_id"] == body["run_id"]
     assert body["parent_run_id"] is None
+
+
+def test_agent_default_and_explicit_context_apply_in_both_ask_modes():
+    from src.agent import Agent
+    class StreamingProcessor(FakeProcessor):
+        def process_message_streaming(self, **kwargs):
+            self.calls.append(kwargs)
+            yield "done"
+    for streaming in (False, True):
+        for explicit, expected in ((None, "images"), ("override", "override")):
+            agent = Agent(name="lumia", default_context="images", skills=["image-cli"],
+                          prompt_policy={"procedural_tokens": 1500})
+            processor = StreamingProcessor(FCPResult(text="ok", metrics=RunMetrics()))
+            handler = make_handler(processor, agent)
+            payload = make_payload(agentName="lumia", conversationId="existing")
+            if explicit is not None:
+                payload["contextName"] = explicit
+            if streaming:
+                assert list(handler.handle_streaming(payload)) == ["done"]
+            else:
+                assert handler.handle(payload)[0] == 200
+            call = processor.calls[-1]
+            assert call["context_name"] == expected
+            assert call["primary_agent"].skills == ["image-cli"]
+            assert call["primary_agent"].prompt_policy == {"procedural_tokens": 1500}

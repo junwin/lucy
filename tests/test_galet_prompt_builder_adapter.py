@@ -312,3 +312,42 @@ def test_adapter_compiles_with_lucy_memory_contracts():
     assert any("Earlier question" in value for value in contents)
     assert any("Attention is shaped by perception" in value for value in contents)
     assert messages[-1]["content"] == "What did I write about attention?"
+
+
+def test_agent_switch_and_explicit_context_resolve_fresh_configuration(tmp_path):
+    from galet_memory import FileProceduralMemory, ProceduralLayout
+    from src.agent import Agent
+
+    memory = FileProceduralMemory(tmp_path, ProceduralLayout.lucy())
+    repo = memory.repository
+    for name in ("images", "override", "general"):
+        repo.save_context(account_name="junwin", context_name=name, text=f"Project {name}",
+                          frontmatter={"imports": ["shared", name + "-skill"]})
+    for name in ("shared", "image-cli", "writing", "images-skill", "override-skill", "general-skill"):
+        repo.save_skill(account_name="junwin", skill_name=name, text=f"Instructions {name}")
+    agents = {
+        "lumia": Agent(name="lumia", default_context="images", skills=["image-cli", "shared"],
+                       prompt_policy={"procedural_tokens": 1800}),
+        "lucy": Agent(name="lucy", default_context="general", skills=["writing"],
+                      prompt_policy={"procedural_tokens": 900}),
+    }
+    adapter = GaletPromptBuilderAdapter(
+        agent_manager=SimpleNamespace(get_agent=agents.get), config=_Config(),
+        storage=SimpleNamespace(), semantic_memory=_UnusedMemory(),
+        episodic_memory=SimpleNamespace(recall=lambda request: EpisodicMemoryResult()),
+        procedural_memory=memory)
+    def build(name, context=""):
+        return adapter.build_prompt(content_text="hello", conversation_id="new", agent_name=name,
+                                    account_name="junwin", context_name=context)
+    first = str(build("lumia"))
+    assert "Project images" in first and "Instructions image-cli" in first
+    assert first.count("Instructions shared") == 1
+    override = str(build("lumia", "override"))
+    assert "Project override" in override and "Project images" not in override
+    assert "Instructions image-cli" in override and "Instructions override-skill" in override
+    next_message = str(build("lucy"))
+    assert "Project general" in next_message and "Instructions writing" in next_message
+    assert "Instructions image-cli" not in next_message
+    standalone = str(build("lumia", "none"))
+    assert "Instructions image-cli" in standalone and "Project images" not in standalone
+    assert standalone.count("Instructions image-cli") == 1
