@@ -4,7 +4,7 @@
   "galet_prompt_builder": {
     "total_tokens": 6000,
     "safety_margin_tokens": 500,
-    "procedural_tokens": 1500,
+    "procedural_tokens": 1999,
     "episodic_event_tokens": 800,
     "maximum_events": 6,
     "episodic_digest_tokens": 400,
