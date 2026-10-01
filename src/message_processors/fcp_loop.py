@@ -65,7 +65,8 @@ class LLMLoopRunner:
             if parsed.get("ok") is False:
                 continue
 
-            if _tc.name == "image_generate" and parsed.get("image_id"):
+            tool_name = getattr(_tc, "name", None) or parsed.get("tool")
+            if tool_name == "image_generate" and parsed.get("image_id"):
                 yield SSEEvent(
                     type="image", format="png", image_id=parsed["image_id"],
                     image_ref={"image_id": parsed["image_id"]},
@@ -97,6 +98,7 @@ class LLMLoopRunner:
             if "image" in parsed and "svg" not in parsed:
                 img = parsed["image"]
                 if isinstance(img, dict):
+                    call_id = getattr(_tc, "call_id", None)
                     yield SSEEvent(
                         type="image",
                         format="png",
@@ -104,7 +106,7 @@ class LLMLoopRunner:
                         alt=img.get("alt"),
                         image_id=img.get("image_id"),
                         image_ref=img if img.get("path") else None,
-                        message_id=f"image:{_tc.call_id}",
+                        message_id=f"image:{call_id}" if call_id else None,
                     )
 
             if "video" in parsed:
