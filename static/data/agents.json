@@ -38,7 +38,6 @@
       "reset_session",
       "image_generate",
       "generate_svg",
-      "generate_image",
       "agents_manage",
       "remote_execute",
       "delegate_task",
@@ -639,7 +638,6 @@
       "file_load",
       "patch_apply",
       "generate_svg",
-      "generate_image",
       "repo_index",
       "repo_search"
     ],
@@ -648,3 +646,4 @@
     "default_context": null
   }
 ]
+

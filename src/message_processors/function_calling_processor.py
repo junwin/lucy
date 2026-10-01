@@ -22,6 +22,7 @@ import uuid
 from src.config_manager import ConfigManager
 from src.message_processors.message_processor_interface import MessageProcessorInterface
 from src.message_processors.sse_events import SSEEvent
+from src.message_processors.image_delivery import image_event_for_browser
 from src.prompt_builders.prompt_builder_interface import PromptBuilderInterface
 from src.handlers.handler_registry import HandlerRegistry, filter_eligible_tool_defs
 from src.agent import Agent
@@ -901,7 +902,8 @@ class FunctionCallingProcessor(MessageProcessorInterface):
                     self._write_streaming_episodic_event(
                         ctx, event, correlation_id=correlation_id
                     )
-                yield event.to_sse()
+                # Persist the small reference above; expand bytes only for transport.
+                yield image_event_for_browser(event, self.config, ctx.account_id).to_sse()
 
         except ToolHandlerError:
             yield SSEEvent(type="error", message="A tool execution error occurred.").to_sse()
@@ -981,3 +983,4 @@ class FunctionCallingProcessor(MessageProcessorInterface):
                 metrics.get("failures", 0),
                 latency_ms,
             )
+
