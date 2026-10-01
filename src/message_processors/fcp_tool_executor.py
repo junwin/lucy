@@ -1,3 +1,4 @@
+from src.message_processors.image_delivery import image_result_for_model
 import json
 import logging
 import re
@@ -308,6 +309,7 @@ class ToolExecutor:
                 # Collect raw result before enforcing max size (for SSE action/image inspection)
                 raw_results.append((tc, tool_result_text))
 
+                tool_result_text = image_result_for_model(tc.name, tool_result_text)
                 tool_result_text = self.tool_result_to_text(
                     tool_result_text, max_chars=max_tool_result_chars, correlation_id=correlation_id
                 )

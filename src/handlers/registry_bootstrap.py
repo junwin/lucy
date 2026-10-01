@@ -45,14 +45,6 @@ from src.handlers.discover_tools_handler import DiscoverToolsHandler
 from src.handlers.activate_tools_handler import ActivateToolsHandler
 from src.handlers.tool_catalog import RegistryToolProvider, ToolCatalog
 
-try:
-    from src.handlers.generate_image_handler import GenerateImageHandler
-
-    _GENERATE_IMAGE_AVAILABLE = True
-except ImportError:
-    _GENERATE_IMAGE_AVAILABLE = False
-    GenerateImageHandler = None  # type: ignore[misc]
-
 logger = logging.getLogger(__name__)
 
 
@@ -115,15 +107,6 @@ def build_registry_and_catalog() -> tuple[HandlerRegistry, ToolCatalog]:
 
     # Image serving — reads existing image files from disk
     reg.register(ServeImageHandler)
-
-    # Image generation (SSE Phase 3) — Pillow is an optional dependency
-    if _GENERATE_IMAGE_AVAILABLE and GenerateImageHandler is not None:
-        reg.register(GenerateImageHandler)
-    else:
-        logger.warning(
-            "GenerateImageHandler not registered: Pillow (PIL) not available. "
-            "Install with: pip install Pillow"
-        )
 
     # CoALA semantic memory recall — integration-test seam for Lucy agents
     reg.register(SemanticMemoryHandler)
@@ -202,4 +185,5 @@ def build_tool_catalog() -> ToolCatalog:
 
     _registry, catalog = build_registry_and_catalog()
     return catalog
+
 
