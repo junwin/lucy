@@ -38,7 +38,7 @@
       "reset_session",
       "image_generate",
       "generate_svg",
-      "serve_image",
+      "generate_image",
       "agents_manage",
       "remote_execute",
       "delegate_task",
