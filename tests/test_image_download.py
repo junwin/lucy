@@ -15,7 +15,8 @@ def saved_image(tmp_path):
     directory = tmp_path / 'data' / 'images' / 'john'
     directory.mkdir(parents=True)
     image = directory / (image_id + '.png')
-    image.write_bytes(b'png-data')
+    from PIL import Image
+    Image.new('RGB', (32, 32), 'red').save(image, format='PNG')
     (directory / (image_id + '.json')).write_text(json.dumps({'id': image_id, 'account': 'john', 'mime_type': 'image/png'}))
     return image_id, image
 

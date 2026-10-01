@@ -27,6 +27,9 @@ class SSEEvent(BaseModel):
     # --- image (Phase 3) ---
     # PNG images: image_url is a data URI (e.g. data:image/png;base64,...)
     image_url: Optional[str] = None
+    image_id: Optional[str] = None
+    image_ref: Optional[dict] = None  # compact server reference, never image bytes
+    download_url: Optional[str] = None
     alt: Optional[str] = None
 
     # SVG images: svg_markup is the raw SVG string, format is "svg"

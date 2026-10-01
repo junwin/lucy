@@ -118,12 +118,31 @@ def get_chats_impl(
 def get_chat_impl(
     episodic_memory_manager: EpisodicMemoryManager,
     session_id: str,
+    config=None,
 ) -> tuple[Dict[str, Any], int]:
     meta = episodic_memory_manager.get_session(session_id, include_events=True)
     if meta is None:
         return {"error": "Chat not found"}, 404
 
     body = _episodic_session_to_response(meta, include_events=True)
+    if config is not None:
+        from src.message_processors.image_delivery import image_event_for_browser, image_event_for_history
+        from src.message_processors.sse_events import SSEEvent
+        for message in body["messages"]:
+            if message["kind"] != "generated_image":
+                continue
+            try:
+                payload = json.loads(message["content"])
+                # UUID images reopen via authenticated download. Path images
+                # served by serve_image use the shared browser boundary again.
+                if isinstance(payload, dict) and payload.get("image_id"):
+                    reference = image_event_for_history(SSEEvent(type="image", **payload), meta.account_name)
+                    message["content"] = reference.model_dump_json(exclude_none=True)
+                elif isinstance(payload, dict) and payload.get("image_ref"):
+                    wire = image_event_for_browser(SSEEvent(type="image", **payload), config, meta.account_name)
+                    message["content"] = wire.model_dump_json(exclude_none=True)
+            except (ValueError, TypeError):
+                pass
     return body, 200
 
 

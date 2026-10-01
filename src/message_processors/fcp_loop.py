@@ -62,6 +62,19 @@ class LLMLoopRunner:
             if not isinstance(parsed, dict):
                 continue
 
+            if parsed.get("ok") is False:
+                continue
+
+            if _tc.name == "image_generate" and parsed.get("image_id"):
+                yield SSEEvent(
+                    type="image", format="png", image_id=parsed["image_id"],
+                    image_ref={"image_id": parsed["image_id"]},
+                    message_id=f"image:{parsed['image_id']}",
+                    mime_type=parsed.get("mime_type") or "image/png",
+                    alt="Generated image",
+                )
+                continue
+
             if "action" in parsed:
                 yield SSEEvent(
                     type="action",
@@ -89,6 +102,9 @@ class LLMLoopRunner:
                         format="png",
                         image_url=img.get("url"),
                         alt=img.get("alt"),
+                        image_id=img.get("image_id"),
+                        image_ref=img if img.get("path") else None,
+                        message_id=f"image:{_tc.call_id}",
                     )
 
             if "video" in parsed:
@@ -214,7 +230,7 @@ class LLMLoopRunner:
             )
 
             response_text = self.llm_adapter.get_text(llm_response)
-            if response_text:
+            if response_text and tool_calls:
                 yield SSEEvent(
                     type="text",
                     content=response_text,

@@ -93,7 +93,7 @@ conservative (deterministic, no nested LLM delegation, no state mutation):
 
 ```text
 get_keywords, web_search_handler, scrape_web_page, file_load,
-generate_svg, generate_image
+generate_svg
 ```
 
 Allowlist entries must match `HandlerV2.name()` exactly — WebSearchHandler2

@@ -131,6 +131,11 @@ class EpisodicRecorder:
             else:
                 content = {
                     "image_url": ev.image_url,
+                    "image_id": ev.image_id,
+                    "image_ref": ev.image_ref,
+                    "download_url": ev.download_url,
+                    "message_id": ev.message_id,
+                    "mime_type": ev.mime_type,
                     "alt": ev.alt or "",
                     "format": "png",
                 }
@@ -260,7 +265,10 @@ class EpisodicRecorder:
                             role="assistant",
                             actor=ctx.agent_name,
                             kind="generated_image",
-                            content={"image_url": ev.image_url, "alt": ev.alt or "", "format": "png"},
+                            content={"image_url": ev.image_url, "image_id": ev.image_id,
+                                     "image_ref": ev.image_ref, "download_url": ev.download_url,
+                                     "message_id": ev.message_id, "mime_type": ev.mime_type,
+                                     "alt": ev.alt or "", "format": "png"},
                             metadata={"agent": ctx.agent_name, "format": "png"},
                         ))
 

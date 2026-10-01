@@ -22,7 +22,7 @@ import uuid
 from src.config_manager import ConfigManager
 from src.message_processors.message_processor_interface import MessageProcessorInterface
 from src.message_processors.sse_events import SSEEvent
-from src.message_processors.image_delivery import image_event_for_browser
+from src.message_processors.image_delivery import image_event_for_browser, image_event_for_history
 from src.prompt_builders.prompt_builder_interface import PromptBuilderInterface
 from src.handlers.handler_registry import HandlerRegistry, filter_eligible_tool_defs
 from src.agent import Agent
@@ -855,6 +855,7 @@ class FunctionCallingProcessor(MessageProcessorInterface):
         )
 
         last_persisted_text: Optional[str] = None
+        delivered_images = set()
 
         try:
             setup = self._prepare_prompt_and_tools(
@@ -890,11 +891,17 @@ class FunctionCallingProcessor(MessageProcessorInterface):
                 correlation_id=correlation_id,
                 trace_id=trace_id or correlation_id,
             ):
+                if event.type == "image":
+                    image_key = event.image_id or event.message_id
+                    if image_key and image_key in delivered_images:
+                        continue
+                    if image_key:
+                        delivered_images.add(image_key)
+                    event = image_event_for_history(event, ctx.account_id)
                 should_persist = True
                 if event.type == "text" and event.content:
-                    # LLMLoopRunner emits the same final text twice on the
-                    # no-tool path. Preserve distinct iteration text while
-                    # avoiding a duplicate history message.
+                    # Preserve distinct iteration text while avoiding
+                    # duplicate history messages on replay.
                     should_persist = event.content != last_persisted_text
                     if should_persist:
                         last_persisted_text = event.content
@@ -983,4 +990,3 @@ class FunctionCallingProcessor(MessageProcessorInterface):
                 metrics.get("failures", 0),
                 latency_ms,
             )
-
