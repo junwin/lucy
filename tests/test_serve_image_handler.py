@@ -117,7 +117,8 @@ class TestSuccessfulServe:
             "path": "test.png",
         })
         assert result["ok"] is True
-        assert result["image"]["url"].startswith("data:image/png;base64,")
+        assert result['image']['path'] == 'test.png'
+        assert 'base64' not in str(result)
         assert result["image"]["alt"] == "test.png"
 
     def test_serve_from_external(self, handler, external_image):
@@ -127,10 +128,11 @@ class TestSuccessfulServe:
             "path": "photo.jpg",
         })
         assert result["ok"] is True
-        assert result["image"]["url"].startswith("data:image/jpeg;base64,")
+        assert result['image']['path'] == 'photo.jpg'
+        assert 'base64' not in str(result)
 
     def test_max_dimension_capped(self, handler, test_image):
-        """max_dimension > 512 should be capped to 512."""
+        """max_dimension above 1024 is capped to 1024 at presentation time."""
         result = handler.execute({
             "location": "storage",
             "external_root": "",
@@ -145,7 +147,9 @@ class TestSuccessfulServe:
             "external_root": "",
             "path": "test.png",
         })
-        b64_data = result["image"]["url"].split(",", 1)[1]
+        from src.image_presentation import ImagePresentationService
+        preview = ImagePresentationService(handler.config).preview(result["image"], "auto")
+        b64_data = preview.split(",", 1)[1]
         decoded = base64.b64decode(b64_data)
         assert len(decoded) > 0
 

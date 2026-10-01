@@ -1,55 +1,59 @@
-"""Expand stored image references only at the browser delivery boundary."""
+"""Keep tool/model/history references compact; expand only for browser delivery."""
 
-import base64
-import logging
 import json
-from urllib.parse import parse_qs, urlsplit
+import logging
+from urllib.parse import parse_qs, quote, urlsplit
 
-from src.http_endpoints.upload_endpoints import get_image_download_impl
+from src.image_presentation import ImagePresentationService
 
 
 def image_result_for_model(tool_name, result_text):
-    """Keep presentation URLs out of the generated-image tool response."""
-    if tool_name != "image_generate":
+    if tool_name not in {"image_generate", "serve_image"}:
         return result_text
     try:
         result = json.loads(result_text)
     except (ValueError, TypeError):
         return result_text
-    if not isinstance(result, dict) or not result.get("ok") or not result.get("image_id"):
+    if not isinstance(result, dict) or not result.get("ok"):
         return result_text
-    result.pop("image", None)
-    result.pop("download_url", None)
-    result["presentation"] = "The image is delivered separately to the browser. Confirm creation without inventing a download URL."
+    # Whitelist instead of deleting a few known fields: provider data must
+    # never leak into the initiating model's context, even with older handlers.
+    result = {key: result[key] for key in
+              ("ok", "tool", "model", "image_id", "path", "mime_type") if key in result}
+    result["presentation"] = "Lucy delivers the image automatically. Confirm creation without calling serve_image or inventing a download URL."
     return json.dumps(result, ensure_ascii=False)
 
 
-def image_event_for_browser(event, config, account_name):
-    """Return an independent inline event; leave model output/history compact.
+def image_event_for_history(event, account_name):
+    """Attach host-owned download URLs without adding image bytes to history."""
+    if event.type != "image" or not event.image_id:
+        return event
+    url = f"/download/image/{event.image_id}?accountName={quote(account_name, safe='')}"
+    return event.model_copy(update={"image_url": url, "download_url": url})
 
-    Resolve only local image download references against the current account.
-    Never fetch model-provided URLs or trust their accountName parameter.
-    """
-    if event.type != "image" or not event.image_url:
+
+def image_event_for_browser(event, config, account_name):
+    if event.type != "image":
         return event
-    reference = urlsplit(event.image_url)
-    prefix = "/download/image/"
-    if reference.scheme or reference.netloc or not reference.path.startswith(prefix):
+    reference = event.image_ref
+    if event.image_id:
+        reference = {"image_id": event.image_id}
+    elif not reference and event.image_url:
+        # Compatibility for compact references already stored in older chats.
+        url = urlsplit(event.image_url)
+        prefix = "/download/image/"
+        if url.scheme or url.netloc or not url.path.startswith(prefix):
+            return event
+        requested_account = parse_qs(url.query).get("accountName", [account_name])
+        if requested_account != [account_name]:
+            return event.model_copy(update={"image_url": None, "alt": "Image unavailable for this account."})
+        reference = {"image_id": url.path[len(prefix):]}
+    if not reference:
         return event
-    requested_account = parse_qs(reference.query).get("accountName", [account_name])
-    if requested_account != [account_name]:
-        return event.model_copy(update={"image_url": None, "alt": "Image unavailable for this account."})
-    image_id = reference.path[len(prefix):]
-    path, metadata, status = get_image_download_impl(config, account_name, image_id)
-    if status != 200:
-        logging.warning("Cannot deliver stored image %s: %s", image_id, metadata.get("error"))
-        return event.model_copy(update={"image_url": None, "alt": "Stored image is unavailable."})
     try:
-        with open(path, "rb") as image_file:
-            encoded = base64.b64encode(image_file.read()).decode("ascii")
-    except OSError:
-        logging.exception("Cannot read stored image %s for browser delivery", image_id)
-        return event.model_copy(update={"image_url": None, "alt": "Stored image is unavailable."})
-    return event.model_copy(update={
-        "image_url": f"data:{metadata['mime_type']};base64,{encoded}",
-    })
+        preview = ImagePresentationService(config).preview(reference, account_name)
+    except (ValueError, OSError) as exc:
+        logging.warning("Cannot deliver image: %s", exc)
+        return event.model_copy(update={"image_ref": None, "image_url": None,
+                                        "message": "Stored image is unavailable."})
+    return event.model_copy(update={"image_url": preview, "image_ref": None})

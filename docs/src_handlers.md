@@ -18,7 +18,7 @@ tags:
   - GetKeywordsHandler
   - GenerateDocHandler
   - CurateChatHandler
-  - GenerateImageHandler
+  - ImageGenerateHandler
   - GenerateSvgHandler
   - EmbeddingHandler
   - TasklistsManageHandler
@@ -65,7 +65,7 @@ The design decisions evident from comments and docstrings emphasize the importan
 | GetKeywordsHandler             | HandlerV2           | Extracts keywords from text.                                           |
 | GenerateDocHandler             | HandlerV2           | Generates documentation for Python modules.                            |
 | CurateChatHandler              | HandlerV2           | Curates chat sessions by filtering, summarizing, or archiving events.  |
-| GenerateImageHandler           | HandlerV2           | Generates simple images and returns them as base64 data URIs.         |
+| ImageGenerateHandler           | HandlerV2           | Generates simple images and returns them as base64 data URIs.         |
 | GenerateSvgHandler             | HandlerV2           | Validates and sanitizes SVG markup.                                   |
 | EmbeddingHandler               | HandlerV2           | Generates and compares vector embeddings.                              |
 | TasklistsManageHandler         | HandlerV2           | Manages tasklists and their tasks.                                     |
@@ -85,7 +85,7 @@ The design decisions evident from comments and docstrings emphasize the importan
 | `file_load_handler2.py`           | Loads text files.                                      | `FileLoadHandler2`                                                              |
 | `file_save_handler.py`            | Saves text or code into files.                         | `FileSaveHandler2`                                                              |
 | `generate_doc_handler.py`         | Generates documentation for modules.                   | `GenerateDocHandler`                                                            |
-| `generate_image_handler.py`       | Generates images and returns them as base64.          | `GenerateImageHandler`                                                           |
+| `image_generate_handler.py`       | Generates AI images and returns compact metadata.          | `ImageGenerateHandler`                                                           |
 | `generate_svg_handler.py`         | Validates and sanitizes SVG markup.                    | `GenerateSvgHandler`                                                             |
 | `get_keywords_handler.py`         | Extracts keywords from text.                            | `GetKeywordsHandler`                                                             |
 | `handler.py`                      | Abstract base class for handlers.                       | `Handler`                                                                       |
@@ -225,10 +225,10 @@ The design decisions evident from comments and docstrings emphasize the importan
 |----------------|--------------|---------------------------------------------|-----------------------------------------------------------------------------|
 | `execute`      | instance     | `def execute(self, args: Dict[str, Any], *, account_name: str = "auto", **context: Any) -> Dict[str, Any]:` | Curates chat sessions by filtering, summarizing, or archiving events.      |
 
-### GenerateImageHandler
+### ImageGenerateHandler
 | Method         | Type         | Signature                                   | Description                                                                 |
 |----------------|--------------|---------------------------------------------|-----------------------------------------------------------------------------|
-| `execute`      | instance     | `def execute(self, args: Dict[str, Any], *, account_name: str = "auto", **context: Any) -> Dict[str, Any]:` | Generates images and returns them as base64 data URIs.                    |
+| `execute`      | instance     | `def execute(self, args: Dict[str, Any], *, account_name: str = "auto", **context: Any) -> Dict[str, Any]:` | Generates AI images and returns compact storage metadata.                    |
 
 ### GenerateSvgHandler
 | Method         | Type         | Signature                                   | Description                                                                 |

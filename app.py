@@ -442,7 +442,7 @@ def get_chats():
 
 @app.route("/chats/<session_id>", methods=["GET"])
 def get_chat(session_id: str):
-    body, status = get_chat_impl(episodic_memory_manager, session_id)
+    body, status = get_chat_impl(episodic_memory_manager, session_id, config=config)
     return jsonify(body), status
 
 

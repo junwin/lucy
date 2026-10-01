@@ -9,8 +9,8 @@ from galet_tools.tools.file_load_handler2 import (
 from galet_tools.tools.file_save_handler import (
     FileSaveHandler2 as GaletFileSaveHandler2,
 )
-from galet_tools.tools.generate_image_handler import (
-    GenerateImageHandler as GaletGenerateImageHandler,
+from galet_tools.tools.image_generate_handler import (
+    ImageGenerateHandler as GaletImageGenerateHandler,
 )
 from galet_tools.tools.generate_svg_handler import (
     GenerateSvgHandler as GaletGenerateSvgHandler,
@@ -25,7 +25,7 @@ from galet_tools.tools.video_generate_handler import (
 from src.handlers.command_execution_handler2 import CommandExecutionHandler2
 from src.handlers.file_load_handler2 import FileLoadHandler2
 from src.handlers.file_save_handler import FileSaveHandler2
-from src.handlers.generate_image_handler import GenerateImageHandler
+from src.handlers.image_generate_handler import ImageGenerateHandler
 from src.handlers.generate_svg_handler import GenerateSvgHandler
 from src.handlers.handler_registry import HandlerRegistry
 from src.handlers.handler_v2 import HandlerV2
@@ -46,7 +46,7 @@ def test_generic_handlers_are_thin_galet_adapters() -> None:
         GaletExecuteCommand2,
     )
     assert issubclass(GenerateSvgHandler, GaletGenerateSvgHandler)
-    assert issubclass(GenerateImageHandler, GaletGenerateImageHandler)
+    assert issubclass(ImageGenerateHandler, GaletImageGenerateHandler)
     assert issubclass(PatchApplyHandler, GaletPatchApplyHandler2)
     assert issubclass(VideoGenerateHandler, GaletVideoGenerateHandler)
 
