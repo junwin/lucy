@@ -49,6 +49,7 @@ from src.http_endpoints.chats_endpoints import (
 )
 from src.http_endpoints.upload_endpoints import (
     get_video_download_impl,
+    get_image_download_impl,
     post_upload_image_impl,
 )
 from src.coala_memory.semantic import SemanticMemory
@@ -504,6 +505,16 @@ def upload_image():
         mime_type=file.content_type or "application/octet-stream",
     )
     return jsonify(body), status
+
+
+@app.route("/download/image/<image_id>", methods=["GET"])
+def download_image(image_id: str):
+    """Serve an account-owned image without routing its bytes through the LLM."""
+    account_name = (request.args.get("accountName") or "").strip()
+    path, body, status = get_image_download_impl(config, account_name, image_id)
+    if status != 200 or path is None:
+        return jsonify(body), status
+    return send_file(path, mimetype=body["mime_type"], as_attachment=False)
 
 
 @app.route("/download/video/<video_id>", methods=["GET"])

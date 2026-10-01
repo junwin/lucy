@@ -154,3 +154,41 @@ def get_video_download_impl(
         return None, {"error": "Video not found"}, 404
 
     return path, {"ok": True, "id": normalized_id}, 200
+
+
+def get_image_download_impl(
+    config: ConfigManager, account_name: str, image_id: str,
+) -> Tuple[Optional[str], Dict[str, Any], int]:
+    """Resolve a generated/uploaded image using its account-owned metadata."""
+    if not _valid_account_name(account_name):
+        return None, {"error": "A valid accountName is required"}, 400
+    try:
+        normalized_id = str(uuid.UUID(image_id))
+    except (ValueError, TypeError, AttributeError):
+        return None, {"error": "image_id must be a UUID"}, 400
+    storage = os.path.realpath(os.path.join(
+        config.get("storage_root_path", "/home/junwin/lucy_storage"),
+        config.get("storage_namespace", "data")))
+    base = os.path.realpath(os.path.join(storage, "images", account_name))
+    metadata_path = os.path.realpath(os.path.join(base, f"{normalized_id}.json"))
+    if os.path.commonpath([storage, base]) != storage or os.path.commonpath([base, metadata_path]) != base:
+        return None, {"error": "Image path is outside account storage"}, 400
+    if not os.path.isfile(metadata_path):
+        return None, {"error": "Image not found"}, 404
+    try:
+        with open(metadata_path, encoding="utf-8") as handle:
+            metadata = json.load(handle)
+        if not isinstance(metadata, dict) or metadata.get("id") != normalized_id or metadata.get("account") != account_name:
+            return None, {"error": "Image metadata does not match the request"}, 400
+        mime_type = metadata.get("mime_type")
+        extension = EXT_BY_MIME.get(mime_type)
+        if extension is None:
+            return None, {"error": "Unsupported image type"}, 400
+    except (OSError, ValueError):
+        return None, {"error": "Invalid image metadata"}, 400
+    path = os.path.realpath(os.path.join(base, f"{normalized_id}{extension}"))
+    if os.path.commonpath([base, path]) != base:
+        return None, {"error": "Image path is outside account storage"}, 400
+    if not os.path.isfile(path):
+        return None, {"error": "Image not found"}, 404
+    return path, {"ok": True, "id": normalized_id, "mime_type": mime_type}, 200
