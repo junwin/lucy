@@ -49,3 +49,25 @@ def test_video_tool_result_becomes_video_event() -> None:
     assert events[0].mime_type == "video/mp4"
     assert events[0].download_name == "fashion-reel.mp4"
     assert events[0].video_id == "123"
+
+
+def test_image_result_without_call_metadata_becomes_image_event() -> None:
+    events = list(LLMLoopRunner._inspect_raw_results([
+        (object(), json.dumps({"ok": True, "image": {
+            "url": "data:image/png;base64,YQ==", "alt": "Preview",
+        }})),
+    ]))
+    assert len(events) == 1
+    assert events[0].type == "image"
+    assert events[0].image_url == "data:image/png;base64,YQ=="
+    assert events[0].message_id is None
+
+
+def test_generated_image_result_uses_tool_name_from_payload() -> None:
+    events = list(LLMLoopRunner._inspect_raw_results([
+        (object(), json.dumps({"ok": True, "tool": "image_generate", "image_id": "123"})),
+    ]))
+    assert len(events) == 1
+    assert events[0].type == "image"
+    assert events[0].image_id == "123"
+    assert events[0].message_id == "image:123"
