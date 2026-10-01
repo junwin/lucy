@@ -290,7 +290,7 @@ def ask():
     # try to resolve using a friendlyName (payload: friendlyName) or create
     # a new chat session.
     conv_id = (payload.get("conversationId") or "").strip()
-    if not conv_id:
+    if not conv_id and payload.get("routing") != "auto":
         friendly_name = payload.get("friendlyName")
         if friendly_name:
             agent_name = (payload.get("agentName") or "").lower()

@@ -45,6 +45,7 @@ from src.prompt_builders.galet_prompt_builder_adapter import (
     GaletPromptBuilderAdapter,
 )
 from src.message_endpoints.ask_request_handler import AskRequestHandler
+from src.routing.skillset_router import SkillsetRouter
 
 from galet.adapter_interface import LLMAdapter
 from galet.embedding_router import EmbeddingRouter
@@ -321,6 +322,7 @@ class EndpointHandlersModule(Module):
         storage: Storage,
         processor_factory: ProcessorFactory,
         episodic_memory_manager: EpisodicMemoryManager,
+        llm_adapter: LLMAdapter,
     ) -> AskRequestHandler:
         return AskRequestHandler(
             agent_manager=agent_manager,
@@ -328,6 +330,7 @@ class EndpointHandlersModule(Module):
             storage=storage,
             processor_factory=processor_factory,
             episodic_store=episodic_memory_manager,
+            request_router=SkillsetRouter(agent_manager, config, llm_adapter, episodic_memory_manager),
         )
 
 

@@ -4,6 +4,7 @@ import uuid
 from typing import Any, Dict, Tuple, Optional, Generator
 
 from src.agent import AgentManager, Agent
+from src.routing.skillset_router import RouteDecision, SkillsetRouter
 from src.config_manager import ConfigManager
 from src.execution_identity import ExecutionIdentity
 from src.storage.base import Storage
@@ -117,13 +118,56 @@ class AskRequestHandler:
         storage: Storage,
         processor_factory: ProcessorFactory,
         episodic_store: Optional[EpisodicMemoryManager] = None,
+        request_router: Optional[SkillsetRouter] = None,
     ) -> None:
         self.agent_manager = agent_manager
         self.config = config
         self.storage = storage
         self.processor_factory = processor_factory
         self.episodic_store = episodic_store
+        self.request_router = request_router
         self.logger = logging.getLogger(__name__)
+
+    def _route_request(self, payload: Dict[str, Any]) -> Tuple[Dict[str, Any], Optional[RouteDecision]]:
+        mode = payload.get("routing", "explicit")
+        if mode not in ("explicit", "auto"):
+            raise ValueError("routing must be 'explicit' or 'auto'")
+        if mode != "auto":
+            return payload, None
+        if not payload.get("question") or not payload.get("accountName"):
+            raise ValueError("Missing question or accountName")
+        if self.request_router is None:
+            raise ValueError("Request routing is unavailable")
+        decision = self.request_router.route(payload)
+        self.logger.info("request_routing run decision=%s", json.dumps(decision.to_dict()))
+        routed = dict(payload)
+        routed["agentName"] = decision.selected_agent
+        return routed, decision
+
+    def _routing_clarification(self, payload: Dict[str, Any], route: RouteDecision) -> Dict[str, Any]:
+        """Keep the exchange available when the user answers the routing question."""
+        identity = _execution_identity(payload)
+        account_name = (payload.get("accountName") or "").lower()
+        conversation_id = payload.get("conversationId") or resolve_or_create_session(
+            self.episodic_store, account_name, route.selected_agent,
+            payload.get("friendlyName") or payload.get("friendly_name"),
+        )
+        if self.episodic_store is not None:
+            meta = self.episodic_store.get_session(conversation_id, include_events=False)
+            if meta is None or meta.account_name != account_name:
+                raise ValueError("Conversation does not belong to this account")
+            metadata = {"run_id": identity.run_id, "trace_id": identity.trace_id,
+                        "routing": route.to_dict()}
+            self.episodic_store.append_event(conversation_id, EpisodicEvent(
+                role="user", kind="user_message", actor=account_name,
+                content=payload["question"], metadata=metadata))
+            self.episodic_store.append_event(conversation_id, EpisodicEvent(
+                role="assistant", kind="assistant_message", actor=route.selected_agent,
+                content=route.clarification, metadata=metadata))
+        return {"response": route.clarification, "conversation_id": conversation_id,
+                "needs_clarification": True, "routing": route.to_dict(),
+                "run_id": identity.run_id, "trace_id": identity.trace_id,
+                "parent_run_id": identity.parent_run_id}
 
     def handle(self, payload: Dict[str, Any]) -> Tuple[int, Dict[str, Any]]:
         """Process the /ask request.
@@ -131,14 +175,28 @@ class AskRequestHandler:
         Expected payload (legacy app.py behavior):
 
           - question: str (required)
-          - agentName: str (required)
+          - agentName: str (required unless routing="auto")
+          - routing: "explicit" (default) or "auto"
           - accountName: str (required)
           - selectType: Optional[str]  (legacy)
           - contextType: Optional[str] (preferred)
-          - contextName: Optional[str] (if omitted/None => no storage-based context)
+          - contextName: Optional[str] (omitted/blank uses selected agent default)
           - conversationId: Optional[str]
           - partnerAgentName: Optional[str]
         """
+
+        try:
+            payload, route = self._route_request(payload)
+        except ValueError as exc:
+            return 400, {"error": str(exc)}
+        if route is not None and route.clarification:
+            try:
+                return 200, self._routing_clarification(payload, route)
+            except ValueError as exc:
+                return 400, {"error": str(exc)}
+            except Exception:
+                self.logger.exception("/ask: could not save routing clarification")
+                return 500, {"error": "Could not save routing clarification"}
 
         question = payload.get("question", "")
         agentName = (payload.get("agentName", "") or "").lower()
@@ -323,7 +381,7 @@ class AskRequestHandler:
             response_text = result.text
 
             # Return the conversation id so callers can persist it for future requests
-            return 200, {"response": response_text, "conversation_id": conversationId, "trace_id": identity.trace_id, "run_id": identity.run_id, "parent_run_id": identity.parent_run_id}
+            return 200, {"response": response_text, "conversation_id": conversationId, "trace_id": identity.trace_id, "run_id": identity.run_id, "parent_run_id": identity.parent_run_id, **({"routing": route.to_dict()} if route is not None else {})}
 
         except ToolHandlerError as e:
             error_message = f"Tool execution failed: {str(e)}"
@@ -376,6 +434,27 @@ class AskRequestHandler:
         On validation errors, yields error + done events and returns.
         """
         from src.message_processors.sse_events import SSEEvent
+
+        try:
+            payload, route = self._route_request(payload)
+        except ValueError as exc:
+            yield SSEEvent(type="error", message=str(exc)).to_sse()
+            yield SSEEvent(type="done").to_sse()
+            return
+        if route is not None:
+            yield SSEEvent(type="action", action="request_routing",
+                           action_payload=route.to_dict()).to_sse()
+            if route.clarification:
+                try:
+                    response = self._routing_clarification(payload, route)
+                except Exception:
+                    self.logger.exception("/ask: could not save routing clarification")
+                    yield SSEEvent(type="error", message="Could not save routing clarification").to_sse()
+                    yield SSEEvent(type="done").to_sse()
+                    return
+                yield SSEEvent(type="text", content=response["response"]).to_sse()
+                yield SSEEvent(type="done", conversation_id=response["conversation_id"]).to_sse()
+                return
 
         question = payload.get("question", "")
         agentName = (payload.get("agentName", "") or "").lower()

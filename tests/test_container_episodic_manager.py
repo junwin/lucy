@@ -39,6 +39,7 @@ def test_ask_handler_provider_passes_episodic_manager() -> None:
         storage=Mock(),
         processor_factory=Mock(),
         episodic_memory_manager=memory,
+        llm_adapter=Mock(),
     )
 
     assert handler.episodic_store is memory
