@@ -42,7 +42,6 @@
       "remote_execute",
       "delegate_task",
       "tool_selection_probe",
-      "tool_handler_meta",
       "video_generate"
     ],
     "provider": null,
@@ -105,21 +104,19 @@
     "style_prompt": "Keep English simple, clear, and direct. Do not flatter the user.",
     "persona": "You are Colin, the developer agent. You focus on concrete implementation details, code, and refactoring tasks delegated by Lucy.",
     "allowed_tools": [
-      "execute_command",
+      "repo_index",
+      "repo_search",
       "file_load",
       "file_save",
       "patch_apply",
-      "serve_image",
-      "repo_index",
-      "repo_search",
-      "get_keywords",
-      "reset_session",
+      "execute_command",
       "scrape_web_page",
       "web_search_handler",
-      "episodic_memory",
       "tasklists_manage",
       "tasklists_run",
-      "delegate_task",
+      "generate_doc",
+      "sandbox_execute",
+      "serve_image",
       "remote_execute"
     ],
     "provider": null,
@@ -134,7 +131,30 @@
       "preferred_model": "gpt-5-mini",
       "preferred_source": "openai",
       "allow_fallback": true
-    }
+    },
+    "skills": [
+      "filepaths",
+      "loop-prevention"
+    ],
+    "prompt_policy": {
+      "total_tokens": 8000,
+      "safety_margin_tokens": 1000,
+      "procedural_tokens": 4000,
+      "episodic_event_tokens": 1000,
+      "episodic_digest_tokens": 1000,
+      "semantic_tokens": 1000,
+      "maximum_events": 4,
+      "maximum_digests": 1,
+      "maximum_semantic_documents": 0,
+      "semantic_score_threshold": 0.95,
+      "digest_score_threshold": 0.75,
+      "episodic_event_max_chars": 500,
+      "episodic_digest_max_chars": 500,
+      "semantic_item_max_chars": 500
+    },
+    "skillset": [
+      "development"
+    ]
   },
   {
     "name": "nelly",
@@ -152,23 +172,24 @@
     "style_prompt": "Keep English simple, clear, and direct. Do not flatter the user.",
     "persona": "You are Nelly, the developer agent. You focus on concrete implementation details, code, and refactoring tasks delegated by Lucy.",
     "allowed_tools": [
-      "execute_command",
+      "repo_index",
+      "repo_search",
       "file_load",
       "file_save",
       "patch_apply",
-      "semantic_memory",
-      "get_keywords",
-      "repo_index",
-      "repo_search",
+      "execute_command",
+      "scrape_web_page",
+      "web_search_handler",
       "tasklists_manage",
       "tasklists_run",
-      "reset_session",
-      "scrape_web_page",
-      "web_search_handler"
+      "generate_doc",
+      "sandbox_execute",
+      "serve_image",
+      "remote_execute"
     ],
     "provider": null,
     "use_embeddings": false,
-    "default_context": null,
+    "default_context": "skinny",
     "model_policy": {
       "profile": "development",
       "required_capabilities": [
@@ -178,7 +199,30 @@
       "preferred_model": "gpt-5.6-luna",
       "preferred_source": "openai",
       "allow_fallback": true
-    }
+    },
+    "skills": [
+      "filepaths",
+      "loop-prevention"
+    ],
+    "prompt_policy": {
+      "total_tokens": 8000,
+      "safety_margin_tokens": 1000,
+      "procedural_tokens": 4000,
+      "episodic_event_tokens": 1000,
+      "episodic_digest_tokens": 1000,
+      "semantic_tokens": 1000,
+      "maximum_events": 4,
+      "maximum_digests": 1,
+      "maximum_semantic_documents": 0,
+      "semantic_score_threshold": 0.95,
+      "digest_score_threshold": 0.75,
+      "episodic_event_max_chars": 500,
+      "episodic_digest_max_chars": 500,
+      "semantic_item_max_chars": 500
+    },
+    "skillset": [
+      "development"
+    ]
   },
   {
     "name": "glinda",
@@ -264,7 +308,6 @@
       "agents_manage",
       "remote_execute",
       "tool_selection_probe",
-      "tool_handler_meta",
       "video_generate"
     ],
     "prompt_policy": {
@@ -301,8 +344,8 @@
     "name": "lumia",
     "language_code": "en-US",
     "context_type": "hybrid",
-    "max_prompt_conversations": 6,
-    "max_prompt_documents": 4,
+    "max_prompt_conversations": 8,
+    "max_prompt_documents": 2,
     "temperature": 0,
     "save_responses": true,
     "model": "deepseek-v4-pro",
@@ -341,7 +384,6 @@
       "agents_manage",
       "remote_execute",
       "tool_selection_probe",
-      "tool_handler_meta",
       "video_generate"
     ],
     "provider": null,
@@ -372,15 +414,15 @@
       "total_tokens": 12000,
       "safety_margin_tokens": 1000,
       "procedural_tokens": 4000,
-      "episodic_event_tokens": 2000,
-      "episodic_digest_tokens": 2000,
+      "episodic_event_tokens": 4000,
+      "episodic_digest_tokens": 1000,
       "semantic_tokens": 4000,
-      "maximum_events": 4,
-      "maximum_digests": 2,
+      "maximum_events": 8,
+      "maximum_digests": 1,
       "maximum_semantic_documents": 1,
-      "semantic_score_threshold": 0.45,
-      "digest_score_threshold": 0.45,
-      "episodic_event_max_chars": 500,
+      "semantic_score_threshold": 0.65,
+      "digest_score_threshold": 0.65,
+      "episodic_event_max_chars": 1000,
       "episodic_digest_max_chars": 500,
       "semantic_item_max_chars": 1500
     }
@@ -436,39 +478,36 @@
     "style_prompt": "Keep English simple, clear, and direct. Do not flatter the user.",
     "persona": "You are Star, the developer agent. You focus on concrete implementation details, code, and refactoring tasks delegated by Lucy.",
     "allowed_tools": [
-      "execute_command",
+      "repo_index",
+      "repo_search",
       "file_load",
       "file_save",
       "patch_apply",
-      "get_keywords",
-      "tasklists_manage",
-      "tasklists_run",
-      "reset_session",
-      "repo_index",
-      "repo_search",
+      "execute_command",
       "scrape_web_page",
       "web_search_handler",
-      "episodic_memory",
-      "curate_chat",
-      "remote_execute",
-      "delegate_task",
-      "sandbox_execute"
+      "tasklists_manage",
+      "tasklists_run",
+      "generate_doc",
+      "sandbox_execute",
+      "serve_image",
+      "remote_execute"
     ],
     "prompt_policy": {
       "total_tokens": 8000,
       "safety_margin_tokens": 1000,
       "procedural_tokens": 4000,
-      "episodic_event_tokens": 2000,
-      "episodic_digest_tokens": 2000,
-      "semantic_tokens": 0,
+      "episodic_event_tokens": 1000,
+      "episodic_digest_tokens": 1000,
+      "semantic_tokens": 1000,
       "maximum_events": 4,
-      "maximum_digests": 2,
+      "maximum_digests": 1,
       "maximum_semantic_documents": 0,
-      "semantic_score_threshold": 0.45,
-      "digest_score_threshold": 0.45,
+      "semantic_score_threshold": 0.95,
+      "digest_score_threshold": 0.75,
       "episodic_event_max_chars": 500,
       "episodic_digest_max_chars": 500,
-      "semantic_item_max_chars": 1500
+      "semantic_item_max_chars": 500
     },
     "provider": null,
     "use_embeddings": false,
@@ -482,7 +521,14 @@
       "preferred_model": "deepseek-v4-flash",
       "preferred_source": "deepseek",
       "allow_fallback": true
-    }
+    },
+    "skills": [
+      "filepaths",
+      "loop-prevention"
+    ],
+    "skillset": [
+      "development"
+    ]
   },
   {
     "name": "belle",
@@ -548,7 +594,10 @@
       "preferred_model": "mistral-medium-latest",
       "preferred_source": "mistral",
       "allow_fallback": true
-    }
+    },
+    "skillset": [
+      "writing"
+    ]
   },
   {
     "name": "lamy",

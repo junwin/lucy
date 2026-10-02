@@ -11,7 +11,6 @@ tags:
   - Chat2Handler
   - ResetSessionHandler
   - RemoteExecuteHandler
-  - ToolHandlerMetaHandler
   - AgentsManageHandler
   - GetKeywordsHandler
   - CurateChatHandler
@@ -42,7 +41,6 @@ The `src/handlers` module provides a collection of handler implementations for v
 | Chat2Handler                   | HandlerV2           | Manages chat sessions for agents.                                      |
 | ResetSessionHandler            | HandlerV2           | Resets the current chat session.                                       |
 | RemoteExecuteHandler           | HandlerV2           | Sends queries to a remote Lucy instance.                               |
-| ToolHandlerMetaHandler         | HandlerV2           | Provides metadata for registered tools.                                |
 | AgentsManageHandler            | HandlerV2           | Manages agent definitions at runtime.                                  |
 | GetKeywordsHandler             | HandlerV2           | Extracts keywords from text.                                           |
 | CurateChatHandler              | HandlerV2           | Curates chat sessions by filtering, summarizing, or archiving events.  |
@@ -78,7 +76,6 @@ The `src/handlers` module provides a collection of handler implementations for v
 | serve_image_handler.py            | Serves images as base64 data URIs.                   | ServeImageHandler                                                               |
 | tasklists_manage_handler.py       | Manages tasklists and tasks.                         | TasklistsManageHandler                                                          |
 | tasklists_run_handler.py          | Executes persisted tasklists.                        | TasklistsRunHandler                                                             |
-| tool_handler_meta_handler.py      | Provides metadata for tools.                         | ToolHandlerMetaHandler                                                          |
 | web_search_handler2.py            | Performs web searches.                               | WebSearchHandler2                                                               |
 | lazy_tool_selector_handler.py      | Probes lazy tool loading.                            | LazyToolSelectorHandler                                                         |
 | tool_selection_probe_handler.py    | Diagnoses the tool selection pipeline.               | ToolSelectionProbeHandler                                                       |
@@ -155,12 +152,6 @@ The `src/handlers` module provides a collection of handler implementations for v
 | Method | Type         | Signature | Description |
 |--------|--------------|-----------|-------------|
 | execute | instance     | def execute(self, args: Dict[str, Any], *, account_name: str = "auto") -> Dict[str, Any] | Sends a query to a remote Lucy instance. |
-
-### ToolHandlerMetaHandler
-
-| Method | Type         | Signature | Description |
-|--------|--------------|-----------|-------------|
-| execute | instance     | def execute(self, args: Dict[str, Any], *, account_name: str = "auto") -> Dict[str, Any] | Returns tool metadata for registered handlers. |
 
 ### AgentsManageHandler
 

@@ -34,7 +34,6 @@ from src.handlers.patch_apply_handler import PatchApplyHandler
 from src.handlers.repo_index_handler import RepoIndexHandler
 from src.handlers.repo_search_handler import RepoSearchHandler
 from src.handlers.delegate_task_handler import DelegateTaskHandler
-from src.handlers.tool_handler_meta_handler import ToolHandlerMetaHandler
 from src.handlers.agents_manage_handler import AgentsManageHandler
 from src.handlers.lazy_tool_selector_handler import LazyToolSelectorHandler
 from src.handlers.tool_selection_probe_handler import ToolSelectionProbeHandler
@@ -119,9 +118,6 @@ def build_registry_and_catalog() -> tuple[HandlerRegistry, ToolCatalog]:
     reg.register(DelegateTaskHandler)
     # Patch application — constrained single-file unified diffs
     reg.register(PatchApplyHandler)
-
-    # Tool metadata inspector
-    reg.register(ToolHandlerMetaHandler)
 
     # Agent management (list/get/upsert/delete/reload)
     reg.register(AgentsManageHandler)

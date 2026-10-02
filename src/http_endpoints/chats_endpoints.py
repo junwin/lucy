@@ -66,8 +66,17 @@ def post_chat_impl(
     episodic_memory_manager: EpisodicMemoryManager,
     agent_manager: AgentManager,
     payload: Dict[str, Any],
+    config=None,
 ) -> tuple[Dict[str, Any], int]:
     agentName = (payload.get("agentName", "") or "").lower()
+    mode = payload.get("routing", "explicit")
+    if mode not in ("explicit", "auto"):
+        return {"error": "routing must be 'explicit' or 'auto'"}, 400
+    if mode == "auto" and not agentName:
+        routing_config = (config.get("request_routing", {}) or {}) if config is not None else {}
+        if not isinstance(routing_config, dict):
+            return {"error": "request_routing must be an object"}, 400
+        agentName = str(routing_config.get("default_agent", "lucy")).strip().lower()
     accountName = (payload.get("accountName", "") or "").lower()
     friendly_name = payload.get("friendlyName")
     tags = payload.get("tags")
