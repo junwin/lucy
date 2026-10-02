@@ -22,9 +22,14 @@ class RouteDecision:
     clarification: str = ""
     classifier_calls: int = 0
     latency_ms: int = 0
+    direct_response: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
-        return asdict(self)
+        value = asdict(self)
+        # The reply is delivered as response/text, not duplicated in routing
+        # diagnostics, logs, or every event's routing metadata.
+        value.pop("direct_response")
+        return value
 
 
 class SkillsetRouter:
@@ -61,7 +66,7 @@ class SkillsetRouter:
         ttl = self._dialogue_ttl(cfg)
         specialist = next((a for a in self.catalog() if route is not None and a["name"] == route.selected_agent), None)
         if (specialist and ttl and not route.clarification
-                and route.reason not in {"dialogue_closed", "explicit_context", "conversational"}):
+                and route.reason not in {"dialogue_closed", "explicit_context", "conversational", "direct_answer"}):
             metadata["routing_dialogue"] = {
                 "agent": specialist["name"],
                 "expires_at": self.clock() + ttl,
@@ -115,6 +120,9 @@ class SkillsetRouter:
         if not isinstance(cfg, dict):
             raise ValueError("request_routing must be an object")
         ttl = self._dialogue_ttl(cfg)
+        direct_answers = cfg.get("direct_answers_enabled", True)
+        if not isinstance(direct_answers, bool):
+            raise ValueError("direct_answers_enabled must be a boolean")
         fallback = requested or str(cfg.get("default_agent", "lucy")).strip().lower()
         if not self.agent_manager.is_valid(fallback):
             raise ValueError("Invalid routing fallback agent")
@@ -125,7 +133,7 @@ class SkillsetRouter:
         if not isinstance(question, str) or not question.strip():
             raise ValueError("question must be a non-empty string")
         catalog = self.catalog()
-        if not catalog:
+        if not catalog and not direct_answers:
             return RouteDecision(requested, fallback, "no_specialists")
         clarification = "Which specialist or type of work should handle this request?"
         if len(question) > 12000:
@@ -181,9 +189,9 @@ class SkillsetRouter:
                 or not math.isfinite(threshold) or not 0 <= threshold <= 1):
             raise ValueError("invalid minimum_confidence")
         started = time.monotonic()
-        def decision(reason, capabilities=(), clarification="", selected=fallback):
+        def decision(reason, capabilities=(), clarification="", selected=fallback, direct_response=None):
             result = RouteDecision(requested, selected, reason, capabilities,
-                                   clarification, 1, int((time.monotonic() - started) * 1000))
+                                   clarification, 1, int((time.monotonic() - started) * 1000), direct_response)
             return result
         try:
             # No embeddings, skill content, system personas or tool schemas.
@@ -196,9 +204,19 @@ class SkillsetRouter:
                 input=[
                     {"role": "system", "content": (
                         "Classify the requested expertise using the catalog's exact capability labels. "
-                        "Return only JSON: {\"kind\":\"specialist|general|clarify|continue|end\", "
-                        "\"capabilities\":[\"label\"],\"confidence\":0.0}. "
-                        "Use general for work needing no advertised specialist. Use clarify for "
+                        "Return only JSON: {\"kind\":\"specialist|general|clarify|continue|end|answer\", "
+                        "\"capabilities\":[\"label\"],\"confidence\":0.0,\"answer\":\"only for kind answer\"}. "
+                        "When direct_answers_enabled is true, use answer with empty capabilities and a "
+                        "brief answer (at most 2000 characters) ONLY for a simple, self-contained question "
+                        "about stable general facts, basic arithmetic, or unit conversions that you can "
+                        "confidently answer from the current request alone. Examples: the capital of Brazil "
+                        "is Brasília; 70°F is approximately 21.1°C. Do not use answer for requests requiring "
+                        "conversation context, personal/account/project information, files, attachments, "
+                        "tools, research, current information, medical/legal/financial advice, or any action. "
+                        "Never claim an action was completed. If unsuitable for a direct answer, use the "
+                        "other routing kinds. Omit answer for those kinds. "
+                        "Use general for work needing no advertised specialist that is not eligible for a "
+                        "direct answer. Use clarify for "
                         "references not resolved by recent conversation, unsupported specialist work, or tasks needing several "
                         "specialists. If an active_dialogue is present, use continue with empty capabilities "
                         "for answers, refinements, approvals or further work in that dialogue. Use end with "
@@ -213,6 +231,7 @@ class SkillsetRouter:
                         "catalog": catalog, "request": question,
                         "recent_conversation": history,
                         "active_dialogue": active,
+                        "direct_answers_enabled": direct_answers,
                         "image_count": len(payload.get("image_ids") or []),
                         "file_count": len(payload.get("file_ids") or []),
                     })},
@@ -228,7 +247,7 @@ class SkillsetRouter:
             capabilities = value.get("capabilities")
             confidence = value.get("confidence")
             known = {c for a in catalog for c in a["skillset"]}
-            if (kind not in {"specialist", "general", "clarify", "continue", "end"}
+            if (kind not in {"specialist", "general", "clarify", "continue", "end", "answer"}
                 or not isinstance(capabilities, list)
                 or any(not isinstance(c, str) or c not in known for c in capabilities)
                 or isinstance(confidence, bool) or not isinstance(confidence, (float, int))
@@ -237,6 +256,15 @@ class SkillsetRouter:
             capabilities = tuple(dict.fromkeys(capabilities))
             if kind == "clarify" or confidence < threshold:
                 return decision("uncertain", capabilities, clarification)
+            if kind == "answer":
+                answer = value.get("answer")
+                if capabilities or not isinstance(answer, str) or not answer.strip() or len(answer) > 2000:
+                    raise ValueError("direct answer requires brief non-empty text and no capabilities")
+                # Independently enforce eligibility that can be checked without
+                # a second model call. Semantic eligibility is the classifier's job.
+                if not direct_answers or attachments:
+                    return decision("general")
+                return decision("direct_answer", direct_response=answer.strip())
             if kind in {"continue", "end"}:
                 if not active or capabilities:
                     raise ValueError("continuation requires an active dialogue and no new capabilities")

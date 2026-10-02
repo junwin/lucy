@@ -31,12 +31,12 @@ and automation processors are excluded. Lumia currently advertises
 expertise; they are distinct from execution `skills` and machine capabilities.
 
 A tool-free LLM call classifies the request as general work, a required set of
-capabilities, or a clarification. It receives only the catalog, the request
+capabilities, a continuation/end, a clarification, or a direct answer. It receives only the catalog, the request
 (requests exceeding 12,000 characters ask for guidance without classification), attachment counts, and up to four recent active
 user/assistant messages (800 characters each). It does not retrieve embeddings,
 archived digests, tool results, or procedural skill text, and does not inspect
 attachment contents. Session ownership is checked before reading history.
-General requests remain with the fallback agent. A specialist is selected only
+General requests remain with the fallback agent unless eligible for a direct answer. A specialist is selected only
 if exactly one advertised agent covers all required labels and the classifier
 confidence meets the configured threshold. Unknown labels, ties, insufficient
 confidence and unknown matches ask the user for guidance; ties name the eligible agents.
@@ -74,6 +74,39 @@ to the current specialist. Natural-language continuation/end detection remains
 a model heuristic; standalone acknowledgements and direct selections follow
 the deterministic rules above.
 
+## Direct answers for simple questions (#200)
+
+By default, the same routing LLM call may return `kind: "answer"` with empty
+capabilities and a brief `answer` (maximum 2,000 characters). This is restricted
+by the prompt to simple, self-contained stable facts, basic arithmetic and unit
+conversions that need no tools or conversation/account/project context. For
+example, `What is the capital of Brazil?` can return `Brasília`, and
+`What is 70°F in centigrade?` can return `approximately 21.1°C`.
+
+These requests bypass agent construction, Galet prompt compilation, memory
+retrieval, skill loading, tool selection and the worker LLM/tool loop. The
+router still reads its bounded recent conversation and makes one LLM call.
+User and assistant messages are persisted with run/trace identity under the
+same conversation ID. JSON returns the ordinary response fields with routing
+reason `direct_answer` and `needs_clarification: false`; streaming sends the
+ordinary routing action, text and done events, so clients need no changes.
+The answer itself is omitted from routing diagnostics to avoid duplicating
+reply content in logs and event metadata.
+
+The prompt excludes files/attachments, current facts, personal/project data,
+research, medical/legal/financial advice and requests to perform actions. The
+server separately validates answer type/length, confidence and capability
+consistency. Attachments or disabled direct answers force normal general-agent
+processing even if the classifier returns an answer. A classifier failure or
+uncertain/malformed answer never delivers that answer. Semantic suitability
+and factual correctness remain LLM judgments and need live evaluation.
+
+Use `request_routing.direct_answers_enabled: false` to compare against normal
+agent execution. Direct answers also work when no specialists advertise
+skillsets. Manual routing and explicit contexts keep their existing behavior.
+A self-contained direct answer is treated as new general work and releases
+previous specialist affinity without changing session identity/context.
+
 Manual agent/context selection and new general work release affinity. Failed
 or incomplete executions do not establish or renew it. A streaming session
 reset releases it. gptChum can continue sending `agentName: "lucy"` with
@@ -95,7 +128,8 @@ Optional settings in `config.local.json`:
   "request_routing": {
     "default_agent": "lucy",
     "minimum_confidence": 0.8,
-    "dialogue_ttl_seconds": 1800
+    "dialogue_ttl_seconds": 1800,
+    "direct_answers_enabled": true
   }
 }
 ```
@@ -127,7 +161,8 @@ this is not yet integrated into persisted run-metrics tables.
 - #143 owns expertise selection. This implements the LLM-classification family
   already surveyed there, with deterministic capability matching and clarification.
   No new routing-framework dependency is needed for this small local catalog.
-- #200 remains the separate lightweight prompt/retrieval/tool-selection route.
+- #200's initial lightweight path answers simple self-contained questions here.
+  Greetings/acknowledgements and other prompt/retrieval/tool-selection savings remain separate work.
 - Remote routing should first select agent expertise, then reuse machine eligibility
   checks from `delegate_task`; machine capability filters are not agent skillsets.
 - Multi-specialist decomposition and calibrated/embedding-based routing are deferred.

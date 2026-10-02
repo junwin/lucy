@@ -118,6 +118,8 @@ def test_task_requiring_different_specialists_is_not_silently_split():
 def test_internal_and_non_chat_agents_are_excluded():
     router = make_router(agents=[Agent(name="lucy"), Agent(name="mcp", skillset=["image-creation"]),
         Agent(name="worker", message_processor="automation_processor", skillset=["image-creation"])])
+    router.config = SimpleNamespace(get=lambda key, default=None: {"direct_answers_enabled": False} if key == "request_routing" else default)
+    assert router.catalog() == []
     assert router.route(payload()).reason == "no_specialists"
     router.llm_adapter.call_model.assert_not_called()
 

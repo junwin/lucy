@@ -154,8 +154,9 @@ class AskRequestHandler:
         routed["agentName"] = decision.selected_agent
         return routed, decision
 
-    def _routing_clarification(self, payload: Dict[str, Any], route: RouteDecision) -> Dict[str, Any]:
-        """Keep the exchange available when the user answers the routing question."""
+    def _routing_reply(self, payload: Dict[str, Any], route: RouteDecision) -> Dict[str, Any]:
+        """Save a routing clarification or direct answer without building a prompt."""
+        reply = route.direct_response if route.direct_response is not None else route.clarification
         identity = _execution_identity(payload)
         account_name = (payload.get("accountName") or "").lower()
         conversation_id = payload.get("conversationId") or resolve_or_create_session(
@@ -173,9 +174,11 @@ class AskRequestHandler:
                 content=payload["question"], metadata=metadata))
             self.episodic_store.append_event(conversation_id, EpisodicEvent(
                 role="assistant", kind="assistant_message", actor=route.selected_agent,
-                content=route.clarification, metadata=metadata))
-        return {"response": route.clarification, "conversation_id": conversation_id,
-                "needs_clarification": True, "routing": route.to_dict(),
+                content=reply, metadata=metadata))
+        if route.direct_response is not None:
+            self._remember_dialogue(payload, route, conversation_id, reply)
+        return {"response": reply, "conversation_id": conversation_id,
+                "needs_clarification": bool(route.clarification), "routing": route.to_dict(),
                 "run_id": identity.run_id, "trace_id": identity.trace_id,
                 "parent_run_id": identity.parent_run_id}
 
@@ -199,14 +202,14 @@ class AskRequestHandler:
             payload, route = self._route_request(payload)
         except ValueError as exc:
             return 400, {"error": str(exc)}
-        if route is not None and route.clarification:
+        if route is not None and (route.clarification or route.direct_response is not None):
             try:
-                return 200, self._routing_clarification(payload, route)
+                return 200, self._routing_reply(payload, route)
             except ValueError as exc:
                 return 400, {"error": str(exc)}
             except Exception:
-                self.logger.exception("/ask: could not save routing clarification")
-                return 500, {"error": "Could not save routing clarification"}
+                self.logger.exception("/ask: could not save routing reply")
+                return 500, {"error": "Could not save routing reply"}
 
         question = payload.get("question", "")
         agentName = (payload.get("agentName", "") or "").lower()
@@ -459,12 +462,12 @@ class AskRequestHandler:
         if route is not None:
             yield SSEEvent(type="action", action="request_routing",
                            action_payload=route.to_dict()).to_sse()
-            if route.clarification:
+            if route.clarification or route.direct_response is not None:
                 try:
-                    response = self._routing_clarification(payload, route)
+                    response = self._routing_reply(payload, route)
                 except Exception:
-                    self.logger.exception("/ask: could not save routing clarification")
-                    yield SSEEvent(type="error", message="Could not save routing clarification").to_sse()
+                    self.logger.exception("/ask: could not save routing reply")
+                    yield SSEEvent(type="error", message="Could not save routing reply").to_sse()
                     yield SSEEvent(type="done").to_sse()
                     return
                 yield SSEEvent(type="text", content=response["response"]).to_sse()
