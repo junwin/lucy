@@ -42,7 +42,6 @@
       "remote_execute",
       "delegate_task",
       "tool_selection_probe",
-      "tool_handler_meta",
       "video_generate"
     ],
     "provider": null,
@@ -309,7 +308,6 @@
       "agents_manage",
       "remote_execute",
       "tool_selection_probe",
-      "tool_handler_meta",
       "video_generate"
     ],
     "prompt_policy": {
@@ -386,7 +384,6 @@
       "agents_manage",
       "remote_execute",
       "tool_selection_probe",
-      "tool_handler_meta",
       "video_generate"
     ],
     "provider": null,
