@@ -43,3 +43,28 @@ and rejects named-skill requests rather than silently ignoring them.
 Next steps in #241: remove context selection in gptChum; integrate capability
 publication and specialist selection with #143. LLM-capability routing remains
 a possible future extension.
+
+## Shared development instructions for Star and Colin
+
+Star and Colin keep short identity/role prompts and load the shared `development`
+skill before `filepaths` and `loop-prevention`. Its canonical source is
+`static/data/skills/development.md`. Scope restrictions, clarification,
+validation hard-stop, optional tool batching and writing style live there.
+Models, tools, context, routing capabilities and prompt budgets are unchanged.
+
+Skill storage is separate from the code checkout. Before using the slimmer
+agent definitions, install the skill for each account that uses these agents:
+
+```bash
+python scripts/install_development_skill.py --account junwin
+# Multiple accounts, if needed:
+python scripts/install_development_skill.py --account junwin --account arla
+```
+
+The installer reads `config.json` plus `config.local.json`, uses the configured
+storage root/namespace, and writes through galet-memory's account skill
+repository. Identical installed content is left alone. A customised existing
+`development` skill is preserved; review it before deliberately using
+`--overwrite`. Reload agent configuration or restart Lucy after installation.
+Skills still load through galet-memory and are budgeted by galet-prompt-builder;
+no skill text is concatenated into agent system prompts.
