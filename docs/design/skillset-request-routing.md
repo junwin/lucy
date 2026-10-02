@@ -39,7 +39,11 @@ attachment contents. Session ownership is checked before reading history.
 General requests remain with the fallback agent. A specialist is selected only
 if exactly one advertised agent covers all required labels and the classifier
 confidence meets the configured threshold. Unknown labels, ties, insufficient
-confidence, malformed output and provider failures ask the user for guidance;
+confidence and unknown matches ask the user for guidance; ties name the eligible agents.
+Direct capability/agent selections and replies to routing clarification can resolve
+a unique specialist without another model call. Malformed output and provider
+failures report that automatic routing is unavailable instead of repeating an
+unanswerable clarification;
 no worker executes in that case. Model-reported confidence is a heuristic,
 not a calibrated probability. Routing quality needs evaluation on real requests.
 
@@ -61,12 +65,21 @@ Optional settings in `config.local.json`:
 {
   "request_routing": {
     "default_agent": "lucy",
-    "model": "gpt-4o-mini",
-    "provider": null,
     "minimum_confidence": 0.8
   }
 }
 ```
+
+When omitted, routing model/provider use the fallback agent’s configured model/provider.
+They can be overridden with `request_routing.model` and `request_routing.provider`.
+The classifier requests JSON output and accepts a single fenced JSON object from
+providers that wrap their response.
+
+`POST /chats` also accepts `routing: "auto"` with an omitted/empty `agentName`;
+it stores the configured default agent (normally `lucy`), never a blank router
+identity. Manual chat creation still requires a valid agent. No `*` or special
+`router` agent is required. Existing session IDs and metadata remain unchanged
+when a specialist handles a request.
 
 Both JSON and streaming requests use the same router. JSON responses include
 `routing` with requested/selected agent, matched capabilities, decision reason,

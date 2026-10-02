@@ -268,3 +268,14 @@ def test_clarification_is_saved_for_followup_and_keeps_trace(tmp_path):
     assert session.events[0].metadata["run_id"] == body["run_id"]
     assert body["trace_id"] == body["run_id"]
     assert processor.calls == []
+    router.episodic_store = memory
+    status, followup = handler.handle(routed_payload(
+        question="one that can work with images i.e. image-processing",
+        conversationId=body["conversation_id"],
+    ))
+    assert status == 200
+    assert followup["routing"]["selected_agent"] == "lumia"
+    assert followup["routing"]["classifier_calls"] == 0
+    assert followup["conversation_id"] == body["conversation_id"]
+    assert processor.calls[-1]["primary_agent"].name == "lumia"
+    assert memory.get_session(body["conversation_id"]).events[0].content == "Make it better"

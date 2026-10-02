@@ -7,6 +7,7 @@ from typing import Any
 import json
 import logging
 import math
+import re
 import time
 
 logger = logging.getLogger(__name__)
@@ -92,7 +93,27 @@ class SkillsetRouter:
             raise
         except Exception:
             logger.warning("request_routing history unavailable", exc_info=True)
-            return RouteDecision(requested, fallback, "history_failure", clarification=clarification)
+            return RouteDecision(requested, fallback, "history_failure", clarification=
+                                 "Automatic routing cannot read this conversation. Please retry or select an agent manually.")
+        # A direct selection, or an answer to our routing question, does not
+        # need another model call. Check ownership/history before accepting it.
+        known = {c for a in catalog for c in a["skillset"]}
+        normalized = question.strip().lower().rstrip(".! ")
+        answering = bool(history and history[-1]["role"] == "assistant" and (
+            history[-1]["content"].startswith("Which specialist")
+            or history[-1]["content"].startswith("Automatic routing is unavailable")))
+        if answering or normalized in known or normalized in {a["name"] for a in catalog}:
+            mentions = lambda label: re.search(r"(?<![\w-])" + re.escape(label) + r"(?![\w-])", normalized)
+            names = [a["name"] for a in catalog if mentions(a["name"])]
+            capabilities = tuple(sorted(c for c in known if mentions(c)))
+            candidates = [a["name"] for a in catalog if capabilities and set(capabilities) <= set(a["skillset"])]
+            if len(names) == 1 and (not capabilities or names[0] in candidates):
+                return RouteDecision(requested, names[0], "user_selection", capabilities)
+            if not names and len(candidates) == 1:
+                return RouteDecision(requested, candidates[0], "user_selection", capabilities)
+            if candidates:
+                return RouteDecision(requested, fallback, "ambiguous_specialists", capabilities,
+                                     "Which specialist should handle this request? Choose one: " + ", ".join(candidates) + ".")
         threshold = cfg.get("minimum_confidence", 0.8)
         if (isinstance(threshold, bool) or not isinstance(threshold, (float, int))
                 or not math.isfinite(threshold) or not 0 <= threshold <= 1):
@@ -104,9 +125,12 @@ class SkillsetRouter:
             return result
         try:
             # No embeddings, skill content, system personas or tool schemas.
+            fallback_agent = self.agent_manager.get_agent(fallback)
             response = self.llm_adapter.call_model(
-                model=cfg.get("model", "gpt-4o-mini"),
-                provider=cfg.get("provider"), temperature=0.0, store=False,
+                model=cfg.get("model") or fallback_agent.model,
+                provider=(cfg.get("provider") if cfg.get("model") else cfg.get("provider", fallback_agent.provider)),
+                temperature=0.0, store=False,
+                text={"format": {"type": "json_object"}},
                 input=[
                     {"role": "system", "content": (
                         "Classify the requested expertise using the catalog's exact capability labels. "
@@ -125,7 +149,10 @@ class SkillsetRouter:
                     })},
                 ],
             )
-            value = json.loads(self.llm_adapter.get_text(response) or "")
+            raw = (self.llm_adapter.get_text(response) or "").strip()
+            # Some non-OpenAI providers wrap JSON despite the requested format.
+            fenced = re.fullmatch(r"```(?:json)?\s*\n?(.*?)\n?```", raw, re.DOTALL)
+            value = json.loads(fenced.group(1) if fenced else raw)
             if not isinstance(value, dict):
                 raise ValueError("classification must be an object")
             kind = value.get("kind")
@@ -147,8 +174,12 @@ class SkillsetRouter:
                 raise ValueError("inconsistent classification")
             candidates = [a["name"] for a in catalog if set(capabilities) <= set(a["skillset"])]
             if len(candidates) != 1:
-                return decision("ambiguous_specialists" if candidates else "no_match", capabilities, clarification)
+                prompt = ("Which specialist should handle this request? Choose one: " + ", ".join(candidates) + "."
+                          if candidates else clarification)
+                return decision("ambiguous_specialists" if candidates else "no_match", capabilities, prompt)
             return decision("skillset_match", capabilities, selected=candidates[0])
         except Exception:
             logger.warning("request_routing classification failed", exc_info=True)
-            return decision("classifier_failure", clarification=clarification)
+            return decision("classifier_failure", clarification=
+                            "Automatic routing is unavailable. Please retry, select an agent manually, "
+                            "or reply with a specialist name or capability: " + ", ".join(sorted(known)) + ".")

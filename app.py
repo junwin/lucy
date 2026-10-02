@@ -426,7 +426,7 @@ def metrics_runs():
 
 @app.route("/chats", methods=["POST"])
 def post_chat():
-    body, status = post_chat_impl(episodic_memory_manager, agent_manager, request.json or {})
+    body, status = post_chat_impl(episodic_memory_manager, agent_manager, request.json or {}, config)
     return jsonify(body), status
 
 

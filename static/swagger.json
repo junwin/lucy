@@ -153,6 +153,7 @@
     "/chats": {
       "post": {
         "summary": "Create a new chat session",
+        "description": "Manual creation requires agentName. With routing auto, an omitted or empty agentName stores the configured default agent (normally lucy).",
         "requestBody": {
           "required": true,
           "content": {
@@ -160,7 +161,8 @@
               "schema": {
                 "type": "object",
                 "properties": {
-                  "agentName": { "type": "string" },
+                  "agentName": { "type": "string", "description": "Required unless routing is auto; must be a real configured agent when supplied." },
+                  "routing": { "type": "string", "enum": ["explicit", "auto"], "default": "explicit" },
                   "accountName": { "type": "string" },
                   "friendlyName": { "type": "string" },
                   "tags": {
@@ -168,7 +170,7 @@
                     "items": { "type": "string" }
                   }
                 },
-                "required": ["agentName", "accountName"]
+                "required": ["accountName"]
               }
             }
           }

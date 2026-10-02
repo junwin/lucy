@@ -165,3 +165,63 @@ def test_history_failure_does_not_execute_a_specialist_without_context():
     assert result.reason == "history_failure"
     assert result.clarification
     router.llm_adapter.call_model.assert_not_called()
+
+
+def test_classifier_uses_active_fallback_model_and_requests_json():
+    router = make_router()
+    router.route(payload())
+    call = router.llm_adapter.call_model.call_args.kwargs
+    assert call['model'] == router.agent_manager.get_agent('lucy').model
+    assert call['text'] == {'format': {'type': 'json_object'}}
+
+
+def test_fenced_json_response_is_accepted():
+    router = make_router()
+    router.llm_adapter.get_text.return_value = '```json\n{"kind":"specialist","capabilities":["image-processing"],"confidence":0.95}\n```'
+    assert router.route(payload()).selected_agent == 'lumia'
+
+
+def test_image_sidecar_request_routes_by_capability():
+    router = make_router({'kind': 'specialist', 'capabilities': ['image-processing'], 'confidence': .95})
+    result = router.route(payload(question='i need help with image work - to create new sidecars for the new images in pi_share photography/work/2026/output'))
+    assert result.selected_agent == 'lumia'
+
+
+def test_capability_answer_after_clarification_does_not_repeat_classifier():
+    router = make_router()
+    router.llm_adapter.call_model.side_effect = RuntimeError('unavailable')
+    router.episodic_store = Mock()
+    router.episodic_store.get_session.side_effect = [SimpleNamespace(account_name='alice'), SimpleNamespace(events=[
+        SimpleNamespace(role='user', kind='user_message', content='Create sidecars for new images'),
+        SimpleNamespace(role='assistant', kind='assistant_message', content='Which specialist or type of work should handle this request?'),
+    ])]
+    result = router.route(payload(conversationId='session', question='one that can work with images i.e. image-processing'))
+    assert result.selected_agent == 'lumia'
+    assert result.reason == 'user_selection'
+    assert not result.clarification
+    router.llm_adapter.call_model.assert_not_called()
+
+
+def test_named_specialist_resolves_shared_capability():
+    router = make_router(agents=[Agent(name='lucy'), Agent(name='colin', skillset=['development']), Agent(name='star', skillset=['development'])])
+    assert router.route(payload(question='development')).clarification.endswith('colin, star.')
+    assert router.route(payload(question='colin')).selected_agent == 'colin'
+    router.llm_adapter.call_model.assert_not_called()
+
+
+def test_classifier_failure_does_not_ask_an_unanswerable_generic_question():
+    router = make_router()
+    router.llm_adapter.call_model.side_effect = RuntimeError('unavailable')
+    result = router.route(payload())
+    assert result.clarification.startswith('Automatic routing is unavailable.')
+    assert 'image-processing' in result.clarification
+
+
+def test_classifier_model_override_uses_provider_inference():
+    router = make_router()
+    router.agent_manager.get_agent('lucy').provider = 'deepseek'
+    router.config = SimpleNamespace(get=lambda key, default=None: {'model': 'gpt-5-mini'} if key == 'request_routing' else default)
+    router.route(payload())
+    call = router.llm_adapter.call_model.call_args.kwargs
+    assert call['model'] == 'gpt-5-mini'
+    assert call['provider'] is None

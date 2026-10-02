@@ -97,3 +97,26 @@ class TestPostMessage:
         body, status = post_chat_message_impl(mgr, "00000000-0000-0000-0000-000000000000", {"role": "user", "content": "x"})
         assert status == 404
         assert "error" in body
+
+
+@pytest.mark.parametrize('agent', [None, ''])
+def test_auto_chat_stores_real_default_agent(mgr, agent_manager_strict, agent):
+    body, status = post_chat_impl(mgr, agent_manager_strict,
+                                  {'accountName': 'junwin', 'agentName': agent, 'routing': 'auto'})
+    assert status == 200
+    assert body['agent_name'] == 'lucy'
+    assert mgr.get_session(body['id']).agent_name == 'lucy'
+
+
+def test_manual_chat_still_requires_agent(mgr, agent_manager_strict):
+    body, status = post_chat_impl(mgr, agent_manager_strict, {'accountName': 'junwin'})
+    assert status == 400
+
+
+def test_auto_chat_respects_configured_default(mgr, agent_manager):
+    config = Mock()
+    config.get.return_value = {'default_agent': 'star'}
+    body, status = post_chat_impl(mgr, agent_manager,
+                                  {'accountName': 'junwin', 'routing': 'auto'}, config)
+    assert status == 200
+    assert body['agent_name'] == 'star'
