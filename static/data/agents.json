@@ -594,7 +594,10 @@
       "preferred_model": "mistral-medium-latest",
       "preferred_source": "mistral",
       "allow_fallback": true
-    }
+    },
+    "skillset": [
+      "writing"
+    ]
   },
   {
     "name": "lamy",

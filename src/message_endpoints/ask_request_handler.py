@@ -128,6 +128,16 @@ class AskRequestHandler:
         self.request_router = request_router
         self.logger = logging.getLogger(__name__)
 
+    def _remember_dialogue(self, payload, route, conversation_id, response_text=""):
+        if self.request_router is None:
+            return
+        try:
+            self.request_router.remember_dialogue(payload, route, conversation_id, response_text)
+        except Exception:
+            # The worker response remains usable if session metadata cannot be
+            # saved. Do not renew affinity on an execution error.
+            self.logger.exception("/ask: could not save routing dialogue session_id=%s", conversation_id)
+
     def _route_request(self, payload: Dict[str, Any]) -> Tuple[Dict[str, Any], Optional[RouteDecision]]:
         mode = payload.get("routing", "explicit")
         if mode not in ("explicit", "auto"):
@@ -364,6 +374,9 @@ class AskRequestHandler:
             )
             return 500, {"error": "Failed to resolve or create session"}
 
+        if route is None or route.reason in {"dialogue_closed", "explicit_context"}:
+            self._remember_dialogue(payload, route, conversationId)
+
         try:
             result = processor.process_message(
                 primary_agent=primary_agent,
@@ -379,6 +392,8 @@ class AskRequestHandler:
                 trace_id=identity.trace_id,
             )
             response_text = result.text
+            if result.metrics.success:
+                self._remember_dialogue(payload, route, conversationId, response_text)
 
             # Return the conversation id so callers can persist it for future requests
             return 200, {"response": response_text, "conversation_id": conversationId, "trace_id": identity.trace_id, "run_id": identity.run_id, "parent_run_id": identity.parent_run_id, **({"routing": route.to_dict()} if route is not None else {})}
@@ -577,7 +592,13 @@ class AskRequestHandler:
             yield SSEEvent(type="done").to_sse()
             return
 
+        if route is None or route.reason in {"dialogue_closed", "explicit_context"}:
+            self._remember_dialogue(payload, route, conversationId)
+
         try:
+            failed = False
+            reset_dialogue = False
+            response_text = ""
             for sse_line in processor.process_message_streaming(
                 primary_agent=primary_agent,
                 secondary_agent=partner_agent_obj,
@@ -591,6 +612,25 @@ class AskRequestHandler:
                 correlation_id=correlation_id,
                 trace_id=identity.trace_id,
             ):
+                # FCP yields one complete SSE JSON event per item. Save before
+                # forwarding done so an immediate follow-up sees the affinity.
+                try:
+                    event = json.loads(sse_line.removeprefix("data: "))
+                except (ValueError, AttributeError):
+                    event = {}
+                if isinstance(event, dict):
+                    if event.get("type") == "text" and isinstance(event.get("content"), str):
+                        response_text = event["content"]
+                    if event.get("type") == "error":
+                        failed = True
+                    if event.get("type") == "metrics" and isinstance(event.get("metrics"), dict):
+                        metrics = event["metrics"]
+                        failed = failed or metrics.get("success") is False or bool(metrics.get("processor_failures"))
+                    if event.get("type") == "action" and event.get("action") == "reset_session":
+                        reset_dialogue = True
+                    if event.get("type") == "done" and not failed:
+                        self._remember_dialogue(payload, None if reset_dialogue else route,
+                                                conversationId, response_text)
                 yield sse_line
 
         except ToolHandlerError as e:

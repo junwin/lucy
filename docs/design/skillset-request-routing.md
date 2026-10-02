@@ -47,16 +47,45 @@ unanswerable clarification;
 no worker executes in that case. Model-reported confidence is a heuristic,
 not a calibrated probability. Routing quality needs evaluation on real requests.
 
-Standalone acknowledgements bypass specialist classification and run with the
-fallback agent. This is not the lightweight response pipeline in #200: normal
-processing still runs, because `okay` may authorize pending work. Attachments
-and substantive acknowledgement suffixes do not take this bypass.
+Automatic routing keeps a session's selected specialist for an active dialogue.
+After a successful specialist reply, session metadata `routing_dialogue` stores
+the specialist name, an expiry timestamp, and whether its response appears to
+ask for a reply (a question or an explicit request to confirm/choose/provide).
+The default inactivity TTL is 1,800 seconds (30 minutes), renewed after each
+successful reply. State survives router/server restarts; expiry is checked when
+the next request arrives, with no background cleanup job. Set the TTL to zero
+to disable continuity. State is scoped to the account and conversation ID.
+
+Short replies such as `yes`, `no` and `go ahead` stay with the specialist without
+another classifier call. `ok`/`okay` stay with it when a reply is pending;
+otherwise they close the dialogue. Standalone `thanks`, `thank you`, `bye` and
+`that's all` close it. The closing message goes to the current specialist, then
+affinity is released. With no active specialist, standalone acknowledgements
+use the fallback agent. Attachments and substantive suffixes (for example,
+`thanks, now write a blog`) are classified instead of treated as closure.
+
+For substantive messages the classifier receives the active specialist and
+recent conversation so it can distinguish a continuation from new work. Clear
+changes of skillset select a different specialist: image work can move from
+Lumia to Belle (`writing`), or to a development agent. A tie asks for an agent
+name; if the active specialist already covers the required labels, it is kept.
+Unknown/uncertain work still asks for guidance rather than silently handing it
+to the current specialist. Natural-language continuation/end detection remains
+a model heuristic; standalone acknowledgements and direct selections follow
+the deterministic rules above.
+
+Manual agent/context selection and new general work release affinity. Failed
+or incomplete executions do not establish or renew it. A streaming session
+reset releases it. gptChum can continue sending `agentName: "lucy"` with
+`routing: "auto"` and the same conversation ID; continuity is enforced by Lucy,
+so it also works for other API clients. This is not #200's lightweight pipeline:
+normal agent processing still handles acknowledgements and approvals.
 
 After selection, normal request processing uses the specialist's current
 `default_context`, all configured `skills` plus context imports, `prompt_policy`,
 model policy, partner agent and existing `allowed_tools`. Existing conversation
-IDs are preserved. Routing does not modify an agent definition or session's
-established metadata. Clarification exchanges are saved as normal visible
+IDs are preserved. Routing preserves session identity, established context and
+unrelated metadata; only `routing_dialogue` is updated. Clarification exchanges are saved as normal visible
 messages so the next routing request can interpret the user's answer.
 
 Optional settings in `config.local.json`:
@@ -65,7 +94,8 @@ Optional settings in `config.local.json`:
 {
   "request_routing": {
     "default_agent": "lucy",
-    "minimum_confidence": 0.8
+    "minimum_confidence": 0.8,
+    "dialogue_ttl_seconds": 1800
   }
 }
 ```
@@ -78,7 +108,7 @@ providers that wrap their response.
 `POST /chats` also accepts `routing: "auto"` with an omitted/empty `agentName`;
 it stores the configured default agent (normally `lucy`), never a blank router
 identity. Manual chat creation still requires a valid agent. No `*` or special
-`router` agent is required. Existing session IDs and metadata remain unchanged
+`router` agent is required. Existing session IDs and identity remain unchanged
 when a specialist handles a request.
 
 Both JSON and streaming requests use the same router. JSON responses include
