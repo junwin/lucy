@@ -94,7 +94,7 @@
                     "response": { "type": "string" },
                     "conversation_id": { "type": "string" },
                     "needs_clarification": { "type": "boolean" },
-                    "routing": { "type": "object", "description": "Routing decision and classifier call/latency diagnostics when opted in" }
+                    "routing": { "type": "object", "description": "Routing decision and classifier call/latency diagnostics when opted in. reason=direct_answer means the routing LLM answered without invoking the agent prompt builder or tool loop." }
                   }
                 }
               }
