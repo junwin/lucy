@@ -410,7 +410,11 @@
     ],
     "skillset": [
       "image-processing",
-      "image-creation"
+      "image-creation",
+      "video-generation",
+      "reel",
+      "sidecar",
+      "social-media"
     ],
     "prompt_policy": {
       "total_tokens": 12000,
