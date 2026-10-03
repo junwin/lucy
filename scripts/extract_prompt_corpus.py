@@ -2,8 +2,7 @@
 """
 Extract a deduplicated corpus of user prompts from all chat sessions.
 
-Reads both old-format (data/chats/<account>/*.json) and new-format
-(data/chat2/sessions/<uuid>/events.jsonl) sessions.
+Reads the configured relational episodic database through galet-memory.
 
 Output: data/eval/corpus.json — a list of unique prompt objects.
 
@@ -31,23 +30,20 @@ _repo_root = Path(__file__).resolve().parents[1]
 if str(_repo_root) not in sys.path:
     sys.path.insert(0, str(_repo_root))
 
-from src.chat2.adapters.jfs_adapter import JfsChat2Primitives
-from src.chat2.facade import Chat2Store
+from galet_memory import EpisodicMemoryManager, EpisodicSessionQuery, SqliteEpisodicMemory
 from src.config_manager import ConfigManager
-from src.storage.json_file_storage import JsonFileStorage
-from src.storage_paths.storage_paths import StoragePaths
 
 logger = logging.getLogger(__name__)
 
 
-def _build_store(config: ConfigManager) -> Chat2Store:
-    """Construct a Chat2Store from config (for new-format chat2 sessions)."""
+def _build_store(config: ConfigManager) -> SqliteEpisodicMemory:
     storage_root = config.get("storage_root_path") or "/home/junwin/lucydata"
     storage_ns = config.get("storage_namespace") or "data"
-    sp = StoragePaths(storage_root, storage_ns)
-    storage = JsonFileStorage(sp)
-    adapter = JfsChat2Primitives(storage)
-    return Chat2Store(adapter)
+    path = Path(config.get("episodic_memory_db_path") or
+                Path(storage_root) / storage_ns / "chat2.sqlite")
+    if not path.is_file():
+        raise FileNotFoundError(path)
+    return SqliteEpisodicMemory(path, initialize_schema=False)
 
 
 def _make_prompt_entry(
@@ -72,98 +68,24 @@ def _make_prompt_entry(
     }
 
 
-def extract_old_format(lucy_data_root: str, account: str) -> List[Dict[str, Any]]:
-    """
-    Extract user prompts from old-format chat files.
-
-    Old format: data/chats/<account>/<uuid>.json
-    Each file is a single JSON with 'messages' array.
-    Each message has: role, content, utc_timestamp, metadata.
-    """
-    prompts: List[Dict[str, Any]] = []
-    chats_dir = Path(lucy_data_root) / "data" / "chats" / account
-
-    if not chats_dir.is_dir():
-        logger.warning("Old-format chats dir not found: %s", chats_dir)
-        return prompts
-
-    json_files = sorted(chats_dir.glob("*.json"))
-    logger.info("Scanning %d old-format sessions for account '%s'", len(json_files), account)
-
-    for fpath in json_files:
-        try:
-            data = json.loads(fpath.read_text())
-        except (json.JSONDecodeError, OSError) as e:
-            logger.warning("Skipping unreadable file %s: %s", fpath.name, e)
-            continue
-
-        session_id = data.get("id", fpath.stem)
-        friendly_name = data.get("friendly_name", "")
-        agent_name = data.get("agent_name", "")
-
-        for msg in data.get("messages", []):
-            if msg.get("role") != "user":
-                continue
-            content = msg.get("content", "").strip()
-            if not content:
-                continue
-
-            prompts.append(_make_prompt_entry(
-                content=content,
-                source="old",
-                session_id=session_id,
-                friendly_name=friendly_name,
-                agent_name=agent_name,
-                utc_timestamp=msg.get("utc_timestamp", ""),
-            ))
-
-    logger.info("Extracted %d user prompts from old-format sessions", len(prompts))
-    return prompts
-
-
-def extract_new_format(store: Chat2Store, account: str) -> List[Dict[str, Any]]:
-    """
-    Extract user prompts from new-format (chat2) sessions.
-
-    New format: data/chat2/sessions/<uuid>/meta.json + events.jsonl
-    Events have: role, kind, payload, ts, actor.
-    User messages have kind='user_message'.
-    """
-    prompts: List[Dict[str, Any]] = []
-    sessions = store.list_sessions(account_name=account, limit=1000)
-
-    logger.info("Scanning %d new-format sessions for account '%s'", len(sessions), account)
-
+def extract_prompts(store: EpisodicMemoryManager, account: str) -> List[Dict[str, Any]]:
+    """Extract user prompts through the supported episodic interface."""
+    prompts = []
+    sessions = store.list_sessions(EpisodicSessionQuery(account_name=account, limit=1000))
     for meta in sessions:
-        try:
-            events = list(store.stream_events(meta.session_id))
-        except Exception as e:
-            logger.warning("Skipping session %s: %s", meta.session_id, e)
+        session = store.get_session(meta.session_id, event_scope="all")
+        if session is None:
             continue
-
-        for evt in events:
-            if evt.kind != "user_message":
+        for event in session.events:
+            if event.kind != "user_message" or not isinstance(event.content, str):
                 continue
-
-            # payload can be a dict or str
-            if isinstance(evt.payload, str):
-                content = evt.payload.strip()
-            else:
-                content = evt.payload.get("content", "").strip()
-
-            if not content:
-                continue
-
-            prompts.append(_make_prompt_entry(
-                content=content,
-                source="new",
-                session_id=meta.session_id,
-                friendly_name=meta.friendly_name,
-                agent_name=meta.agent_name,
-                utc_timestamp=evt.ts.isoformat(),
-            ))
-
-    logger.info("Extracted %d user prompts from new-format sessions", len(prompts))
+            content = event.content.strip()
+            if content:
+                prompts.append(_make_prompt_entry(
+                    content=content, source="episodic", session_id=meta.session_id,
+                    friendly_name=meta.friendly_name or "", agent_name=meta.agent_name,
+                    utc_timestamp=event.created_at.isoformat() if event.created_at else "",
+                ))
     return prompts
 
 
@@ -227,19 +149,15 @@ def _merge_with_existing(new_prompts: List[Dict[str, Any]], existing_corpus: Opt
 
 
 def build_corpus(
-    lucy_data_root: str,
-    store: Chat2Store,
+    store: EpisodicMemoryManager,
     account: str,
     existing_corpus: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
-    """Extract and deduplicate prompts from both formats into a corpus."""
-    old = extract_old_format(lucy_data_root, account)
-    new = extract_new_format(store, account)
+    """Extract and deduplicate prompts from current episodic storage."""
+    all_prompts = extract_prompts(store, account)
+    logger.info("Total raw prompts: %d", len(all_prompts))
 
-    all_prompts = old + new
-    logger.info("Total raw prompts: %d (old: %d, new: %d)", len(all_prompts), len(old), len(new))
-
-    unique = _merge_with_new(all_prompts, existing_corpus)
+    unique = _merge_with_existing(all_prompts, existing_corpus)
     logger.info("After merge+dedup: %d unique prompts", len(unique))
 
     # Stats: length distribution
@@ -257,8 +175,7 @@ def build_corpus(
         "account": account,
         "total_prompts": len(unique),
         "source_counts": {
-            "old_format": len(old),
-            "new_format": len(new),
+            "episodic": len(all_prompts),
             "total_raw": len(all_prompts),
             "duplicates_removed": len(all_prompts) - len(unique),
         },
@@ -319,12 +236,10 @@ def main(argv: Optional[List[str]] = None) -> int:
         except (json.JSONDecodeError, OSError):
             logger.warning("Could not load existing corpus; will create fresh.")
 
-    corpus = build_corpus(
-        lucy_data_root=lucy_data_root,
-        store=store,
-        account=args.account,
-        existing_corpus=existing_corpus,
-    )
+    try:
+        corpus = build_corpus(store=store, account=args.account, existing_corpus=existing_corpus)
+    finally:
+        store.close()
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
 

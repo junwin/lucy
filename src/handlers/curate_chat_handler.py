@@ -1,7 +1,7 @@
 """Lucy composition adapter for galet-tools' curate_chat handler.
 
-The advertised tool contract is galet-tools' digest/archive contract. Legacy filter and friendly-name resolution still use Lucy's application
-curation engine during the transition.
+The advertised tool contract is galet-tools' digest/archive contract. Friendly names resolve through the episodic interface. Archive operations
+always use galet-memory's append-only curation service.
 """
 
 from __future__ import annotations
@@ -15,6 +15,7 @@ from galet_tools.tools.curate_chat_handler import CurateChatHandler as GaletCura
 from src.curation.container_factory import get_curation_engine
 from src.curation.digest_publication_adapters import LucyEmbeddingIndex, LucyEmbeddingProvider
 from src.curation.summarizer import summarize_session
+from src.curation.resolver import resolve_session
 
 
 class LucyDigestGenerator:
@@ -48,8 +49,8 @@ class CurateChatHandler(GaletCurateChatHandler):
         friendly_name = str(args.get("friendly_name") or "").strip()
         account = str(args.get("account") or account_name or "").strip()
 
-        # Preserve the explicit legacy filter and friendly-name calls.
-        if mode == "filter" or (friendly_name and not session_id):
+        # Filtering is an explicit application operation through the memory interface.
+        if mode == "filter":
             try:
                 engine = self._engine(context)
                 raw = args.get("curation_rules") or ""
@@ -82,6 +83,16 @@ class CurateChatHandler(GaletCurateChatHandler):
             mode = "digest"
         try:
             service = context.get("curation_service") or self.service
+            if friendly_name and not session_id:
+                engine = self._engine(context)
+                session = resolve_session(
+                    friendly_name=friendly_name, account=account,
+                    episodic_store=engine.episodic_store,
+                )
+                if session is None:
+                    return {"ok": False, "tool": self.NAME, "status": "error",
+                            "error": "Session not found"}
+                session_id = session.session_id
             if service is None:
                 engine = self._engine(context)
                 publisher = None

@@ -7,7 +7,6 @@ from src.curation.core import CurationEngine
 from src.curation.resolver import resolve_session
 from src.curation.templates import render_template, resolve_template
 from src.curation.summarizer import summarize_session
-from src.curation.archiver import archive_session
 
 __all__ = [
     "CurationEngine",
@@ -15,5 +14,4 @@ __all__ = [
     "render_template",
     "resolve_template",
     "summarize_session",
-    "archive_session",
 ]

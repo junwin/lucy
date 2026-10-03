@@ -1,7 +1,6 @@
 """CurationEngine — application service for episodic memory curation.
 
-The engine orchestrates session resolution, filtering, summarization, archive
-artifacts and digest publication. It depends on provider-neutral interfaces;
+The engine orchestrates session resolution, filtering, summarization, and digest publication. It depends on provider-neutral interfaces;
 concrete storage details stay behind the galet-memory interface.
 """
 
@@ -16,7 +15,6 @@ from typing import Any, Dict, List, Optional
 from galet.interface import LLMApi
 
 from galet_memory import EpisodicEvent, EpisodicMemoryManager
-from src.curation.archiver import archive_session
 from src.curation.resolver import resolve_session
 from src.curation.summarizer import summarize_session
 from src.curation.templates import render_template, resolve_template
@@ -36,8 +34,6 @@ class CurationEngine:
         llm_api: LLMApi,
         llm_model: str = "gpt-4o-mini",
         digests_root: Optional[Path] = None,
-        archives_root: Optional[Path] = None,
-        chats_index_path: Optional[Path] = None,
         embedding_facade: Optional[EmbeddingFacade] = None,
         storage: Optional[EmbeddingStore] = None,
     ) -> None:
@@ -45,8 +41,6 @@ class CurationEngine:
         self.llm_api = llm_api
         self.llm_model = llm_model
         self.digests_root = digests_root or Path("data/digests")
-        self.archives_root = archives_root or Path("data/archives")
-        self.chats_index_path = chats_index_path
         self.embedding_facade = embedding_facade
         self.storage = storage
 
@@ -69,7 +63,6 @@ class CurationEngine:
             friendly_name=friendly_name,
             account=account,
             episodic_store=self.episodic_store,
-            chats_index_path=self.chats_index_path,
         )
         if session is None:
             return {
@@ -98,18 +91,6 @@ class CurationEngine:
             )
         if mode == "summarize":
             return self._mode_summarize(
-                sid=sid,
-                events=events,
-                account=account,
-                friendly_name=fn,
-                template_name=template_name,
-                context_state_template=context_state_template,
-                preview=preview,
-                publish=publish,
-                max_chars=max_chars,
-            )
-        if mode == "archive":
-            return self._mode_archive(
                 sid=sid,
                 events=events,
                 account=account,
@@ -226,77 +207,6 @@ class CurationEngine:
             "session_id": sid,
         }
 
-    def _mode_archive(
-        self,
-        *,
-        sid: str,
-        events: List[EpisodicEvent],
-        account: str,
-        friendly_name: str,
-        template_name: str,
-        context_state_template: Optional[str],
-        preview: bool,
-        publish: bool,
-        max_chars: int,
-    ) -> Dict[str, Any]:
-        digest = summarize_session(
-            events,
-            llm_api=self.llm_api,
-            model=self.llm_model,
-            friendly_name=friendly_name,
-            session_id=sid,
-            account=account,
-            max_chars=max_chars,
-        )
-        archive_ref = str(self.archives_root / account / f"{sid}_*.jsonl")
-        template = resolve_template(
-            template_name,
-            context_state_override=context_state_template,
-        )
-        note_text = render_template(
-            template,
-            friendly_name=friendly_name,
-            session_id=sid,
-            account=account,
-            archive_path=archive_ref,
-            events=events,
-            summary_text=digest,
-        )
-
-        if preview:
-            return {
-                "status": "preview",
-                "note_text": note_text,
-                "output_path": None,
-                "session_id": sid,
-            }
-
-        output_path = None
-        if publish:
-            output_path = self._write_digest(sid, account, note_text)
-            self._maybe_embed_digest(note_text, output_path, sid, account)
-
-        archived = archive_session(
-            sid,
-            digest,
-            episodic_store=self.episodic_store,
-            archive_dir=self.archives_root,
-            account=account,
-        )
-        if not archived:
-            return {
-                "status": "error",
-                "error": f"Failed to archive session {sid}",
-                "note_text": note_text,
-                "session_id": sid,
-            }
-
-        return {
-            "status": "archived",
-            "note_text": note_text,
-            "output_path": str(output_path) if output_path else None,
-            "session_id": sid,
-        }
 
     @staticmethod
     def _timestamp() -> str:

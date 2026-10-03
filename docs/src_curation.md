@@ -37,8 +37,7 @@ Key design decisions include the use of structured logging for error handling an
 ## 4. Source Files
 | File                        | Responsibility                                           | Notable Exports                                                                 |
 |-----------------------------|---------------------------------------------------------|---------------------------------------------------------------------------------|
-| `__init__.py`               | Initializes the curation module and exports key functions and classes. | CurationEngine, resolve_session, render_template, resolve_template, summarize_session, archive_session |
-| `archiver.py`               | Handles archiving of chat sessions.                     | archive_session                                                                  |
+| `__init__.py`               | Initializes the curation module and exports key functions and classes. | CurationEngine, resolve_session, render_template, resolve_template, summarize_session |
 | `core.py`                   | Main orchestration logic for curation operations.       | CurationEngine                                                                   |
 | `resolver.py`               | Resolves sessions by ID or friendly name.               | resolve_session                                                                  |
 | `summarizer.py`             | Summarizes chat events into structured digests.         | summarize_session                                                                |
@@ -89,7 +88,6 @@ Key design decisions include the use of structured logging for error handling an
 | `curate`                | Instance    | `def curate(self, session_id: Optional[str] = None, ...)`              | Runs curation on a session based on the specified mode (filter, summarize, archive). Returns a dictionary with the status and results. Key parameters include `session_id`, `account`, and `mode`.         |
 | `_mode_filter`          | Instance    | `def _mode_filter(self, sid: str, events: List[ChatEvent], ...)`       | Applies rule-based filtering to the events. Returns a summary of the filtering process. Key parameters include `sid`, `events`, and `rules`.                                                              |
 | `_mode_summarize`      | Instance    | `def _mode_summarize(self, sid: str, events: List[ChatEvent], ...)`   | Generates a digest using LLM summarization. Returns a dictionary with the status and generated note text. Key parameters include `sid`, `events`, and `template_name`.                                     |
-| `_mode_archive`        | Instance    | `def _mode_archive(self, sid: str, events: List[ChatEvent], ...)`     | Summarizes, archives original events, and replaces them with a digest. Returns a dictionary with the status and note text. Key parameters include `sid`, `events`, and `template_name`.                   |
 | `_write_digest`         | Instance    | `def _write_digest(self, session_id: str, account: str, note_text: str)` | Writes the generated digest to a file. Returns the output path of the written digest.                                                                                                                      |
 | `_maybe_embed_digest`   | Instance    | `def _maybe_embed_digest(self, note_text: str, note_path: Path, ...)`  | Embeds the digest text for semantic search if embedding dependencies are available.                                                                                                                         |
 
@@ -138,3 +136,7 @@ print(result)
 | Consumer                | What it uses                                      |
 |-------------------------|--------------------------------------------------|
 | Unknown                 | Unknown — trace imports to confirm.              |
+
+Archive requests use galet-memory CurationService and append neutral digest boundaries.
+Session resolution uses EpisodicMemoryManager only; filesystem chat-index hints and
+the destructive archive_session implementation have been removed.
