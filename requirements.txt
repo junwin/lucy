@@ -56,10 +56,10 @@ galet==0.1.21
 # Owns provider-neutral memory implementations and sqlite-vec/vec0 support.
 # Include the vec extra so a normal Lucy install has sqlite-vec available when
 # embedding_store_backend=sqlite_vec is configured.
-galet-memory[vec]==0.1.19
+galet-memory[vec]==0.1.20
 
 # Provider-neutral prompt selection, budgeting, and compilation.
-galet-prompt-builder==0.1.18
+galet-prompt-builder==0.1.20
 
 # Shared handler ABI and external handler discovery.
 galet-tools==0.1.21
