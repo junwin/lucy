@@ -351,3 +351,41 @@ def test_agent_switch_and_explicit_context_resolve_fresh_configuration(tmp_path)
     standalone = str(build("lumia", "none"))
     assert "Instructions image-cli" in standalone and "Project images" not in standalone
     assert standalone.count("Instructions image-cli") == 1
+
+
+def test_prompt_resolves_shared_and_account_skills_through_configured_memory(tmp_path):
+    from src.agent import Agent
+    from src.procedural_memory_config import build_procedural_memory
+
+    class Config(_Config):
+        def get(self, key, default=None):
+            return {"storage_root_path": str(tmp_path), "storage_namespace": "data"}.get(
+                key, super().get(key, default))
+
+    memory = build_procedural_memory(Config())
+    repo = memory.repository
+    repo.save_context(account_name="junwin", context_name="general", scope="global",
+                      text="Shared context", frontmatter={"imports": ["writing"]})
+    repo.save_skill(account_name="junwin", skill_name="writing", scope="global", text="Shared writing")
+    repo.save_skill(account_name="junwin", skill_name="development", scope="global", text="Shared development")
+    repo.save_skill(account_name="junwin", skill_name="development", text="John development")
+    agent = Agent(name="colin", default_context="general", skills=["development"],
+                  prompt_policy={"procedural_tokens": 1800})
+    adapter = GaletPromptBuilderAdapter(
+        agent_manager=SimpleNamespace(get_agent=lambda name: agent), config=Config(),
+        storage=SimpleNamespace(), semantic_memory=_UnusedMemory(),
+        episodic_memory=SimpleNamespace(recall=lambda request: EpisodicMemoryResult()),
+        procedural_memory=memory)
+    def build(account, context=""):
+        return str(adapter.build_prompt(content_text="hello", conversation_id="new", agent_name="colin",
+                                        account_name=account, context_name=context))
+    john = build("junwin")
+    assert "Shared context" in john and "Shared writing" in john and "John development" in john
+    assert "Shared development" not in john
+    arla = build("arla")
+    assert "Shared development" in arla and "John development" not in arla
+    standalone = build("junwin", "none")
+    assert "John development" in standalone and "Shared context" not in standalone
+    repo.save_context(account_name="junwin", context_name="general", text="John context")
+    john = build("junwin")
+    assert "John context" in john and "Shared context" not in john and "Shared writing" not in john

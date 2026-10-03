@@ -1,6 +1,7 @@
 """Tool interface for galet-memory procedural contexts.
 
-A context ("whiteboard") is a Markdown file under contexts/<account>/<name>.md.
+Contexts resolve from global contexts/<name>.md and account contexts/<account>/<name>.md.
+Account versions override global files; edits always create or update the account file.
 The YAML frontmatter holds operational keys (allowed_tools, mandatory_tools,
 imports, tag, etc.) and the body is the context text.
 
@@ -19,11 +20,11 @@ from __future__ import annotations
 import logging
 from typing import Any, Dict, List, Optional
 
-from galet_memory import FileProceduralMemory, ProceduralLayout, ProceduralMemoryRequest
+from galet_memory import FileProceduralMemory, ProceduralMemoryRequest
 
 from src.config_manager import ConfigManager
 from src.handlers.handler_v2 import HandlerV2
-from src.storage_paths.storage_paths import StoragePaths
+from src.procedural_memory_config import build_procedural_memory
 
 logger = logging.getLogger(__name__)
 
@@ -173,15 +174,7 @@ class ContextHandler(HandlerV2):
     def _build_memory(config: Optional[ConfigManager]):
         if config is None:
             return None
-        try:
-            storage_root = config.get("storage_root_path")
-            storage_ns = config.get("storage_namespace")
-            if storage_root:
-                sp = StoragePaths(storage_root, storage_ns)
-                return FileProceduralMemory(sp.base, ProceduralLayout.lucy())
-        except Exception as exc:  # pragma: no cover - defensive
-            logger.warning("context_handler: failed to build procedural memory from config: %s", exc)
-        return None
+        return build_procedural_memory(config)
 
     @staticmethod
     def _resolve_account_name(account_name: str, context: Dict[str, Any]) -> str:
@@ -237,7 +230,7 @@ class ContextHandler(HandlerV2):
             return {"ok": False, "tool": self.NAME, "action": "list",
                     "error": {"code": "no_storage", "message": "No storage available"}}
 
-        names = memory.repository.list_context_names(account)
+        names = memory.repository.list_resolved_context_names(account)
         try:
             limit = int(args.get("limit") or DEFAULT_LIST_LIMIT)
         except (TypeError, ValueError):
@@ -263,7 +256,7 @@ class ContextHandler(HandlerV2):
             return {"ok": False, "tool": self.NAME, "action": "load",
                     "error": {"code": "no_storage", "message": "No storage available"}}
 
-        raw = memory.repository.read_context(account, name)
+        raw = memory.repository.read_effective_context(account, name)
         if raw is None:
             return {
                 "ok": False,
@@ -330,7 +323,7 @@ class ContextHandler(HandlerV2):
 
         memory.repository.update_context(
             account_name=account, context_name=name,
-            frontmatter={"mandatory_tools": tool_names},
+            frontmatter={"mandatory_tools": tool_names}, inherit_existing=True,
         )
 
         return {
@@ -373,7 +366,7 @@ class ContextHandler(HandlerV2):
                 else:
                     frontmatter[key] = value
         memory.repository.update_context(account_name=account, context_name=name,
-                                         text=text, frontmatter=frontmatter)
+                                         text=text, frontmatter=frontmatter, inherit_existing=True)
         loaded = self._handle_load(account_name, {"context_name": name}, context)
 
         return {

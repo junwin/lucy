@@ -16,6 +16,7 @@ except ModuleNotFoundError:  # pragma: no cover
         return fn
 
 from src.config_manager import ConfigManager
+from src.procedural_memory_config import build_procedural_memory
 from src.agent import AgentManager
 from src.storage_paths.storage_paths import StoragePaths
 from src.storage.base import Storage
@@ -27,8 +28,6 @@ from galet_memory import (
     EmbeddingDigestRecall,
     EpisodicMemory,
     EpisodicMemoryManager,
-    FileProceduralMemory,
-    ProceduralLayout,
     SqliteEpisodicMemory,
 )
 from galet_memory.ports import FileTextLoader
@@ -212,11 +211,7 @@ class CoALAMemoryModule(Module):
     def provide_procedural_memory(
         self,
     ) -> ProceduralMemory:
-        storage_root = config.get("storage_root_path") or "/home/junwin/lucydata"
-        storage_namespace = config.get("storage_namespace") or "data"
-        paths = StoragePaths(storage_root_path=storage_root,
-                             storage_namespace=storage_namespace)
-        return FileProceduralMemory(paths.base, ProceduralLayout.lucy())
+        return build_procedural_memory(config)
 
 
 class HandlerRegistryModule(Module):
