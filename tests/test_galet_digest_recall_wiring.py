@@ -33,6 +33,10 @@ def test_galet_digest_recall_uses_lucy_embedding_ports(tmp_path):
         ),
     )
     try:
+        # Archived digest recall validates ownership against its source session.
+        memory.create_session(
+            account_name="junwin", agent_name="peace", session_id="older-session",
+        )
         result = memory.recall(EpisodicMemoryRequest(
             account_name="junwin", agent_name="peace", query="attention",
             include_recent_history=False, include_session_metadata=False,
