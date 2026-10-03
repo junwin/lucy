@@ -53,7 +53,7 @@ from src.http_endpoints.upload_endpoints import (
     post_upload_image_impl,
 )
 from src.coala_memory.semantic import SemanticMemory
-from galet_memory import EpisodicMemoryManager
+from galet_memory import EpisodicMemoryManager, ProceduralMemory
 from src.api_key import validate_api_key
 
 
@@ -345,7 +345,9 @@ def list_context_names():
     """
 
     account_name = (request.args.get("accountName") or "").strip()
-    body, status = list_context_names_impl(storage, account_name)
+    body, status = list_context_names_impl(
+        storage, account_name, procedural_memory=container.get(ProceduralMemory)
+    )
     return jsonify(body), status
 
 

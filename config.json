@@ -1,6 +1,17 @@
 {
   "storage_root_path": "C:/Users/junwi/lucy_storage",
   "storage_namespace": "data",
+  "procedural_memory": {
+    "context_resolution": "most_specific",
+    "layout": {
+      "global_contexts": "contexts",
+      "account_contexts": "contexts/{account}",
+      "global_skills": "skills",
+      "account_skills": "skills/{account}",
+      "project_contexts": null,
+      "project_skills": null
+    }
+  },
   "galet_prompt_builder": {
     "total_tokens": 6000,
     "safety_margin_tokens": 500,
