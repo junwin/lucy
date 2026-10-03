@@ -56,7 +56,7 @@ galet==0.1.21
 # Include the vec extra so a normal Lucy install has sqlite-vec available when
 # embedding_store_backend=sqlite_vec is configured.
 # Exact commit for the paired relational-only cleanup; use a PyPI pin after release.
-galet-memory[vec] @ git+https://github.com/junwin/galet-memory.git@e686beb3be0b89a74d6ee84a438dde4c956a513a
+galet-memory[vec]==0.1.22
 
 # Provider-neutral prompt selection, budgeting, and compilation.
 galet-prompt-builder==0.1.20
