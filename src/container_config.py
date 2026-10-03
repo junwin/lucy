@@ -184,7 +184,6 @@ class CoALAMemoryModule(Module):
         storage_base.mkdir(parents=True, exist_ok=True)
         db_path = (
             config.get("episodic_memory_db_path")
-            or config.get("chat2_store_db_path")
             or storage_base / "chat2.sqlite"
         )
         return SqliteEpisodicMemory(

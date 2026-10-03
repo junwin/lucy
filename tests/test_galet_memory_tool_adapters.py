@@ -71,3 +71,29 @@ def test_legacy_filter_uses_lucy_engine():
     )
     assert result["ok"] is True
     engine.curate.assert_called_once()
+
+
+def test_friendly_name_archive_uses_current_service_and_retains_events(tmp_path):
+    from galet_memory import CurationService, EpisodicEvent, SqliteEpisodicMemory
+    from src.curation.resolver import resolve_session
+
+    class Generator:
+        def generate(self, request):
+            return 'current digest'
+
+    with SqliteEpisodicMemory(tmp_path / 'chat.sqlite') as memory:
+        memory.create_session(account_name='acct', agent_name='lucy', session_id='s',
+                              friendly_name='My chat')
+        original = memory.append_event('s', EpisodicEvent('user', 'keep original'))
+        service = CurationService(memory, Generator())
+        engine = SimpleNamespace(episodic_store=memory)
+        result = CurateChatHandler(Config(), engine=engine, service=service).execute(
+            {'mode': 'archive', 'friendly_name': 'My chat'}, account_name='acct')
+        assert result['ok']
+        all_events = memory.get_session('s', event_scope='all').events
+        assert [e.event_id for e in all_events][0] == original.event_id
+        assert all_events[-1].kind == 'session_digest'
+        assert all_events[-1].metadata['visibility_boundary'] is True
+        assert memory.get_session('s').events[0].content == 'current digest'
+        assert resolve_session(session_id='s', account='other', episodic_store=memory) is None
+        assert resolve_session(friendly_name='My chat', account='other', episodic_store=memory) is None

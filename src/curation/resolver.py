@@ -6,10 +6,8 @@ session/event interface, never on a concrete storage backend.
 
 from __future__ import annotations
 
-import json
 import logging
-from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Optional
 
 from galet_memory import (
     EpisodicMemoryManager,
@@ -26,12 +24,11 @@ def resolve_session(
     friendly_name: Optional[str] = None,
     account: str,
     episodic_store: EpisodicMemoryManager,
-    chats_index_path: Optional[Path] = None,
 ) -> Optional[EpisodicSession]:
     """Resolve a session by direct ID or friendly name."""
     if session_id:
         session = episodic_store.get_session(session_id, include_events=False)
-        if session is None:
+        if session is None or session.account_name != account:
             logger.warning("resolve_session: session_id=%s not found", session_id)
             return None
         return session
@@ -44,31 +41,6 @@ def resolve_session(
     if not fn_lower:
         logger.warning("resolve_session: empty friendly_name")
         return None
-
-    # Preserve the optional legacy index as a resolution hint, while fetching
-    # the actual session through the neutral episodic interface.
-    if chats_index_path and chats_index_path.exists():
-        try:
-            index_data = json.loads(chats_index_path.read_text(encoding="utf-8"))
-            candidates: List[Dict[str, Any]] = []
-            for sid, entry in index_data.items():
-                entry_fn = (entry.get("friendly_name") or "").strip().lower()
-                entry_account = (entry.get("account_name") or "").strip().lower()
-                if entry_fn == fn_lower and entry_account == account.lower():
-                    candidates.append({"session_id": sid, **entry})
-
-            if candidates:
-                candidates.sort(key=lambda c: c.get("updated_at", ""), reverse=True)
-                best = candidates[0]
-                session = episodic_store.get_session(
-                    best["session_id"], include_events=False
-                )
-                if session is not None:
-                    return session
-        except Exception:
-            logger.exception(
-                "resolve_session: failed to read index.json at %s", chats_index_path
-            )
 
     sessions = episodic_store.list_sessions(
         EpisodicSessionQuery(account_name=account, limit=100)

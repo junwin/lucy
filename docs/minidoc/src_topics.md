@@ -9,8 +9,6 @@ tags:
   - TopicMutations
   - TopicQueries
   - TopicStoreImpl
-  - Chat2MigrationError
-  - Chat2ReadError
   - TopicError
   - TopicNotFoundError
   - TopicArchivedError
@@ -38,8 +36,6 @@ Important design decisions include:
 | TopicMutations      | None        | Handles the creation, renaming, linking, unlinking, merging, and archiving of topics. |
 | TopicQueries        | None        | Provides read-only access to topic data, including filtering and sorting. |
 | TopicStoreImpl      | TopicStore  | Combines mutation and query functionalities into a single interface.    |
-| Chat2MigrationError  | Exception   | Base class for errors during chat2 migration.                          |
-| Chat2ReadError      | Chat2MigrationError | Raised when a legacy chat2 session cannot be read.                  |
 | TopicError          | Exception   | Base class for topic-related errors.                                    |
 | TopicNotFoundError  | TopicError  | Raised when a topic operation targets a non-existent topic.             |
 | TopicArchivedError  | TopicError  | Raised when an operation targets an archived topic.                     |
@@ -49,7 +45,6 @@ Important design decisions include:
 |---------------------|-------------------------------------------------------------------------------|---------------------------------------------------------------------------------|
 | `__init__.py`       | Exports key constants and classes for topic management.                       | `EVENT_LOG_SCHEMA_VERSION`, `Chat2EventPayload`, `TopicIndex`, `TopicMutations` |
 | `index.py`          | Manages the derived topic index from the event log.                          | `TopicIndex`                                                                    |
-| `migration.py`      | Handles migration from legacy chat2 sessions into topics.                    | `TopicMigrator`, `Chat2ReadError`                                             |
 | `mutation.py`       | Provides the API for topic mutations (create, rename, link, etc.).           | `TopicMutations`, `TopicError`, `TopicNotFoundError`, `TopicArchivedError`    |
 | `queries.py`        | Provides the API for querying topics.                                        | `TopicQueries`, `TopicStoreImpl`                                              |
 | `schemas.py`        | Defines the event schemas and payloads for topics.                           | `TopicEvent`, `TopicRecord`, `EventProvenance`, `normalize_slug`             |
@@ -78,8 +73,6 @@ Important design decisions include:
 ## 7. Exceptions
 | Exception            | Base                | When Raised                                                  |
 |----------------------|---------------------|-------------------------------------------------------------|
-| Chat2MigrationError   | Exception           | During chat2 migration errors.                              |
-| Chat2ReadError       | Chat2MigrationError  | When a legacy chat2 session cannot be read.                |
 | TopicError           | Exception           | For general topic-related errors.                           |
 | TopicNotFoundError   | TopicError          | When a topic operation targets a non-existent topic.       |
 | TopicArchivedError   | TopicError          | When an operation targets an archived topic.               |
@@ -139,7 +132,6 @@ topic = store.get_topic(account="user1", slug=slug)
 
 ## 11. Edge Cases & Gotchas
 - **Error Handling Patterns**: The module follows a fail-fast approach, raising exceptions immediately when invalid operations are attempted (e.g., appending to an archived stream).
-- **Legacy Field Mapping**: The migration from chat2 sessions is designed to be idempotent, ensuring that re-running the migration does not lead to duplicate entries.
 - **Thread-Safety Concerns**: The module assumes a single-writer model, meaning that concurrent writes are not supported.
 - **Known Limitations**: The current implementation does not support semantic search; topic discovery relies on event-based mechanisms.
 
@@ -153,3 +145,6 @@ topic = store.get_topic(account="user1", slug=slug)
 ---
 
 This document provides a comprehensive overview of the `src/topics` module, detailing its architecture, key components, and usage patterns.
+
+The legacy chat2 filesystem importer and its migration tests have been removed.
+Current topic operations do not read old chat files.

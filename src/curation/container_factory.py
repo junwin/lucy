@@ -45,7 +45,6 @@ def get_curation_engine() -> CurationEngine:
         llm_api=llm_api,
         llm_model=config.get("curation_llm_model", "gpt-4o-mini"),
         digests_root=data_base / "digests",
-        archives_root=data_base / "archives",
         embedding_facade=embedding_facade,
         storage=embedding_store,
     )

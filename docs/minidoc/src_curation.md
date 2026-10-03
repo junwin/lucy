@@ -34,8 +34,7 @@ Key design decisions include the use of structured Markdown for digests, which e
 ## 4. Source Files
 | File                        | Responsibility                                           | Notable Exports                                      |
 |-----------------------------|---------------------------------------------------------|-----------------------------------------------------|
-| `__init__.py`               | Initializes the curation module and exports key functions and classes. | CurationEngine, resolve_session, render_template, resolve_template, summarize_session, archive_session |
-| `archiver.py`               | Handles archiving of chat sessions and event management. | archive_session                                      |
+| `__init__.py`               | Initializes the curation module and exports key functions and classes. | CurationEngine, resolve_session, render_template, resolve_template, summarize_session |
 | `core.py`                   | Contains the main orchestration logic for curation.    | CurationEngine                                       |
 | `resolver.py`               | Resolves chat sessions by ID or friendly name.         | resolve_session                                      |
 | `summarizer.py`             | Provides LLM-based summarization for chat sessions.     | summarize_session                                     |
@@ -86,7 +85,6 @@ Key design decisions include the use of structured Markdown for digests, which e
 | `curate`                | Instance    | `def curate(self, session_id: Optional[str] = None, ...)`               | Runs curation on a session, allowing for filtering, summarization, or archiving based on the specified mode. Returns a dictionary with the result status and relevant data.                             |
 | `_mode_filter`          | Instance    | `def _mode_filter(self, sid: str, events: List[ChatEvent], ...)`        | Applies filtering rules to the session events, modifying the session in the store. Returns a summary of the filtering operation.                                                                          |
 | `_mode_summarize`      | Instance    | `def _mode_summarize(self, sid: str, events: List[ChatEvent], ...)`    | Generates a digest of the session events using an LLM, optionally writing it to disk. Returns a dictionary with the status and generated note text.                                                       |
-| `_mode_archive`        | Instance    | `def _mode_archive(self, sid: str, events: List[ChatEvent], ...)`      | Summarizes, archives original events, and replaces them with a digest. Returns a dictionary with the status of the archiving operation.                                                                  |
 | `_write_digest`         | Instance    | `def _write_digest(self, session_id: str, account: str, note_text: str)`| Writes the generated digest to a specified path, creating necessary directories. Returns the path to the written digest.                                                                                 |
 | `_maybe_embed_digest`   | Instance    | `def _maybe_embed_digest(self, note_text: str, note_path: Path, ...)`  | Embeds the digest text for semantic search if embedding dependencies are available. Handles potential errors gracefully.                                                                                 |
 
@@ -112,7 +110,7 @@ print(result)
 ```
 
 ## 11. Edge Cases & Gotchas
-- **Error Handling**: The module employs logging to capture warnings and exceptions, particularly in the `resolve_session` and `archive_session` functions, ensuring that issues are logged without crashing the application.
+- **Error Handling**: The module employs logging to capture warnings and exceptions, particularly in the `resolve_session` functions, ensuring that issues are logged without crashing the application.
 - **Thread Safety**: The module does not explicitly mention thread safety; care should be taken when using shared resources like `Chat2Store`.
 - **LLM Limitations**: The summarization relies on the LLM's ability to generate meaningful output. If the LLM fails, a fallback digest is generated, but this may not capture the full context.
 - **File I/O**: The archiving process involves file operations that may fail due to permissions or disk space issues, which are handled with logging.
@@ -121,3 +119,7 @@ print(result)
 | Consumer                | What it uses                                      |
 |-------------------------|---------------------------------------------------|
 | Unknown                 | Unknown — trace imports to confirm.               |
+
+Archive requests use galet-memory CurationService and append neutral digest boundaries.
+Session resolution uses EpisodicMemoryManager only; filesystem chat-index hints and
+the destructive archive_session implementation have been removed.
