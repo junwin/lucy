@@ -29,6 +29,7 @@ from src.handlers.serve_image_handler import ServeImageHandler
 from src.handlers.generate_svg_handler import GenerateSvgHandler
 from src.handlers.semantic_memory_handler import SemanticMemoryHandler
 from src.handlers.episodic_memory_handler import EpisodicMemoryHandler
+from src.handlers.procedural_memory_handler import ProceduralMemoryHandler
 from src.handlers.remote_execute_handler import RemoteExecuteHandler
 from src.handlers.patch_apply_handler import PatchApplyHandler
 from src.handlers.repo_index_handler import RepoIndexHandler
@@ -111,6 +112,8 @@ def build_registry_and_catalog() -> tuple[HandlerRegistry, ToolCatalog]:
     reg.register(SemanticMemoryHandler)
     # Episodic memory supplied through the galet-memory interface
     reg.register(EpisodicMemoryHandler)
+    # Scoped contexts and skills supplied through galet-memory.
+    reg.register(ProceduralMemoryHandler)
 
     # Remote execution — query a remote Lucy instance's /ask endpoint
     reg.register(RemoteExecuteHandler)
@@ -181,5 +184,4 @@ def build_tool_catalog() -> ToolCatalog:
 
     _registry, catalog = build_registry_and_catalog()
     return catalog
-
 
