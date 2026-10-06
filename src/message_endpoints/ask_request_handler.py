@@ -6,6 +6,7 @@ from typing import Any, Dict, Tuple, Optional, Generator
 from src.agent import AgentManager, Agent
 from src.routing.skillset_router import RouteDecision, SkillsetRouter
 from src.config_manager import ConfigManager
+from src.request_debug import log_request_debug
 from src.execution_identity import ExecutionIdentity
 from src.storage.base import Storage
 from src.message_processors.processor_factory import ProcessorFactory
@@ -139,6 +140,7 @@ class AskRequestHandler:
             self.logger.exception("/ask: could not save routing dialogue session_id=%s", conversation_id)
 
     def _route_request(self, payload: Dict[str, Any]) -> Tuple[Dict[str, Any], Optional[RouteDecision]]:
+        log_request_debug(self.config, "incoming_request", payload=payload)
         mode = payload.get("routing", "explicit")
         if mode not in ("explicit", "auto"):
             raise ValueError("routing must be 'explicit' or 'auto'")
@@ -377,6 +379,17 @@ class AskRequestHandler:
             )
             return 500, {"error": "Failed to resolve or create session"}
 
+        log_request_debug(
+            self.config, "processor_handoff", correlation_id=correlation_id,
+            conversation_id=conversationId, account_name=accountName,
+            routing=(route.to_dict() if route else {"reason": "explicit_selection"}),
+            agent_name=primary_agent.name, partner_agent=partner_agent_name,
+            requested_context_type=payload.get("selectType") or payload.get("contextType"),
+            requested_context_name=payload.get("contextName"),
+            effective_context_type=context_type, effective_context_name=context_name,
+            question=question, image_ids=image_ids, file_ids=file_ids,
+        )
+
         if route is None or route.reason in {"dialogue_closed", "explicit_context"}:
             self._remember_dialogue(payload, route, conversationId)
 
@@ -594,6 +607,17 @@ class AskRequestHandler:
             yield SSEEvent(type="error", message="This agent does not support streaming.").to_sse()
             yield SSEEvent(type="done").to_sse()
             return
+
+        log_request_debug(
+            self.config, "processor_handoff", correlation_id=correlation_id,
+            conversation_id=conversationId, account_name=accountName,
+            routing=(route.to_dict() if route else {"reason": "explicit_selection"}),
+            agent_name=primary_agent.name, partner_agent=partner_agent_name,
+            requested_context_type=payload.get("selectType") or payload.get("contextType"),
+            requested_context_name=payload.get("contextName"),
+            effective_context_type=context_type, effective_context_name=context_name,
+            question=question, image_ids=image_ids, file_ids=file_ids,
+        )
 
         if route is None or route.reason in {"dialogue_closed", "explicit_context"}:
             self._remember_dialogue(payload, route, conversationId)

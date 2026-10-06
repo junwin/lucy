@@ -166,3 +166,40 @@ this is not yet integrated into persisted run-metrics tables.
 - Remote routing should first select agent expertise, then reuse machine eligibility
   checks from `delegate_task`; machine capability filters are not agent skillsets.
 - Multi-specialist decomposition and calibrated/embedding-based routing are deferred.
+
+## Comparing direct and routed requests
+
+Temporarily add this top-level setting to `config.local.json` and restart Lucy:
+
+```json
+{
+  "request_routing_debug": true
+}
+```
+
+Records at INFO level start with `request_routing_debug` and contain JSON:
+
+- `incoming_request`: the client payload before routing, including requested
+  agent/context, conversation ID, question and attachment IDs.
+- `processor_handoff`: selected agent, routing decision, requested and effective
+  context, partner agent and attachment IDs. Both JSON and streaming paths emit
+  this record with the processor's correlation ID.
+- `prepared_prompt`: the model/provider, vision capability, skills and allowed
+  tools, rendered system/history/current messages and initially selected tool
+  schemas. Worker tasklist calls emit this stage too, with their own agent and
+  correlation ID, so filter by agent as well as by turn.
+
+Compare the same image and wording in a direct Lumia request and an automatic
+request. Use separate fresh chats to compare clean inputs; then reproduce in
+an existing chat to inspect history effects. For direct selection, leave the
+context unset to use Lumia's default, matching automatic selection. Check
+attachment IDs, effective context, the non-vision attachment instruction,
+recalled history and tool definitions. `incoming_request` precedes creation of
+execution identity; match it by conversation ID and log order to the correlated
+handoff and prompt records.
+
+Inline attachment data, bytes and data URLs are omitted. Each text value is
+limited to 20,000 characters; longer values include their sanitized length and
+SHA-256 to identify differences beyond the preview. Records contain private
+prompt/history text, so disable the setting (or remove it) after diagnosis.
+This switch does not change routing, prompt content or tool execution.

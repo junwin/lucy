@@ -20,6 +20,7 @@ import time
 import uuid
 
 from src.config_manager import ConfigManager
+from src.request_debug import log_request_debug
 from src.message_processors.message_processor_interface import MessageProcessorInterface
 from src.message_processors.sse_events import SSEEvent
 from src.message_processors.image_delivery import image_event_for_browser, image_event_for_history
@@ -449,6 +450,18 @@ class FunctionCallingProcessor(MessageProcessorInterface):
             primary_agent=primary_agent,
             ctx=ctx,
             message=message,
+        )
+
+        log_request_debug(
+            self.config, "prepared_prompt", correlation_id=correlation_id,
+            conversation_id=ctx.conversation_id, account_name=ctx.account_id,
+            agent_name=ctx.agent_name, model=ctx.model, provider=provider_name,
+            supports_images=supports_images, context_type=ctx.context_type,
+            context_name=ctx.context_name,
+            skills=getattr(primary_agent, "skills", None),
+            allowed_tools=primary_agent.allowed_tools,
+            image_ids=image_ids, file_ids=file_ids,
+            messages=prompt_messages, tools=filtered_function_defs,
         )
 
         breakdown = _log_token_breakdown(ctx, self.prompt_builder, filtered_function_defs)
