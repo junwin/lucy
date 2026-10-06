@@ -1,3 +1,4 @@
+from src.episodic import LucyEpisodicStore
 # container_config.py
 
 from pathlib import Path
@@ -26,8 +27,6 @@ from src.storage.primitives_embedding_store import build_primitives_embedding_st
 from src.coala_memory.semantic import SemanticMemory, SqliteVecSemanticMemory
 from galet_memory import (
     EmbeddingDigestRecall,
-    EpisodicMemory,
-    EpisodicMemoryManager,
     SqliteEpisodicMemory,
 )
 from galet_memory.ports import FileTextLoader
@@ -177,33 +176,24 @@ class CoALAMemoryModule(Module):
         self,
         embedding_facade: EmbeddingFacade,
         embedding_store: EmbeddingStore,
-    ) -> EpisodicMemory:
+    ) -> LucyEpisodicStore:
         storage_root = config.get("storage_root_path") or "/home/junwin/lucydata"
         storage_namespace = config.get("storage_namespace") or "data"
         storage_base = Path(storage_root) / storage_namespace
         storage_base.mkdir(parents=True, exist_ok=True)
         db_path = (
             config.get("episodic_memory_db_path")
-            or storage_base / "chat2.sqlite"
+            or storage_base / "episodic-v2.sqlite"
         )
         return SqliteEpisodicMemory(
             db_path,
             digests_root=storage_base / "digests",
-            digest_recall=EmbeddingDigestRecall(
+            digest_search=EmbeddingDigestRecall(
                 embeddings=LucyEmbeddingProvider(embedding_facade),
                 index=LucyEmbeddingIndex(embedding_store),
                 text_loader=FileTextLoader(),
             ),
         )
-
-    @provider
-    @singleton
-    def provide_episodic_memory_manager(
-        self,
-        episodic_memory: EpisodicMemory,
-    ) -> EpisodicMemoryManager:
-        assert isinstance(episodic_memory, EpisodicMemoryManager)
-        return episodic_memory
 
     @provider
     @singleton
@@ -246,7 +236,7 @@ class PromptBuilderModule(Module):
         config: ConfigManager,
         storage: Storage,
         semantic_memory: SemanticMemory,
-        episodic_memory: EpisodicMemory,
+        episodic_memory: LucyEpisodicStore,
         procedural_memory: ProceduralMemory,
     ) -> PromptBuilderInterface:
         return GaletPromptBuilderAdapter(
@@ -284,7 +274,7 @@ class AutomationProcessorModule(Module):
         registry: HandlerRegistry,
         storage: Storage,
         prompt_builder: PromptBuilderInterface,
-        episodic_memory_manager: EpisodicMemoryManager,
+        episodic_memory_manager: LucyEpisodicStore,
         llm_adapter: LLMAdapter,
         agent_manager: AgentManager,
     ) -> AutomationProcessor:
@@ -315,7 +305,7 @@ class EndpointHandlersModule(Module):
         config: ConfigManager,
         storage: Storage,
         processor_factory: ProcessorFactory,
-        episodic_memory_manager: EpisodicMemoryManager,
+        episodic_memory_manager: LucyEpisodicStore,
         llm_adapter: LLMAdapter,
     ) -> AskRequestHandler:
         return AskRequestHandler(

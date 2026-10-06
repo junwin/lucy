@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+
 import json
 
 import pytest
@@ -261,7 +262,7 @@ def test_clarification_is_saved_for_followup_and_keeps_trace(tmp_path):
                                 episodic_store=memory, request_router=router)
     status, body = handler.handle(routed_payload(question="Make it better"))
     assert status == 200
-    session = memory.get_session(body["conversation_id"])
+    session = memory.get_active_snapshot(account_name='alice', session_id=body["conversation_id"])
     assert [e.role for e in session.events] == ["user", "assistant"]
     assert session.events[0].content == "Make it better"
     assert session.events[1].content == body["response"]
@@ -278,4 +279,4 @@ def test_clarification_is_saved_for_followup_and_keeps_trace(tmp_path):
     assert followup["routing"]["classifier_calls"] == 0
     assert followup["conversation_id"] == body["conversation_id"]
     assert processor.calls[-1]["primary_agent"].name == "lumia"
-    assert memory.get_session(body["conversation_id"]).events[0].content == "Make it better"
+    assert memory.get_active_snapshot(account_name='alice', session_id=body["conversation_id"]).events[0].content == "Make it better"

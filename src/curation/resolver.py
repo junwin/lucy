@@ -6,13 +6,13 @@ session/event interface, never on a concrete storage backend.
 
 from __future__ import annotations
 
+from src.episodic import LucyEpisodicStore, list_account_sessions
+
 import logging
 from typing import Optional
 
 from galet_memory import (
-    EpisodicMemoryManager,
-    EpisodicSession,
-    EpisodicSessionQuery,
+    Session,
 )
 
 logger = logging.getLogger(__name__)
@@ -23,11 +23,11 @@ def resolve_session(
     session_id: Optional[str] = None,
     friendly_name: Optional[str] = None,
     account: str,
-    episodic_store: EpisodicMemoryManager,
-) -> Optional[EpisodicSession]:
+    episodic_store: LucyEpisodicStore,
+) -> Optional[Session]:
     """Resolve a session by direct ID or friendly name."""
     if session_id:
-        session = episodic_store.get_session(session_id, include_events=False)
+        session = episodic_store.get_session(account_name=account, session_id=session_id)
         if session is None or session.account_name != account:
             logger.warning("resolve_session: session_id=%s not found", session_id)
             return None
@@ -42,9 +42,7 @@ def resolve_session(
         logger.warning("resolve_session: empty friendly_name")
         return None
 
-    sessions = episodic_store.list_sessions(
-        EpisodicSessionQuery(account_name=account, limit=100)
-    )
+    sessions = list_account_sessions(episodic_store, account)
     matches = [
         session
         for session in sessions

@@ -1,8 +1,9 @@
+from src.episodic import list_account_sessions
 from uuid import uuid4
 
 import pytest
 
-from galet_memory import EpisodicSessionQuery, SqliteEpisodicMemory
+from galet_memory import SqliteEpisodicMemory
 
 
 @pytest.fixture
@@ -42,11 +43,11 @@ class TestChat2SqliteEndToEnd:
         ).text
 
         assert out == "hello"
-        meta = chat2_store.get_session(sid)
+        meta = chat2_store.get_session(account_name='acct1', session_id=sid)
         assert meta is not None
         assert meta.session_id == sid
         assert meta.account_name == "acct1"
-        events = meta.events
+        events = chat2_store.get_active_snapshot(account_name="acct1", session_id=sid).events
         assert [e.kind for e in events] == ["prompt_report", "user_message", "assistant_message"]
         assert events[1].content == "hi"
         assert events[2].content == "hello"
@@ -67,12 +68,12 @@ class TestChat2SqliteEndToEnd:
             context_name="lucyproject",
         )
 
-        meta = chat2_store.get_session(sid)
+        meta = chat2_store.get_session(account_name='acct1', session_id=sid)
         assert meta is not None
         assert meta.context_name == "lucyproject"
         assert meta.friendly_name == "lucyproject"
         assert meta.account_name == "acct1"
-        assert meta.agent_name == "lucy"
+        assert meta.metadata["default_agent"] == "lucy"
 
     def test_empty_context_name_persisted_as_none(self, make_proc, prompt_builder, llm_adapter, chat2_store):
         proc = make_proc(episodic_store=chat2_store)
@@ -90,7 +91,7 @@ class TestChat2SqliteEndToEnd:
             context_name="",
         )
 
-        meta = chat2_store.get_session(sid)
+        meta = chat2_store.get_session(account_name='acct1', session_id=sid)
         assert meta is not None
         assert meta.context_name is None
         assert meta.friendly_name is None
@@ -118,10 +119,10 @@ class TestChat2SqliteEndToEnd:
             context_name="lucyproject",
         )
 
-        sessions = chat2_store.list_sessions(EpisodicSessionQuery(account_name="acct1"))
+        sessions = list_account_sessions(chat2_store, "acct1")
         assert len(sessions) == 1
         assert sessions[0].session_id == sid
-        events = chat2_store.get_session(sid).events
+        events = chat2_store.get_active_snapshot(account_name='acct1', session_id=sid).events
         assert len(events) == 6
 
     def test_save_responses_false_skips_chat2_write(self, make_proc, prompt_builder, llm_adapter, chat2_store):
@@ -141,8 +142,8 @@ class TestChat2SqliteEndToEnd:
         ).text
 
         assert out == "transient"
-        assert chat2_store.get_session(sid) is None
-        assert chat2_store.list_sessions(EpisodicSessionQuery(account_name="acct1")) == []
+        assert chat2_store.get_session(account_name='acct1', session_id=sid) is None
+        assert list_account_sessions(chat2_store, "acct1") == []
 
     def test_streaming_persists_events_before_client_reads_next_event(self, make_proc, prompt_builder, llm_adapter, chat2_store):
         proc = make_proc(episodic_store=chat2_store)
@@ -164,15 +165,15 @@ class TestChat2SqliteEndToEnd:
 
         # Persistence happens before the SSE yield. A blocked socket therefore
         # cannot hide an event that the model has already produced.
-        meta = chat2_store.get_session(sid)
+        meta = chat2_store.get_session(account_name='acct1', session_id=sid)
         assert meta is not None
-        events = meta.events
+        events = chat2_store.get_active_snapshot(account_name="acct1", session_id=sid).events
         assert [e.kind for e in events] == ["user_message", "prompt_report", "assistant_message"]
         assert events[0].content == "hi"
         assert events[2].content == "hello"
 
         gen.close()
-        events_after_close = chat2_store.get_session(sid).events
+        events_after_close = chat2_store.get_active_snapshot(account_name='acct1', session_id=sid).events
         assert [e.event_id for e in events_after_close] == [e.event_id for e in events]
 
     def test_streaming_builds_prompt_before_persisting_current_user_message(
@@ -187,7 +188,7 @@ class TestChat2SqliteEndToEnd:
         seen_events = []
 
         def build_prompt(**kwargs):
-            session = episodic_store.get_session(sid)
+            session = episodic_store.get_session(account_name='acct1', session_id=sid)
             seen_events.extend(session.events if session is not None else [])
             return [{"role": "user", "content": kwargs["content_text"]}]
 
@@ -204,7 +205,7 @@ class TestChat2SqliteEndToEnd:
         )
 
         assert seen_events == []
-        events = chat2_store.get_session(sid).events
+        events = chat2_store.get_active_snapshot(account_name='acct1', session_id=sid).events
         assert [event.kind for event in events] == [
             "user_message",
             "prompt_report",
@@ -227,6 +228,6 @@ class TestChat2SqliteEndToEnd:
             context_name="ctx",
         ))
 
-        events = chat2_store.get_session(sid).events
+        events = chat2_store.get_active_snapshot(account_name='acct1', session_id=sid).events
         assert [e.kind for e in events] == ["user_message", "prompt_report", "assistant_message"]
         assert [e.content for e in events if e.kind == "assistant_message"] == ["hello"]

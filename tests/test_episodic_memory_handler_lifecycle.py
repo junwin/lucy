@@ -1,105 +1,54 @@
-import json
-from uuid import uuid4
-
-from src.config_manager import ConfigManager
-from galet_memory import EpisodicEvent
-from src.handlers.episodic_memory_handler import EpisodicMemoryHandler
-
-from tests.test_episodic_memory_handler import _base_args, _handler
+from galet_memory import NewEvent
+from tests.test_episodic_memory_handler import _handler
 
 
-def test_create_session_honours_required_and_optionals(tmp_path):
+def test_update_explicit_changes_can_clear_metadata_fields(tmp_path):
     handler = _handler(tmp_path)
-    args = _base_args(action="create_session", agent_name="peace", context_name="lucyproject")
-    args.update({
-        "session_id": "",
-        "friendly_name": "new session",
-        "session_type": "user",
-        "user_id": "u123",
-        "tags": ["t1", "t2"],
-        "participants": ["p1"],
-        "links": {"related": "s1"},
-        "metadata": {"k": "v"},
-    })
-    result = handler.execute(args, account_name="junwin")
-    assert result["ok"] is True
-    assert result["tool"] == handler.NAME
-    assert "session" in result
-    assert result["session"].get("context_name") == "lucyproject"
+    handler.memory.create_session(account_name='junwin', session_id='s', friendly_name='Chat', context_name='project', metadata={'default_agent': 'peace'})
+    result = handler.execute({'action': 'update_session', 'session_id': 's', 'changes': {
+        'friendly_name': None, 'context_name': None, 'tags': ['x'], 'metadata': {'m': 1}}}, account_name='junwin')
+    assert result['ok'], result
+    session = handler.memory.get_session(account_name='junwin', session_id='s')
+    assert session.friendly_name is None and session.context_name is None
+    assert session.tags == ('x',) and session.metadata == {'m': 1}
 
 
-def test_update_session_patches_allowed_fields_only(tmp_path):
+def test_cross_account_reads_and_writes_are_rejected(tmp_path):
     handler = _handler(tmp_path)
-    session = handler.memory.create_session(account_name="junwin", agent_name="peace", friendly_name="orig", context_name="orig_ctx")
-
-    link_id = str(uuid4())
-    args = _base_args(action="update_session", session_id=session.session_id, agent_name="peace")
-    patch = {
-        "friendly_name": "patched",
-        "context_name": "patched_ctx",
-        "tags": ["x"],
-        "session_type": "internal",
-        "participants": ["p2"],
-        "links": {"internal_session_id": link_id},
-        "metadata": {"m": 1},
-        # routing/identity args present in the flat namespace must not leak into the patch
-        "account_name": "junwin",
-        "session_id": session.session_id,
-    }
-    args.update(patch)
-    result = handler.execute(args, account_name="junwin")
-    assert result["ok"] is True
-    updated = handler.memory.get_session(session.session_id, include_events=False)
-    assert updated is not None
-    assert updated.friendly_name == "patched"
-    assert updated.context_name == "patched_ctx"
-    assert "x" in updated.tags
-    assert updated.session_type == "internal"
-    assert "p2" in updated.participants
-    assert updated.links.get("internal_session_id") == link_id
-    assert updated.metadata.get("m") == 1
-    assert updated.account_name == "junwin"
-    assert updated.agent_name == "peace"
-    assert updated.session_id == session.session_id
+    handler.memory.create_session(account_name='junwin', session_id='s', friendly_name='original')
+    for action in ('get_session', 'update_session', 'get_recent_events'):
+        args = {'action': action, 'session_id': 's'}
+        if action == 'update_session': args['changes'] = {'friendly_name': 'changed'}
+        assert not handler.execute(args, account_name='other')['ok']
+    assert handler.memory.get_session(account_name='junwin', session_id='s').friendly_name == 'original'
 
 
-def test_update_session_unknown_session_id_errors_without_touching_others(tmp_path):
+def test_clear_events_is_explicit_and_keeps_metadata(tmp_path):
     handler = _handler(tmp_path)
-    session = handler.memory.create_session(account_name="junwin", agent_name="peace", friendly_name="orig")
-
-    args = _base_args(action="update_session", session_id=str(uuid4()), agent_name="peace")
-    args["friendly_name"] = "patched"
-    result = handler.execute(args, account_name="junwin")
-
-    assert result["ok"] is False
-    assert "Session not found" in result["error"]
-    untouched = handler.memory.get_session(session.session_id, include_events=False)
-    assert untouched is not None
-    assert untouched.friendly_name == "orig"
+    handler.memory.create_session(account_name='junwin', session_id='s', metadata={'x': 1})
+    handler.memory.append_event(account_name='junwin', session_id='s', event=NewEvent('user', 'hello', 'junwin'))
+    result = handler.execute({'action': 'clear_session_events', 'session_id': 's'}, account_name='junwin')
+    assert result['ok'], result
+    assert result['removed_event_count'] == 1
+    assert handler.memory.get_active_snapshot(account_name='junwin', session_id='s').events == ()
+    assert handler.memory.get_session(account_name='junwin', session_id='s').metadata == {'x': 1}
 
 
-def test_reset_session_clears_events_keeps_metadata(tmp_path):
+def test_invalidate_exchange_hides_events_and_retains_audit(tmp_path):
     handler = _handler(tmp_path)
-    session = handler.memory.create_session(account_name="junwin", agent_name="peace", metadata={"x": 1})
-    handler.memory.append_event(session.session_id, EpisodicEvent(role="user", actor="user", kind="user_message", content="c1"))
-    handler.memory.append_event(session.session_id, EpisodicEvent(role="assistant", actor="peace", kind="assistant_message", content="c2"))
-
-    args = _base_args(action="reset_session", session_id=session.session_id, agent_name="peace")
-    result = handler.execute(args, account_name="junwin")
-    assert result["ok"] is True
-    assert result.get("session_id") == session.session_id
-    s = handler.memory.get_session(session.session_id, include_events=True)
-    assert s is not None
-    assert len(s.events) == 0
-    assert s.metadata.get("x") == 1
+    handler.memory.create_session(account_name='junwin', session_id='s')
+    handler.memory.append_events(account_name='junwin', session_id='s', events=[
+        NewEvent('user', 'question', 'junwin', correlation_ids=('exchange',)),
+        NewEvent('assistant', 'answer', 'peace', correlation_ids=('exchange',))])
+    result = handler.execute({'action': 'invalidate_exchange', 'session_id': 's', 'correlation_id': 'exchange'}, account_name='junwin')
+    assert result['ok'] and result['event_count'] == 2
+    assert handler.memory.get_active_snapshot(account_name='junwin', session_id='s').events == ()
+    assert len(handler.memory.get_audit_snapshot(account_name='junwin', session_id='s').events) == 3
 
 
-def test_delete_session_returns_ok_and_session_id(tmp_path):
+def test_delete_returns_session_id(tmp_path):
     handler = _handler(tmp_path)
-    session = handler.memory.create_session(account_name="junwin", agent_name="peace")
-    args = _base_args(action="delete_session", session_id=session.session_id, agent_name="peace")
-    result = handler.execute(args, account_name="junwin")
-    assert result["ok"] is True
-    assert result.get("session_id") == session.session_id
-    s = handler.memory.get_session(session.session_id, include_events=False)
-    assert s is None
+    handler.memory.create_session(account_name='junwin', session_id='s')
+    result = handler.execute({'action': 'delete_session', 'session_id': 's'}, account_name='junwin')
+    assert result['ok'] and result['deleted']
+    assert handler.memory.get_session(account_name='junwin', session_id='s') is None

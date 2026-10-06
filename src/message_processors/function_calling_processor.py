@@ -1,3 +1,4 @@
+from src.episodic import LucyEpisodicStore
 try:
     from injector import inject, noninjectable
 except Exception:
@@ -33,7 +34,6 @@ from galet.adapter_interface import LLMAdapter
 from galet.provider_registry import ProviderRegistry
 from galet_prompt_builder import ApproximateTokenCounter
 
-from galet_memory import EpisodicMemoryManager
 
 from src.message_processors.fcp_models import ProcessorContext, ToolHandlerError, DEFAULT_MAX_HANDLER_SCHEMA_TOKENS
 from src.message_processors.episodic_recorder import EpisodicRecorder
@@ -306,7 +306,7 @@ class FunctionCallingProcessor(MessageProcessorInterface):
         registry: HandlerRegistry,
         prompt_builder: PromptBuilderInterface,
         llm_adapter: LLMAdapter,
-        episodic_store: Optional[EpisodicMemoryManager] = None,
+        episodic_store: Optional[LucyEpisodicStore] = None,
         agent_manager: Optional[AgentManager] = None,
         metrics_logger: Optional[RunMetricsLogger] = None,
         correlation_log_handler: Optional[CorrelationLogHandler] = None,

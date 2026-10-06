@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 from src.agent import Agent
-from galet_memory import EpisodicMemoryResult
+from galet_memory import HistorySnapshot
 
 
 class PromptSections:
@@ -15,17 +15,18 @@ class PromptSections:
         *,
         messages: List[Dict[str, Any]],
         system_text_parts: List[str],
-        episodic_result: Optional[EpisodicMemoryResult],
+        episodic_result: Optional[HistorySnapshot],
         conversation_id: str,
         agent_name: str,
     ) -> None:
         if conversation_id in ("none", "new", "") or episodic_result is None:
             return
-        if not episodic_result.session_id or episodic_result.session_updated_at is None:
+        if not episodic_result.session.session_id or episodic_result.session.updated_at is None:
             return
         try:
-            updated_at = episodic_result.session_updated_at
-            now = datetime.now(timezone.utc).replace(tzinfo=None)
+            updated_at = episodic_result.session.updated_at
+            updated_at = updated_at.replace(tzinfo=timezone.utc) if updated_at.tzinfo is None else updated_at
+            now = datetime.now(timezone.utc)
             secs = (now - updated_at).total_seconds()
             if secs < 60:
                 elapsed = f"{int(secs)}s ago"
@@ -36,11 +37,11 @@ class PromptSections:
             else:
                 elapsed = f"{int(secs / 86400)}d ago"
 
-            info = f"Session: agent={episodic_result.session_agent_name or agent_name}"
-            ctx_name = episodic_result.session_context_name or episodic_result.session_friendly_name
+            info = f"Session: agent={episodic_result.session.metadata.get('default_agent') or agent_name}"
+            ctx_name = episodic_result.session.context_name or episodic_result.session.friendly_name
             if ctx_name:
                 info += f", context={ctx_name}"
-            info += f", last activity {elapsed} (timestamp: {updated_at.isoformat()}Z)"
+            info += f", last activity {elapsed} (timestamp: {updated_at.isoformat()})"
             messages.append({"role": "system", "content": info})
             system_text_parts.append(info)
         except Exception:

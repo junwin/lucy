@@ -6,6 +6,7 @@ from dataclasses import dataclass, asdict
 from typing import Any
 import json
 import logging
+from galet_memory import SessionChanges
 import math
 import re
 import time
@@ -56,7 +57,7 @@ class SkillsetRouter:
         """
         if self.episodic_store is None or not conversation_id:
             return
-        session = self.episodic_store.get_session(conversation_id, include_events=False)
+        session = self.episodic_store.get_session(account_name=(payload.get("accountName") or "").lower(), session_id=conversation_id)
         if session is None:
             return
         if session.account_name != (payload.get("accountName") or "").lower():
@@ -76,7 +77,7 @@ class SkillsetRouter:
         else:
             metadata.pop("routing_dialogue", None)
         if metadata != (session.metadata or {}):
-            self.episodic_store.update_session(conversation_id, {"metadata": metadata})
+            self.episodic_store.update_session(account_name=session.account_name, session_id=conversation_id, changes=SessionChanges(metadata=metadata))
 
     def catalog(self) -> list[dict[str, Any]]:
         # Only locally executable chat agents with advertised capabilities.
@@ -92,9 +93,9 @@ class SkillsetRouter:
         session_id = payload.get("conversationId")
         if not session_id or self.episodic_store is None:
             return [], None
-        session = self.episodic_store.get_session(session_id, include_events=False)
+        session = self.episodic_store.get_session(account_name=(payload.get("accountName") or "").lower(), session_id=session_id)
         if session is None:
-            return [], None
+            raise ValueError("Conversation does not belong to this account")
         if session.account_name != (payload.get("accountName") or "").lower():
             raise ValueError("Conversation does not belong to this account")
         state = (getattr(session, "metadata", None) or {}).get("routing_dialogue")
@@ -105,8 +106,8 @@ class SkillsetRouter:
             if (specialist and isinstance(expires, (int, float)) and not isinstance(expires, bool)
                     and math.isfinite(expires) and self.clock() < expires):
                 active = {**specialist, "awaiting_reply": state.get("awaiting_reply") is True}
-        session = self.episodic_store.get_session(session_id, event_scope="active")
-        events = [e for e in session.events
+        page = self.episodic_store.get_recent_events(account_name=session.account_name, session_id=session_id, count=4, event_kinds=["user_message", "assistant_message"])
+        events = [e for e in page.events
                   if e.role in {"user", "assistant"}
                   and e.kind in {"", "user_message", "assistant_message"}
                   and isinstance(e.content, str)]

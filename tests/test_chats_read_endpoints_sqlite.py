@@ -1,16 +1,16 @@
 """Tests that exercise GET /chats and GET /chats/<id> using the
-Galet episodic-memory manager seam backed by SQLite.
-
-Expected to FAIL until HTTP endpoints accept Episodic manager semantics.
+explicit account-scoped Galet episodic interfaces backed by SQLite.
 """
 
 from __future__ import annotations
+from tests.episodic_fixtures import event_fixture
+
 
 from unittest.mock import Mock
 
 import pytest
 
-from galet_memory import EpisodicEvent, SqliteEpisodicMemory
+from galet_memory import SqliteEpisodicMemory
 from src.http_endpoints.chats_endpoints import get_chat_impl, get_chats_impl
 
 
@@ -46,16 +46,11 @@ def agent_manager_strict() -> Mock:
 
 class TestGetChatsSQL:
     def test_list_and_filters(self, mgr: SqliteEpisodicMemory, agent_manager: Mock) -> None:
-        created = mgr.create_session(
-            account_name="junwin",
-            agent_name="lucy",
-            friendly_name="hello",
-            context_name="lucyproject",
-        )
+        created = mgr.create_session(account_name="junwin", friendly_name="hello", context_name="lucyproject", metadata={"default_agent": "lucy"})
         session_id = created.session_id
 
-        evt = EpisodicEvent(role="user", content="Hi there")
-        mgr.append_event(session_id, evt)
+        evt = event_fixture(role="user", content="Hi there")
+        mgr.append_event(account_name='junwin', session_id=session_id, event=evt)
 
         body, status = get_chats_impl(mgr, agent_manager, agent_name="", account_name="junwin", limit=50)
         assert status == 200
@@ -65,28 +60,23 @@ class TestGetChatsSQL:
         assert body[0]["session_type"] == "user"
         assert body[0]["messages"] == []
 
-    def test_agent_filter(self, mgr: SqliteEpisodicMemory, agent_manager: Mock) -> None:
-        mgr.create_session(account_name="junwin", agent_name="lucy", friendly_name="a", context_name="lucyproject")
-        mgr.create_session(account_name="junwin", agent_name="glinda", friendly_name="b", context_name="lucyproject")
+    def test_sessions_are_shared_across_agents(self, mgr: SqliteEpisodicMemory, agent_manager: Mock) -> None:
+        mgr.create_session(account_name="junwin", friendly_name="a", context_name="lucyproject", metadata={"default_agent": "lucy"})
+        mgr.create_session(account_name="junwin", friendly_name="b", context_name="lucyproject", metadata={"default_agent": "glinda"})
 
         body, status = get_chats_impl(mgr, agent_manager, agent_name="lucy", account_name="junwin", limit=50)
         assert status == 200
-        assert all(s["agent_name"] == "lucy" for s in body)
+        assert {s["agent_name"] for s in body} == {"lucy", "glinda"}
 
 
 class TestGetChatSQL:
     def test_get_existing(self, mgr: SqliteEpisodicMemory) -> None:
-        created = mgr.create_session(
-            account_name="junwin",
-            agent_name="lucy",
-            friendly_name="hello",
-            context_name="lucyproject",
-        )
+        created = mgr.create_session(account_name="junwin", friendly_name="hello", context_name="lucyproject", metadata={"default_agent": "lucy"})
         session_id = created.session_id
-        evt = EpisodicEvent(role="user", content="Hello", actor="john")
-        mgr.append_event(session_id, evt)
+        evt = event_fixture(role="user", content="Hello", actor="john")
+        mgr.append_event(account_name='junwin', session_id=session_id, event=evt)
 
-        body, status = get_chat_impl(mgr, session_id)
+        body, status = get_chat_impl(mgr, session_id, account_name="junwin")
         assert status == 200
         assert body["friendly_name"] == "hello"
         assert body["context_name"] == "lucyproject"
@@ -101,5 +91,5 @@ class TestGetChatSQL:
         assert m.get("actor")
 
     def test_get_unknown(self, mgr: SqliteEpisodicMemory) -> None:
-        body, status = get_chat_impl(mgr, "00000000-0000-0000-0000-000000000000")
+        body, status = get_chat_impl(mgr, "00000000-0000-0000-0000-000000000000", account_name="junwin")
         assert status == 404

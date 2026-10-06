@@ -57,6 +57,8 @@ start/done lines as FCP tool execution (``ToolExecutor`` emits them).
 
 from __future__ import annotations
 
+from src.episodic import LucyEpisodicStore
+
 import asyncio
 import json
 import logging
@@ -405,7 +407,7 @@ def serve() -> None:
     registry = container.get(container_config.HandlerRegistry)
     prompt_builder = container.get(container_config.PromptBuilderInterface)
     llm_adapter = container.get(container_config.LLMAdapter)
-    episodic_store = container.get(container_config.EpisodicMemoryManager)
+    episodic_store = container.get(container_config.LucyEpisodicStore)
 
     scope, mcp_tools = resolve_startup_scope(
         agent_manager, registry, prompt_builder, cfg

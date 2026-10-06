@@ -39,53 +39,53 @@ def agent_manager_strict() -> Mock:
 
 class TestUpdateChatSqlite:
     def test_update_friendly_name(self, manager: SqliteEpisodicMemory, agent_manager: Mock) -> None:
-        created = manager.create_session(account_name="junwin", agent_name="lucy", friendly_name="Old name")
+        created = manager.create_session(account_name="junwin", friendly_name="Old name", metadata={"default_agent": "lucy"})
         session_id = created.session_id
 
-        body, status = update_chat_impl(manager, session_id, {"friendlyName": "New name"})
+        body, status = update_chat_impl(manager, session_id, {"friendlyName": "New name"}, account_name="junwin")
         assert status == 200
         assert body == {"ok": True}
 
-        meta, status = get_chat_impl(manager, session_id)
+        meta, status = get_chat_impl(manager, session_id, account_name="junwin")
         assert status == 200
         assert meta["friendly_name"] == "New name"
 
     def test_update_tags_and_metadata(self, manager: SqliteEpisodicMemory, agent_manager: Mock) -> None:
-        created = manager.create_session(account_name="junwin", agent_name="lucy", tags=["old"])
+        created = manager.create_session(account_name="junwin", tags=["old"], metadata={"default_agent": "lucy"})
         session_id = created.session_id
 
-        body, status = update_chat_impl(manager, session_id, {"tags": ["new", "important"], "metadata": {"key": "value"}})
+        body, status = update_chat_impl(manager, session_id, {"tags": ["new", "important"], "metadata": {"key": "value"}}, account_name="junwin")
         assert status == 200
         assert body == {"ok": True}
 
-        meta, status = get_chat_impl(manager, session_id)
+        meta, status = get_chat_impl(manager, session_id, account_name="junwin")
         assert status == 200
         assert meta["tags"] == ["new", "important"]
         assert meta["metadata"] == {"key": "value"}
 
     def test_update_context_name(self, manager: SqliteEpisodicMemory, agent_manager: Mock) -> None:
-        created = manager.create_session(account_name="junwin", agent_name="lucy")
+        created = manager.create_session(account_name="junwin", metadata={"default_agent": "lucy"})
         session_id = created.session_id
 
-        body, status = update_chat_impl(manager, session_id, {"contextName": "foo"})
+        body, status = update_chat_impl(manager, session_id, {"contextName": "foo"}, account_name="junwin")
         assert status == 200
         assert body == {"ok": True}
 
-        meta, status = get_chat_impl(manager, session_id)
+        meta, status = get_chat_impl(manager, session_id, account_name="junwin")
         assert status == 200
         assert meta.get("context_name") == "foo"
 
     def test_update_nonexistent_session(self, manager: SqliteEpisodicMemory) -> None:
-        body, status = update_chat_impl(manager, "00000000-0000-0000-0000-000000000000", {"friendlyName": "nope"})
+        body, status = update_chat_impl(manager, "00000000-0000-0000-0000-000000000000", {"friendlyName": "nope"}, account_name="junwin")
         assert status == 404
 
     def test_delete_session(self, manager: SqliteEpisodicMemory, agent_manager: Mock) -> None:
-        created = manager.create_session(account_name="junwin", agent_name="lucy")
+        created = manager.create_session(account_name="junwin", metadata={"default_agent": "lucy"})
         session_id = created.session_id
 
-        body, status = delete_chat_impl(manager, session_id)
+        body, status = delete_chat_impl(manager, session_id, account_name="junwin")
         assert status == 200
         assert body == {"ok": True}
 
-        meta, status = get_chat_impl(manager, session_id)
+        meta, status = get_chat_impl(manager, session_id, account_name="junwin")
         assert status == 404

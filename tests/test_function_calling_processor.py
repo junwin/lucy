@@ -418,9 +418,9 @@ class TestEnsureEpisodicSessionContextName:
         from tests.conftest import FakeAgent
 
         mock_store = Mock()
-        mock_store.session_exists.return_value = False
+        mock_store.get_session.return_value = None
         mock_store.create_session.return_value = Mock()
-        mock_store.add_events.return_value = []
+        mock_store.append_events.return_value = []
 
         proc = make_proc()
         proc.episodic_store = mock_store
@@ -450,9 +450,9 @@ class TestEnsureEpisodicSessionContextName:
         from tests.conftest import FakeAgent
 
         mock_store = Mock()
-        mock_store.session_exists.return_value = False
+        mock_store.get_session.return_value = None
         mock_store.create_session.return_value = Mock()
-        mock_store.add_events.return_value = []
+        mock_store.append_events.return_value = []
 
         proc = make_proc()
         proc.episodic_store = mock_store
@@ -480,8 +480,8 @@ class TestEnsureEpisodicSessionContextName:
         from tests.conftest import FakeAgent
 
         mock_store = Mock()
-        mock_store.session_exists.return_value = True
-        mock_store.add_events.return_value = []
+        mock_store.get_session.return_value = Mock()
+        mock_store.append_events.return_value = []
 
         proc = make_proc()
         proc.episodic_store = mock_store
@@ -501,7 +501,7 @@ class TestEnsureEpisodicSessionContextName:
 
         mock_store.create_session.assert_not_called()
         # Events should still be written
-        mock_store.add_events.assert_called_once()
+        mock_store.append_events.assert_called_once()
 
     def test_no_episodic_store_no_crash(self, make_proc, prompt_builder, llm_adapter):
         """When episodic_store is None, process_message still works fine."""
@@ -530,9 +530,9 @@ class TestEnsureEpisodicSessionContextName:
         from tests.conftest import FakeAgent
 
         mock_store = Mock()
-        mock_store.session_exists.return_value = False
+        mock_store.get_session.return_value = None
         mock_store.create_session.return_value = Mock()
-        mock_store.add_events.return_value = []
+        mock_store.append_events.return_value = []
 
         proc = make_proc()
         proc.episodic_store = mock_store
@@ -551,7 +551,7 @@ class TestEnsureEpisodicSessionContextName:
         ).text
 
         assert out == "transient"
-        mock_store.session_exists.assert_not_called()
+        mock_store.get_session.assert_not_called()
         mock_store.create_session.assert_not_called()
 
 
@@ -923,7 +923,7 @@ def test_streaming_persists_before_generator_close(make_proc, prompt_builder, ll
     from tests.conftest import FakeAgent
 
     mock_store = Mock()
-    mock_store.session_exists.return_value = False
+    mock_store.get_session.return_value = None
     mock_store.create_session.return_value = Mock()
 
     proc = make_proc()
@@ -945,7 +945,7 @@ def test_streaming_persists_before_generator_close(make_proc, prompt_builder, ll
     # The first text event has been persisted before control reaches the client.
     next(gen)
     assert mock_store.append_event.call_count == 3
-    kinds = [call.args[1].kind for call in mock_store.append_event.call_args_list]
+    kinds = [call.kwargs["event"].kind for call in mock_store.append_event.call_args_list]
     assert kinds == ["user_message", "prompt_report", "assistant_message"]
 
     gen.close()

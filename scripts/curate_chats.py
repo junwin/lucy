@@ -14,24 +14,24 @@ _repo_root = Path(__file__).resolve().parents[1]
 if str(_repo_root) not in sys.path:
     sys.path.insert(0, str(_repo_root))
 
-from src.coala_memory.episodic import EpisodicMemoryManager, EpisodicSessionQuery
+from src.episodic import LucyEpisodicStore, list_account_sessions
 from src.curation.container_factory import get_curation_engine
 from src.curation.core import CurationEngine
 
 logger = logging.getLogger(__name__)
 
 
-def _get_episodic_store() -> EpisodicMemoryManager:
+def _get_episodic_store() -> LucyEpisodicStore:
     from src.container_config import container
 
     if container is None:
         raise RuntimeError("dependency injection container is not configured")
-    return container.get(EpisodicMemoryManager)
+    return container.get(LucyEpisodicStore)
 
 
 def _curate_all_sessions(
     engine: CurationEngine,
-    store: EpisodicMemoryManager,
+    store: LucyEpisodicStore,
     account: str,
     mode: str,
     preview: bool,
@@ -40,9 +40,7 @@ def _curate_all_sessions(
     curation_rules: Optional[Dict[str, Any]],
     dry_run: bool,
 ) -> List[Dict[str, Any]]:
-    sessions = store.list_sessions(
-        EpisodicSessionQuery(account_name=account, limit=500)
-    )
+    sessions = list_account_sessions(store, account)
     if not sessions:
         print(f"No sessions found for account '{account}'.")
         return []

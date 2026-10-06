@@ -7,42 +7,36 @@ Episodic memory is supplied directly by `galet-memory`.
 
 ### Episodic memory
 
-Prompt-time sources:
+Lucy injects one `LucyEpisodicStore` backend implementing Galet's separate
+`SessionStore`, `EventStore` and `CurationStore` protocols. Every operation is
+account-scoped. Session metadata has no event collection or owning agent;
+`metadata.default_agent` is Lucy's initial routing/display hint, while events
+retain their actual actors.
 
-- The Galet prompt-builder receives the `galet-memory` episodic interface.
-- `SqliteEpisodicMemory` supplies session metadata and conversational events.
-- `_get_digest_context()` performs similarity lookup over archived chat digests.
-- `_save_overflow_digest()` persists history dropped by the prompt token budget.
+The prompt compiler receives this backend as both `episodic_memory` and
+`digest_memory`. It reads recent events separately from digest search and uses
+an active snapshot to preserve the latest archive boundary digest.
 
-Lifecycle and curation sources:
+Recording uses `NewEvent` and `append_events`, with correlation IDs stored in
+the same append. HTTP chat history uses an active snapshot. Routing reads only
+recent conversational event kinds. Corpus extraction uses the transcript
+snapshot, retaining archived conversation but excluding invalidated exchanges.
 
-- `src/handlers/episodic_memory_handler.py` exposes session lifecycle
-  operations (create, get, list, update, reset, delete), append_event and
-  recall over the `galet-memory` interface.
-- `src/handlers/curate_chat_handler.py` adds summarize/archive workflows,
-  preview/publish controls, templates and digest embedding publication.
-- `src/http_endpoints/chats_endpoints.py` exposes session create/get/list,
-  append-message, update and delete operations.
-- `app.py` wires those operations into `/chats` and also resolves or creates
-  sessions for `/ask` via `resolve_or_create_session()`.
+The `episodic_memory` handler advertises galet-tools' explicit actions, including
+`get_recent_events`, `clear_session_events` and `invalidate_exchange`.
+`curate_chat` archives through `CurationService`; `reset_session` calls
+`reset_context`, preserving the transcript while hiding previous prompt context.
+Destructive filter/rewrite curation is rejected; use exchange invalidation.
 
-Storage structure:
+The default database is `<storage_root_path>/<storage_namespace>/episodic-v2.sqlite`.
+An explicit `episodic_memory_db_path` overrides it and must name a fresh database.
+Older schemas are rejected by Galet; no migration or automatic deletion occurs.
 
-- `container_config.py` constructs `galet_memory.SqliteEpisodicMemory` at the
-  composition root. Application code depends only on Galet interfaces.
-- `src/chat2` temporarily retains generic document/log primitives used by the
-  embedding store; it no longer contains Lucy's episodic storage facade.
-- Archived digest similarity search is injected because those digests
-  currently live in Lucy's embedding subsystem.
-
-Contracts:
-
-- `EpisodicMemory.recall(EpisodicMemoryRequest)` is the prompt-time read seam.
-- `EpisodicMemory.save_overflow_digest(...)` owns prompt overflow persistence.
-- `EpisodicMemoryManager` owns session lifecycle plus filter/summarize/archive
-  curation. It is deliberately separate from HTTP and handler schemas.
-- `SqliteEpisodicMemory` implements both contracts; Lucy handlers and curation
-  code do not depend on its storage medium.
+`GET`, `PATCH` and `DELETE /chats/<session_id>` and message appends require
+`accountName`. GET and DELETE take the query parameter; PATCH and message
+appends also accept it in the JSON body. An absent account returns 400; a
+session outside the supplied account returns 404. Chat listing and friendly
+name resolution span the account's sessions across agents.
 
 ### Semantic memory
 

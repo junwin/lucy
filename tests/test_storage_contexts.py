@@ -466,7 +466,7 @@ class TestPromptBuilderContextRendering:
 
     def _build_context_content(self, skill_storage, context_name: str) -> str:
         from galet_memory import (
-            EpisodicMemoryResult, FileProceduralMemory, ProceduralLayout,
+            FileProceduralMemory, ProceduralLayout,
         )
         from src.coala_memory.semantic import SemanticMemoryResult
         from src.prompt_builders.galet_prompt_builder_adapter import (
@@ -474,7 +474,7 @@ class TestPromptBuilderContextRendering:
         )
 
         episodic_memory = Mock()
-        episodic_memory.recall.return_value = EpisodicMemoryResult()
+        episodic_memory.search_digests.return_value = []
         semantic_memory = Mock()
         semantic_memory.recall.return_value = SemanticMemoryResult()
         pb = GaletPromptBuilderAdapter(

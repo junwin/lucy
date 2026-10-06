@@ -1,5 +1,7 @@
 """Contract checks for Lucy's galet-tools memory adapters."""
 
+from tests.episodic_fixtures import event_fixture
+
 from types import SimpleNamespace
 from unittest.mock import Mock
 
@@ -62,19 +64,23 @@ def test_curate_chat_uses_galet_service_for_digest_and_archive():
     assert service.calls[1][1]["idempotency_key"] == "operation-1"
 
 
-def test_legacy_filter_uses_lucy_engine():
-    engine = Mock()
-    engine.curate.return_value = {"status": "published", "summary": {"kept_count": 2}}
-    result = CurateChatHandler(Config(), engine=engine).execute(
-        {"mode": "filter", "session_id": "session-1"},
-        account_name="acct",
-    )
-    assert result["ok"] is True
-    engine.curate.assert_called_once()
+def test_legacy_filter_is_rejected_without_rewriting_history(tmp_path):
+    from galet_memory import SqliteEpisodicMemory
+    from src.curation.core import CurationEngine
+    with SqliteEpisodicMemory(tmp_path / 'episodic.sqlite') as memory:
+        memory.create_session(account_name='acct', session_id='s')
+        original = memory.append_event(account_name='acct', session_id='s',
+                                       event=event_fixture('user', 'retain this'))
+        engine = CurationEngine(memory, Mock())
+        result = CurateChatHandler(Config(), engine=engine).execute(
+            {'mode': 'filter', 'session_id': 's', 'preview': False}, account_name='acct')
+        assert not result['ok']
+        assert 'invalidate an exchange' in result['error']
+        assert memory.get_transcript_snapshot(account_name='acct', session_id='s').events == (original,)
 
 
 def test_friendly_name_archive_uses_current_service_and_retains_events(tmp_path):
-    from galet_memory import CurationService, EpisodicEvent, SqliteEpisodicMemory
+    from galet_memory import CurationService, SqliteEpisodicMemory
     from src.curation.resolver import resolve_session
 
     class Generator:
@@ -82,18 +88,17 @@ def test_friendly_name_archive_uses_current_service_and_retains_events(tmp_path)
             return 'current digest'
 
     with SqliteEpisodicMemory(tmp_path / 'chat.sqlite') as memory:
-        memory.create_session(account_name='acct', agent_name='lucy', session_id='s',
-                              friendly_name='My chat')
-        original = memory.append_event('s', EpisodicEvent('user', 'keep original'))
+        memory.create_session(account_name='acct', session_id='s', friendly_name='My chat', metadata={"default_agent": 'lucy'})
+        original = memory.append_event(account_name='acct', session_id='s', event=event_fixture('user', 'keep original'))
         service = CurationService(memory, Generator())
         engine = SimpleNamespace(episodic_store=memory)
         result = CurateChatHandler(Config(), engine=engine, service=service).execute(
             {'mode': 'archive', 'friendly_name': 'My chat'}, account_name='acct')
         assert result['ok']
-        all_events = memory.get_session('s', event_scope='all').events
+        all_events = memory.get_transcript_snapshot(account_name='acct', session_id='s').events
         assert [e.event_id for e in all_events][0] == original.event_id
         assert all_events[-1].kind == 'session_digest'
         assert all_events[-1].metadata['visibility_boundary'] is True
-        assert memory.get_session('s').events[0].content == 'current digest'
+        assert memory.get_active_snapshot(account_name='acct', session_id='s').events[0].content == 'current digest'
         assert resolve_session(session_id='s', account='other', episodic_store=memory) is None
         assert resolve_session(friendly_name='My chat', account='other', episodic_store=memory) is None
