@@ -62,4 +62,4 @@ galet-memory[vec] @ git+https://github.com/junwin/galet-memory.git@1215486ccdb30
 galet-prompt-builder @ git+https://github.com/junwin/galet-prompt-builder.git@c3909637275ef91bdcec96158545113f355f2c78
 
 # Shared handler ABI and external handler discovery.
-galet-tools @ git+https://github.com/junwin/galet-tools.git@bb40eff895a3c47ae399fddaadbb81ca6d227685
+galet-tools @ git+https://github.com/junwin/galet-tools.git@bb40eff895a3c47ae399fddaadbb81ca6d22
