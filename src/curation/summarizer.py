@@ -10,7 +10,7 @@ import json
 import logging
 from typing import List
 
-from galet_memory import EpisodicEvent
+from galet_memory import Event
 from galet.dto import LLMResponse
 from galet.interface import LLMApi
 
@@ -47,7 +47,7 @@ Output format (Markdown):
 If a section has no content, write "None." for that section."""
 
 
-def _build_events_text(events: List[EpisodicEvent], max_chars: int = 32000) -> str:
+def _build_events_text(events: List[Event], max_chars: int = 32000) -> str:
     """Build a text representation of events for the LLM."""
     lines: List[str] = []
 
@@ -91,7 +91,7 @@ def _build_events_text(events: List[EpisodicEvent], max_chars: int = 32000) -> s
 
 
 def summarize_session(
-    events: List[EpisodicEvent],
+    events: List[Event],
     *,
     llm_api: LLMApi,
     model: str = "gpt-4o-mini",
@@ -150,7 +150,7 @@ Produce a structured Markdown digest with these sections:
 
 
 def _fallback_digest(
-    events: List[EpisodicEvent],
+    events: List[Event],
     *,
     friendly_name: str = "",
     session_id: str = "",

@@ -52,11 +52,11 @@ def test_generate_show_and_reopen_without_bytes_in_model_or_history(
         model_result = llm_adapter.call_model.call_args_list[1].kwargs['input'][0]['output']
         assert len(model_result) < 1000 and 'base64' not in model_result
         assert json.loads(model_result)['image_id'] == image['image_id']
-        history = memory.get_session(session_id).events
+        history = memory.get_active_snapshot(account_name='john', session_id=session_id).events
         assert 'base64' not in json.dumps([event.content for event in history])
         saved = [event for event in history if event.kind == 'generated_image']
         assert len(saved) == 1 and saved[0].content['image_id'] == image['image_id']
-        reopened, status = get_chat_impl(memory, session_id, config=config)
+        reopened, status = get_chat_impl(memory, session_id, config=config, account_name="john")
         assert status == 200
         payload = json.loads(next(m['content'] for m in reopened['messages'] if m['kind'] == 'generated_image'))
         assert payload['image_id'] == image['image_id']
@@ -93,7 +93,7 @@ def test_duplicate_image_events_are_delivered_and_saved_once(tmp_path, make_proc
         wire = list(proc.process_message_streaming(primary_agent=FakeAgent(save_responses=True),
             account={'accountId': 'john'}, message='Show the image', conversation_id=session_id))
         assert sum(json.loads(line.removeprefix('data: ').strip())['type'] == 'image' for line in wire) == 1
-        assert sum(event.kind == 'generated_image' for event in memory.get_session(session_id).events) == 1
+        assert sum(event.kind == 'generated_image' for event in memory.get_active_snapshot(account_name='john', session_id=session_id).events) == 1
 
 
 def test_serving_account_image_path_cannot_bypass_account_check(tmp_path):

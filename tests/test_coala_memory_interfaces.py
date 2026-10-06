@@ -1,11 +1,3 @@
-from galet_memory import (
-    EpisodicCurationRequest,
-    EpisodicMemoryRequest,
-    EpisodicMemoryResult,
-    EpisodicSessionQuery,
-    EpisodicDigest,
-    EpisodicEvent,
-)
 from src.coala_memory.procedural import (
     ProceduralMemoryRequest,
     ProceduralMemoryResult,
@@ -16,51 +8,6 @@ from src.coala_memory.semantic import (
     SemanticMemoryRequest,
     SemanticMemoryResult,
 )
-
-
-def test_episodic_request_matches_prompt_history_and_digest_inputs():
-    request = EpisodicMemoryRequest(
-        account_name="junwin",
-        agent_name="peace",
-        conversation_id="session-1",
-        query="what did we decide?",
-        max_events=6,
-        token_budget=1200,
-        digest_top_k=3,
-    )
-    result = EpisodicMemoryResult(
-        session_id=request.conversation_id,
-        events=[EpisodicEvent(role="user", content="hello")],
-        digests=[EpisodicDigest(session_id="old-session", snippet="decision", score=0.4)],
-    )
-
-    assert request.max_events == 6
-    assert result.events[0].role == "user"
-    assert result.digests[0].score == 0.4
-
-
-def test_episodic_management_contract_covers_session_search_and_curation():
-    query = EpisodicSessionQuery(
-        account_name="junwin",
-        agent_name="peace",
-        query="memory design",
-        limit=20,
-    )
-    curation = EpisodicCurationRequest(
-        account_name="junwin",
-        session_id="session-1",
-        mode="archive",
-        preview=False,
-        publish=True,
-        template_name="default",
-        curation_rules={"remove_kinds": ["tool"]},
-        max_chars=32000,
-    )
-
-    assert query.query == "memory design"
-    assert curation.mode == "archive"
-    assert curation.publish is True
-    assert curation.curation_rules["remove_kinds"] == ["tool"]
 
 
 def test_semantic_request_supports_embedding_recall():

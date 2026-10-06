@@ -53,19 +53,19 @@ def test_direct_answer_uses_one_model_call_saves_history_and_never_constructs_wo
         router.llm_adapter.call_model.assert_called_once()
         factory.get.assert_not_called()
         assert storage.created == []
-        session = memory.get_session(session_id)
-        assert session.agent_name == 'lucy'
-        assert [(event.role, event.content) for event in session.events] == [('user', question), ('assistant', answer)]
-        assert session.events[1].actor == 'lucy'
-        assert session.events[0].metadata['run_id'] == session.events[1].metadata['run_id']
+        session = memory.get_session(account_name='alice', session_id=session_id)
+        assert session.metadata["default_agent"] == 'lucy'
+        assert [(event.role, event.content) for event in memory.get_active_snapshot(account_name="alice", session_id=session.session_id).events] == [('user', question), ('assistant', answer)]
+        assert memory.get_active_snapshot(account_name="alice", session_id=session.session_id).events[1].actor == 'lucy'
+        assert memory.get_active_snapshot(account_name="alice", session_id=session.session_id).events[0].metadata['run_id'] == memory.get_active_snapshot(account_name="alice", session_id=session.session_id).events[1].metadata['run_id']
 
 
 @pytest.mark.parametrize('streaming', [False, True])
 def test_direct_answer_preserves_existing_session_identity_and_unrelated_metadata(tmp_path, streaming):
     with SqliteEpisodicMemory(tmp_path / 'existing.sqlite') as memory:
-        session = memory.create_session(account_name='alice', agent_name='lumia', context_name='image_tool', metadata={
+        session = memory.create_session(account_name='alice', context_name='image_tool', metadata={**({
             'project': 'photos', 'routing_dialogue': {'agent': 'lumia', 'expires_at': 10000, 'awaiting_reply': False},
-        })
+        }), "default_agent": 'lumia'})
         router = answer_router()
         router.clock = lambda: 1000
         router.episodic_store = memory
@@ -76,11 +76,11 @@ def test_direct_answer_preserves_existing_session_identity_and_unrelated_metadat
             list(handler.handle_streaming(request))
         else:
             assert handler.handle(request)[0] == 200
-        stored = memory.get_session(session.session_id)
-        assert stored.agent_name == 'lumia'
+        stored = memory.get_session(account_name='alice', session_id=session.session_id)
+        assert stored.metadata["default_agent"] == 'lumia'
         assert stored.context_name == 'image_tool'
-        assert stored.metadata == {'project': 'photos'}
-        assert stored.events[-1].content == 'Brasília'
+        assert stored.metadata == {'project': 'photos', 'default_agent': 'lumia'}
+        assert memory.get_active_snapshot(account_name="alice", session_id=stored.session_id).events[-1].content == 'Brasília'
         factory.get.assert_not_called()
 
 
@@ -140,14 +140,14 @@ def test_manual_selection_and_explicit_context_still_use_worker(overrides):
 
 def test_foreign_session_is_rejected_before_generating_direct_answer(tmp_path):
     with SqliteEpisodicMemory(tmp_path / 'foreign.sqlite') as memory:
-        session = memory.create_session(account_name='bob', agent_name='lucy')
+        session = memory.create_session(account_name='bob', metadata={"default_agent": 'lucy'})
         router = answer_router()
         router.episodic_store = memory
         handler = AskRequestHandler(router.agent_manager, router.config, FakeStorage(), Mock(), memory, router)
         status, body = handler.handle(payload(conversationId=session.session_id))
         assert status == 400
         router.llm_adapter.call_model.assert_not_called()
-        assert memory.get_session(session.session_id).events == []
+        assert memory.get_active_snapshot(account_name='bob', session_id=session.session_id).events == ()
 
 
 def test_normal_specialist_requests_still_execute_worker():

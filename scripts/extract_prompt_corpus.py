@@ -30,7 +30,8 @@ _repo_root = Path(__file__).resolve().parents[1]
 if str(_repo_root) not in sys.path:
     sys.path.insert(0, str(_repo_root))
 
-from galet_memory import EpisodicMemoryManager, EpisodicSessionQuery, SqliteEpisodicMemory
+from src.episodic import LucyEpisodicStore, list_account_sessions
+from galet_memory import SqliteEpisodicMemory
 from src.config_manager import ConfigManager
 
 logger = logging.getLogger(__name__)
@@ -40,7 +41,7 @@ def _build_store(config: ConfigManager) -> SqliteEpisodicMemory:
     storage_root = config.get("storage_root_path") or "/home/junwin/lucydata"
     storage_ns = config.get("storage_namespace") or "data"
     path = Path(config.get("episodic_memory_db_path") or
-                Path(storage_root) / storage_ns / "chat2.sqlite")
+                Path(storage_root) / storage_ns / "episodic-v2.sqlite")
     if not path.is_file():
         raise FileNotFoundError(path)
     return SqliteEpisodicMemory(path, initialize_schema=False)
@@ -68,12 +69,12 @@ def _make_prompt_entry(
     }
 
 
-def extract_prompts(store: EpisodicMemoryManager, account: str) -> List[Dict[str, Any]]:
+def extract_prompts(store: LucyEpisodicStore, account: str) -> List[Dict[str, Any]]:
     """Extract user prompts through the supported episodic interface."""
     prompts = []
-    sessions = store.list_sessions(EpisodicSessionQuery(account_name=account, limit=1000))
+    sessions = list_account_sessions(store, account)
     for meta in sessions:
-        session = store.get_session(meta.session_id, event_scope="all")
+        session = store.get_transcript_snapshot(account_name=account, session_id=meta.session_id)
         if session is None:
             continue
         for event in session.events:
@@ -83,7 +84,7 @@ def extract_prompts(store: EpisodicMemoryManager, account: str) -> List[Dict[str
             if content:
                 prompts.append(_make_prompt_entry(
                     content=content, source="episodic", session_id=meta.session_id,
-                    friendly_name=meta.friendly_name or "", agent_name=meta.agent_name,
+                    friendly_name=meta.friendly_name or "", agent_name=event.metadata.get("agent") or meta.metadata.get("default_agent", ""),
                     utc_timestamp=event.created_at.isoformat() if event.created_at else "",
                 ))
     return prompts
@@ -149,7 +150,7 @@ def _merge_with_existing(new_prompts: List[Dict[str, Any]], existing_corpus: Opt
 
 
 def build_corpus(
-    store: EpisodicMemoryManager,
+    store: LucyEpisodicStore,
     account: str,
     existing_corpus: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:

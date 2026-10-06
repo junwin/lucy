@@ -5,6 +5,7 @@ SQLite-backed primitives with teardown.
 
 from __future__ import annotations
 
+
 from pathlib import Path
 from unittest.mock import Mock
 
@@ -62,7 +63,7 @@ class TestPostChat:
         assert body.get("id") is not None
         assert body["context_name"] == "lucyproject"
 
-        session = mgr.get_session(body["id"])  # type: ignore[arg-type]
+        session = mgr.get_session(account_name='junwin', session_id=body["id"])  # type: ignore[arg-type]
         assert session is not None
         assert session.context_name == "lucyproject"
 
@@ -81,11 +82,11 @@ class TestPostMessage:
         created, _ = post_chat_impl(mgr, agent_manager, {"agentName": "lucy", "accountName": "junwin"})
         session_id = created["id"]
 
-        res, status = post_chat_message_impl(mgr, session_id, {"role": "user", "content": "Hello"})
+        res, status = post_chat_message_impl(mgr, session_id, {"role": "user", "content": "Hello"}, account_name="junwin")
         assert status == 200
         assert res == {"status": "ok"}
 
-        body, status = get_chat_impl(mgr, session_id)
+        body, status = get_chat_impl(mgr, session_id, account_name="junwin")
         assert status == 200
         assert len(body["messages"]) == 1
         msg = body["messages"][0]
@@ -94,7 +95,7 @@ class TestPostMessage:
         assert "utc_timestamp" in msg
 
     def test_message_to_unknown_session(self, mgr: SqliteEpisodicMemory) -> None:
-        body, status = post_chat_message_impl(mgr, "00000000-0000-0000-0000-000000000000", {"role": "user", "content": "x"})
+        body, status = post_chat_message_impl(mgr, "00000000-0000-0000-0000-000000000000", {"role": "user", "content": "x"}, account_name="junwin")
         assert status == 404
         assert "error" in body
 
@@ -105,7 +106,7 @@ def test_auto_chat_stores_real_default_agent(mgr, agent_manager_strict, agent):
                                   {'accountName': 'junwin', 'agentName': agent, 'routing': 'auto'})
     assert status == 200
     assert body['agent_name'] == 'lucy'
-    assert mgr.get_session(body['id']).agent_name == 'lucy'
+    assert mgr.get_session(account_name='junwin', session_id=body['id']).metadata['default_agent'] == 'lucy'
 
 
 def test_manual_chat_still_requires_agent(mgr, agent_manager_strict):

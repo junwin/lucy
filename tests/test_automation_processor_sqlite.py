@@ -1,5 +1,7 @@
 """Verify AutomationProcessor persists sessions and events via galet-memory SQLite."""
 
+from src.episodic import list_account_sessions
+
 import json
 import uuid
 from pathlib import Path
@@ -7,7 +9,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from galet_memory import EpisodicSessionQuery, SqliteEpisodicMemory
+from galet_memory import SqliteEpisodicMemory
 from src.message_processors.automation_processor import AutomationProcessor
 from src.message_processors.function_calling_processor import FCPResult
 from src.message_processors.run_metrics import RunMetrics
@@ -103,14 +105,14 @@ def test_execute_tasklist_creates_session_in_sqlite(chat2_store):
 
     assert "state=Failed" not in result
     assert tasklist.tasks[0].state == TASK_STATE_COMPLETED
-    assert chat2_store.session_exists(conversation_id)
+    assert (chat2_store.get_session(account_name='acct', session_id=conversation_id) is not None)
 
-    session = chat2_store.get_session(conversation_id)
+    session = chat2_store.get_session(account_name='acct', session_id=conversation_id)
     assert session is not None
     assert session.session_id == conversation_id
-    assert session.user_id == "acct"
     assert session.account_name == "acct"
-    assert session.agent_name == "test"
+    assert session.account_name == "acct"
+    assert session.metadata["default_agent"] == "test"
     assert session.friendly_name == "auto_tl-1"
 
 
@@ -119,7 +121,7 @@ def test_execute_tasklist_writes_events_to_sqlite(chat2_store):
     tasklist = make_tasklist()
     result, tasklist, conversation_id = run_tasklist(fcp, tasklist, chat2_store)
 
-    events = chat2_store.get_session(conversation_id).events
+    events = chat2_store.get_active_snapshot(account_name='acct', session_id=conversation_id).events
     assert [e.kind for e in events] == ["system_note", "summary"]
     assert [e.role for e in events] == ["assistant", "assistant"]
     assert [e.actor for e in events] == ["test", "test"]
@@ -144,9 +146,9 @@ def test_execute_tasklist_sessions_listed_for_account(chat2_store):
     tasklist = make_tasklist()
     result, tasklist, conversation_id = run_tasklist(fcp, tasklist, chat2_store)
 
-    sessions = chat2_store.list_sessions(EpisodicSessionQuery(account_name="acct"))
+    sessions = list_account_sessions(chat2_store, "acct")
     assert [s.session_id for s in sessions] == [conversation_id]
-    assert chat2_store.list_sessions(EpisodicSessionQuery(account_name="other")) == []
+    assert list_account_sessions(chat2_store, "other") == []
 
 
 def test_execute_tasklist_links_events_to_correlation(chat2_store):
@@ -158,7 +160,7 @@ def test_execute_tasklist_links_events_to_correlation(chat2_store):
 
     linked = [
         event
-        for event in chat2_store.get_session(conversation_id).events
+        for event in chat2_store.get_active_snapshot(account_name='acct', session_id=conversation_id).events
         if event.metadata.get("correlation_id") == "corr-auto-1"
     ]
     assert [e.kind for e in linked] == ["system_note", "summary"]
@@ -173,9 +175,9 @@ def test_execute_tasklist_reuses_existing_session(chat2_store):
         fcp, tasklist, chat2_store, conversation_id=conversation_id
     )
 
-    sessions = chat2_store.list_sessions(EpisodicSessionQuery(account_name="acct"))
+    sessions = list_account_sessions(chat2_store, "acct")
     assert len(sessions) == 1
-    assert len(chat2_store.get_session(conversation_id).events) == 3
+    assert len(chat2_store.get_active_snapshot(account_name='acct', session_id=conversation_id).events) == 3
 
 
 def test_process_message_writes_command_event_to_sqlite(chat2_store):
@@ -196,8 +198,8 @@ def test_process_message_writes_command_event_to_sqlite(chat2_store):
     )
 
     assert "state=Failed" not in result
-    assert chat2_store.session_exists(conversation_id)
-    events = chat2_store.get_session(conversation_id).events
+    assert (chat2_store.get_session(account_name='acct', session_id=conversation_id) is not None)
+    events = chat2_store.get_active_snapshot(account_name='acct', session_id=conversation_id).events
     assert [e.kind for e in events] == ["user_message", "system_note", "summary"]
     assert events[0].role == "user"
     assert events[0].actor == "acct"

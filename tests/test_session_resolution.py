@@ -2,6 +2,9 @@
 Tests for resolve_or_create_session (Phase 1 /ask -> chat2 migration).
 """
 
+from galet_memory import Page, SessionChanges
+from src.episodic import LucyEpisodicStore
+
 import re
 import time
 from unittest.mock import Mock
@@ -9,8 +12,6 @@ from unittest.mock import Mock
 import pytest
 
 from galet_memory import (
-    EpisodicMemoryManager,
-    EpisodicSessionQuery,
     SqliteEpisodicMemory,
 )
 from src.message_endpoints.ask_request_handler import resolve_or_create_session
@@ -21,25 +22,19 @@ UUID_RE = re.compile(
 
 
 @pytest.fixture
-def chat2(tmp_path) -> EpisodicMemoryManager:
+def chat2(tmp_path) -> LucyEpisodicStore:
     with SqliteEpisodicMemory(tmp_path / "chat2.sqlite") as memory:
         yield memory
 
 
 def _seed(
-    chat2: EpisodicMemoryManager,
+    chat2: LucyEpisodicStore,
     session_id: str,
     account_name: str,
     agent_name: str,
     friendly_name: str,
 ) -> None:
-    chat2.create_session(
-        user_id=account_name,
-        account_name=account_name,
-        agent_name=agent_name,
-        session_id=session_id,
-        friendly_name=friendly_name,
-    )
+    chat2.create_session(account_name=account_name, session_id=session_id, friendly_name=friendly_name, metadata={"default_agent": agent_name})
 
 
 class TestResolveOrCreateSession:
@@ -62,31 +57,31 @@ class TestResolveOrCreateSession:
         _seed(chat2, "44444444-4444-4444-8444-444444444444", "alice", "lucy", "Other Topic")
         session_id = resolve_or_create_session(chat2, "alice", "lucy", "project")
         assert UUID_RE.match(session_id)
-        meta = chat2.get_session(session_id)
+        meta = chat2.get_session(account_name='alice', session_id=session_id)
         assert meta is not None
         assert meta.friendly_name == "project"
         assert meta.account_name == "alice"
-        assert meta.agent_name == "lucy"
+        assert meta.metadata["default_agent"] == "lucy"
 
     def test_creates_session_with_default_name_when_no_friendly_name(self, chat2) -> None:
         session_id = resolve_or_create_session(chat2, "alice", "lucy", None)
         assert UUID_RE.match(session_id)
-        meta = chat2.get_session(session_id)
+        meta = chat2.get_session(account_name='alice', session_id=session_id)
         assert meta is not None
         assert meta.friendly_name == f"Chat {session_id[:8]}"
 
     def test_creates_session_with_default_name_for_empty_friendly_name(self, chat2) -> None:
         session_id = resolve_or_create_session(chat2, "alice", "lucy", "")
-        meta = chat2.get_session(session_id)
+        meta = chat2.get_session(account_name='alice', session_id=session_id)
         assert meta is not None
         assert meta.friendly_name == f"Chat {session_id[:8]}"
 
-    def test_filters_by_account_and_agent(self, chat2) -> None:
+    def test_filters_by_account_and_reuses_across_agents(self, chat2) -> None:
         _seed(chat2, "55555555-5555-4555-8555-555555555555", "alice", "lucy", "project")
         _seed(chat2, "66666666-6666-4666-8666-666666666666", "alice", "other-agent", "project")
         _seed(chat2, "77777777-7777-4777-8777-777777777777", "bob", "lucy", "project")
         session_id = resolve_or_create_session(chat2, "alice", "lucy", "project")
-        assert session_id == "55555555-5555-4555-8555-555555555555"
+        assert session_id == "66666666-6666-4666-8666-666666666666"
 
     def test_returns_most_recent_match(self, chat2) -> None:
         _seed(chat2, "88888888-8888-4888-8888-888888888888", "alice", "lucy", "project")
@@ -96,25 +91,17 @@ class TestResolveOrCreateSession:
         assert session_id == "99999999-9999-4999-8999-999999999999"
 
     def test_passes_explicit_limit_to_list_sessions(self, chat2, monkeypatch) -> None:
-        mock_list = Mock(return_value=[])
+        mock_list = Mock(return_value=Page())
         monkeypatch.setattr(chat2, "list_sessions", mock_list)
         session_id = resolve_or_create_session(chat2, "alice", "lucy", "project", limit=500)
-        mock_list.assert_called_once_with(EpisodicSessionQuery(
-            account_name="alice",
-            agent_name="lucy",
-            limit=500,
-        ))
+        mock_list.assert_called_once_with(account_name="alice", count=100, cursor=None)
         assert UUID_RE.match(session_id)
 
     def test_custom_limit_is_respected(self, chat2, monkeypatch) -> None:
-        mock_list = Mock(return_value=[])
+        mock_list = Mock(return_value=Page())
         monkeypatch.setattr(chat2, "list_sessions", mock_list)
         resolve_or_create_session(chat2, "alice", "lucy", "project", limit=123)
-        mock_list.assert_called_once_with(EpisodicSessionQuery(
-            account_name="alice",
-            agent_name="lucy",
-            limit=123,
-        ))
+        mock_list.assert_called_once_with(account_name="alice", count=100, cursor=None)
 
     def test_returns_uuid_when_chat2_store_is_none(self) -> None:
         session_id = resolve_or_create_session(None, "alice", "lucy", "project")
@@ -122,7 +109,7 @@ class TestResolveOrCreateSession:
 
     def test_no_match_when_stored_friendly_name_is_none(self, chat2) -> None:
         _seed(chat2, "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", "alice", "lucy", "Some Name")
-        chat2.update_session("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", {"friendly_name": None})
+        chat2.update_session(account_name="alice", session_id="aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", changes=SessionChanges(friendly_name=None))
         session_id = resolve_or_create_session(chat2, "alice", "lucy", "some")
         assert UUID_RE.match(session_id)
         assert session_id != "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
@@ -135,7 +122,7 @@ class TestResolveOrCreateSession:
             "project",
             context_name="lucyproject",
         )
-        meta = chat2.get_session(session_id)
+        meta = chat2.get_session(account_name='alice', session_id=session_id)
         assert meta is not None
         assert meta.context_name == "lucyproject"
 
@@ -150,14 +137,14 @@ class TestResolveOrCreateSession:
             context_name="lucyproject",
         )
         assert resolved == session_id
-        meta = chat2.get_session(session_id)
+        meta = chat2.get_session(account_name='alice', session_id=session_id)
         assert meta is not None
         assert meta.context_name == "lucyproject"
 
     def test_existing_context_name_is_not_overwritten(self, chat2) -> None:
         session_id = "cccccccc-cccc-4ccc-8ccc-cccccccccccc"
         _seed(chat2, session_id, "alice", "lucy", "project")
-        chat2.update_session(session_id, {"context_name": "original"})
+        chat2.update_session(account_name="alice", session_id=session_id, changes=SessionChanges(context_name="original"))
         resolved = resolve_or_create_session(
             chat2,
             "alice",
@@ -166,6 +153,6 @@ class TestResolveOrCreateSession:
             context_name="replacement",
         )
         assert resolved == session_id
-        meta = chat2.get_session(session_id)
+        meta = chat2.get_session(account_name='alice', session_id=session_id)
         assert meta is not None
         assert meta.context_name == "original"

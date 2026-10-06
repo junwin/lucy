@@ -1,46 +1,47 @@
 """HTTP endpoint implementations for chat sessions.
 
-Serve from EpisodicMemoryManager domain seam. All endpoints require an
-EpisodicMemoryManager parameter.
+Serve from LucyEpisodicStore domain seam. All endpoints require an
+LucyEpisodicStore parameter.
 """
 
 from __future__ import annotations
+
+from src.episodic import LucyEpisodicStore, list_account_sessions
 
 import json
 from typing import Any, Dict, List, Optional
 
 from src.agent import AgentManager
 from galet_memory import (
-    EpisodicEvent,
-    EpisodicMemoryManager,
-    EpisodicSession,
-    EpisodicSessionQuery,
+    NewEvent,
+    Session,
+    SessionChanges,
 )
 
 
-def _episodic_session_to_response(session: EpisodicSession, include_events: bool = True) -> Dict[str, Any]:
+def _episodic_session_to_response(session: Session, include_events: bool = True, events=()) -> Dict[str, Any]:
     body: Dict[str, Any] = {
         "id": session.session_id,
         "account_name": session.account_name,
-        "agent_name": session.agent_name,
+        "agent_name": session.metadata.get("default_agent", ""),
         "friendly_name": session.friendly_name,
         "created_at": session.created_at.isoformat() if session.created_at is not None else None,
         "updated_at": session.updated_at.isoformat() if session.updated_at is not None else None,
-        "tags": session.tags,
+        "tags": list(session.tags),
         "summary": None,
         "importance_score": 0.5,
         "include_in_context": True,
         "metadata": session.metadata,
         "context_name": session.context_name,
-        "user_id": session.user_id,
-        "session_type": session.session_type,
-        "participants": session.participants,
-        "links": session.links,
+        "user_id": session.account_name,
+        "session_type": session.metadata.get("session_type", "user"),
+        "participants": session.metadata.get("participants", []),
+        "links": session.metadata.get("links", {}),
     }
 
     if include_events:
         messages = []
-        for e in session.events:
+        for e in events:
             content = e.content if isinstance(e.content, str) else json.dumps(e.content, ensure_ascii=False)
             utc_timestamp = e.created_at.isoformat() if getattr(e, "created_at", None) is not None else None
             metadata = e.metadata if (e.metadata and isinstance(e.metadata, dict)) else {"actor": getattr(e, "actor", None)}
@@ -53,6 +54,9 @@ def _episodic_session_to_response(session: EpisodicSession, include_events: bool
                     "metadata": metadata,
                     "event_id": getattr(e, "event_id", None),
                     "actor": getattr(e, "actor", None),
+                    "correlation_ids": list(e.correlation_ids),
+                    "sequence": e.sequence,
+                    "stored_at": e.stored_at.isoformat() if e.stored_at else None,
                 }
             )
         body["messages"] = messages
@@ -63,7 +67,7 @@ def _episodic_session_to_response(session: EpisodicSession, include_events: bool
 
 
 def post_chat_impl(
-    episodic_memory_manager: EpisodicMemoryManager,
+    episodic_memory_manager: LucyEpisodicStore,
     agent_manager: AgentManager,
     payload: Dict[str, Any],
     config=None,
@@ -89,8 +93,7 @@ def post_chat_impl(
 
     meta = episodic_memory_manager.create_session(
         account_name=accountName,
-        agent_name=agentName,
-        user_id=accountName,
+        metadata={"default_agent": agentName},
         friendly_name=friendly_name,
         context_name=context_name,
         tags=tags or [],
@@ -101,7 +104,7 @@ def post_chat_impl(
 
 
 def get_chats_impl(
-    episodic_memory_manager: EpisodicMemoryManager,
+    episodic_memory_manager: LucyEpisodicStore,
     agent_manager: AgentManager,
     agent_name: str,
     account_name: str,
@@ -115,8 +118,7 @@ def get_chats_impl(
     if agentName and not agent_manager.is_valid(agentName):
         return {"error": "Invalid agentName"}, 400
 
-    query = EpisodicSessionQuery(account_name=accountName, agent_name=agentName or "", limit=limit)
-    sessions = episodic_memory_manager.list_sessions(query)
+    sessions = list_account_sessions(episodic_memory_manager, accountName, max(0, limit))
     body = [
         _episodic_session_to_response(s, include_events=False)
         for s in sessions
@@ -125,15 +127,19 @@ def get_chats_impl(
 
 
 def get_chat_impl(
-    episodic_memory_manager: EpisodicMemoryManager,
+    episodic_memory_manager: LucyEpisodicStore,
     session_id: str,
     config=None,
+    *, account_name: str = "",
 ) -> tuple[Dict[str, Any], int]:
-    meta = episodic_memory_manager.get_session(session_id, include_events=True)
+    if not account_name:
+        return {"error": "Missing accountName"}, 400
+    meta = episodic_memory_manager.get_session(account_name=account_name, session_id=session_id)
     if meta is None:
         return {"error": "Chat not found"}, 404
 
-    body = _episodic_session_to_response(meta, include_events=True)
+    snapshot = episodic_memory_manager.get_active_snapshot(account_name=account_name, session_id=session_id)
+    body = _episodic_session_to_response(meta, include_events=True, events=snapshot.events)
     if config is not None:
         from src.message_processors.image_delivery import image_event_for_browser, image_event_for_history
         from src.message_processors.sse_events import SSEEvent
@@ -156,9 +162,10 @@ def get_chat_impl(
 
 
 def post_chat_message_impl(
-    episodic_memory_manager: EpisodicMemoryManager,
+    episodic_memory_manager: LucyEpisodicStore,
     session_id: str,
     data: Dict[str, Any],
+    *, account_name: str = "",
 ) -> tuple[Dict[str, Any], int]:
     role = data.get("role")
     content = data.get("content")
@@ -167,22 +174,24 @@ def post_chat_message_impl(
     if not role or content is None:
         return {"error": "Missing role or content"}, 400
 
-    meta = episodic_memory_manager.get_session(session_id, include_events=False)
+    if not account_name:
+        return {"error": "Missing accountName"}, 400
+    meta = episodic_memory_manager.get_session(account_name=account_name, session_id=session_id)
     if meta is None:
         return {"error": "Chat not found"}, 404
 
-    event = EpisodicEvent(
+    event = NewEvent(
         role=role,
         content=content,
         kind=("user_message" if role == "user" else "assistant_message"),
-        actor=role,
-        event_id="",
+        actor=account_name if role == "user" else str(data.get("actor") or metadata.get("agent") or meta.metadata.get("default_agent") or role),
+        correlation_ids=tuple(data.get("correlation_ids") or ()),
         created_at=None,
         metadata=metadata,
     )
 
     try:
-        episodic_memory_manager.append_event(session_id, event)
+        episodic_memory_manager.append_event(account_name=account_name, session_id=session_id, event=event)
     except Exception as e:
         return {"ok": False, "error": str(e)}, 500
 
@@ -190,28 +199,34 @@ def post_chat_message_impl(
 
 
 def delete_chat_impl(
-    episodic_memory_manager: EpisodicMemoryManager,
+    episodic_memory_manager: LucyEpisodicStore,
     session_id: str,
+    *, account_name: str = "",
 ) -> tuple[Dict[str, Any], int]:
-    meta = episodic_memory_manager.get_session(session_id, include_events=False)
+    if not account_name:
+        return {"error": "Missing accountName"}, 400
+    meta = episodic_memory_manager.get_session(account_name=account_name, session_id=session_id)
     if meta is None:
         return {"error": "Chat not found"}, 404
 
     try:
-        episodic_memory_manager.delete_session(session_id)
+        episodic_memory_manager.delete_session(account_name=account_name, session_id=session_id)
         return {"ok": True}, 200
     except Exception as e:
         return {"ok": False, "error": str(e)}, 500
 
 
 def update_chat_impl(
-    episodic_memory_manager: EpisodicMemoryManager,
+    episodic_memory_manager: LucyEpisodicStore,
     session_id: str,
     payload: Optional[Dict[str, Any]],
+    *, account_name: str = "",
 ) -> tuple[Dict[str, Any], int]:
     payload = payload or {}
 
-    meta = episodic_memory_manager.get_session(session_id, include_events=False)
+    if not account_name:
+        return {"error": "Missing accountName"}, 400
+    meta = episodic_memory_manager.get_session(account_name=account_name, session_id=session_id)
     if meta is None:
         return {"error": "Chat not found"}, 404
 
@@ -221,18 +236,18 @@ def update_chat_impl(
     context_name = payload.get("contextName")
 
     patch: Dict[str, Any] = {}
-    if friendly_name is not None:
+    if "friendlyName" in payload:
         patch["friendly_name"] = friendly_name
     if tags is not None:
         patch["tags"] = tags
     if metadata is not None:
         patch["metadata"] = metadata
-    if context_name is not None:
+    if "contextName" in payload:
         patch["context_name"] = context_name
 
     if patch:
         try:
-            episodic_memory_manager.update_session(session_id, patch)
+            episodic_memory_manager.update_session(account_name=account_name, session_id=session_id, changes=SessionChanges(**patch))
         except Exception as e:
             return {"ok": False, "error": str(e)}, 500
 

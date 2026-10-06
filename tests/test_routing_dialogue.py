@@ -17,7 +17,7 @@ from tests.test_skillset_router import make_router, payload
 @pytest.fixture
 def dialogue(tmp_path):
     with SqliteEpisodicMemory(tmp_path / 'dialogue.sqlite') as memory:
-        session = memory.create_session(account_name='alice', agent_name='lucy', metadata={'project': 'photos'})
+        session = memory.create_session(account_name='alice', metadata={**({'project': 'photos', 'default_agent': 'lucy'}), "default_agent": 'lucy'})
         router = make_router(agents=[
             Agent(name='lucy'),
             Agent(name='lumia', skillset=['image-processing', 'image-creation']),
@@ -41,7 +41,7 @@ def classification(router, kind, capabilities=()):
 
 
 def state(memory, request):
-    return memory.get_session(request['conversationId'], include_events=False).metadata
+    return memory.get_session(account_name='alice', session_id=request['conversationId']).metadata
 
 
 def test_question_reply_stays_with_specialist_even_when_classifier_is_down(dialogue):
@@ -53,7 +53,7 @@ def test_question_reply_stays_with_specialist_even_when_classifier_is_down(dialo
         assert result.reason == 'session_continuation'
     router.llm_adapter.call_model.assert_not_called()
     assert state(memory, request)['project'] == 'photos'
-    assert memory.get_session(request['conversationId']).agent_name == 'lucy'
+    assert memory.get_session(account_name='alice', session_id=request['conversationId']).metadata['default_agent'] == 'lucy'
 
 
 def test_continuity_survives_router_restart(dialogue):
@@ -84,7 +84,7 @@ def test_closure_releases_specialist(dialogue, ending):
     assert result.reason == 'dialogue_closed'
     assert result.selected_agent == 'lumia'
     router.remember_dialogue(request, result, request['conversationId'], "You're welcome.")
-    assert state(memory, request) == {'project': 'photos'}
+    assert state(memory, request) == {'project': 'photos', 'default_agent': 'lucy'}
     classification(router, 'general')
     assert router.route({**request, 'question': 'A new question'}).selected_agent == 'lucy'
 
@@ -142,7 +142,7 @@ def test_general_new_task_releases_specialist(dialogue):
 
 def test_no_cross_session_or_account_affinity(dialogue):
     router, memory, now, request = dialogue
-    other = memory.create_session(account_name='alice', agent_name='lucy')
+    other = memory.create_session(account_name='alice', metadata={"default_agent": 'lucy'})
     classification(router, 'general')
     assert router.route({**request, 'conversationId': other.session_id, 'question': 'yes'}).selected_agent == 'lucy'
     with pytest.raises(ValueError, match='does not belong'):
@@ -153,7 +153,7 @@ def test_no_cross_session_or_account_affinity(dialogue):
 def test_manual_selection_releases_affinity_and_preserves_metadata(dialogue):
     router, memory, now, request = dialogue
     router.remember_dialogue({**request, 'routing': 'explicit'}, None, request['conversationId'])
-    assert state(memory, request) == {'project': 'photos'}
+    assert state(memory, request) == {'project': 'photos', 'default_agent': 'lucy'}
 
 
 def test_no_continuation_without_live_affinity(dialogue):
@@ -199,12 +199,12 @@ def test_ask_persists_affinity_before_done_and_routes_next_reply(tmp_path, strea
             for line in handler.handle_streaming(payload()):
                 if json.loads(line.removeprefix('data: ')).get('type') == 'done':
                     session_id = processor.calls[-1]['conversation_id']
-                    assert memory.get_session(session_id).metadata['routing_dialogue']['agent'] == 'lumia'
+                    assert memory.get_session(account_name='alice', session_id=session_id).metadata['routing_dialogue']['agent'] == 'lumia'
         else:
             status, body = handler.handle(payload())
             assert status == 200
             session_id = body['conversation_id']
-            assert memory.get_session(session_id).metadata['routing_dialogue']['agent'] == 'lumia'
+            assert memory.get_session(account_name='alice', session_id=session_id).metadata['routing_dialogue']['agent'] == 'lumia'
         router.llm_adapter.call_model.side_effect = RuntimeError('offline')
         reply = payload(conversationId=session_id, question='ok')
         if streaming:
@@ -232,7 +232,7 @@ def test_execution_failure_does_not_create_affinity(tmp_path, streaming):
         else:
             handler.handle(payload())
         session_id = processor.calls[-1]['conversation_id']
-        assert 'routing_dialogue' not in memory.get_session(session_id).metadata
+        assert 'routing_dialogue' not in memory.get_session(account_name='alice', session_id=session_id).metadata
 
 
 def test_configured_catalog_can_shift_from_image_work_to_writing(dialogue):

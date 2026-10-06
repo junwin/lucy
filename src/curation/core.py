@@ -6,6 +6,8 @@ concrete storage details stay behind the galet-memory interface.
 
 from __future__ import annotations
 
+from src.episodic import LucyEpisodicStore
+
 import json
 import logging
 from datetime import datetime, timezone
@@ -14,7 +16,7 @@ from typing import Any, Dict, List, Optional
 
 from galet.interface import LLMApi
 
-from galet_memory import EpisodicEvent, EpisodicMemoryManager
+from galet_memory import Event
 from src.curation.resolver import resolve_session
 from src.curation.summarizer import summarize_session
 from src.curation.templates import render_template, resolve_template
@@ -30,7 +32,7 @@ class CurationEngine:
 
     def __init__(
         self,
-        episodic_store: EpisodicMemoryManager,
+        episodic_store: LucyEpisodicStore,
         llm_api: LLMApi,
         llm_model: str = "gpt-4o-mini",
         digests_root: Optional[Path] = None,
@@ -70,8 +72,8 @@ class CurationEngine:
                 "error": f"Session not found: friendly_name={friendly_name}, session_id={session_id}",
             }
 
-        full_session = self.episodic_store.get_session(
-            session.session_id, include_events=True
+        full_session = self.episodic_store.get_active_snapshot(
+            account_name=account, session_id=session.session_id
         )
         if full_session is None:
             return {
@@ -84,11 +86,7 @@ class CurationEngine:
         events = list(full_session.events)
 
         if mode == "filter":
-            return self._mode_filter(
-                sid=sid,
-                events=events,
-                rules=curation_rules or {},
-            )
+            return {"status": "error", "error": "Destructive curation filtering is no longer supported; invalidate an exchange by correlation_id instead."}
         if mode == "summarize":
             return self._mode_summarize(
                 sid=sid,
@@ -103,62 +101,11 @@ class CurationEngine:
             )
         return {"status": "error", "error": f"Unknown mode: {mode}"}
 
-    def _mode_filter(
-        self,
-        *,
-        sid: str,
-        events: List[EpisodicEvent],
-        rules: Dict[str, Any],
-    ) -> Dict[str, Any]:
-        remove_kinds: List[str] = rules.get("remove_kinds", [])
-        keep_roles: List[str] = rules.get("keep_roles", [])
-        deduplicate: bool = rules.get("deduplicate", False)
-
-        filtered: List[EpisodicEvent] = []
-        removed: Dict[str, int] = {"by_kind": 0, "by_role": 0, "duplicates": 0}
-        seen_payloads: set[str] = set()
-
-        for event in events:
-            if remove_kinds and event.kind in remove_kinds:
-                removed["by_kind"] += 1
-                continue
-            if keep_roles and event.role not in keep_roles:
-                removed["by_role"] += 1
-                continue
-            if deduplicate:
-                payload_key = (
-                    event.content
-                    if isinstance(event.content, str)
-                    else json.dumps(event.content, sort_keys=True)
-                )
-                if payload_key in seen_payloads:
-                    removed["duplicates"] += 1
-                    continue
-                seen_payloads.add(payload_key)
-            filtered.append(event)
-
-        self.episodic_store.reset_session(sid)
-        for event in filtered:
-            self.episodic_store.append_event(sid, event)
-
-        return {
-            "status": "published",
-            "note_text": "",
-            "output_path": None,
-            "session_id": sid,
-            "summary": {
-                "original_count": len(events),
-                "kept_count": len(filtered),
-                "removed_count": len(events) - len(filtered),
-                "removed": removed,
-            },
-        }
-
     def _mode_summarize(
         self,
         *,
         sid: str,
-        events: List[EpisodicEvent],
+        events: List[Event],
         account: str,
         friendly_name: str,
         template_name: str,
@@ -199,7 +146,7 @@ class CurationEngine:
             }
 
         output_path = self._write_digest(sid, account, note_text)
-        self._maybe_embed_digest(note_text, output_path, sid, account)
+        self._maybe_embed_digest(note_text, output_path, sid, account, [event.event_id for event in events])
         return {
             "status": "published",
             "note_text": note_text,
@@ -231,6 +178,7 @@ class CurationEngine:
         note_path: Path,
         session_id: str,
         account: str,
+        source_event_ids: List[str],
     ) -> None:
         if self.embedding_facade is None or self.storage is None:
             return
@@ -256,6 +204,7 @@ class CurationEngine:
                 source_metadata={
                     "path": str(note_path),
                     "session_id": session_id,
+                    "source_event_ids": source_event_ids,
                 },
             )
             self.storage.upsert_embedding(record)

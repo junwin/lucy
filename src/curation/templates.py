@@ -12,7 +12,7 @@ import logging
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
-from galet_memory import EpisodicEvent
+from galet_memory import Event
 
 logger = logging.getLogger(__name__)
 
@@ -80,7 +80,7 @@ def render_template(
     session_id: str = "",
     account: str = "",
     archive_path: str = "",
-    events: Optional[List[EpisodicEvent]] = None,
+    events: Optional[List[Event]] = None,
     summary_text: str = "",
     decisions: str = "",
     files: str = "",

@@ -1,12 +1,10 @@
+from tests.episodic_fixtures import event_fixture
+from tests.episodic_fixtures import memory_fixture, EmptyEpisodic
 from types import SimpleNamespace
 
 from galet_prompt_builder import CompiledPrompt, PromptMessage, PromptMetrics
 from galet_prompt_builder.metrics import SectionMetrics
 
-from galet_memory import (
-    EpisodicEvent,
-    EpisodicMemoryResult,
-)
 from src.coala_memory.procedural import ProceduralMemoryResult
 from src.coala_memory.semantic import (
     SemanticDocument,
@@ -142,6 +140,7 @@ def test_adapter_translates_lucy_call_to_explicit_galet_policy():
         _RecordingCompiler.instance.memories["episodic_memory"]
         is adapter.episodic_memory
     )
+    assert _RecordingCompiler.instance.memories["digest_memory"] is adapter.episodic_memory
     assert request.current_input == "What did I write about attention?"
     assert request.context_name == "lucyproject"
     assert request.semantic_namespaces == ("vol_6", "documents")
@@ -264,11 +263,11 @@ def test_adapter_compiles_with_lucy_memory_contracts():
             )
 
     class Episodic:
-        def recall(self, request):
-            return EpisodicMemoryResult(
+        def get_recent_events(self, **kwargs):
+            return memory_fixture(
                 session_id="session-1",
                 events=[
-                    EpisodicEvent(
+                    event_fixture(
                         role="user",
                         content="Earlier question",
                         kind="user_message",
@@ -277,8 +276,12 @@ def test_adapter_compiles_with_lucy_memory_contracts():
                 ],
             )
 
-        def save_overflow_digest(self, **kwargs):
-            return None
+        def get_active_snapshot(self, **kwargs):
+            from galet_memory import HistorySnapshot, Session
+            return HistorySnapshot(Session("session-1", "junwin"), ())
+
+        def search_digests(self, **kwargs):
+            return []
 
     class Procedural:
         def recall(self, request):
@@ -334,7 +337,7 @@ def test_agent_switch_and_explicit_context_resolve_fresh_configuration(tmp_path)
     adapter = GaletPromptBuilderAdapter(
         agent_manager=SimpleNamespace(get_agent=agents.get), config=_Config(),
         storage=SimpleNamespace(), semantic_memory=_UnusedMemory(),
-        episodic_memory=SimpleNamespace(recall=lambda request: EpisodicMemoryResult()),
+        episodic_memory=EmptyEpisodic(),
         procedural_memory=memory)
     def build(name, context=""):
         return adapter.build_prompt(content_text="hello", conversation_id="new", agent_name=name,
@@ -374,7 +377,7 @@ def test_prompt_resolves_shared_and_account_skills_through_configured_memory(tmp
     adapter = GaletPromptBuilderAdapter(
         agent_manager=SimpleNamespace(get_agent=lambda name: agent), config=Config(),
         storage=SimpleNamespace(), semantic_memory=_UnusedMemory(),
-        episodic_memory=SimpleNamespace(recall=lambda request: EpisodicMemoryResult()),
+        episodic_memory=EmptyEpisodic(),
         procedural_memory=memory)
     def build(account, context=""):
         return str(adapter.build_prompt(content_text="hello", conversation_id="new", agent_name="colin",

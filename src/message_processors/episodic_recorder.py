@@ -1,16 +1,19 @@
 """Record function-calling activity through the galet-memory interface."""
 
+from src.episodic import LucyEpisodicStore
+
 import logging
+from dataclasses import replace
 from typing import Dict, List, Optional
 
-from galet_memory import EpisodicEvent, EpisodicMemoryManager
+from galet_memory import NewEvent
 from src.message_processors.fcp_models import ProcessorContext
 from src.message_processors.sse_events import SSEEvent
 
 
 class EpisodicRecorder:
 
-    def __init__(self, episodic_store: Optional[EpisodicMemoryManager] = None) -> None:
+    def __init__(self, episodic_store: Optional[LucyEpisodicStore] = None) -> None:
         self.episodic_store = episodic_store
 
     def ensure_session(self, ctx: ProcessorContext) -> None:
@@ -23,13 +26,12 @@ class EpisodicRecorder:
         """
         if self.episodic_store is None:
             return
-        if self.episodic_store.session_exists(ctx.conversation_id):
+        if self.episodic_store.get_session(account_name=ctx.account_id, session_id=ctx.conversation_id) is not None:
             return
         try:
             self.episodic_store.create_session(
-                user_id=ctx.account_id,
                 account_name=ctx.account_id,
-                agent_name=ctx.agent_name,
+                metadata={"default_agent": ctx.agent_name},
                 session_id=ctx.conversation_id,
                 friendly_name=ctx.context_name or None,
                 context_name=ctx.context_name or None,
@@ -59,20 +61,17 @@ class EpisodicRecorder:
             return
         try:
             self.ensure_session(ctx)
-            event = self.episodic_store.append_event(
-                ctx.conversation_id,
-                EpisodicEvent(
+            self.episodic_store.append_event(
+                account_name=ctx.account_id, session_id=ctx.conversation_id,
+                event=NewEvent(
                     role="user",
                     actor=ctx.account_id,
                     kind="user_message",
                     content=user_message,
                     metadata={"agent": ctx.agent_name},
+                    correlation_ids=(correlation_id,) if correlation_id else (),
                 ),
             )
-            if correlation_id:
-                self.episodic_store.link_event(
-                    correlation_id, ctx.conversation_id, event.event_id
-                )
         except Exception:
             logging.exception(
                 "episodic: failed to write streaming user message for session=%s",
@@ -90,9 +89,9 @@ class EpisodicRecorder:
             return
 
         ev = streamed_event
-        event: Optional[EpisodicEvent] = None
+        event: Optional[NewEvent] = None
         if ev.type == "tool_call":
-            event = EpisodicEvent(
+            event = NewEvent(
                 role="assistant",
                 actor=ctx.agent_name,
                 kind="assistant_tool_call",
@@ -103,7 +102,7 @@ class EpisodicRecorder:
             payload = {"call_id": ev.call_id, "ok": ev.ok}
             if ev.status:
                 payload["status"] = ev.status
-            event = EpisodicEvent(
+            event = NewEvent(
                 role="tool",
                 actor="system",
                 kind="tool_result",
@@ -111,7 +110,7 @@ class EpisodicRecorder:
                 metadata={"call_id": ev.call_id},
             )
         elif ev.type == "text" and ev.content:
-            event = EpisodicEvent(
+            event = NewEvent(
                 role="assistant",
                 actor=ctx.agent_name,
                 kind="assistant_message",
@@ -140,7 +139,7 @@ class EpisodicRecorder:
                     "format": "png",
                 }
                 image_format = "png"
-            event = EpisodicEvent(
+            event = NewEvent(
                 role="assistant",
                 actor=ctx.agent_name,
                 kind="generated_image",
@@ -148,7 +147,7 @@ class EpisodicRecorder:
                 metadata={"agent": ctx.agent_name, "format": image_format},
             )
         elif ev.type == "video":
-            event = EpisodicEvent(
+            event = NewEvent(
                 role="assistant",
                 actor=ctx.agent_name,
                 kind="generated_video",
@@ -166,11 +165,7 @@ class EpisodicRecorder:
 
         try:
             self.ensure_session(ctx)
-            event = self.episodic_store.append_event(ctx.conversation_id, event)
-            if correlation_id:
-                self.episodic_store.link_event(
-                    correlation_id, ctx.conversation_id, event.event_id
-                )
+            self.episodic_store.append_event(account_name=ctx.account_id, session_id=ctx.conversation_id, event=replace(event, correlation_ids=(correlation_id,) if correlation_id else ()))
         except Exception:
             logging.exception(
                 "episodic: failed to write streaming event type=%s for session=%s",
@@ -189,7 +184,7 @@ class EpisodicRecorder:
         """Write streaming events to episodic storage, preserving media and tool cards.
 
         When *correlation_id* is provided, every written event is linked to it
-        in the correlation sidecar index. Falsy correlation ids write no links.
+        atomically as part of the append. Falsy correlation ids write no links.
 
         Best-effort: failures are logged but not propagated.
         """
@@ -197,10 +192,10 @@ class EpisodicRecorder:
             return
         try:
             self.ensure_session(ctx)
-            chat_events: List[EpisodicEvent] = []
+            chat_events: List[NewEvent] = []
 
             # 1. User message
-            chat_events.append(EpisodicEvent(
+            chat_events.append(NewEvent(
                 role="user",
                 actor=ctx.account_id,
                 kind="user_message",
@@ -211,7 +206,7 @@ class EpisodicRecorder:
             # 2. Tool calls and results
             for ev in streamed_events:
                 if ev.type == "tool_call":
-                    chat_events.append(EpisodicEvent(
+                    chat_events.append(NewEvent(
                         role="assistant",
                         actor=ctx.agent_name,
                         kind="assistant_tool_call",
@@ -223,7 +218,7 @@ class EpisodicRecorder:
                     # Persist status so the frontend ticker can show warnings in history
                     if ev.status:
                         payload["status"] = ev.status
-                    chat_events.append(EpisodicEvent(
+                    chat_events.append(NewEvent(
                         role="tool",
                         actor="system",
                         kind="tool_result",
@@ -235,7 +230,7 @@ class EpisodicRecorder:
             assistant_texts = [ev for ev in streamed_events if ev.type == "text" and ev.content]
             if assistant_texts:
                 # Use the last text event as the assistant response
-                chat_events.append(EpisodicEvent(
+                chat_events.append(NewEvent(
                     role="assistant",
                     actor=ctx.agent_name,
                     kind="assistant_message",
@@ -247,7 +242,7 @@ class EpisodicRecorder:
             for ev in streamed_events:
                 if ev.type == "image":
                     if ev.format == "svg":
-                        chat_events.append(EpisodicEvent(
+                        chat_events.append(NewEvent(
                             role="assistant",
                             actor=ctx.agent_name,
                             kind="generated_image",
@@ -261,7 +256,7 @@ class EpisodicRecorder:
                             metadata={"agent": ctx.agent_name, "format": "svg"},
                         ))
                     else:
-                        chat_events.append(EpisodicEvent(
+                        chat_events.append(NewEvent(
                             role="assistant",
                             actor=ctx.agent_name,
                             kind="generated_image",
@@ -275,7 +270,7 @@ class EpisodicRecorder:
             # 5. Generated videos
             for ev in streamed_events:
                 if ev.type == "video":
-                    chat_events.append(EpisodicEvent(
+                    chat_events.append(NewEvent(
                         role="assistant",
                         actor=ctx.agent_name,
                         kind="generated_video",
@@ -288,11 +283,10 @@ class EpisodicRecorder:
                         metadata={"agent": ctx.agent_name, "format": "mp4"},
                     ))
 
-            stored_events = self.episodic_store.add_events(ctx.conversation_id, chat_events)
-            for event in stored_events:
-                self.episodic_store.link_event(
-                    correlation_id, ctx.conversation_id, event.event_id
-                )
+            self.episodic_store.append_events(
+                account_name=ctx.account_id, session_id=ctx.conversation_id,
+                events=[replace(event, correlation_ids=(correlation_id,) if correlation_id else ()) for event in chat_events],
+            )
             logging.info(
                 "episodic: wrote %d streaming events for session=%s (user+tool+text+image)",
                 len(chat_events),
@@ -314,8 +308,7 @@ class EpisodicRecorder:
         """Write a prompt token breakdown as a ``prompt_report`` system event.
 
         The event is attributed to the agent that built the prompt and, when
-        *correlation_id* is provided, linked to it in the correlation sidecar
-        index. Falsy correlation ids write no links.
+        *correlation_id* is provided, included in the append. Falsy correlation ids write no links.
 
         Best-effort: failures are logged but not propagated.
         """
@@ -323,17 +316,13 @@ class EpisodicRecorder:
             return
         try:
             self.ensure_session(ctx)
-            event = EpisodicEvent(
+            event = NewEvent(
                 role="system",
                 actor=ctx.agent_name,
                 kind="prompt_report",
                 content=breakdown,
             )
-            event = self.episodic_store.append_event(ctx.conversation_id, event)
-            if correlation_id:
-                self.episodic_store.link_event(
-                    correlation_id, ctx.conversation_id, event.event_id
-                )
+            self.episodic_store.append_event(account_name=ctx.account_id, session_id=ctx.conversation_id, event=replace(event, correlation_ids=(correlation_id,) if correlation_id else ()))
             logging.info(
                 "episodic: wrote prompt_report for session=%s (correlation=%s)",
                 ctx.conversation_id,

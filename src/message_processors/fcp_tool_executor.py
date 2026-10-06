@@ -1,3 +1,4 @@
+from src.episodic import LucyEpisodicStore
 from src.message_processors.image_delivery import image_result_for_model
 import json
 import logging
@@ -7,7 +8,6 @@ from typing import Any, Dict, Iterable, List, Optional, Tuple
 from src.agent import Agent
 from src.agent.agent_manager import AgentManager
 from src.agent.caps import resolve_effective_cap
-from galet_memory import EpisodicMemoryManager
 from src.config_manager import ConfigManager
 from src.handlers.handler_registry import HandlerRegistry
 from galet.adapter_interface import LLMAdapter
@@ -62,7 +62,7 @@ class ToolExecutor:
         prompt_builder: PromptBuilderInterface,
         llm_adapter: LLMAdapter,
         agent_manager: Optional[AgentManager],
-        episodic_store: Optional[EpisodicMemoryManager] = None,
+        episodic_store: Optional[LucyEpisodicStore] = None,
     ):
         self.registry = registry
         self.config = config

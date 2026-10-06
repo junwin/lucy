@@ -1,6 +1,6 @@
 from types import SimpleNamespace
 
-from galet_memory import EmbeddingDigestRecall, EpisodicMemoryRequest, SqliteEpisodicMemory
+from galet_memory import EmbeddingDigestRecall, SqliteEpisodicMemory
 from galet_memory.ports import FileTextLoader
 
 from src.curation.digest_publication_adapters import LucyEmbeddingIndex, LucyEmbeddingProvider
@@ -26,7 +26,7 @@ def test_galet_digest_recall_uses_lucy_embedding_ports(tmp_path):
 
     memory = SqliteEpisodicMemory(
         tmp_path / "chat.sqlite",
-        digest_recall=EmbeddingDigestRecall(
+        digest_search=EmbeddingDigestRecall(
             embeddings=LucyEmbeddingProvider(Facade()),
             index=LucyEmbeddingIndex(Store()),
             text_loader=FileTextLoader(),
@@ -34,15 +34,10 @@ def test_galet_digest_recall_uses_lucy_embedding_ports(tmp_path):
     )
     try:
         # Archived digest recall validates ownership against its source session.
-        memory.create_session(
-            account_name="junwin", agent_name="peace", session_id="older-session",
-        )
-        result = memory.recall(EpisodicMemoryRequest(
-            account_name="junwin", agent_name="peace", query="attention",
-            include_recent_history=False, include_session_metadata=False,
-        ))
+        memory.create_session(account_name="junwin", session_id="older-session", metadata={"default_agent": "peace"})
+        result = memory.search_digests(account_name="junwin", query="attention")
     finally:
         memory.close()
-    assert len(result.digests) == 1
-    assert result.digests[0].session_id == "older-session"
-    assert "earlier discussion" in result.digests[0].snippet
+    assert len(result) == 1
+    assert result[0].session_id == "older-session"
+    assert "earlier discussion" in result[0].snippet

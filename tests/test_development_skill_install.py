@@ -1,9 +1,11 @@
 """Install and compile the real shared skill before using slim developer agents."""
+
+from tests.episodic_fixtures import EmptyEpisodic
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-from galet_memory import FileProceduralMemory, ProceduralLayout, EpisodicMemoryResult
+from galet_memory import FileProceduralMemory, ProceduralLayout
 
 from scripts.install_development_skill import install
 from src.agent import AgentManager
@@ -24,7 +26,7 @@ def test_installed_development_skill_enters_real_agent_prompt(tmp_path, name):
     adapter = GaletPromptBuilderAdapter(
         agent_manager=manager, config=config, storage=SimpleNamespace(),
         semantic_memory=_UnusedMemory(),
-        episodic_memory=SimpleNamespace(recall=lambda request: EpisodicMemoryResult()),
+        episodic_memory=EmptyEpisodic(),
         procedural_memory=memory)
     messages = adapter.build_prompt(content_text='Refactor the requested module', conversation_id='new',
                                     agent_name=name, account_name='junwin', context_name='skinny')

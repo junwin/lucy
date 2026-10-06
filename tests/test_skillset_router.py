@@ -127,16 +127,17 @@ def test_internal_and_non_chat_agents_are_excluded():
 def test_recent_history_is_scoped_active_visible_and_bounded():
     router = make_router()
     store = Mock()
-    store.get_session.side_effect = [SimpleNamespace(account_name="alice"), SimpleNamespace(events=[
+    store.get_session.return_value = SimpleNamespace(account_name="alice")
+    store.get_recent_events.return_value = SimpleNamespace(events=[
         SimpleNamespace(role="assistant", kind="tool_result", content="secret tool output"),
         *[SimpleNamespace(role="user", kind="user_message", content="x" * 1000) for _ in range(6)],
-    ])]
+    ])
     router.episodic_store = store
     router.route(payload(conversationId="session"))
     request = json.loads(router.llm_adapter.call_model.call_args.kwargs["input"][1]["content"])
     assert len(request["recent_conversation"]) == 4
     assert all(len(e["content"]) == 800 for e in request["recent_conversation"])
-    assert store.get_session.call_args.kwargs == {"event_scope": "active"}
+    assert store.get_recent_events.call_args.kwargs == {"account_name": "alice", "session_id": "session", "count": 4, "event_kinds": ["user_message", "assistant_message"]}
 
 
 def test_foreign_session_is_rejected_before_reading_history():
@@ -146,7 +147,7 @@ def test_foreign_session_is_rejected_before_reading_history():
     router.episodic_store = store
     with pytest.raises(ValueError, match="does not belong"):
         router.route(payload(conversationId="session"))
-    store.get_session.assert_called_once_with("session", include_events=False)
+    store.get_session.assert_called_once_with(account_name="alice", session_id="session")
     router.llm_adapter.call_model.assert_not_called()
 
 
@@ -193,10 +194,11 @@ def test_capability_answer_after_clarification_does_not_repeat_classifier():
     router = make_router()
     router.llm_adapter.call_model.side_effect = RuntimeError('unavailable')
     router.episodic_store = Mock()
-    router.episodic_store.get_session.side_effect = [SimpleNamespace(account_name='alice'), SimpleNamespace(events=[
+    router.episodic_store.get_session.return_value = SimpleNamespace(account_name="alice")
+    router.episodic_store.get_recent_events.return_value = SimpleNamespace(events=[
         SimpleNamespace(role='user', kind='user_message', content='Create sidecars for new images'),
         SimpleNamespace(role='assistant', kind='assistant_message', content='Which specialist or type of work should handle this request?'),
-    ])]
+    ])
     result = router.route(payload(conversationId='session', question='one that can work with images i.e. image-processing'))
     assert result.selected_agent == 'lumia'
     assert result.reason == 'user_selection'

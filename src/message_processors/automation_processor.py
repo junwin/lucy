@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from src.episodic import LucyEpisodicStore
+
 import json
 import logging
 import traceback
@@ -29,7 +31,7 @@ from src.storage.interfaces import TasklistStore
 if TYPE_CHECKING:
     from src.storage.interfaces import TasklistStore
 
-from galet_memory import EpisodicEvent, EpisodicMemoryManager
+from galet_memory import NewEvent
 
 from src.tasklists.task import Task
 from src.tasklists.task_list import TaskList
@@ -222,7 +224,7 @@ class AutomationProcessor(MessageProcessorInterface):
         registry: HandlerRegistry,
         storage: TasklistStore,
         prompt_builder: PromptBuilderInterface,
-        episodic_store: Optional[EpisodicMemoryManager] = None,
+        episodic_store: Optional[LucyEpisodicStore] = None,
         llm_adapter: Optional[LLMAdapter] = None,
         agent_manager: Optional[AgentManager] = None,
     ):
@@ -251,13 +253,12 @@ class AutomationProcessor(MessageProcessorInterface):
         """
         if self.episodic_store is None:
             return
-        if self.episodic_store.session_exists(conversation_id):
+        if self.episodic_store.get_session(account_name=account_name, session_id=conversation_id) is not None:
             return
         try:
             self.episodic_store.create_session(
-                user_id=account_name,
                 account_name=account_name,
-                agent_name=agent_name,
+                metadata={"default_agent": agent_name},
                 session_id=conversation_id,
                 friendly_name=friendly_name,
             )
@@ -308,17 +309,15 @@ class AutomationProcessor(MessageProcessorInterface):
             # Preserve the original kind so consumers can distinguish automation events.
             meta["automation_kind"] = kind
 
-            event = EpisodicEvent(
+            event = NewEvent(
                 role=role,
                 actor=agent_name if role == "assistant" else account_name,
                 kind=mapped_kind,
                 content=payload,
                 metadata=meta,
+                correlation_ids=(correlation_id,) if correlation_id else (),
             )
-            stored = self.episodic_store.append_event(conversation_id, event)
-            self.episodic_store.link_event(
-                correlation_id, conversation_id, stored.event_id
-            )
+            self.episodic_store.append_event(account_name=account_name, session_id=conversation_id, event=event)
             logger.info(
                 "episodic memory: wrote %s event for session=%s kind=%s (mapped from %s)",
                 role,

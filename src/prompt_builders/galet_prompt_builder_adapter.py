@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from src.episodic import LucyEpisodicStore
+
 from dataclasses import fields
 from typing import Any, Dict, List, Optional
 
@@ -8,7 +10,7 @@ from galet_prompt_builder import (
     PromptPolicy,
     PromptRequest,
 )
-from galet_memory import EpisodicMemory, ProceduralMemory, ProceduralMemoryRequest
+from galet_memory import ProceduralMemory, ProceduralMemoryRequest
 
 from src.agent import Agent, AgentManager
 from src.coala_memory.semantic import (
@@ -97,7 +99,7 @@ class GaletPromptBuilderAdapter(PromptBuilderInterface):
         config: ConfigManager,
         storage: Storage,
         semantic_memory: SemanticMemory,
-        episodic_memory: EpisodicMemory,
+        episodic_memory: LucyEpisodicStore,
         procedural_memory: ProceduralMemory,
         compiler_class: type[PromptCompiler] = PromptCompiler,
     ) -> None:
@@ -155,6 +157,7 @@ class GaletPromptBuilderAdapter(PromptBuilderInterface):
         compiler = self.compiler_class(
             procedural_memory=self.procedural_memory,
             episodic_memory=self.episodic_memory,
+            digest_memory=self.episodic_memory,
             semantic_memory=_LucySemanticMemoryAdapter(self.semantic_memory),
         )
         compiled = compiler.build(

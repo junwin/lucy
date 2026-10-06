@@ -295,6 +295,13 @@
             "in": "path",
             "required": true,
             "schema": { "type": "string" }
+          },
+          {
+            "name": "accountName",
+            "in": "query",
+            "required": true,
+            "description": "Owning account; PATCH and message POST also accept it in the JSON body.",
+            "schema": { "type": "string" }
           }
         ],
         "responses": {
@@ -358,6 +365,13 @@
             "in": "path",
             "required": true,
             "schema": { "type": "string" }
+          },
+          {
+            "name": "accountName",
+            "in": "query",
+            "required": true,
+            "description": "Owning account; PATCH and message POST also accept it in the JSON body.",
+            "schema": { "type": "string" }
           }
         ],
         "responses": {
@@ -389,6 +403,13 @@
             "name": "session_id",
             "in": "path",
             "required": true,
+            "schema": { "type": "string" }
+          },
+          {
+            "name": "accountName",
+            "in": "query",
+            "required": false,
+            "description": "Owning account; PATCH and message POST also accept it in the JSON body.",
             "schema": { "type": "string" }
           }
         ],
@@ -443,6 +464,13 @@
             "name": "session_id",
             "in": "path",
             "required": true,
+            "schema": { "type": "string" }
+          },
+          {
+            "name": "accountName",
+            "in": "query",
+            "required": false,
+            "description": "Owning account; PATCH and message POST also accept it in the JSON body.",
             "schema": { "type": "string" }
           }
         ],

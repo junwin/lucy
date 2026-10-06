@@ -1,3 +1,4 @@
+from src.episodic import LucyEpisodicStore
 from flask import Flask, request, jsonify, send_file, make_response, Response
 from flask_swagger_ui import get_swaggerui_blueprint
 from flask_cors import CORS
@@ -53,7 +54,7 @@ from src.http_endpoints.upload_endpoints import (
     post_upload_image_impl,
 )
 from src.coala_memory.semantic import SemanticMemory
-from galet_memory import EpisodicMemoryManager, ProceduralMemory
+from galet_memory import ProceduralMemory
 from src.api_key import validate_api_key
 
 
@@ -156,7 +157,7 @@ agents_path = config.get("agents_path", "static/data/agents.json")
 
 
 storage = container.get(Storage)
-episodic_memory_manager = container.get(EpisodicMemoryManager)
+episodic_memory_manager = container.get(LucyEpisodicStore)
 semantic_memory = container.get(SemanticMemory)
 
 
@@ -444,28 +445,28 @@ def get_chats():
 
 @app.route("/chats/<session_id>", methods=["GET"])
 def get_chat(session_id: str):
-    body, status = get_chat_impl(episodic_memory_manager, session_id, config=config)
+    body, status = get_chat_impl(episodic_memory_manager, session_id, config=config, account_name=request.args.get("accountName", ""))
     return jsonify(body), status
 
 
 @app.route("/chats/<session_id>/messages", methods=["POST"])
 def post_chat_message(session_id: str):
     data = request.get_json() or {}
-    body, status = post_chat_message_impl(episodic_memory_manager, session_id, data)
+    body, status = post_chat_message_impl(episodic_memory_manager, session_id, data, account_name=request.args.get("accountName") or data.get("accountName", ""))
     return jsonify(body), status
 
 
 # New stubs for future chat management
 @app.route("/chats/<session_id>", methods=["DELETE"])
 def delete_chat(session_id: str):
-    body, status = delete_chat_impl(episodic_memory_manager, session_id)
+    body, status = delete_chat_impl(episodic_memory_manager, session_id, account_name=request.args.get("accountName", ""))
     return jsonify(body), status
 
 
 @app.route("/chats/<session_id>", methods=["PATCH"])
 def update_chat(session_id: str):
     payload = request.get_json(silent=True) or {}
-    body, status = update_chat_impl(episodic_memory_manager, session_id, payload)
+    body, status = update_chat_impl(episodic_memory_manager, session_id, payload, account_name=request.args.get("accountName") or payload.get("accountName", ""))
     return jsonify(body), status
 
 
