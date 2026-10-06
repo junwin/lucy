@@ -1,9 +1,12 @@
 """Diagnostic snapshots retain comparison data without logging image payloads."""
 
+import ast
 import importlib.util
 import json
 from pathlib import Path
 import unittest
+import logging
+from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
 
@@ -66,6 +69,58 @@ class TestRequestDebug(unittest.TestCase):
         with patch.object(debug.logger, "info", side_effect=RuntimeError("bad sink")), patch.object(debug.logger, "warning") as warning:
             debug.log_request_debug(self.config(True), "prepared_prompt", messages=["hello"])
             warning.assert_called_once()
+
+
+    def test_actual_prompt_preparation_accepts_agent_without_optional_fields(self):
+        # Execute the real preparation method with lightweight collaborators,
+        # without importing the application's optional runtime dependencies.
+        source = (Path(__file__).parents[1] / "src" / "message_processors"
+                  / "function_calling_processor.py").read_text()
+        tree = ast.parse(source)
+        method = next(node for node in ast.walk(tree)
+                      if isinstance(node, ast.FunctionDef)
+                      and node.name == "_prepare_prompt_and_tools")
+        module = ast.Module(body=[
+            ast.ImportFrom(module="__future__", names=[ast.alias(name="annotations")], level=0),
+            method,
+        ], type_ignores=[])
+        namespace = {
+            "logging": logging,
+            "log_request_debug": debug.log_request_debug,
+            "ProviderRegistry": SimpleNamespace(resolve_name=lambda *args: "test"),
+            "_log_token_breakdown": lambda *args: {},
+            "_PromptSetupResult": SimpleNamespace,
+        }
+        exec(compile(ast.fix_missing_locations(module), source, "exec"), namespace)
+        for enabled in (False, True):
+            config = Mock()
+            config.get.side_effect = lambda key, default=None: (
+                enabled if key == "request_routing_debug" else default
+            )
+            processor = SimpleNamespace(
+                config=config, registry=None,
+                llm_adapter=SimpleNamespace(supports_image_processing=lambda *args: False),
+                _get_environment_system_messages=lambda: [],
+                prompt_builder=SimpleNamespace(build_prompt=lambda **kwargs: [
+                    {"role": "user", "content": "Animate this image"}
+                ]),
+                _resolve_tool_defs_pipeline=lambda **kwargs: [],
+            )
+            ctx = SimpleNamespace(model="test", provider=None, conversation_id="chat-1",
+                                  agent_name="lumia", account_id="john",
+                                  context_type="hybrid", context_name="image_tool")
+            with patch.object(debug.logger, "info") as info:
+                result = namespace["_prepare_prompt_and_tools"](
+                    processor, ctx=ctx, primary_agent=SimpleNamespace(),
+                    message="Animate this image", image_ids=["image-1"], file_ids=None,
+                )
+            self.assertEqual(result.prompt_messages[0]["content"], "Animate this image")
+            if enabled:
+                record = json.loads(info.call_args.args[1])
+                self.assertIsNone(record["allowed_tools"])
+                self.assertEqual(record["image_ids"], ["image-1"])
+            else:
+                info.assert_not_called()
 
 
 if __name__ == "__main__":

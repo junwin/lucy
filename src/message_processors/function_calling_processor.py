@@ -459,7 +459,7 @@ class FunctionCallingProcessor(MessageProcessorInterface):
             supports_images=supports_images, context_type=ctx.context_type,
             context_name=ctx.context_name,
             skills=getattr(primary_agent, "skills", None),
-            allowed_tools=primary_agent.allowed_tools,
+            allowed_tools=getattr(primary_agent, "allowed_tools", None),
             image_ids=image_ids, file_ids=file_ids,
             messages=prompt_messages, tools=filtered_function_defs,
         )
