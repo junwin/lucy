@@ -56,10 +56,10 @@ galet==0.1.21
 # Include the vec extra so a normal Lucy install has sqlite-vec available when
 # embedding_store_backend=sqlite_vec is configured.
 # Exact commits for the explicit episodic interfaces; use PyPI pins after release.
-galet-memory[vec] @ git+https://github.com/junwin/galet-memory.git@1215486ccdb300c438e51b76ef0ec14355559708
+galet-memory[vec]==0.1.25
 
 # Provider-neutral prompt selection, budgeting, and compilation.
-galet-prompt-builder @ git+https://github.com/junwin/galet-prompt-builder.git@c3909637275ef91bdcec96158545113f355f2c78
+galet-prompt-builder==0.1.22
 
 # Shared handler ABI and external handler discovery.
-galet-tools @ git+https://github.com/junwin/galet-tools.git@bb40eff895a3c47ae399fddaadbb81ca6d22
+galet-tools==0.1.24
