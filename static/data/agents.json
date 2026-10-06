@@ -42,7 +42,8 @@
       "remote_execute",
       "delegate_task",
       "tool_selection_probe",
-      "video_generate"
+      "video_generate",
+      "procedural_memory"
     ],
     "provider": null,
     "use_embeddings": true,
@@ -227,6 +228,78 @@
     ]
   },
   {
+    "name": "gwen",
+    "language_code": "en-US",
+    "context_type": "hybrid",
+    "max_prompt_conversations": 4,
+    "max_prompt_documents": 2,
+    "temperature": 0,
+    "save_responses": true,
+    "model": "gpt-5.6-luna",
+    "message_processor": "function_calling_processor",
+    "max_function_call_iterations": 40,
+    "partner_agent": null,
+    "system_prompt": "You are nelly, an freindly AI assistant who specialises in Development always reads the full prompt. Use the information in the prompt and background context when answering questions.\n\nDo not reframe the task unless explicitly asked. If the request is vague or missing key details, ask for clarification before starting — just like a mechanic would ask \"what's wrong with the car?\" rather than guessing. Specify what information you need (e.g., \"Which file should I modify?\" or \"What behavior are you expecting?\"). Do not proceed on assumptions.\n\nChange control / scope (must follow):\n- If the supervisor specifies focus file(s), you may only modify those file(s).\n- You may read other files for context, but do not write to any file not explicitly listed.\n- If you believe another file must change, stop and ask the supervisor to expand scope.\n\nValidation hard-stop (must follow):\n- If any validation fails (tests, lint, typecheck, build), do not modify any additional files.\n- Return control to the supervisor with: the command run, the failure output (or short excerpt), whether it seems pre-existing vs caused by your change, and a recommendation.\n\nIf available, check out the provided context. The provided context contains all relevant information to understand and execute the current task. It includes general information such as the task's name and description, any related input or output directories. Additionally, the context provides information about the environment in which the task is being executed.",
+    "style_prompt": "Keep English simple, clear, and direct. Do not flatter the user.",
+    "persona": "You are Nelly, the developer agent. You focus on concrete implementation details, code, and working with Arla .",
+    "allowed_tools": [
+      "repo_index",
+      "repo_search",
+      "file_load",
+      "file_save",
+      "patch_apply",
+      "execute_command",
+      "scrape_web_page",
+      "web_search_handler",
+      "tasklists_manage",
+      "tasklists_run",
+      "generate_doc",
+      "sandbox_execute",
+      "serve_image",
+      "remote_execute"
+    ],
+    "provider": null,
+    "use_embeddings": false,
+    "default_context": "skinny",
+    "model_policy": {
+      "profile": "development",
+      "required_capabilities": [
+        "tool-calling",
+        "code-generation"
+      ],
+      "preferred_model": "gpt-5.6-luna",
+      "preferred_source": "openai",
+      "allow_fallback": true
+    },
+    "skills": [
+      "filepaths",
+      "loop-prevention",
+      "marie-parie"
+    ],
+    "prompt_policy": {
+      "total_tokens": 8000,
+      "safety_margin_tokens": 1000,
+      "procedural_tokens": 4000,
+      "episodic_event_tokens": 1000,
+      "episodic_digest_tokens": 1000,
+      "semantic_tokens": 1000,
+      "maximum_events": 4,
+      "maximum_digests": 1,
+      "maximum_semantic_documents": 0,
+      "semantic_score_threshold": 0.95,
+      "digest_score_threshold": 0.75,
+      "episodic_event_max_chars": 500,
+      "episodic_digest_max_chars": 500,
+      "semantic_item_max_chars": 500
+    },
+    "skillset": [
+      "marie-parie",
+      "development",
+      "Arla",
+      "github"
+    ]
+  },
+  {
     "name": "glinda",
     "language_code": "en-US",
     "context_type": "keyword",
@@ -310,7 +383,8 @@
       "agents_manage",
       "remote_execute",
       "tool_selection_probe",
-      "video_generate"
+      "video_generate",
+      "procedural_memory"
     ],
     "prompt_policy": {
       "total_tokens": 12000,
@@ -594,7 +668,6 @@
     },
     "skills": [
       "food-diary",
-      "food-log",
       "loop-prevention"
     ],
     "skillset": [
