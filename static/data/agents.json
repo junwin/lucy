@@ -497,7 +497,8 @@
       "filepaths",
       "dev-basics",
       "imagemagick",
-      "gh-cli"
+      "gh-cli",
+      "video-edit"
     ],
     "skillset": [
       "image-processing",
