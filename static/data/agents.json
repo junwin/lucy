@@ -408,6 +408,18 @@
     "provider": null,
     "use_embeddings": true,
     "default_context": "lucyproject",
+    "skills": [
+      "development",
+      "filepaths",
+      "loop-prevention",
+      "tasklists"
+    ],
+    "skillset": [
+      "development",
+      "software-design",
+      "tasklists",
+      "general-purpose"
+    ],
     "model_policy": {
       "profile": "reasoning",
       "required_capabilities": [
@@ -744,6 +756,7 @@
     },
     "skillset": [
       "writing",
+      "journals",
       "semantic-lookup'"
     ]
   },
