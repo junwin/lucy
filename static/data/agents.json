@@ -508,9 +508,9 @@
       "social-media"
     ],
     "prompt_policy": {
-      "total_tokens": 12000,
+      "total_tokens": 15000,
       "safety_margin_tokens": 1000,
-      "procedural_tokens": 4000,
+      "procedural_tokens": 6000,
       "episodic_event_tokens": 4000,
       "episodic_digest_tokens": 1000,
       "semantic_tokens": 4000,
@@ -622,7 +622,8 @@
     "skills": [
       "development",
       "filepaths",
-      "loop-prevention"
+      "loop-prevention",
+      "system-document"
     ],
     "skillset": [
       "development"
