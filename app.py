@@ -40,6 +40,7 @@ from src.http_endpoints.prompt_builder_debug_endpoints import prompt_builder_deb
 from src.http_endpoints.prompt_builder_metrics_endpoints import prompt_builder_metrics_impl
 from src.http_endpoints.metrics_endpoints import get_metrics_runs_impl
 from src.http_endpoints.documents_endpoints import search_documents_impl
+from src.http_endpoints.events_endpoints import get_events_impl, deactivate_events_impl
 from src.http_endpoints.chats_endpoints import (
     post_chat_impl,
     get_chats_impl,
@@ -177,7 +178,7 @@ def _set_request_id() -> None:
 
 
 @app.before_request
-def _check_api_key() -> None:
+def _check_api_key():
     """Validate API key on every request (except Swagger UI static routes and OPTIONS preflight).
 
     Reads X-API-Key header and checks against config. If validation fails,
@@ -206,8 +207,9 @@ def _check_api_key() -> None:
             request.path,
             request.method,
         )
-        # Store the rejection flag so after_request can set the status
+        # Reject before invoking routes, especially those that mutate storage.
         request._api_key_rejected = True  # type: ignore[attr-defined]
+        return jsonify({"error": "Unauthorized. Provide a valid API key via X-API-Key header."}), 401
 
 
 @app.after_request
@@ -432,6 +434,28 @@ def metrics_runs():
 @app.route("/chats", methods=["POST"])
 def post_chat():
     body, status = post_chat_impl(episodic_memory_manager, agent_manager, request.json or {}, config)
+    return jsonify(body), status
+
+
+@app.route("/events", methods=["GET"])
+def get_events():
+    body, status = get_events_impl(
+        episodic_memory_manager,
+        account_name=request.args.get("accountName", ""),
+        session_id=request.args.get("sessionId", ""),
+        count=request.args.get("count", "10"),
+    )
+    return jsonify(body), status
+
+
+@app.route("/events/<correlation_id>", methods=["DELETE"])
+def deactivate_events(correlation_id: str):
+    body, status = deactivate_events_impl(
+        episodic_memory_manager,
+        account_name=request.args.get("accountName", ""),
+        session_id=request.args.get("sessionId", ""),
+        correlation_id=correlation_id,
+    )
     return jsonify(body), status
 
 

@@ -5,6 +5,170 @@
     "version": "1.2.0"
   },
   "paths": {
+    "/events": {
+      "get": {
+        "summary": "Get the last N active episodic events",
+        "description": "Full event content and correlation IDs, oldest to newest within the selected tail. Supplements /chats.",
+        "parameters": [
+          {
+            "name": "accountName",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Owning account"
+          },
+          {
+            "name": "sessionId",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Session to read or modify"
+          },
+          {
+            "name": "count",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 1000,
+              "default": 10
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Active event tail",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "account_name": {
+                      "type": "string"
+                    },
+                    "session_id": {
+                      "type": "string"
+                    },
+                    "count": {
+                      "type": "integer"
+                    },
+                    "last_event_id": {
+                      "type": "string",
+                      "nullable": true
+                    },
+                    "events": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "description": "Full event, including content, metadata, event_id and correlation_ids"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid or missing parameters"
+          },
+          "401": {
+            "description": "Invalid or missing API key"
+          },
+          "404": {
+            "description": "Session not found or account ownership mismatch"
+          }
+        }
+      }
+    },
+    "/events/{correlation_id}": {
+      "delete": {
+        "summary": "Deactivate events by correlation ID",
+        "description": "Account/session-scoped retained-record invalidation through galet-memory. Idempotent; also invalidates affected digests. Running-exchange exclusion is pending in issue #242.",
+        "parameters": [
+          {
+            "name": "correlation_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "accountName",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Owning account"
+          },
+          {
+            "name": "sessionId",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Session to read or modify"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Invalidated or already invalidated exchange",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": {
+                      "type": "boolean"
+                    },
+                    "status": {
+                      "type": "string",
+                      "enum": [
+                        "invalidated",
+                        "already_invalidated"
+                      ]
+                    },
+                    "event_count": {
+                      "type": "integer"
+                    },
+                    "event_ids": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    },
+                    "invalidated_digest_ids": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid or missing parameters"
+          },
+          "401": {
+            "description": "Invalid or missing API key"
+          },
+          "404": {
+            "description": "Session or correlation not found, or account ownership mismatch"
+          },
+          "409": {
+            "description": "Concurrent modification; retry"
+          }
+        }
+      }
+    },
     "/prompt_builder": {
       "post": {
         "summary": "Get the prompt that would be used given an agentName, accountName, selectType and query text",
