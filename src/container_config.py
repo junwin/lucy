@@ -307,6 +307,7 @@ class EndpointHandlersModule(Module):
         processor_factory: ProcessorFactory,
         episodic_memory_manager: LucyEpisodicStore,
         llm_adapter: LLMAdapter,
+        procedural_memory: ProceduralMemory,
     ) -> AskRequestHandler:
         return AskRequestHandler(
             agent_manager=agent_manager,
@@ -314,6 +315,7 @@ class EndpointHandlersModule(Module):
             storage=storage,
             processor_factory=processor_factory,
             episodic_store=episodic_memory_manager,
+            procedural_memory=procedural_memory,
             request_router=SkillsetRouter(agent_manager, config, llm_adapter, episodic_memory_manager),
         )
 

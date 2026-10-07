@@ -14,7 +14,8 @@ from __future__ import annotations
 import logging
 from typing import Any, Dict, List, Optional, Tuple
 
-from src.agent import AgentManager
+from galet_memory import ProceduralMemory, ProceduralMemoryRequest
+from src.procedural_memory_config import build_procedural_memory
 from src.config_manager import ConfigManager
 from src.storage.base import Storage
 from src.utils.document_context import get_document_context
@@ -26,6 +27,7 @@ def prompt_builder_debug_impl(
     storage: Storage,
     config: ConfigManager,
     payload: dict,
+    *, procedural_memory: Optional[ProceduralMemory] = None,
 ) -> Tuple[Any, int]:
     """Analyse what documents would be loaded for a given query.
 
@@ -47,16 +49,14 @@ def prompt_builder_debug_impl(
     # --- Stage 2: Get docs_tag from context if available ---
     if context_name and context_name != "none":
         try:
-            if hasattr(storage, "get_or_create_context"):
-                ctx = storage.get_or_create_context(account_name, context_name)
-            else:
-                ctx = storage.get_context(account_name, context_name)
-            if ctx is not None:
-                data = getattr(ctx, "data", None)
-                if isinstance(data, dict):
-                    tag_val = data.get("tag")
-                    if isinstance(tag_val, str) and tag_val.strip():
-                        docs_tag = tag_val.strip()
+            memory = procedural_memory if procedural_memory is not None else build_procedural_memory(config)
+            result = memory.recall(ProceduralMemoryRequest(
+                account_name=account_name, context_name=context_name,
+                include_resolved_text=False, include_skills=False,
+                include_required_tools=False,
+            ))
+            if isinstance(result.tag, str) and result.tag.strip():
+                docs_tag = result.tag.strip()
         except Exception as ex:
             logging.warning("prompt_builder_debug: failed to load context %s: %s", context_name, ex)
 

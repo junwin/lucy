@@ -26,6 +26,7 @@ from src.prompt_builders.prompt_builder_interface import (
 )
 from src.prompt_builders.prompt_sections import PromptSections
 from src.storage.base import Storage
+from src.storage.models import Context, Skill
 
 
 CONVERSATION_EVENT_KINDS = (
@@ -113,6 +114,32 @@ class GaletPromptBuilderAdapter(PromptBuilderInterface):
         self._attachments = AttachmentResolver(config)
         self._last_prompt_token_breakdown: Dict[str, int] = {}
         self._last_compiled_prompt: Any = None
+
+    def _get_context_state(self, account_name: str, context_name: str) -> Optional[Context]:
+        """Resolve tool context with the same scopes as prompt compilation."""
+        if not context_name or context_name.strip().lower() == "none":
+            return None
+        result = self.procedural_memory.recall(ProceduralMemoryRequest(
+            account_name=account_name, context_name=context_name,
+        ))
+        if not result.context_id:
+            return None
+        # Legacy tool eligibility consumes arbitrary frontmatter through extra.
+        repository = getattr(self.procedural_memory, "repository", None)
+        raw = (repository.read_effective_context(account_name, context_name)
+               if repository is not None else None)
+        frontmatter = raw[0] if raw is not None else {}
+        typed = {"tag", "imports", "mandatory_tools", "search_namespaces", "updated_at"}
+        return Context(
+            id=result.context_id, account_name=account_name, updated_at=None,
+            text=result.text, tag=result.tag, imports=list(result.imports),
+            mandatory_tools=list(result.required_tools),
+            search_namespaces=list(result.search_namespaces),
+            extra={key: value for key, value in frontmatter.items() if key not in typed},
+            resolved_skills=[Skill(skill.name, skill.text, list(skill.mandatory_tools), dict(skill.metadata))
+                             for skill in result.skills],
+            missing_imports=list(result.missing_imports),
+        )
 
     def build_prompt(
         self,

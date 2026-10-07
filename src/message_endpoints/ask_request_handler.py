@@ -12,6 +12,8 @@ from src.storage.base import Storage
 from src.message_processors.processor_factory import ProcessorFactory
 from src.message_processors.function_calling_processor import ToolHandlerError
 from galet_memory import (
+    ProceduralMemory,
+    ProceduralMemoryRequest,
     NewEvent,
     SessionChanges,
 )
@@ -115,6 +117,7 @@ class AskRequestHandler:
         processor_factory: ProcessorFactory,
         episodic_store: Optional[LucyEpisodicStore] = None,
         request_router: Optional[SkillsetRouter] = None,
+        procedural_memory: Optional[ProceduralMemory] = None,
     ) -> None:
         self.agent_manager = agent_manager
         self.config = config
@@ -122,7 +125,18 @@ class AskRequestHandler:
         self.processor_factory = processor_factory
         self.episodic_store = episodic_store
         self.request_router = request_router
+        self.procedural_memory = procedural_memory
         self.logger = logging.getLogger(__name__)
+
+    def _ensure_context(self, account_name: str, context_name: Optional[str]) -> None:
+        """Create an account context only when no configured scope contains it."""
+        if self.procedural_memory is None or not context_name or context_name.strip().lower() == "none":
+            return
+        self.procedural_memory.recall(ProceduralMemoryRequest(
+            account_name=account_name, context_name=context_name,
+            create_if_missing=True, include_resolved_text=False,
+            include_skills=False, include_required_tools=False,
+        ))
 
     def _remember_dialogue(self, payload, route, conversation_id, response_text=""):
         if self.request_router is None:
@@ -279,19 +293,7 @@ class AskRequestHandler:
             if default_ctx:
                 context_name = str(default_ctx).strip() or None
 
-        if context_name:
-            if hasattr(self.storage, "get_or_create_context"):
-                self.storage.get_or_create_context(
-                    account_name=accountName,
-                    context_id=context_name,
-                )
-            else:
-                # Backwards compatibility: older storage implementations may not
-                # support contexts yet.
-                self.logger.warning(
-                    "Storage does not support get_or_create_context(); context_name=%s will not be persisted",
-                    context_name,
-                )
+        self._ensure_context(accountName, context_name)
 
         # default context_type from agent if not provided
         if not context_type:
@@ -525,12 +527,7 @@ class AskRequestHandler:
             if default_ctx:
                 context_name = str(default_ctx).strip() or None
 
-        if context_name:
-            if hasattr(self.storage, "get_or_create_context"):
-                self.storage.get_or_create_context(
-                    account_name=accountName,
-                    context_id=context_name,
-                )
+        self._ensure_context(accountName, context_name)
 
         if not context_type:
             context_type = primary_agent.context_type or "hybrid"

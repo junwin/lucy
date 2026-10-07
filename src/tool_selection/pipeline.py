@@ -147,16 +147,17 @@ class ToolSelectionPipeline:
         registry_names = set(all_tools)
         allowed_set = set(allowed)
         eligible = [name for name in all_tools if name in allowed_set]
-        required = get_required_tools(self.storage, account_name, context_name)
         skill_names = tuple(getattr(agent, "skills", ()) or ())
-        if skill_names and self.procedural_memory is not None:
+        if self.procedural_memory is not None:
             from galet_memory import ProceduralMemoryRequest
             result = self.procedural_memory.recall(ProceduralMemoryRequest(
-                account_name=account_name, context_name=context_name or "",
+                account_name=account_name, context_name="" if (context_name or "").strip().lower() == "none" else context_name or "",
                 skill_names=skill_names, include_resolved_text=False,
                 include_skills=False, include_required_tools=True,
             ))
-            required = _order_preserving_dedupe(required + list(result.required_tools))
+            required = list(result.required_tools)
+        else:
+            required = get_required_tools(self.storage, account_name, context_name)
         _validate_required(required, allowed_set, registry_names)
 
         should_select, skip_meta = self._should_select_prompt_based(eligible)
@@ -338,15 +339,6 @@ def _load_context(storage, account_name: str, context_name: str) -> Optional[Any
         return None
     if not context_name or str(context_name).strip().lower() == "none":
         return None
-
-    get_or_create = getattr(storage, "get_or_create_context", None)
-    if callable(get_or_create):
-        try:
-            context = get_or_create(account_name, context_name)
-            if context is not None:
-                return context
-        except Exception:
-            logging.warning(f"tool_selection: get_or_create_context({account_name}, {context_name}) failed; falling back to get_context")
 
     get_ctx = getattr(storage, "get_context", None)
     if callable(get_ctx):

@@ -405,7 +405,9 @@ def build_prompt():
 @app.route("/prompt_builder/debug", methods=["POST"])
 def prompt_builder_debug():
     payload = request.get_json() or {}
-    body, status = prompt_builder_debug_impl(storage, config, payload)
+    body, status = prompt_builder_debug_impl(
+        storage, config, payload, procedural_memory=container.get(ProceduralMemory)
+    )
     return jsonify(body), status
 
 
