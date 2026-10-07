@@ -47,7 +47,7 @@
     ],
     "provider": null,
     "use_embeddings": true,
-    "default_context": null,
+    "default_context": "skinny",
     "model_policy": {
       "profile": "reasoning",
       "required_capabilities": [
@@ -87,7 +87,7 @@
     ],
     "provider": null,
     "use_embeddings": false,
-    "default_context": null
+    "default_context": "skinny"
   },
   {
     "name": "colin",
@@ -320,7 +320,7 @@
     "allowed_tools": [],
     "provider": null,
     "use_embeddings": false,
-    "default_context": null
+    "default_context": "skinny"
   },
   {
     "name": "dorothy",
@@ -340,7 +340,7 @@
     "allowed_tools": [],
     "provider": null,
     "use_embeddings": false,
-    "default_context": null
+    "default_context": "skinny"
   },
   {
     "name": "peace",
@@ -407,18 +407,20 @@
     },
     "provider": null,
     "use_embeddings": true,
-    "default_context": "lucyproject",
+    "default_context": "skinny",
     "skills": [
       "development",
       "filepaths",
       "loop-prevention",
-      "tasklists"
+      "tasklists",
+      "lucyproject"
     ],
     "skillset": [
       "development",
       "software-design",
       "tasklists",
-      "general-purpose"
+      "general-purpose",
+      "lucy-project"
     ],
     "model_policy": {
       "profile": "reasoning",
@@ -479,7 +481,7 @@
     ],
     "provider": null,
     "use_embeddings": true,
-    "default_context": "image_tool",
+    "default_context": "skinny",
     "model_policy": {
       "profile": "reasoning",
       "required_capabilities": [
@@ -544,7 +546,7 @@
     ],
     "provider": null,
     "use_embeddings": false,
-    "default_context": "debo_work",
+    "default_context": "skinny",
     "model_policy": {
       "profile": "reasoning",
       "required_capabilities": [
@@ -744,7 +746,7 @@
       "semantic_item_max_chars": 1500
     },
     "use_embeddings": true,
-    "default_context": "writing",
+    "default_context": "skinny",
     "model_policy": {
       "profile": "writing",
       "required_capabilities": [
@@ -754,6 +756,12 @@
       "preferred_source": "mistral",
       "allow_fallback": true
     },
+    "skills": [
+      "filepaths",
+      "writing",
+      "loop-prevention",
+      "semantic-memory"
+    ],
     "skillset": [
       "writing",
       "journals",
@@ -783,7 +791,7 @@
     ],
     "provider": "ollama",
     "use_embeddings": false,
-    "default_context": null
+    "default_context": "skinny"
   },
   {
     "name": "ziggy",
@@ -853,7 +861,7 @@
     ],
     "provider": null,
     "use_embeddings": false,
-    "default_context": null
+    "default_context": "skinny"
   }
 ]
 
