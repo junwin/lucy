@@ -1,8 +1,8 @@
 # Procedural memory storage and scope
 
 Lucy constructs procedural memory through `src/procedural_memory_config.py`.
-The prompt builder, context tool, and `/context/names` endpoint use the same
-configuration. Galet-memory owns Markdown parsing, import resolution, and scope
+The prompt builder, request startup, tool selection, context tool, and
+`/context/names` and `/prompt_builder/debug` endpoints use the same configuration. Galet-memory owns Markdown parsing, import resolution, and scope
 precedence. No database migration is required.
 
 The paired implementation temporarily pins `galet-memory[vec]` to the exact
@@ -27,6 +27,13 @@ An account context replaces the complete global context: body, imports, tag,
 mandatory tools, and search namespaces. Empty account definitions also override
 global definitions. Other accounts still see the shared version. Lookup never
 searches another account's directory.
+
+Both streaming and non-streaming `/ask` requests create an empty account context
+only if the name is absent from every configured scope. Tool selection, tool
+context loading, and document debugging are read-only. They do not create
+account files that shadow a shared context. Existing empty account overrides
+are preserved; review and remove an unwanted override explicitly to restore
+shared fallback.
 
 The context tool and UI list show the union of global and account names once
 per name. Loading a global-only context works. Saving or changing its required

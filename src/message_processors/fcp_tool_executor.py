@@ -27,8 +27,8 @@ def load_context_state(prompt_builder: Any, account_name: str, context_name: str
     """Load the active Context (or None) for the given account/context.
 
     Delegates to PromptBuilder._get_context_state when available so the FCP
-    sees exactly the same Context the prompt builder used (same
-    get_or_create_context/get_context fallback). Fails softly: any error
+    uses the configured procedural resolver without creating files.
+    Fails softly: any error
     yields None (no context tool list applies).
     """
     if not context_name or context_name == "none":
@@ -40,8 +40,6 @@ def load_context_state(prompt_builder: Any, account_name: str, context_name: str
         storage = getattr(prompt_builder, "storage", None)
         if storage is None:
             return None
-        if hasattr(storage, "get_or_create_context"):
-            return storage.get_or_create_context(account_name, context_name)
         return storage.get_context(account_name, context_name)
     except Exception as ex:
         logging.warning(

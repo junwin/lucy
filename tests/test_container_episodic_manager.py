@@ -26,16 +26,19 @@ def test_automation_provider_passes_episodic_manager() -> None:
 
 def test_ask_handler_provider_passes_episodic_manager() -> None:
     memory = Mock(spec=LucyEpisodicStore)
+    procedural = Mock()
     handler = EndpointHandlersModule().provide_ask_request_handler(
         agent_manager=Mock(),
         config=Mock(),
         storage=Mock(),
         processor_factory=Mock(),
+        procedural_memory=procedural,
         episodic_memory_manager=memory,
         llm_adapter=Mock(),
     )
 
     assert handler.episodic_store is memory
+    assert handler.procedural_memory is procedural
 
 
 def test_provider_uses_fresh_default_and_respects_explicit_path(tmp_path, monkeypatch):
