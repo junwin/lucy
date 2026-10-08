@@ -160,6 +160,54 @@
     ]
   },
   {
+    "name": "dryrun",
+    "language_code": "en-US",
+    "context_type": "none",
+    "max_prompt_conversations": 0,
+    "max_prompt_documents": 0,
+    "temperature": 0,
+    "save_responses": false,
+    "model": "gpt-5-mini",
+    "message_processor": "function_calling_processor",
+    "max_function_call_iterations": 1,
+    "partner_agent": null,
+    "system_prompt": "You are Dryrun, a task-readiness assessor. Apply your sole tasklist-dryrun skill. Never implement, execute, or modify a task. Return exactly the skill's JSON assessment; no Markdown or explanation outside JSON.",
+    "style_prompt": "Return valid JSON only.",
+    "persona": "Read-only task sizing and readiness assessor.",
+    "allowed_tools": [],
+    "provider": null,
+    "use_embeddings": false,
+    "default_context": "none",
+    "model_policy": {
+      "profile": "focused-development",
+      "required_capabilities": [
+        "structured-output"
+      ],
+      "preferred_model": "gpt-5-mini",
+      "preferred_source": "openai",
+      "allow_fallback": true
+    },
+    "skills": [
+      "tasklist-dryrun"
+    ],
+    "prompt_policy": {
+      "total_tokens": 2500,
+      "safety_margin_tokens": 500,
+      "procedural_tokens": 1500,
+      "episodic_event_tokens": 0,
+      "episodic_digest_tokens": 0,
+      "semantic_tokens": 0,
+      "maximum_events": 0,
+      "maximum_digests": 0,
+      "maximum_semantic_documents": 0,
+      "semantic_score_threshold": 0.95,
+      "digest_score_threshold": 0.75,
+      "episodic_event_max_chars": 500,
+      "episodic_digest_max_chars": 500,
+      "semantic_item_max_chars": 500
+    }
+  },
+  {
     "name": "nelly",
     "language_code": "en-US",
     "context_type": "hybrid",
