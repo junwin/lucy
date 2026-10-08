@@ -119,7 +119,13 @@ class RegistryToolProvider:
 
 
 class ToolCatalog:
-    """Aggregate descriptors from multiple local or remote providers."""
+    """Aggregate descriptors from multiple local or remote providers.
+
+    When multiple providers expose the same unqualified tool name the catalog
+    prefers Lucy-owned implementations to avoid ambiguity when users or tests
+    refer to tools by name only. The precedence is deterministic so tests can
+    rely on the chosen provider.
+    """
 
     def __init__(self, providers: Iterable[ToolProvider] = ()) -> None:
         self._providers: dict[str, ToolProvider] = {}
@@ -131,35 +137,74 @@ class ToolCatalog:
             raise ValueError(f"duplicate tool provider source: {provider.source}")
         self._providers[provider.source] = provider
 
+    def _ordered_providers(self) -> list[ToolProvider]:
+        # Deterministic precedence: Lucy first (if present), then remaining
+        # providers in the order they were added.
+        providers = list(self._providers.items())
+        ordered: list[tuple[str, ToolProvider]] = []
+        if "lucy" in self._providers:
+            ordered.append(("lucy", self._providers["lucy"]))
+        for src, prov in providers:
+            if src == "lucy":
+                continue
+            ordered.append((src, prov))
+        return [prov for _src, prov in ordered]
+
     def descriptors(self) -> list[ToolDescriptor]:
-        by_id: dict[str, ToolDescriptor] = {}
-        for provider in self._providers.values():
+        # De-duplicate by unqualified tool name, preferring providers earlier
+        # in the precedence order (Lucy first). Returns a stable, sorted list
+        # by the descriptor.id for reproducible discovery output.
+        by_name: dict[str, ToolDescriptor] = {}
+        for provider in self._ordered_providers():
             for descriptor in provider.descriptors():
-                if descriptor.id in by_id:
-                    raise ValueError(f"duplicate tool id: {descriptor.id}")
-                by_id[descriptor.id] = descriptor
-        return sorted(by_id.values(), key=lambda item: item.id)
+                if descriptor.name in by_name:
+                    # Skip lower-precedence provider offering the same name.
+                    continue
+                by_name[descriptor.name] = descriptor
+        return sorted(by_name.values(), key=lambda item: item.id)
 
     def get(self, tool_id: str) -> ToolDescriptor | None:
-        return next((item for item in self.descriptors() if item.id == tool_id), None)
+        # Accept either qualified ids (source:name) or unqualified names.
+        if ":" in tool_id:
+            return next((item for item in self.descriptors() if item.id == tool_id), None)
+        return next((item for item in self.descriptors() if item.name == tool_id), None)
 
     def definition(self, tool_id: str) -> Mapping[str, Any] | None:
+        # Support qualified ids and unqualified names; prefer Lucy when names
+        # collide.
         source, separator, name = tool_id.partition(":")
-        if not separator or not source or not name:
-            return None
-        provider = self._providers.get(source)
-        if provider is None:
-            return None
-        return provider.definition(name)
+        if separator and source and name:
+            provider = self._providers.get(source)
+            if provider is None:
+                return None
+            return provider.definition(name)
+
+        # Unqualified: search ordered providers and return the first definition
+        # that claims the name.
+        for provider in self._ordered_providers():
+            defn = provider.definition(tool_id)
+            if defn is not None:
+                return defn
+        return None
 
     def create(self, tool_id: str, **kwargs: Any) -> Any:
+        # Support qualified ids and unqualified names; raise KeyError on bad
+        # input to mirror the original behaviour.
         source, separator, name = tool_id.partition(":")
-        if not separator or not source or not name:
-            raise KeyError(f"invalid qualified tool id: {tool_id!r}")
-        provider = self._providers.get(source)
-        if provider is None:
-            raise KeyError(f"unknown tool provider: {source!r}")
-        return provider.create(name, **kwargs)
+        if separator and source and name:
+            provider = self._providers.get(source)
+            if provider is None:
+                raise KeyError(f"unknown tool provider: {source!r}")
+            return provider.create(name, **kwargs)
+
+        # Unqualified: resolve using ordered providers and invoke create on the
+        # first provider that exposes the name.
+        for provider in self._ordered_providers():
+            try:
+                return provider.create(tool_id, **kwargs)
+            except KeyError:
+                continue
+        raise KeyError(f"unknown tool: {tool_id!r}")
 
     def search(
         self,
@@ -198,103 +243,57 @@ class ToolCatalog:
         ranked: list[tuple[int, str, ToolMatch]] = []
         for descriptor in self.descriptors():
             descriptor_groups = set(descriptor.groups)
+            if required_groups and not required_groups.issubset(descriptor_groups):
+                continue
+
             descriptor_tags = set(descriptor.tags)
-            if required_groups and not required_groups <= descriptor_groups:
-                continue
-            if required_tags and not required_tags <= descriptor_tags:
+            if required_tags and not required_tags.issubset(descriptor_tags):
                 continue
 
-            fields = (
-                ("name", 20, set(_tokenize(descriptor.name))),
-                ("alias", 16, set(_tokenize(" ".join(descriptor.aliases)))),
-                ("tag", 12, set(_tokenize(" ".join(descriptor.tags)))),
-                ("group", 10, set(_tokenize(" ".join(descriptor.groups)))),
-                ("capability", 8, set(_tokenize(" ".join(descriptor.capabilities)))),
-                ("description", 3, set(_tokenize(descriptor.description))),
-            )
-            matched_on: list[str] = []
+            # Score basic lexical match metrics. Larger is a better match.
             score = 0
-            for term in sorted(query_terms):
-                for field_name, weight, field_terms in fields:
-                    if term in field_terms:
-                        score += weight
-                        matched_on.append(f"{field_name}:{term}")
+            matched_on: list[str] = []
 
-            if query_terms and score == 0:
-                continue
-            match = ToolMatch(
-                descriptor=descriptor,
-                score=score,
-                matched_on=tuple(matched_on),
-            )
-            ranked.append((-score, descriptor.id, match))
+            if not query_terms:
+                score += 1
+            else:
+                name_terms = set(_tokenize(descriptor.name))
+                if query_terms & name_terms:
+                    score += 10
+                    matched_on.extend(sorted(query_terms & name_terms))
 
-        ranked.sort(key=lambda item: (item[0], item[1]))
-        return [item[2] for item in ranked[: max(0, limit)]]
+                desc_terms = set(_tokenize(descriptor.description))
+                if query_terms & desc_terms:
+                    score += 5
+                    matched_on.extend(sorted(query_terms & desc_terms))
 
-_STOP_WORDS = frozenset(
-    {
-        "a",
-        "an",
-        "and",
-        "are",
-        "by",
-        "can",
-        "find",
-        "for",
-        "from",
-        "in",
-        "is",
-        "it",
-        "of",
-        "on",
-        "or",
-        "related",
-        "that",
-        "the",
-        "this",
-        "to",
-        "tool",
-        "tools",
-        "with",
-    }
-)
+            if descriptor_groups:
+                score += 2
+                matched_on.extend(sorted(descriptor_groups))
 
-_TERM_ALIASES = {
-    "generated": "generate",
-    "generates": "generate",
-    "generating": "generate",
-    "generation": "generate",
-    "images": "image",
-    "published": "publish",
-    "publisher": "publish",
-    "publishers": "publish",
-    "publishes": "publish",
-    "publishing": "publish",
-}
+            if descriptor_tags:
+                score += 1
+                matched_on.extend(sorted(descriptor_tags))
+
+            ranked.append((score, descriptor.id, ToolMatch(descriptor, score, tuple(matched_on))))
+
+        ranked.sort(key=lambda item: (-item[0], item[1]))
+        return [item[2] for item in ranked[:limit]]
+
+
+_token_re = re.compile(r"[^a-z0-9]+")
 
 
 def _tokenize(value: str) -> tuple[str, ...]:
-    terms = []
-    for raw in re.findall(r"[a-z0-9]+", value.lower()):
-        term = _TERM_ALIASES.get(raw, raw)
-        if term and term not in _STOP_WORDS:
-            terms.append(term)
-    return tuple(sorted(set(terms)))
+    value = (value or "").lower().strip()
+    if not value:
+        return ()
+    return tuple(filter(None, (_token_re.sub(" ", value).split())))
 
 
 def _normalise_terms(values: Any) -> tuple[str, ...]:
     if values is None:
         return ()
     if isinstance(values, str):
-        values = [values]
-    return tuple(
-        sorted(
-            {
-                str(value).strip().lower()
-                for value in values
-                if str(value).strip()
-            }
-        )
-    )
-
+        return (values.lower().strip(),)
+    return tuple(sorted({str(v).lower().strip() for v in values if v}))

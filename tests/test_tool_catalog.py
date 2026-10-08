@@ -123,3 +123,27 @@ def test_provider_names_are_unique() -> None:
 
     with pytest.raises(ValueError, match="duplicate tool provider source"):
         ToolCatalog([provider, provider])
+
+
+def test_lucy_precedence_over_galet_tools_when_names_overlap() -> None:
+    """If both lucy and galet-tools expose the same tool name, prefer lucy.
+
+    The catalog should deterministically select the Lucy-owned descriptor so
+    callers that refer to tools by unqualified name observe a stable choice.
+    """
+    registry = FakeRegistry()
+
+    # Both providers expose 'publish' but via different sources.
+    catalog = ToolCatalog(
+        [
+            RegistryToolProvider(registry, source="galet-tools", tool_names=frozenset({"publish"})),
+            RegistryToolProvider(registry, source="lucy", tool_names=frozenset({"publish"})),
+        ]
+    )
+
+    # Descriptors should include a single 'publish' entry and it should be
+    # the Lucy-owned implementation.
+    ids = [d.id for d in catalog.descriptors()]
+    assert any(d.endswith(":publish") for d in ids)
+    desc = catalog.get("publish")
+    assert desc is not None and desc.source == "lucy"
