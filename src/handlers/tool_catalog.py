@@ -254,18 +254,39 @@ class ToolCatalog:
             score = 0
             matched_on: list[str] = []
 
+            # Token sets for matching the optional query. When a query is
+            # provided require at least one lexical match against the tool's
+            # name, description, or tags; otherwise descriptors that only
+            # match because of groups/tags would surface for unrelated queries.
+            name_terms = set(_tokenize(descriptor.name))
+            desc_terms = set(_tokenize(descriptor.description))
+            tag_terms = set(descriptor.tags)
+
             if not query_terms:
+                # No query: give a baseline score to make unfiltered results
+                # appear in discovery lists while still allowing groups/tags
+                # to influence ordering.
                 score += 1
             else:
-                name_terms = set(_tokenize(descriptor.name))
+                # Require the query to match name, description, or tags.
                 if query_terms & name_terms:
                     score += 10
                     matched_on.extend(sorted(query_terms & name_terms))
 
-                desc_terms = set(_tokenize(descriptor.description))
                 if query_terms & desc_terms:
                     score += 5
                     matched_on.extend(sorted(query_terms & desc_terms))
+
+                if query_terms & tag_terms:
+                    # Treat tag matches as weaker evidence than name but
+                    # stronger than description-only matches.
+                    score += 6
+                    matched_on.extend(sorted(query_terms & tag_terms))
+
+                if score == 0:
+                    # Query provided but no lexical match — skip this
+                    # descriptor to avoid returning noisy results.
+                    continue
 
             if descriptor_groups:
                 score += 2
