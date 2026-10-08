@@ -7,7 +7,7 @@
     "max_prompt_documents": 4,
     "temperature": 0,
     "save_responses": true,
-    "model": "gpt-5.6-sol",
+    "model": "deepseek-flash",
     "message_processor": "function_calling_processor",
     "max_function_call_iterations": 20,
     "max_tool_result_chars": 40000,
@@ -56,8 +56,8 @@
         "structured-output",
         "long-context"
       ],
-      "preferred_model": "gpt-5.6-sol",
-      "preferred_source": "openai",
+      "preferred_model": "deepseek-flash",
+      "preferred_source": "deepseek",
       "allow_fallback": true
     }
   },
@@ -376,6 +376,7 @@
       "repo_search",
       "tasklists_manage",
       "tasklists_run",
+      "tasklist_dryrun",
       "context_handler",
       "curate_chat",
       "generate_doc",
@@ -478,7 +479,8 @@
       "agents_manage",
       "remote_execute",
       "tool_selection_probe",
-      "video_generate"
+      "video_generate",
+      "serve_video"
     ],
     "provider": null,
     "use_embeddings": true,
@@ -496,6 +498,7 @@
     "skills": [
       "image-cli",
       "filepaths",
+      "sidecar",
       "dev-basics",
       "imagemagick",
       "gh-cli",
@@ -804,7 +807,7 @@
     "max_prompt_documents": 4,
     "temperature": 0,
     "save_responses": true,
-    "model": "gemini-3.6-flash",
+    "model": "gemini-3.8-flash",
     "message_processor": "function_calling_processor",
     "max_function_call_iterations": 40,
     "partner_agent": null,
