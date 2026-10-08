@@ -19,8 +19,8 @@ logger = logging.getLogger(__name__)
 
 class TasklistDryrunHandler(HandlerV2):
     NAME = "tasklist_dryrun"
-    DRYRUN_AGENT = "colin"
-    DRYRUN_CONTEXT = "dry-run-task"
+    DRYRUN_AGENT = "dryrun"
+    DRYRUN_CONTEXT = "no_import"
     FAILURE_REASONS = {"decompose", "blocked", "invalid"}
 
     def __init__(
@@ -180,7 +180,7 @@ class TasklistDryrunHandler(HandlerV2):
                             "agentName": agent_name,
                             "capabilities": [],
                             "project": "",
-                            "machine": "",
+                            "machine": "raspberry-pi",
                             "contextName": context_name,
                             "accountName": account_name,
                             "timeout_seconds": self.delegate_handler.DEFAULT_TIMEOUT,
