@@ -94,6 +94,7 @@ The design decisions evident from comments and docstrings emphasize the importan
 | `reset_session_handler.py`        | Resets chat sessions.                                   | `ResetSessionHandler`                                                           |
 | `scrape_web_page_handler2.py`     | Scrapes web pages.                                     | `ScrapeWebPageHandler2`                                                         |
 | `serve_image_handler.py`          | Serves images as base64 data URIs.                     | `ServeImageHandler`                                                             |
+| `serve_video_handler.py`          | Streams account-owned or configured-root MP4 videos.     | `ServeVideoHandler`                     |
 | `tasklists_manage_handler.py`     | Manages tasklists and tasks.                           | `TasklistsManageHandler`                                                        |
 | `tasklists_run_handler.py`        | Executes persisted tasklists.                          | `TasklistsRunHandler`                                                           |
 | `tool_selection_probe_handler.py` | Probes the tool selection pipeline.                     | `ToolSelectionProbeHandler`                                                    |
