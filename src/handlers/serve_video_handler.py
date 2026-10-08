@@ -1,18 +1,19 @@
-"""Display an existing generated MP4 through Lucy's video event delivery path."""
+"""Display MP4 files through Lucy's existing video event delivery path."""
 
 from typing import Any, Dict
-from urllib.parse import quote
+
 from src.handlers.handler_v2 import HandlerV2
-from src.http_endpoints.upload_endpoints import get_video_download_impl
+from src.video_presentation import VideoPresentationService
 
 
 class ServeVideoHandler(HandlerV2):
-    """Return a compact browser-delivery reference for an account-owned video."""
+    """Return a compact browser-delivery reference for an MP4."""
 
     NAME = "serve_video"
 
     def __init__(self, config):
         self.config = config
+        self.presentation = VideoPresentationService(config)
 
     @classmethod
     def name(cls):
@@ -25,19 +26,33 @@ class ServeVideoHandler(HandlerV2):
             "name": cls.NAME,
             "description": (
                 "REQUIRED — when the user asks to see, show, or display a specific "
-                "video that Lucy generated, call this tool immediately. Do not ask "
-                "where or how to display it. Supply its video_id; Lucy sends the MP4 "
-                "to the browser using the same video event as video generation."
+                "video file, call this tool immediately. Do not ask where or how to "
+                "display it. For a generated video, supply its video_id. For a file, "
+                "supply location and path (and external_root when needed). Lucy sends "
+                "the MP4 to the browser using the same video event as generation."
             ),
             "parameters": {
                 "type": "object",
                 "properties": {
                     "video_id": {
                         "type": "string",
-                        "description": "UUID of an existing generated video.",
+                        "description": "UUID of an existing generated video; use '' for a file path.",
+                    },
+                    "location": {
+                        "type": "string",
+                        "enum": ["storage", "external"],
+                        "description": "Where to load the file from; use 'storage' for a generated video_id.",
+                    },
+                    "external_root": {
+                        "type": "string",
+                        "description": "Named external root key when location='external'. Use '' otherwise.",
+                    },
+                    "path": {
+                        "type": "string",
+                        "description": "Relative path to an MP4 under the chosen location; use '' for a generated video_id.",
                     },
                 },
-                "required": ["video_id"],
+                "required": ["video_id", "location", "external_root", "path"],
                 "additionalProperties": False,
             },
             "strict": True,
@@ -58,31 +73,23 @@ class ServeVideoHandler(HandlerV2):
         }
 
     def execute(self, args, *, account_name="auto", **context):
-        video_id = (args.get("video_id") or "").strip()
-        if not video_id:
-            return {"ok": False, "tool": self.NAME, "error": "video_id is required"}
-
-        path, metadata, status = get_video_download_impl(
-            self.config, account_name, video_id
-        )
-        if status != 200 or path is None:
-            return {
-                "ok": False,
-                "tool": self.NAME,
-                "error": metadata.get("error", "Video is unavailable"),
-            }
-
-        normalized_id = metadata["id"]
-        return {
-            "ok": True,
-            "tool": self.NAME,
-            "video": {
-                "url": (
-                    f"/download/video/{normalized_id}"
-                    f"?accountName={quote(account_name, safe='')}"
-                ),
-                "mime_type": "video/mp4",
-                "download_name": f"{normalized_id}.mp4",
-                "video_id": normalized_id,
-            },
+        reference = {
+            "video_id": (args.get("video_id") or "").strip(),
+            "location": (args.get("location") or "storage").strip().lower(),
+            "external_root": (args.get("external_root") or "").strip(),
+            "path": (args.get("path") or "").strip(),
         }
+        try:
+            _path, mime_type, video = self.presentation.resolve(reference, account_name)
+            return {
+                "ok": True,
+                "tool": self.NAME,
+                "video": {
+                    "url": video["url"],
+                    "mime_type": mime_type,
+                    "download_name": video["download_name"],
+                    "video_id": video["video_id"],
+                },
+            }
+        except (ValueError, OSError) as exc:
+            return {"ok": False, "tool": self.NAME, "error": str(exc)}
