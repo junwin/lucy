@@ -7,24 +7,35 @@ optional dependencies; import it lazily and do not raise on failure so
 importing the package remains cheap in environments without NLP libs.
 """
 
-from .file_load_handler2 import FileLoadHandler2
-from .file_save_handler import FileSaveHandler2
-from .command_execution_handler2 import CommandExecutionHandler2
-from .scrape_web_page_handler2 import ScrapeWebPageHandler2
-from .web_search_handler2 import WebSearchHandler2
-from .reset_session_handler import ResetSessionHandler
-from .remote_execute_handler import RemoteExecuteHandler
-from .delegate_task_handler import DelegateTaskHandler
-from .patch_apply_handler import PatchApplyHandler
-from .agents_manage_handler import AgentsManageHandler
+# Import guards: many handler adapters depend on the external 'galet_tools'
+# package. During testing or in constrained environments that package may not
+# be available; avoid raising ImportError at package import time by importing
+# defensively and exposing None for unavailable handlers.
+
+_try_imports = []
+
+def _safe_import(name: str, target: str):
+    try:
+        module = __import__(name, fromlist=[target])
+        return getattr(module, target)
+    except Exception:
+        return None
+
+FileLoadHandler2 = _safe_import('.file_load_handler2', 'FileLoadHandler2')
+FileSaveHandler2 = _safe_import('.file_save_handler', 'FileSaveHandler2')
+CommandExecutionHandler2 = _safe_import('.command_execution_handler2', 'CommandExecutionHandler2')
+ScrapeWebPageHandler2 = _safe_import('.scrape_web_page_handler2', 'ScrapeWebPageHandler2')
+WebSearchHandler2 = _safe_import('.web_search_handler2', 'WebSearchHandler2')
+ResetSessionHandler = _safe_import('.reset_session_handler', 'ResetSessionHandler')
+RemoteExecuteHandler = _safe_import('.remote_execute_handler', 'RemoteExecuteHandler')
+DelegateTaskHandler = _safe_import('.delegate_task_handler', 'DelegateTaskHandler')
+PatchApplyHandler = _safe_import('.patch_apply_handler', 'PatchApplyHandler')
+AgentsManageHandler = _safe_import('.agents_manage_handler', 'AgentsManageHandler')
 
 # Optional: GetKeywordsHandler depends on NLP libraries (spaCy/nltk/sklearn).
 # Import defensively so consumers can still import src.handlers when those
 # optional deps are not available.
-try:
-    from .get_keywords_handler import GetKeywordsHandler
-except Exception:  # pragma: no cover - platform/environment dependent
-    GetKeywordsHandler = None
+GetKeywordsHandler = _safe_import('.get_keywords_handler', 'GetKeywordsHandler')
 
 __all__ = [
     "FileLoadHandler2",
