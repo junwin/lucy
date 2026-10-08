@@ -49,6 +49,7 @@ from src.http_endpoints.chats_endpoints import (
     delete_chat_impl,
     update_chat_impl,
 )
+from src.video_presentation import VideoPresentationService
 from src.http_endpoints.upload_endpoints import (
     get_video_download_impl,
     get_image_download_impl,
@@ -544,6 +545,28 @@ def download_image(image_id: str):
     if status != 200 or path is None:
         return jsonify(body), status
     return send_file(path, mimetype=body["mime_type"], as_attachment=False)
+
+
+@app.route("/stream/video", methods=["GET"])
+def stream_video():
+    """Stream an account-owned or configured-root MP4 for browser playback."""
+    service = VideoPresentationService(config)
+    try:
+        path, mime_type, _video = service.resolve_stream_request(
+            account_name=(request.args.get("accountName") or "").strip(),
+            location=(request.args.get("location") or "storage").strip(),
+            external_root=(request.args.get("external_root") or "").strip(),
+            path=(request.args.get("path") or "").strip(),
+        )
+    except (ValueError, OSError) as exc:
+        return jsonify({"error": str(exc)}), 404
+    return send_file(
+        path,
+        mimetype=mime_type,
+        as_attachment=False,
+        download_name=os.path.basename(path),
+        conditional=True,
+    )
 
 
 @app.route("/download/video/<video_id>", methods=["GET"])
