@@ -26,6 +26,7 @@ from src.handlers.generate_doc_handler import GenerateDocHandler
 from src.handlers.sandbox_execute_handler import SandboxExecuteHandler
 from src.handlers.reset_session_handler import ResetSessionHandler
 from src.handlers.serve_image_handler import ServeImageHandler
+from src.handlers.serve_video_handler import ServeVideoHandler
 from src.handlers.generate_svg_handler import GenerateSvgHandler
 from src.handlers.semantic_memory_handler import SemanticMemoryHandler
 from src.handlers.episodic_memory_handler import EpisodicMemoryHandler
@@ -107,6 +108,7 @@ def build_registry_and_catalog() -> tuple[HandlerRegistry, ToolCatalog]:
 
     # Image serving — reads existing image files from disk
     reg.register(ServeImageHandler)
+    reg.register(ServeVideoHandler)
 
     # CoALA semantic memory recall — integration-test seam for Lucy agents
     reg.register(SemanticMemoryHandler)
