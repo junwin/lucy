@@ -166,7 +166,7 @@
     "max_prompt_conversations": 0,
     "max_prompt_documents": 0,
     "temperature": 0,
-    "save_responses": false,
+    "save_responses": true,
     "model": "gpt-5-mini",
     "message_processor": "function_calling_processor",
     "max_function_call_iterations": 1,
