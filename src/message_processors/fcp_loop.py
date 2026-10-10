@@ -109,6 +109,17 @@ class LLMLoopRunner:
                         message_id=f"image:{call_id}" if call_id else None,
                     )
 
+            if "file" in parsed and tool_name in {"execution_trace", "serve_file"}:
+                file = parsed["file"]
+                if isinstance(file, dict) and file.get("file_id"):
+                    yield SSEEvent(
+                        type="file",
+                        file_id=file["file_id"],
+                        mime_type=file.get("mime_type") or "application/octet-stream",
+                        download_name=file.get("download_name") or "report.yaml",
+                        size_bytes=file.get("size_bytes"),
+                    )
+
             if "video" in parsed:
                 video = parsed["video"]
                 if isinstance(video, dict):

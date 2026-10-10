@@ -12,7 +12,7 @@ from typing import Literal, Optional
 class SSEEvent(BaseModel):
     """A single Server-Sent Event for the /ask streaming path."""
 
-    type: Literal["text", "tool_call", "tool_result", "image", "video", "action", "done", "error", "metrics"]
+    type: Literal["text", "tool_call", "tool_result", "image", "video", "file", "action", "done", "error", "metrics"]
 
     # --- text ---
     content: Optional[str] = None  # full message in Phase 1, deltas in Phase 4
@@ -43,6 +43,11 @@ class SSEEvent(BaseModel):
     mime_type: Optional[str] = None
     download_name: Optional[str] = None
     video_id: Optional[str] = None
+
+    # --- downloadable generated file ---
+    file_id: Optional[str] = None
+    file_url: Optional[str] = None
+    size_bytes: Optional[int] = None
 
     # --- action (Phase 2) ---
     action: Optional[str] = None  # "reset_session" | "redirect" | ...

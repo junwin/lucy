@@ -1,5 +1,6 @@
 from src.episodic import LucyEpisodicStore
 from flask import Flask, request, jsonify, send_file, make_response, Response
+from src.generated_files import resolve_report
 from flask_swagger_ui import get_swaggerui_blueprint
 from flask_cors import CORS
 import ssl
@@ -535,6 +536,18 @@ def upload_image():
         mime_type=file.content_type or "application/octet-stream",
     )
     return jsonify(body), status
+
+
+@app.route("/download/file/<file_id>", methods=["GET"])
+def download_generated_file(file_id: str):
+    """Download an account-owned generated file; API-key middleware authenticates."""
+    account_name = (request.args.get("accountName") or "").strip()
+    try:
+        path, mime = resolve_report(config, account_name, file_id)
+    except (ValueError, OSError):
+        return jsonify({"error": "File not found"}), 404
+    return send_file(path, mimetype=mime, as_attachment=True,
+                     download_name=path.name, conditional=True)
 
 
 @app.route("/download/image/<image_id>", methods=["GET"])

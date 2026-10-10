@@ -146,6 +146,19 @@ class EpisodicRecorder:
                 content=content,
                 metadata={"agent": ctx.agent_name, "format": image_format},
             )
+        elif ev.type == "file":
+            event = NewEvent(
+                role="assistant",
+                actor=ctx.agent_name,
+                kind="generated_file",
+                content={
+                    "file_id": ev.file_id,
+                    "mime_type": ev.mime_type,
+                    "download_name": ev.download_name,
+                    "size_bytes": ev.size_bytes,
+                },
+                metadata={"agent": ctx.agent_name},
+            )
         elif ev.type == "video":
             event = NewEvent(
                 role="assistant",
@@ -266,6 +279,22 @@ class EpisodicRecorder:
                                      "alt": ev.alt or "", "format": "png"},
                             metadata={"agent": ctx.agent_name, "format": "png"},
                         ))
+
+            # Generated downloadable files
+            for ev in streamed_events:
+                if ev.type == "file":
+                    chat_events.append(NewEvent(
+                        role="assistant",
+                        actor=ctx.agent_name,
+                        kind="generated_file",
+                        content={
+                            "file_id": ev.file_id,
+                            "mime_type": ev.mime_type,
+                            "download_name": ev.download_name,
+                            "size_bytes": ev.size_bytes,
+                        },
+                        metadata={"agent": ctx.agent_name},
+                    ))
 
             # 5. Generated videos
             for ev in streamed_events:
