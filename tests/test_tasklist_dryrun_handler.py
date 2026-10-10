@@ -129,7 +129,7 @@ def test_dryrun_returns_structured_results_in_order(tmp_path):
     }
 
 
-def test_dryrun_delegates_each_task_to_colin_with_dryrun_context(tmp_path):
+def test_dryrun_delegates_each_task_to_dryrun_with_no_import_context(tmp_path):
     handler = _handler(tmp_path)
     _save_tasklist(handler)
 
@@ -142,17 +142,17 @@ def test_dryrun_delegates_each_task_to_colin_with_dryrun_context(tmp_path):
     assert first_account == second_account == "alice"
     assert first_args == {
         "task": "do first",
-        "agentName": "colin",
+        "agentName": "dryrun",
         "capabilities": [],
         "project": "",
         "machine": "",
-        "contextName": "dry-run-task",
+        "contextName": "no_import",
         "accountName": "alice",
         "timeout_seconds": 120,
     }
     assert second_args["task"] == "do second"
-    assert second_args["agentName"] == "colin"
-    assert second_args["contextName"] == "dry-run-task"
+    assert second_args["agentName"] == "dryrun"
+    assert second_args["contextName"] == "no_import"
 
 
 def test_dryrun_allows_agent_and_context_overrides(tmp_path):
@@ -319,8 +319,8 @@ def test_dryrun_logs_delegate_result(tmp_path, caplog):
         handler.execute(
             {
                 "tasklist_id": "dryrun-1",
-                "agentName": "colin",
-                "contextName": "dry-run-task",
+                "agentName": "dryrun",
+                "contextName": "no_import",
             },
             account_name="alice",
         )

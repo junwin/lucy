@@ -133,6 +133,8 @@ def test_lucy_precedence_over_galet_tools_when_names_overlap() -> None:
     """
     registry = FakeRegistry()
 
+    # tool_names filters registry tools; it does not create descriptors.
+    registry.tools = lambda: [{"type": "function", "name": "publish", "description": "Publish content"}]
     # Both providers expose 'publish' but via different sources.
     catalog = ToolCatalog(
         [
