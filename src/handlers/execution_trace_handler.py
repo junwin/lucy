@@ -22,8 +22,8 @@ _ID = re.compile(r"^[a-fA-F0-9]{8}-[a-fA-F0-9-]{20,}$")
 _SUMMARY = re.compile(r"FunctionCallingProcessor summary:.*?iterations=(\d+) openai_calls=(\d+) tool_calls=(\d+) failures=(\d+) latency_ms=(\d+)")
 _TOKEN_BREAKDOWN = re.compile(r"Prompt.token_breakdown:.*?system=(\d+) handlers=(\d+) context=(\d+) obsidian=(\d+) digest=(\d+) history=(\d+) user=(\d+) total=(\d+)")
 _USAGE = re.compile(r"prompt_tokens=(\d+).*?completion_tokens=(\d+).*?total_tokens=(\d+)")
-_OUTCOME = re.compile(r"tool_execute_outcome correlation_id=([\\w-]+) tool=(\\S+) call_id=(\\S+) status=(\\S+) error_code=(\\S+) result_chars=(\\d+)")
-_MODEL_CALL = re.compile(r"model_call_done correlation_id=([\\w-]+) agent=(\\S+) session_id=(\\S+) iteration=(\\d+) attempt=(\\d+) duration_ms=(\\d+) input_tokens=(\\S+) output_tokens=(\\S+) total_tokens=(\\S+)")
+_OUTCOME = re.compile(r"tool_execute_outcome correlation_id=([\w-]+) tool=(\S+) call_id=(\S+) status=(\S+) error_code=(\S+) result_chars=(\d+)")
+_MODEL_CALL = re.compile(r"model_call_done correlation_id=([\w-]+) agent=(\S+) session_id=(\S+) iteration=(\d+) attempt=(\d+) duration_ms=(\d+) input_tokens=(\S+) output_tokens=(\S+) total_tokens=(\S+)")
 _SENSITIVE = re.compile(r"(password|secret|api[_-]?key|token|authorization|credential|private[_-]?key)", re.I)
 
 
