@@ -44,6 +44,12 @@ def estimate_tokens(text: str) -> int:
 #   why     — human-readable rationale for reporting/debugging
 _RULES: List[Dict[str, Any]] = [
     {
+        "name": "attachment_refs",
+        "pattern": re.compile(r"\b(image|images|photo|photos|photograph|picture|pictures|video|reel|attachment|uploaded)\b", re.IGNORECASE),
+        "expand": ("attachments",),
+        "why": "Image and video tasks may need source images from earlier turns.",
+    },
+    {
         "name": "file_refs",
         "pattern": re.compile(
             r"\b(file|files|obsidian|note|notes|document|documents|read|log|logs)\b"

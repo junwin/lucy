@@ -43,6 +43,7 @@ class SSEEvent(BaseModel):
     mime_type: Optional[str] = None
     download_name: Optional[str] = None
     video_id: Optional[str] = None
+    source_image_id: Optional[str] = None
 
     # --- downloadable generated file ---
     file_id: Optional[str] = None

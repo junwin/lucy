@@ -13,6 +13,17 @@ from src.message_processors.sse_events import SSEEvent
 
 class EpisodicRecorder:
 
+    @staticmethod
+    def attachment_metadata(agent_name, image_ids=None, file_ids=None):
+        """Keep ordered references, never attachment bytes, on the user event."""
+        metadata = {"agent": agent_name}
+        for key, values in (("image_ids", image_ids), ("file_ids", file_ids)):
+            if isinstance(values, (list, tuple)):
+                ids = [value for value in values if isinstance(value, str) and value]
+                if ids:
+                    metadata[key] = ids
+        return metadata
+
     def __init__(self, episodic_store: Optional[LucyEpisodicStore] = None) -> None:
         self.episodic_store = episodic_store
 
@@ -55,6 +66,8 @@ class EpisodicRecorder:
         ctx: ProcessorContext,
         user_message: str,
         correlation_id: Optional[str] = None,
+        image_ids: Optional[List[str]] = None,
+        file_ids: Optional[List[str]] = None,
     ) -> None:
         """Persist the user side of a streaming turn before response delivery starts."""
         if self.episodic_store is None:
@@ -68,7 +81,7 @@ class EpisodicRecorder:
                     actor=ctx.account_id,
                     kind="user_message",
                     content=user_message,
-                    metadata={"agent": ctx.agent_name},
+                    metadata=self.attachment_metadata(ctx.agent_name, image_ids, file_ids),
                     correlation_ids=(correlation_id,) if correlation_id else (),
                 ),
             )
@@ -169,6 +182,7 @@ class EpisodicRecorder:
                     "mime_type": ev.mime_type or "video/mp4",
                     "download_name": ev.download_name or "fashion-reel.mp4",
                     "video_id": ev.video_id,
+                    "source_image_id": ev.source_image_id,
                 },
                 metadata={"agent": ctx.agent_name, "format": "mp4"},
             )
@@ -193,6 +207,8 @@ class EpisodicRecorder:
         user_message: str,
         streamed_events: List[SSEEvent],
         correlation_id: Optional[str] = None,
+        image_ids: Optional[List[str]] = None,
+        file_ids: Optional[List[str]] = None,
     ) -> None:
         """Write streaming events to episodic storage, preserving media and tool cards.
 
@@ -213,7 +229,7 @@ class EpisodicRecorder:
                 actor=ctx.account_id,
                 kind="user_message",
                 content=user_message,
-                metadata={"agent": ctx.agent_name},
+                metadata=self.attachment_metadata(ctx.agent_name, image_ids, file_ids),
             ))
 
             # 2. Tool calls and results
@@ -308,6 +324,7 @@ class EpisodicRecorder:
                             "mime_type": ev.mime_type or "video/mp4",
                             "download_name": ev.download_name or "fashion-reel.mp4",
                             "video_id": ev.video_id,
+                            "source_image_id": ev.source_image_id,
                         },
                         metadata={"agent": ctx.agent_name, "format": "mp4"},
                     ))

@@ -29,6 +29,7 @@ from src.handlers.reset_session_handler import ResetSessionHandler
 from src.handlers.serve_image_handler import ServeImageHandler
 from src.handlers.serve_video_handler import ServeVideoHandler
 from src.handlers.serve_file_handler import ServeFileHandler
+from src.handlers.attachments_handler import AttachmentsHandler
 from src.handlers.generate_svg_handler import GenerateSvgHandler
 from src.handlers.semantic_memory_handler import SemanticMemoryHandler
 from src.handlers.episodic_memory_handler import EpisodicMemoryHandler
@@ -75,6 +76,7 @@ def build_registry_and_catalog() -> tuple[HandlerRegistry, ToolCatalog]:
     reg.register(ImageGenerateHandler)
     reg.register(DiscoverToolsHandler)
     reg.register(ActivateToolsHandler)
+    reg.register(AttachmentsHandler)
 
     # Optional / third-party dependent handlers: import and register lazily.
     try:

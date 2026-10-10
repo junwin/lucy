@@ -45,6 +45,7 @@
       "delegate_task",
       "tool_selection_probe",
       "video_generate",
+      "attachments",
       "procedural_memory",
       "serve_video"
     ],
@@ -316,7 +317,8 @@
       "remote_execute",
       "reset_session",
       "image_generate",
-      "video_generate"
+      "video_generate",
+      "attachments"
     ],
     "provider": null,
     "use_embeddings": false,
@@ -447,6 +449,7 @@
       "remote_execute",
       "tool_selection_probe",
       "video_generate",
+      "attachments",
       "procedural_memory"
     ],
     "prompt_policy": {
@@ -538,6 +541,7 @@
       "remote_execute",
       "tool_selection_probe",
       "video_generate",
+      "attachments",
       "serve_video"
     ],
     "provider": null,

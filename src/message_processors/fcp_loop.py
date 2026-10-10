@@ -129,6 +129,7 @@ class LLMLoopRunner:
                         mime_type=video.get("mime_type") or "video/mp4",
                         download_name=video.get("download_name"),
                         video_id=video.get("video_id"),
+                        source_image_id=video.get("source_image_id"),
                     )
 
     def run(

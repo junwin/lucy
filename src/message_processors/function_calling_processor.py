@@ -410,6 +410,17 @@ class FunctionCallingProcessor(MessageProcessorInterface):
             supports_images = self.llm_adapter.supports_image_processing(ctx.model, ctx.provider)
 
         extra_system_messages = self._get_environment_system_messages()
+        if "attachments" in (getattr(primary_agent, "allowed_tools", None) or []):
+            extra_system_messages.append(
+                "Images uploaded or generated earlier in this chat can be reused. "
+                "When the user refers to an earlier image or asks to retry a video, "
+                "use attachments to find the source image ID in the current conversation. "
+                "Discover and activate attachments if needed. Do not invent IDs or ask "
+                "for another upload before checking. If several images could match, ask "
+                "which filename or image they mean; do not silently pick the latest. "
+                "Pass the selected image_id to video_generate with the revised prompt, "
+                "or put it in image_generate.image_ids for image editing."
+            )
         if extra_system_messages:
             logging.debug("FunctionCallingProcessor: injecting %d environment system message(s) from environment_prompt_block", len(extra_system_messages))
 
@@ -472,10 +483,13 @@ class FunctionCallingProcessor(MessageProcessorInterface):
         user_message: str,
         streamed_events: List[SSEEvent],
         correlation_id: Optional[str] = None,
+        image_ids: Optional[List[str]] = None,
+        file_ids: Optional[List[str]] = None,
     ) -> None:
         self.episodic_recorder.episodic_store = self.episodic_store
         self.episodic_recorder.write_streaming_events(
-            ctx, user_message, streamed_events, correlation_id=correlation_id
+            ctx, user_message, streamed_events, correlation_id=correlation_id,
+            image_ids=image_ids, file_ids=file_ids,
         )
 
     def _write_streaming_episodic_user_message(
@@ -483,10 +497,13 @@ class FunctionCallingProcessor(MessageProcessorInterface):
         ctx: ProcessorContext,
         user_message: str,
         correlation_id: Optional[str] = None,
+        image_ids: Optional[List[str]] = None,
+        file_ids: Optional[List[str]] = None,
     ) -> None:
         self.episodic_recorder.episodic_store = self.episodic_store
         self.episodic_recorder.write_user_message(
-            ctx, user_message, correlation_id=correlation_id
+            ctx, user_message, correlation_id=correlation_id,
+            image_ids=image_ids, file_ids=file_ids,
         )
 
     def _write_streaming_episodic_event(
@@ -638,6 +655,7 @@ class FunctionCallingProcessor(MessageProcessorInterface):
 
             response_text = ""
             error_message = None
+            delivered_events = []
             self.tool_executor.episodic_store = self.episodic_store
             for event in self.loop_runner.run(
                 ctx=ctx,
@@ -651,6 +669,7 @@ class FunctionCallingProcessor(MessageProcessorInterface):
                 correlation_id=correlation_id,
                 trace_id=trace_id or correlation_id,
             ):
+                delivered_events.append(event)
                 if event.type == "text" and event.content:
                     response_text = event.content
                 elif event.type == "error":
@@ -659,12 +678,14 @@ class FunctionCallingProcessor(MessageProcessorInterface):
             if error_message is not None:
                 raise ToolHandlerError(error_message)
 
-            if ctx.store_this_call and response_text:
+            if ctx.store_this_call and (response_text or image_ids or file_ids or delivered_events):
                 self._write_streaming_episodic_events(
                     ctx,
                     message,
-                    [SSEEvent(type="text", content=response_text)],
+                    delivered_events,
                     correlation_id=correlation_id,
+                    image_ids=image_ids,
+                    file_ids=file_ids,
                 )
 
             latency_ms = int((time.perf_counter() - start_ts) * 1000)
@@ -870,7 +891,8 @@ class FunctionCallingProcessor(MessageProcessorInterface):
 
             if ctx.store_this_call:
                 self._write_streaming_episodic_user_message(
-                    ctx, message, correlation_id=correlation_id
+                    ctx, message, correlation_id=correlation_id,
+                    image_ids=image_ids, file_ids=file_ids,
                 )
                 self.episodic_recorder.write_prompt_report(
                     ctx,
