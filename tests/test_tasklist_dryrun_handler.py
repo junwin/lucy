@@ -145,7 +145,7 @@ def test_dryrun_delegates_each_task_to_dryrun_with_no_import_context(tmp_path):
         "agentName": "dryrun",
         "capabilities": [],
         "project": "",
-        "machine": "",
+        "machine": "raspberry-pi",
         "contextName": "no_import",
         "accountName": "alice",
         "timeout_seconds": 120,
@@ -328,7 +328,7 @@ def test_dryrun_logs_delegate_result(tmp_path, caplog):
     messages = [record.getMessage() for record in caplog.records]
     assert any(
         "tasklist_dryrun delegate start tasklist_id=dryrun-1 task_id=t1 "
-        "agent=colin context=dry-run-task" in message
+        "agent=dryrun context=no_import" in message
         for message in messages
     )
     assert any(
