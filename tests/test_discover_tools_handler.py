@@ -131,6 +131,15 @@ def test_discovery_ignores_stop_words_and_does_not_pad_results() -> None:
     assert all(item["matched_on"] for item in result["matches"])
 
 
+def test_discovery_only_stop_words_does_not_return_irrelevant_tools() -> None:
+    result = _execute(
+        DiscoveryRegistry(),
+        allowed_tools=["discover_tools", "bsky_publish", "admin_delete"],
+        query="tools related to an",
+    )
+    assert result["matches"] == []
+
+
 def test_discovery_never_discloses_agent_prohibited_tools() -> None:
     result = _execute(
         DiscoveryRegistry(),
