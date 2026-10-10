@@ -22,6 +22,8 @@ _ID = re.compile(r"^[a-fA-F0-9]{8}-[a-fA-F0-9-]{20,}$")
 _SUMMARY = re.compile(r"FunctionCallingProcessor summary:.*?iterations=(\d+) openai_calls=(\d+) tool_calls=(\d+) failures=(\d+) latency_ms=(\d+)")
 _TOKEN_BREAKDOWN = re.compile(r"Prompt.token_breakdown:.*?system=(\d+) handlers=(\d+) context=(\d+) obsidian=(\d+) digest=(\d+) history=(\d+) user=(\d+) total=(\d+)")
 _USAGE = re.compile(r"prompt_tokens=(\d+).*?completion_tokens=(\d+).*?total_tokens=(\d+)")
+_OUTCOME = re.compile(r"tool_execute_outcome correlation_id=([\\w-]+) tool=(\\S+) call_id=(\\S+) status=(\\S+) error_code=(\\S+) result_chars=(\\d+)")
+_MODEL_CALL = re.compile(r"model_call_done correlation_id=([\\w-]+) agent=(\\S+) session_id=(\\S+) iteration=(\\d+) attempt=(\\d+) duration_ms=(\\d+) input_tokens=(\\S+) output_tokens=(\\S+) total_tokens=(\\S+)")
 _SENSITIVE = re.compile(r"(password|secret|api[_-]?key|token|authorization|credential|private[_-]?key)", re.I)
 
 
@@ -139,6 +141,8 @@ class ExecutionTraceHandler(HandlerV2):
         metrics = {}
         errors = []
         times = []
+        outcome_by_call = {}
+        model_calls = []
         for line in iter_lines(paths):
             marker = CORRELATION_RE.search(line)
             # Prompt breakdown logs lack a correlation_id. Associate only when
@@ -156,6 +160,25 @@ class ExecutionTraceHandler(HandlerV2):
             stamp = timestamp_of(line)
             if stamp:
                 times.append(stamp)
+            outcome = _OUTCOME.search(line)
+            if outcome:
+                outcome_by_call[outcome.group(3)] = {
+                    "status": outcome.group(4),
+                    "error_code": None if outcome.group(5) == "-" else outcome.group(5),
+                    "result_chars": int(outcome.group(6)),
+                }
+            model_call = _MODEL_CALL.search(line)
+            if model_call:
+                def _optional_int(value):
+                    return None if value == "-" else int(value)
+                model_calls.append({
+                    "timestamp": stamp, "iteration": int(model_call.group(4)),
+                    "attempt": int(model_call.group(5)),
+                    "duration_ms": int(model_call.group(6)),
+                    "input_tokens": _optional_int(model_call.group(7)),
+                    "output_tokens": _optional_int(model_call.group(8)),
+                    "total_tokens": _optional_int(model_call.group(9)),
+                })
             match = _TOKEN_BREAKDOWN.search(line)
             if match:
                 prompt_tokens = int(match.group(8))
@@ -165,6 +188,15 @@ class ExecutionTraceHandler(HandlerV2):
                                    map(int, match.groups())))
             if " - ERROR -" in line or " - WARNING -" in line:
                 errors.append(_redact(line.split(" - ", 4)[-1], 360))
+        for record in records:
+            outcome = outcome_by_call.get(record["call_id"])
+            if outcome:
+                record.update(outcome)
+        provider_totals = {
+            key: sum(item[key] for item in model_calls if item[key] is not None)
+            for key in ("input_tokens", "output_tokens", "total_tokens")
+        }
+        usage_available = any(item["total_tokens"] is not None for item in model_calls)
         first = run.get("start_ts") or (min(times) if times else None)
         last = run.get("done_ts") or (max(times) if times else None)
         if not records and not messages and not times:
@@ -175,8 +207,11 @@ class ExecutionTraceHandler(HandlerV2):
             "session_id": run.get("session_id") or None,
             "message": _redact(messages[0].message, 500) if messages else None,
             "start": first, "end": last, "duration_seconds": _elapsed(first, last),
-            "tokens": {"prompt_estimate": prompt_tokens, "model_usage": None,
+            "tokens": {"prompt_estimate": prompt_tokens,
+                       "model_usage": provider_totals if usage_available else None,
                        "note": "Prompt.token_breakdown is an estimate, not billed token usage."},
+            "model_calls": model_calls,
+            "model_duration_ms": sum(item["duration_ms"] for item in model_calls),
             "metrics": metrics, "tool_calls": records, "errors": errors[:20],
             "limitations": ["Tool result previews may be truncated by application logging.",
                             "Model motivations are not recoverable from tool events alone.",
@@ -208,6 +243,9 @@ class ExecutionTraceHandler(HandlerV2):
                 "failed_calls": sum(call["status"] == "failed" for call in calls),
                 "unknown_calls": sum(call["status"] == "unknown" for call in calls),
                 "prompt_token_estimate": prompt_tokens,
+                "model_calls": len(model_calls),
+                "model_duration_ms": sum(item["duration_ms"] for item in model_calls),
+                "model_tokens": provider_totals if usage_available else None,
             },
             "file": file_ref,
         }
