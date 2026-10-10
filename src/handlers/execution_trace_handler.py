@@ -45,6 +45,17 @@ def _elapsed(start: str, end: str):
         return None
 
 
+def _result_data(preview: str):
+    try:
+        parsed = json.loads(preview)
+        if isinstance(parsed, dict):
+            # The application log captures only a preview, not full tool output.
+            return _redact(parsed, 240)
+    except (TypeError, ValueError):
+        pass
+    return None
+
+
 def _status(preview: str, completed: bool):
     if not completed:
         return "incomplete"
@@ -118,6 +129,7 @@ class ExecutionTraceHandler(HandlerV2):
                 "end": call.done_ts or None,
                 "duration_seconds": _elapsed(call.start_ts, call.done_ts),
                 "parameters": _redact(call.args, 240),
+                "result": _result_data(call.result_preview),
                 "result_preview": _redact(call.result_preview, 400),
                 "status": _status(call.result_preview, bool(call.done_ts)),
             })
