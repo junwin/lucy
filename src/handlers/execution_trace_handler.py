@@ -140,7 +140,17 @@ class ExecutionTraceHandler(HandlerV2):
         times = []
         for line in iter_lines(paths):
             marker = CORRELATION_RE.search(line)
-            if not marker or marker.group(1) != cid:
+            # Prompt breakdown logs lack a correlation_id. Associate only when
+            # agent/session match and timestamp falls within the run interval.
+            if (not marker or marker.group(1) != cid):
+                token_match = _TOKEN_BREAKDOWN.search(line)
+                stamp = timestamp_of(line)
+                if (token_match and run.get("agent") and run.get("session_id")
+                        and f"agent={run['agent']} " in line
+                        and f"session={run['session_id']} " in line
+                        and run.get("start_ts") and run.get("done_ts")
+                        and run["start_ts"] <= stamp <= run["done_ts"]):
+                    prompt_tokens = int(token_match.group(8))
                 continue
             stamp = timestamp_of(line)
             if stamp:
