@@ -238,7 +238,11 @@ class ToolCatalog:
 
         required_groups = set(_normalise_terms(groups))
         required_tags = set(_normalise_terms(tags))
-        # Ignore conversational filler so unrelated tools are not selected merely\n        # because their descriptions contain words such as "an" or "to".\n        query_terms = set(_tokenize(query)) - _QUERY_STOP_WORDS\n        if query.strip() and not query_terms:\n            return []
+        # Ignore conversational filler so unrelated tools are not selected merely
+        # because their descriptions contain words such as "an" or "to".
+        query_terms = set(_tokenize(query)) - _QUERY_STOP_WORDS
+        if query.strip() and not query_terms:
+            return []
 
         ranked: list[tuple[int, str, ToolMatch]] = []
         for descriptor in self.descriptors():
