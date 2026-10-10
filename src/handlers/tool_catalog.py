@@ -238,7 +238,7 @@ class ToolCatalog:
 
         required_groups = set(_normalise_terms(groups))
         required_tags = set(_normalise_terms(tags))
-        query_terms = set(_tokenize(query))
+        # Ignore conversational filler so unrelated tools are not selected merely\n        # because their descriptions contain words such as "an" or "to".\n        query_terms = set(_tokenize(query)) - _QUERY_STOP_WORDS\n        if query.strip() and not query_terms:\n            return []
 
         ranked: list[tuple[int, str, ToolMatch]] = []
         for descriptor in self.descriptors():
@@ -301,6 +301,11 @@ class ToolCatalog:
         ranked.sort(key=lambda item: (-item[0], item[1]))
         return [item[2] for item in ranked[:limit]]
 
+
+_QUERY_STOP_WORDS = frozenset({
+    "a", "an", "and", "are", "for", "in", "is", "of", "or", "related",
+    "the", "to", "tool", "tools", "with",
+})
 
 _token_re = re.compile(r"[^a-z0-9]+")
 
