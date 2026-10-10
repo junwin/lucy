@@ -120,7 +120,7 @@ def test_discovery_ignores_stop_words_and_does_not_pad_results() -> None:
             "tumblr_publish",
             "admin_delete",
         ],
-        query="tools related to generating or publishing an image",
+        query="tools related to publish an image",
         limit=10,
     )
 
