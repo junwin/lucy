@@ -25,7 +25,7 @@ def test_execution_trace_reports_order_timing_and_failures(tmp_path, monkeypatch
         f"2026-10-08 16:58:48,000 - INFO - root - tool_execute_start correlation_id={CID} tool=repo_search call_id=call_1 account=junwin\n"
         f"2026-10-08 16:58:48,500 - INFO - root - tool_execute_outcome correlation_id={CID} tool=repo_search call_id=call_1 status=failed error_code=not_found result_chars=5000\n"
         f"2026-10-08 16:58:49,200 - INFO - root - model_call_done correlation_id={CID} agent=colin session_id=s1 iteration=1 attempt=1 duration_ms=1200 input_tokens=345 output_tokens=55 total_tokens=400\n"
-        f"2026-10-08 16:58:49,000 - INFO - root - tool_execute_done correlation_id={CID} tool=repo_search call_id=call_1 result_preview='{{\"ok\": false, \"error\": \"not found\"}}'\n"
+        f"2026-10-08 16:58:49,000 - INFO - root - tool_execute_done correlation_id={CID} tool=repo_search call_id=call_1 result_preview='{{\"ok\": false, \"error\": \"truncated\n"
         "2026-10-08 16:58:50,000 - INFO - root - FunctionCallingProcessor(streaming): completed "
         f"correlation_id={CID} agent=colin session_id=s1 iterations=1\n",
         encoding="utf-8",
