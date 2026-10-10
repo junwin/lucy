@@ -2,6 +2,8 @@ import json
 
 import src.handlers.execution_trace_handler as trace
 from src.handlers.execution_trace_handler import ExecutionTraceHandler
+from src.handlers.serve_file_handler import ServeFileHandler
+from src.generated_files import resolve_report
 
 
 CID = "76867d1d-04a0-4f2e-adc3-219a84da9873"
@@ -27,18 +29,32 @@ def test_execution_trace_reports_order_timing_and_failures(tmp_path, monkeypatch
         encoding="utf-8",
     )
     monkeypatch.setattr(trace, "DEFAULT_LOG", log)
-    result = ExecutionTraceHandler().execute(
-        {"correlation_id": CID, "format": "json", "include_rotated": False}
+    config = {"storage_root_path": str(tmp_path), "storage_namespace": "data"}
+    class Config:
+        def get(self, key, default=None):
+            return config.get(key, default)
+
+    cfg = Config()
+    result = ExecutionTraceHandler(cfg).execute(
+        {"correlation_id": CID, "format": "json", "include_rotated": False},
+        account_name="alice",
     )
     assert result["ok"]
-    report = result["report"]
+    assert "report" not in result and "formatted" not in result
+    file_id = result["file"]["file_id"]
+    path, mime = resolve_report(cfg, "alice", file_id)
+    assert mime == "application/json"
+    assert ServeFileHandler(cfg).execute({"file_id": file_id}, account_name="alice")["ok"]
+    assert not ServeFileHandler(cfg).execute({"file_id": file_id}, account_name="bob")["ok"]
+    report = json.loads(path.read_text(encoding="utf-8"))
     assert report["agent"] == "colin"
     assert report["duration_seconds"] == 3.0
     assert report["tokens"]["prompt_estimate"] == 350
     assert report["tool_calls"][0]["duration_seconds"] == 1.0
     assert report["tool_calls"][0]["status"] == "failed"
     assert report["tool_calls"][0]["parameters"]["token"] == "[REDACTED]"
-    assert json.loads(result["formatted"]) == report
+    assert result["summary"]["failed_calls"] == 1
+    assert result["summary"]["tool_calls"] == 1
 
 
 def test_execution_trace_rejects_missing_or_unknown_id(tmp_path, monkeypatch):
