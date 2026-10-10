@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any, Dict
 
 from src.handlers.handler_v2 import HandlerV2
+from src.generated_files import save_report
 from scripts.log_tools import (
     DEFAULT_LOG, parse_tools, parse_messages, resolve_log_files, iter_lines,
     CORRELATION_RE, timestamp_of,
@@ -103,7 +104,7 @@ class ExecutionTraceHandler(HandlerV2):
     def result_schema(cls):
         return {"type": "object", "properties": {
             "ok": {"type": "boolean"}, "tool": {"type": "string"},
-            "report": {"type": "object"}, "formatted": {"type": "string"},
+            "summary": {"type": "object"}, "file": {"type": "object"},
             "error": {"type": "string"}
         }, "required": ["ok", "tool"], "additionalProperties": True}
 
@@ -190,4 +191,23 @@ class ExecutionTraceHandler(HandlerV2):
             except ImportError:
                 # JSON is a valid YAML 1.2 document.
                 output = json.dumps(report, indent=2, ensure_ascii=False)
-        return {"ok": True, "tool": self.NAME, "report": report, "formatted": output}
+        if self.config is None:
+            return {"ok": False, "tool": self.NAME, "error": "Storage configuration unavailable"}
+        try:
+            file_ref = save_report(self.config, account_name, output, format_name)
+        except (ValueError, OSError) as exc:
+            return {"ok": False, "tool": self.NAME, "error": str(exc)}
+        calls = records
+        return {
+            "ok": True, "tool": self.NAME,
+            "correlation_id": cid,
+            "summary": {
+                "agent": report["agent"],
+                "duration_seconds": report["duration_seconds"],
+                "tool_calls": len(calls),
+                "failed_calls": sum(call["status"] == "failed" for call in calls),
+                "unknown_calls": sum(call["status"] == "unknown" for call in calls),
+                "prompt_token_estimate": prompt_tokens,
+            },
+            "file": file_ref,
+        }
