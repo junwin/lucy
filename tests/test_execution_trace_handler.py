@@ -1,0 +1,48 @@
+import json
+
+import src.handlers.execution_trace_handler as trace
+from src.handlers.execution_trace_handler import ExecutionTraceHandler
+
+
+CID = "76867d1d-04a0-4f2e-adc3-219a84da9873"
+
+
+def test_execution_trace_reports_order_timing_and_failures(tmp_path, monkeypatch):
+    log = tmp_path / "my_log_file.log"
+    log.write_text(
+        "2026-10-08 16:58:46,927 - INFO - root - FunctionCallingProcessor(streaming) inbound message: "
+        f"correlation_id={CID} message=Inspect task\n"
+        "2026-10-08 16:58:47,000 - INFO - root - FunctionCallingProcessor(streaming): start "
+        f"correlation_id={CID} account=junwin agent=colin session_id=s1 context_type=none max_iterations=10\n"
+        "2026-10-08 16:58:47,100 - INFO - root - Prompt.token_breakdown: "
+        "agent=colin account=junwin session=s1 system=100 handlers=200 context=20 "
+        "obsidian=0 digest=0 history=0 user=30 total=350\n"
+        "2026-10-08 16:58:48,000 - INFO - root - FunctionCallingProcessor(streaming): raw tool calls "
+        f"correlation_id={CID} agent=colin session_id=s1 iteration=1 "
+        'raw=[{"id": "call_1", "name": "repo_search", "arguments": "{\\"query\\": \\"foo\\", \\"token\\": \\"secret\\"}"}] wrapped=[]\n'
+        f"2026-10-08 16:58:48,000 - INFO - root - tool_execute_start correlation_id={CID} tool=repo_search call_id=call_1 account=junwin\n"
+        f"2026-10-08 16:58:49,000 - INFO - root - tool_execute_done correlation_id={CID} tool=repo_search call_id=call_1 result_preview='{{\"ok\": false, \"error\": \"not found\"}}'\n"
+        "2026-10-08 16:58:50,000 - INFO - root - FunctionCallingProcessor(streaming): completed "
+        f"correlation_id={CID} agent=colin session_id=s1 iterations=1\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(trace, "DEFAULT_LOG", log)
+    result = ExecutionTraceHandler().execute(
+        {"correlation_id": CID, "format": "json", "include_rotated": False}
+    )
+    assert result["ok"]
+    report = result["report"]
+    assert report["agent"] == "colin"
+    assert report["duration_seconds"] == 3.0
+    assert report["tokens"]["prompt_estimate"] == 350
+    assert report["tool_calls"][0]["duration_seconds"] == 1.0
+    assert report["tool_calls"][0]["status"] == "failed"
+    assert report["tool_calls"][0]["parameters"]["token"] == "[REDACTED]"
+    assert json.loads(result["formatted"]) == report
+
+
+def test_execution_trace_rejects_missing_or_unknown_id(tmp_path, monkeypatch):
+    monkeypatch.setattr(trace, "DEFAULT_LOG", tmp_path / "missing.log")
+    h = ExecutionTraceHandler()
+    assert not h.execute({"correlation_id": "../something"})["ok"]
+    assert not h.execute({"correlation_id": CID})["ok"]
