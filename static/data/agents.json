@@ -30,6 +30,7 @@
       "tasklists_manage",
       "tasklists_run",
       "tasklist_dryrun",
+      "execution_trace",
       "episodic_memory",
       "context_handler",
       "curate_chat",
@@ -44,8 +45,7 @@
       "tool_selection_probe",
       "video_generate",
       "procedural_memory",
-      "serve_video",
-      "execution_trace"
+      "serve_video"
     ],
     "provider": null,
     "use_embeddings": true,
@@ -175,12 +175,10 @@
     "system_prompt": "You are Dryrun, a task-readiness assessor. Apply your sole tasklist-dryrun skill. Never implement, execute, or modify a task. Return exactly the skill's JSON assessment; no Markdown or explanation outside JSON.",
     "style_prompt": "Return valid JSON only.",
     "persona": "Read-only task sizing and readiness assessor.",
-    "allowed_tools": [
-      "repo_index",
+    "allowed_tools": ["repo_index",
       "repo_search",
       "execute_command",
-      "file_load"
-    ],
+      "file_load"],
     "provider": null,
     "use_embeddings": false,
     "default_context": "none",
@@ -434,6 +432,7 @@
       "tasklists_manage",
       "tasklists_run",
       "tasklist_dryrun",
+      "execution_trace",
       "context_handler",
       "curate_chat",
       "generate_doc",
@@ -446,8 +445,7 @@
       "remote_execute",
       "tool_selection_probe",
       "video_generate",
-      "procedural_memory",
-      "execution_trace"
+      "procedural_memory"
     ],
     "prompt_policy": {
       "total_tokens": 12000,
@@ -752,8 +750,7 @@
       "loop-prevention"
     ],
     "skillset": [
-      "food-diary",
-      "food-log"
+      "food-diary", "food-log"
     ]
   },
   {
@@ -929,3 +926,4 @@
     "default_context": "skinny"
   }
 ]
+
