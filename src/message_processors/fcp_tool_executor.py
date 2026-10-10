@@ -297,12 +297,30 @@ class ToolExecutor:
                     tool_result = handler.execute(tool_args, account_name=ctx.account_id, **handler_context)
                     tool_result_text = json.dumps(tool_result, ensure_ascii=False)
 
+                # Structured outcome is logged separately from the truncated preview.
+                # Do not expose arbitrary result fields (which may contain secrets).
+                try:
+                    outcome = json.loads(tool_result_text)
+                except (TypeError, ValueError):
+                    outcome = None
+                outcome = outcome if isinstance(outcome, dict) else {}
+                outcome_ok = outcome.get("ok")
+                outcome_status = outcome.get("status")
+                if outcome_ok is False or outcome_status in ("error", "failed"):
+                    trace_status = "failed"
+                elif outcome_ok is True:
+                    trace_status = "success"
+                else:
+                    trace_status = "unknown"
+                logging.info(
+                    "tool_execute_outcome correlation_id=%s tool=%s call_id=%s status=%s error_code=%s result_chars=%d",
+                    correlation_id, tc.name, tc.call_id, trace_status,
+                    str(outcome.get("error_code") or "-")[:80],
+                    len(tool_result_text or ""),
+                )
                 logging.info(
                     "tool_execute_done correlation_id=%s tool=%s call_id=%s result_preview=%r",
-                    correlation_id,
-                    tc.name,
-                    tc.call_id,
-                    (tool_result_text or "")[:200],
+                    correlation_id, tc.name, tc.call_id, (tool_result_text or "")[:200],
                 )
 
                 # Collect raw result before enforcing max size (for SSE action/image inspection)
