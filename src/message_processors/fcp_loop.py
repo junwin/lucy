@@ -175,6 +175,7 @@ class LLMLoopRunner:
                         correlation_id, iteration, retry_attempt, MAX_EMPTY_RETRIES, ctx.agent_name, ctx.conversation_id,
                     )
 
+                model_started = time.perf_counter()
                 llm_response = self.llm_adapter.call_model(
                     model=ctx.model,
                     input=next_input_items,
@@ -187,6 +188,21 @@ class LLMLoopRunner:
                     provider=ctx.provider,
                 )
 
+                model_elapsed_ms = round((time.perf_counter() - model_started) * 1000)
+                usage_getter = getattr(self.llm_adapter, "get_usage", None)
+                call_usage = usage_getter(llm_response) if callable(usage_getter) else None
+                input_tokens = call_usage.input_tokens if isinstance(call_usage, LLMUsage) else None
+                output_tokens = call_usage.output_tokens if isinstance(call_usage, LLMUsage) else None
+                total_tokens = call_usage.total_tokens if isinstance(call_usage, LLMUsage) else None
+                logging.info(
+                    "model_call_done correlation_id=%s agent=%s session_id=%s iteration=%d attempt=%d duration_ms=%d input_tokens=%s output_tokens=%s total_tokens=%s",
+                    correlation_id, ctx.agent_name, ctx.conversation_id, iteration,
+                    retry_attempt + 1, model_elapsed_ms,
+                    input_tokens if input_tokens is not None else "-",
+                    output_tokens if output_tokens is not None else "-",
+                    total_tokens if total_tokens is not None else "-",
+                )
+
                 logging.debug(
                     "FunctionCallingProcessor(streaming): raw LLM response correlation_id=%s agent=%s session_id=%s iteration=%d type=%s llm_response=%r",
                     correlation_id,
@@ -197,13 +213,10 @@ class LLMLoopRunner:
                     llm_response,
                 )
 
-                usage_getter = getattr(self.llm_adapter, "get_usage", None)
-                if usage_getter is not None:
-                    usage = usage_getter(llm_response)
-                    if isinstance(usage, LLMUsage):
-                        metrics["prompt_tokens"] += usage.input_tokens or 0
-                        metrics["completion_tokens"] += usage.output_tokens or 0
-                        metrics["total_tokens"] += usage.total_tokens or 0
+                if isinstance(call_usage, LLMUsage):
+                    metrics["prompt_tokens"] += call_usage.input_tokens or 0
+                    metrics["completion_tokens"] += call_usage.output_tokens or 0
+                    metrics["total_tokens"] += call_usage.total_tokens or 0
 
                 result_response_id = self.llm_adapter.get_response_id(llm_response)
                 if result_response_id:
