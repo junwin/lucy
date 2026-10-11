@@ -286,6 +286,7 @@ def _build_run_metrics(
         failures=failures,
         tool_failures=metrics.get("tool_failures", 0),
         processor_failures=metrics.get("processor_failures", 0),
+        tool_error=metrics.get("tool_error"),
         duration_ms=latency_ms,
         agent=ctx.agent_name if ctx is not None else "",
         account=ctx.account_id if ctx is not None else "",

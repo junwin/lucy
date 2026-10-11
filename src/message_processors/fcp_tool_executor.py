@@ -343,6 +343,13 @@ class ToolExecutor:
                 # Replace the too-large raw result with a compact error so the
                 # LLM sees a graceful tool-failure message instead of a hard crash.
                 error_msg = str(e)
+                metrics["tool_error"] = {
+                    "code": "tool_result_too_large",
+                    "tool": tc.name,
+                    "chars": len(tool_result_text),
+                    "limit": max_tool_result_chars,
+                    "message": error_msg,
+                }
                 if tc.name == "serve_image":
                     # Parse char count and limit from the error string to craft
                     # a helpful message that tells the LLM exactly what to do.
