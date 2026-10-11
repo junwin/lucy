@@ -197,7 +197,8 @@
       "tasklist-dryrun"
     ],
     "skillset": [
-      "dry-run"
+      "dry-run",
+      "filepaths"
     ],
     "prompt_policy": {
       "total_tokens": 2500,
