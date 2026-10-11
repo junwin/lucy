@@ -112,6 +112,7 @@ class DelegateTaskHandler(HandlerV2):
                 "source": {"type": "string"},
                 "model": {"type": "string"},
                 "result": {"type": "string"},
+                "metrics": {"type": "object"},
                 "error": {"type": "string"},
             },
             "required": ["ok", "tool"],

@@ -108,6 +108,7 @@ def test_dryrun_returns_structured_results_in_order(tmp_path):
         "ok": True,
         "tool": "tasklist_dryrun",
         "tasklist_id": "dryrun-1",
+        "ready": False,
         "tasks": [
             {
                 "id": "t1",
@@ -192,9 +193,9 @@ def test_dryrun_records_delegate_failure_and_continues(tmp_path):
         "id": "t1",
         "name": "First",
         "persisted_state": "Pending",
-        "ready": None,
-        "reason": None,
-        "detail": "",
+        "ready": False,
+        "reason": "blocked",
+        "detail": "Dry-run assessment could not be completed: no eligible machine",
         "error": "no eligible machine",
     }
     assert result["tasks"][1]["ready"] is False
@@ -213,7 +214,7 @@ def test_dryrun_records_invalid_json_and_continues(tmp_path):
 
     result = handler.execute({"tasklist_id": "dryrun-1"}, account_name="alice")
 
-    assert result["tasks"][0]["ready"] is None
+    assert result["tasks"][0]["ready"] is False
     assert "invalid dry-run JSON" in result["tasks"][0]["error"]
     assert result["tasks"][1]["ready"] is False
     assert result["tasks"][1]["reason"] == "invalid"
@@ -231,7 +232,7 @@ def test_dryrun_records_unexpected_reason(tmp_path):
 
     result = handler.execute({"tasklist_id": "dryrun-1"}, account_name="alice")
 
-    assert result["tasks"][0]["ready"] is None
+    assert result["tasks"][0]["ready"] is False
     assert "unexpected dry-run reason" in result["tasks"][0]["error"]
     assert result["tasks"][1]["ready"] is True
 
@@ -248,7 +249,7 @@ def test_dryrun_requires_one_task_result_per_delegated_task(tmp_path):
 
     result = handler.execute({"tasklist_id": "dryrun-1"}, account_name="alice")
 
-    assert result["tasks"][0]["ready"] is None
+    assert result["tasks"][0]["ready"] is False
     assert result["tasks"][0]["error"] == (
         "dry-run response returned 0 task_results; expected exactly 1"
     )
@@ -268,7 +269,7 @@ def test_dryrun_records_raised_task_error_and_continues(tmp_path):
     result = handler.execute({"tasklist_id": "dryrun-1"}, account_name="alice")
 
     assert result["ok"] is True
-    assert result["tasks"][0]["ready"] is None
+    assert result["tasks"][0]["ready"] is False
     assert result["tasks"][0]["error"] == "boom"
     assert result["tasks"][1]["ready"] is True
 
@@ -380,3 +381,67 @@ def test_dryrun_tool_definition_uses_nullable_required_overrides():
         "string",
         "null",
     ]
+
+
+def test_dryrun_iteration_cap_is_decompose_and_continues_read_only(tmp_path):
+    # The worker returns ordinary fallback prose rather than dry-run JSON.
+    handler = _handler(tmp_path, results=[
+        {"ok": True, "result": "I ran into an internal limit while trying to call tools multiple times.",
+         "metrics": {"hit_iteration_cap": True, "iterations": 5, "max_iterations": 5}},
+        _result(True),
+    ])
+    _save_tasklist(handler)
+    path = tmp_path / "ns" / "tasklists" / "alice" / "dryrun-1.json"
+    before = path.read_bytes()
+    result = handler.execute({"tasklist_id": "dryrun-1"}, account_name="alice")
+    assert result["ok"] is True
+    assert result["ready"] is False
+    assert result["tasks"][0]["ready"] is False
+    assert result["tasks"][0]["reason"] == "decompose"
+    assert "5 iterations" in result["tasks"][0]["detail"]
+    assert "error" not in result["tasks"][0]
+    assert result["tasks"][1]["ready"] is True
+    assert len(handler.delegate_handler.calls) == 2
+    assert path.read_bytes() == before
+
+
+def test_cap_flag_overrides_incomplete_ready_claim():
+    delegated = _result(True)
+    delegated["metrics"] = {"hit_iteration_cap": True}
+    assessment, error = TasklistDryrunHandler._result_from_delegate(delegated)
+    assert assessment["ready"] is False
+    assert assessment["reason"] == "decompose"
+    assert error is None
+
+
+def test_limit_is_not_inferred_from_prose_or_iteration_count(tmp_path):
+    handler = _handler(tmp_path, results=[
+        {"ok": True, "result": "I ran into an internal limit while trying to call tools multiple times."},
+        {**_result(True), "metrics": {"iterations": 5, "max_iterations": 5, "hit_iteration_cap": False}},
+    ])
+    _save_tasklist(handler)
+    result = handler.execute({"tasklist_id": "dryrun-1"}, account_name="alice")
+    assert result["tasks"][0]["ready"] is False
+    assert result["tasks"][0]["reason"] == "blocked"
+    assert result["tasks"][1]["ready"] is True
+    assert result["ready"] is False
+
+
+def test_all_ready_tasks_report_go(tmp_path):
+    handler = _handler(tmp_path)
+    _save_tasklist(handler)
+    result = handler.execute({"tasklist_id": "dryrun-1"}, account_name="alice")
+    assert result["ok"] is True
+    assert result["ready"] is True
+
+
+def test_failed_worker_cannot_claim_task_ready(tmp_path):
+    delegated = _result(True)
+    delegated["metrics"] = {"success": False, "hit_iteration_cap": False}
+    handler = _handler(tmp_path, results=[delegated, _result(True)])
+    _save_tasklist(handler)
+    result = handler.execute({"tasklist_id": "dryrun-1"}, account_name="alice")
+    assert result["ready"] is False
+    assert result["tasks"][0]["ready"] is False
+    assert result["tasks"][0]["reason"] == "blocked"
+    assert result["tasks"][1]["ready"] is True

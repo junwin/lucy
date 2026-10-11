@@ -186,3 +186,24 @@ journalctl -u lucy -f
 - Kanban board: `software/ai/lucy/backlog/`
 - Process: `software/ai/lucy/backlog/process.md`
 - Repo: `~/src/repos/lucy`
+
+## Tasklist dry-run outcomes
+
+`tasklist_dryrun` checks each persisted task without changing its state. Its
+`ok` field means the handler completed; the aggregate `ready` field is true
+only when every task is ready. A no-go assessment uses `ready: false` and a
+reason (`decompose`, `blocked`, or `invalid`).
+
+A worker that reaches its tool-turn iteration cap returns a `decompose`
+assessment instead of causing a JSON parse failure. This is detected using
+`metrics.hit_iteration_cap`, passed through `/ask`, `remote_execute`, and
+`delegate_task`. The cap is a budget-based no-go decision, not proof that the
+task itself is inherently complex: check repository paths and task clarity
+when splitting the work. Reaching the final iteration with a completed answer
+is not a cap hit.
+
+Transport errors, malformed assessment responses, and other assessment
+exceptions become `blocked` no-go results with diagnostic details. Remaining
+tasks are still checked and the stored tasklist is unchanged. Older workers
+without metrics cannot reliably identify cap hits; their non-JSON fallback
+answers are reported as blocked. Deploy the updated worker and caller together.

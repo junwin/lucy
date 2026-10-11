@@ -174,3 +174,21 @@ def test_remote_execute_propagates_trace_and_returns_remote_run(monkeypatch, tem
     }
     assert result["result"] == "remote answer"
     assert result["run_id"] == "remote-run"
+
+
+@pytest.mark.parametrize("stream", [False, True])
+def test_remote_execute_preserves_iteration_cap_metrics(monkeypatch, temp_config, stream):
+    metrics = {"hit_iteration_cap": True, "iterations": 5, "max_iterations": 5}
+    text = "I ran into an internal limit."
+    if stream:
+        raw = "data: " + json.dumps({"type": "text", "content": text}) + "\n\n"
+        raw += "data: " + json.dumps({"type": "metrics", "metrics": metrics}) + "\n\n"
+        raw += 'data: {"type":"done"}\n\n'
+    else:
+        raw = json.dumps({"response": text, "metrics": metrics})
+    monkeypatch.setattr("requests.post", lambda *args, **kwargs: FakeResponse(raw))
+    result = RemoteExecuteHandler(ConfigManager(temp_config)).execute(
+        {"machine": "pi4", "question": "inspect task"}, account_name="alice")
+    assert result["ok"] is True
+    assert result["result"] == text
+    assert result["metrics"] == metrics

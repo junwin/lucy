@@ -398,7 +398,7 @@ class AskRequestHandler:
                 self._remember_dialogue(payload, route, conversationId, response_text)
 
             # Return the conversation id so callers can persist it for future requests
-            return 200, {"response": response_text, "conversation_id": conversationId, "trace_id": identity.trace_id, "run_id": identity.run_id, "parent_run_id": identity.parent_run_id, **({"routing": route.to_dict()} if route is not None else {})}
+            return 200, {"response": response_text, "metrics": result.metrics.to_dict(), "conversation_id": conversationId, "trace_id": identity.trace_id, "run_id": identity.run_id, "parent_run_id": identity.parent_run_id, **({"routing": route.to_dict()} if route is not None else {})}
 
         except ToolHandlerError as e:
             error_message = f"Tool execution failed: {str(e)}"

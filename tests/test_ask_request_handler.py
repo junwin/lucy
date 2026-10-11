@@ -280,3 +280,15 @@ def test_clarification_is_saved_for_followup_and_keeps_trace(tmp_path):
     assert followup["conversation_id"] == body["conversation_id"]
     assert processor.calls[-1]["primary_agent"].name == "lumia"
     assert memory.get_active_snapshot(account_name='alice', session_id=body["conversation_id"]).events[0].content == "Make it better"
+
+
+def test_ask_returns_iteration_cap_metrics_for_delegated_assessments():
+    metrics = RunMetrics(iterations=5, max_iterations=5, hit_iteration_cap=True, success=False)
+    processor = FakeProcessor(FCPResult(text="I ran into an internal limit.", metrics=metrics))
+    handler = make_handler(processor, make_agent())
+    status, body = handler.handle(make_payload())
+    assert status == 200
+    assert body["metrics"]["hit_iteration_cap"] is True
+    assert body["metrics"]["iterations"] == 5
+    assert body["metrics"]["max_iterations"] == 5
+    assert body["metrics"]["success"] is False
