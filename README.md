@@ -207,3 +207,14 @@ exceptions become `blocked` no-go results with diagnostic details. Remaining
 tasks are still checked and the stored tasklist is unchanged. Older workers
 without metrics cannot reliably identify cap hits; their non-JSON fallback
 answers are reported as blocked. Deploy the updated worker and caller together.
+
+
+`tasklist_dryrun` saves every task assessment, including full details and errors,
+in an account-owned JSON report. The tool return contains aggregate `ready`,
+summary counts, and a `file` reference; it does not include the full task array.
+This keeps large reports out of the model's tool-result budget. The file follows
+the same delivery path as `execution_trace`: the chat receives a downloadable
+file card automatically, and `serve_file` can deliver it again using `file_id`.
+The report is stored under the account's generated-files directory and cannot
+be retrieved using another account. Report-save failures return a structured
+`report_save_failed` error instead of claiming success.

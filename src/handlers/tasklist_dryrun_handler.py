@@ -6,6 +6,7 @@ import json
 import logging
 from typing import Any, Dict, Optional
 
+from src.generated_files import save_report
 from src.config_manager import ConfigManager
 from src.handlers.delegate_task_handler import DelegateTaskHandler
 from src.handlers.handler_v2 import HandlerV2
@@ -50,7 +51,9 @@ class TasklistDryrunHandler(HandlerV2):
             "name": cls.NAME,
             "description": (
                 "Load a persisted tasklist without modifying it and dry-run each "
-                "task through the configured dry-run worker context."
+                "task through the configured dry-run worker context. Save the full "
+                "assessment to an account-owned report and return a compact "
+                "summary and file UUID for serve_file."
             ),
             "parameters": {
                 "type": "object",
@@ -83,33 +86,8 @@ class TasklistDryrunHandler(HandlerV2):
                 "tool": {"type": "string"},
                 "tasklist_id": {"type": "string"},
                 "ready": {"type": "boolean"},
-                "tasks": {
-                    "type": "array",
-                    "items": {
-                        "type": "object",
-                        "properties": {
-                            "id": {"type": "string"},
-                            "name": {"type": "string"},
-                            "persisted_state": {"type": "string"},
-                            "ready": {"type": ["boolean", "null"]},
-                            "reason": {
-                                "type": ["string", "null"],
-                                "enum": ["decompose", "blocked", "invalid", None],
-                            },
-                            "detail": {"type": "string"},
-                            "error": {"type": "string"},
-                        },
-                        "required": [
-                            "id",
-                            "name",
-                            "persisted_state",
-                            "ready",
-                            "reason",
-                            "detail",
-                        ],
-                        "additionalProperties": False,
-                    },
-                },
+                "summary": {"type": "object"},
+                "file": {"type": "object"},
                 "error": {"type": "object"},
             },
             "required": ["ok", "tool"],
@@ -220,12 +198,38 @@ class TasklistDryrunHandler(HandlerV2):
                     item["error"] = str(exc)
                 tasks.append(item)
 
-            return {
+            report = {
                 "ok": True,
                 "tool": self.NAME,
                 "tasklist_id": tasklist_id,
                 "ready": all(item["ready"] is True for item in tasks),
                 "tasks": tasks,
+            }
+            try:
+                file_ref = save_report(
+                    self.config, account_name,
+                    json.dumps(report, indent=2, ensure_ascii=False), "json",
+                )
+            except (ValueError, OSError) as exc:
+                return {
+                    "ok": False, "tool": self.NAME, "tasklist_id": tasklist_id,
+                    "error": {"code": "report_save_failed", "message": str(exc)},
+                }
+            file_ref["download_name"] = f"tasklist-dryrun-{file_ref['file_id']}.json"
+            return {
+                "ok": True,
+                "tool": self.NAME,
+                "tasklist_id": tasklist_id,
+                "ready": report["ready"],
+                "summary": {
+                    "total": len(tasks),
+                    "ready": sum(item["ready"] is True for item in tasks),
+                    "decompose": sum(item["reason"] == "decompose" for item in tasks),
+                    "blocked": sum(item["reason"] == "blocked" for item in tasks),
+                    "invalid": sum(item["reason"] == "invalid" for item in tasks),
+                    "assessment_errors": sum(bool(item.get("error")) for item in tasks),
+                },
+                "file": file_ref,
             }
         except Exception as exc:
             logger.exception("tasklist_dryrun failed")

@@ -22,7 +22,7 @@ class ServeFileHandler(HandlerV2):
             "name": cls.NAME,
             "description": "Deliver an existing account-owned generated report file to the browser. Accepts a file UUID only; never an arbitrary path.",
             "parameters": {"type": "object", "properties": {
-                "file_id": {"type": "string", "description": "UUID returned by execution_trace."},
+                "file_id": {"type": "string", "description": "UUID returned by execution_trace or tasklist_dryrun."},
             }, "required": ["file_id"], "additionalProperties": False},
             "strict": True,
         }

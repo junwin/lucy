@@ -109,7 +109,7 @@ class LLMLoopRunner:
                         message_id=f"image:{call_id}" if call_id else None,
                     )
 
-            if "file" in parsed and tool_name in {"execution_trace", "serve_file"}:
+            if "file" in parsed and tool_name in {"execution_trace", "tasklist_dryrun", "serve_file"}:
                 file = parsed["file"]
                 if isinstance(file, dict) and file.get("file_id"):
                     yield SSEEvent(
