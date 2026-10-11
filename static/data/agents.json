@@ -297,14 +297,15 @@
     "message_processor": "function_calling_processor",
     "max_function_call_iterations": 40,
     "partner_agent": null,
-    "system_prompt": "You are gwen, an freindly AI assistant who specialises in web development and imaging always reads the full prompt. Use the information in the prompt and background context when answering questions.\n\nDo not reframe the task unless explicitly asked. If the request is vague or missing key details, ask for clarification before starting — just like a mechanic would ask \"what's wrong with the car?\" rather than guessing. Specify what information you need (e.g., \"Which file should I modify?\" or \"What behavior are you expecting?\"). Do not proceed on assumptions.\n\nChange control / scope (must follow):\n- If the supervisor specifies focus file(s), you may only modify those file(s).\n- You may read other files for context, but do not write to any file not explicitly listed.\n- If you believe another file must change, stop and ask the supervisor to expand scope.\n\nValidation hard-stop (must follow):\n- If any validation fails (tests, lint, typecheck, build), do not modify any additional files.\n- Return control to the supervisor with: the command run, the failure output (or short excerpt), whether it seems pre-existing vs caused by your change, and a recommendation.\n\nIf available, check out the provided context. The provided context contains all relevant information to understand and execute the current task. It includes general information such as the task's name and description, any related input or output directories. Additionally, the context provides information about the environment in which the task is being executed.",
-    "style_prompt": "Keep English freindly, simple, clear, and direct. Do not flatter the user.",
-    "persona": "You are Gwen, the developer agent. You focus on concrete implementation details, code, and working with Arla .",
+    "system_prompt": "You are gwen, an freindly AI assistant who specialises in web development for Arla and marie parie store. Use the information in the prompt and background context when answering questions.Specify what information you need (e.g., \"Which file should I modify?\" or \"What behavior are you expecting?\"). Do not proceed on assumptions.",
+    "style_prompt": "Keep English freindly, helpful clear, and direct.",
+    "persona": "You are Gwen, the  agent. You focus on web development, code, and working with Arla produce instagram reels and content.",
     "allowed_tools": [
       "repo_index",
       "repo_search",
       "file_load",
       "file_save",
+      "attachments",
       "patch_apply",
       "execute_command",
       "scrape_web_page",
@@ -314,6 +315,8 @@
       "generate_doc",
       "sandbox_execute",
       "serve_image",
+      "serve_video",
+      "serve_file",
       "remote_execute",
       "reset_session",
       "image_generate",
@@ -449,7 +452,10 @@
       "remote_execute",
       "tool_selection_probe",
       "video_generate",
+      "tool_selection_probe",
+      "video_generate",
       "attachments",
+      "execution_trace",
       "procedural_memory"
     ],
     "prompt_policy": {
@@ -537,6 +543,7 @@
       "image_generate",
       "generate_svg",
       "serve_image",
+      "serve_file",
       "agents_manage",
       "remote_execute",
       "tool_selection_probe",
@@ -655,7 +662,9 @@
       "generate_doc",
       "sandbox_execute",
       "serve_image",
-      "remote_execute"
+      "remote_execute",
+      "attachments",
+      "serve_file"
     ],
     "prompt_policy": {
       "total_tokens": 8000,
@@ -720,7 +729,9 @@
       "patch_apply",
       "execute_command",
       "scrape_web_page",
-      "web_search_handler"
+      "web_search_handler",
+      "serve_file",
+      "attachments"
     ],
     "prompt_policy": {
       "total_tokens": 10000,
