@@ -625,3 +625,53 @@ def test_usage_none_leaves_tokens_zero(make_proc, prompt_builder, llm_adapter):
     assert out.metrics.prompt_tokens == 0
     assert out.metrics.completion_tokens == 0
     assert out.metrics.total_tokens == 0
+
+
+@pytest.mark.parametrize("streaming", [False, True])
+@pytest.mark.parametrize("max_iterations", [1, 2])
+def test_oversized_tool_error_survives_worker_metrics(
+    make_proc, prompt_builder, llm_adapter, streaming, max_iterations
+):
+    from tests.conftest import FakeAgent, FakeHandler, FakeRegistry
+
+    import json
+
+    source = "SOURCE_CONTENT_MUST_NOT_LEAK" * 800
+    serialized_chars = len(json.dumps(source))
+    reg = FakeRegistry(
+        handler_by_name={"file_load": FakeHandler(source)},
+        tool_defs=[{"name": "file_load"}],
+    )
+    proc = make_proc(registry=reg)
+    first, final = object(), object()
+    llm_adapter.call_model.side_effect = [first, final]
+    llm_adapter.get_response_id.side_effect = lambda response: "r1" if response is first else "r2"
+    llm_adapter.extract_tool_calls.side_effect = lambda response: (
+        [{"name": "file_load", "id": "call-file", "arguments": "{}"}]
+        if response is first else []
+    )
+    llm_adapter.get_text.side_effect = lambda response: "" if response is first else "done"
+    llm_adapter.format_tool_output.side_effect = lambda **kwargs: {
+        "type": "function_call_output", "call_id": kwargs["call_id"], "output": kwargs["output"]
+    }
+    kwargs = dict(
+        primary_agent=FakeAgent(max_function_call_iterations=max_iterations),
+        account={"accountId": "acct1"}, message="read source",
+        conversation_id="c1", context_name="ctx",
+    )
+    if streaming:
+        events = _parse_sse(list(proc.process_message_streaming(**kwargs)))
+        metrics = [event["metrics"] for event in events if event.get("type") == "metrics"][-1]
+    else:
+        metrics = proc.process_message(**kwargs).metrics.to_dict()
+    if not streaming:
+        assert metrics["success"] is False
+    assert metrics["failures"] > 0
+    assert metrics["hit_iteration_cap"] is (max_iterations == 1)
+    assert metrics["tool_error"] == {
+        "code": "tool_result_too_large", "tool": "file_load",
+        "chars": serialized_chars, "limit": 20000,
+        "message": f"Tool result too large: {serialized_chars} chars (limit 20000)",
+    }
+    assert RunMetrics.from_dict(metrics).to_dict()["tool_error"] == metrics["tool_error"]
+    assert "SOURCE_CONTENT_MUST_NOT_LEAK" not in str(metrics)

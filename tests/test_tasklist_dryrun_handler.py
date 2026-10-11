@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 import logging
 
+import pytest
+
 from src.generated_files import resolve_report
 from src.handlers.tasklist_dryrun_handler import TasklistDryrunHandler
 from src.tasklists.task import Task
@@ -517,3 +519,26 @@ def test_dryrun_report_save_failure_does_not_claim_success(tmp_path, monkeypatch
     assert result['error'] == {'code': 'report_save_failed', 'message': 'Disk full'}
     assert 'file' not in result
     assert path.read_bytes() == before
+
+
+@pytest.mark.parametrize("hit_iteration_cap", [False, True])
+def test_size_limit_reason_is_preserved_in_report(tmp_path, hit_iteration_cap):
+    delegated = _result(True)
+    delegated["metrics"] = {
+        "success": False, "hit_iteration_cap": hit_iteration_cap, "max_iterations": 7,
+        "tool_error": {
+            "code": "tool_result_too_large", "tool": "file_load",
+            "chars": 20794, "limit": 16000,
+        },
+    }
+    handler = _handler(tmp_path, results=[delegated, _result(True)])
+    _save_tasklist(handler)
+    report = _run_report(handler, {"tasklist_id": "dryrun-1"}, account_name="alice")
+    task = report["tasks"][0]
+    assert task["ready"] is False
+    assert task["reason"] == "blocked"
+    assert "file_load" in task["detail"]
+    assert "20,794 characters; limit 16,000" in task["detail"]
+    assert "smaller line range" in task["detail"]
+    assert "20,794" in task["error"]
+    assert report["tasks"][1]["ready"] is True

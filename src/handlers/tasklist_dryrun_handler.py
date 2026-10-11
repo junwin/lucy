@@ -252,6 +252,17 @@ class TasklistDryrunHandler(HandlerV2):
         cls, delegated: Dict[str, Any]
     ) -> tuple[Optional[Dict[str, Any]], Optional[str]]:
         metrics = delegated.get("metrics")
+        tool_error = metrics.get("tool_error") if isinstance(metrics, dict) else None
+        if isinstance(tool_error, dict) and tool_error.get("code") == "tool_result_too_large":
+            tool = tool_error.get("tool") or "tool"
+            chars = tool_error.get("chars")
+            limit = tool_error.get("limit")
+            if isinstance(chars, int) and isinstance(limit, int):
+                return None, (
+                    f"{tool}: tool result too large ({chars:,} characters; limit {limit:,}). "
+                    "Retry with a smaller line range or a targeted source excerpt."
+                )
+            return None, f"{tool}: tool result too large"
         if isinstance(metrics, dict) and metrics.get("hit_iteration_cap") is True:
             limit = metrics.get("max_iterations")
             budget = f" of {limit} iterations" if isinstance(limit, int) and limit > 0 else ""

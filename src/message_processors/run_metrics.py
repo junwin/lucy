@@ -31,6 +31,7 @@ class _RunMetricsModel(BaseModel):
     failures: int = 0
     tool_failures: int = 0
     processor_failures: int = 0
+    tool_error: Optional[Dict[str, Any]] = None
     duration_ms: int = 0
     agent: str = ""
     account: str = ""
@@ -63,6 +64,7 @@ class RunMetrics:
     errors: int = 0
     warnings: int = 0
     success: bool = True
+    tool_error: Optional[Dict[str, Any]] = None
 
     def __init__(
         self,
@@ -86,6 +88,7 @@ class RunMetrics:
         errors: int = 0,
         warnings: int = 0,
         success: bool = True,
+        tool_error: Optional[Dict[str, Any]] = None,
     ) -> None:
         self.correlation_id = correlation_id
         self.iterations = iterations
@@ -111,9 +114,10 @@ class RunMetrics:
         self.errors = errors
         self.warnings = warnings
         self.success = success
+        self.tool_error = dict(tool_error) if tool_error else None
 
     def to_dict(self) -> Dict[str, Any]:
-        return {
+        result = {
             "correlation_id": self.correlation_id,
             "iterations": self.iterations,
             "max_iterations": self.max_iterations,
@@ -135,6 +139,10 @@ class RunMetrics:
             "warnings": self.warnings,
             "success": self.success,
         }
+
+        if self.tool_error:
+            result["tool_error"] = dict(self.tool_error)
+        return result
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "RunMetrics":
@@ -167,4 +175,5 @@ class RunMetrics:
             errors=validated.errors,
             warnings=validated.warnings,
             success=validated.success,
+            tool_error=validated.tool_error,
         )

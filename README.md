@@ -202,6 +202,13 @@ task itself is inherently complex: check repository paths and task clarity
 when splitting the work. Reaching the final iteration with a completed answer
 is not a cap hit.
 
+Oversized tool results are reported as `blocked` with the tool name, serialized
+character count, and configured limit. The worker preserves the latest size-limit
+failure in `metrics.tool_error` without copying source content or tool arguments.
+This diagnostic takes precedence over a subsequent iteration cap; retry file
+reads with a smaller line range or a targeted excerpt. Deploy the updated worker
+and caller together to receive these details.
+
 Transport errors, malformed assessment responses, and other assessment
 exceptions become `blocked` no-go results with diagnostic details. Remaining
 tasks are still checked and the stored tasklist is unchanged. Older workers
