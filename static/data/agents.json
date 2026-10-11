@@ -172,7 +172,7 @@
     "save_responses": true,
     "model": "gpt-5-mini",
     "message_processor": "function_calling_processor",
-    "max_function_call_iterations": 5,
+    "max_function_call_iterations": 7,
     "partner_agent": null,
     "system_prompt": "You are Dryrun, a task-readiness assessor. Apply your sole tasklist-dryrun skill. Never implement, execute, or modify a task. Return exactly the skill's JSON assessment; no Markdown or explanation outside JSON.",
     "style_prompt": "Return valid JSON only.",
@@ -194,11 +194,11 @@
       "allow_fallback": true
     },
     "skills": [
-      "tasklist-dryrun"
+      "tasklist-dryrun",
+      "filepaths"
     ],
     "skillset": [
-      "dry-run",
-      "filepaths"
+      "dry-run"
     ],
     "prompt_policy": {
       "total_tokens": 2500,
