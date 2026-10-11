@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import logging
 
+from src.generated_files import resolve_report
 from src.handlers.tasklist_dryrun_handler import TasklistDryrunHandler
 from src.tasklists.task import Task
 from src.tasklists.task_list import TaskList
@@ -60,6 +61,19 @@ def _handler(tmp_path, results=None):
     return handler
 
 
+def _run_report(handler, args, **context):
+    """Existing assessment checks now inspect the full persisted report."""
+    result = handler.execute(args, **context)
+    if not result["ok"]:
+        return result
+    assert "tasks" not in result
+    path, mime = resolve_report(handler.config, context.get("account_name", "auto"), result["file"]["file_id"])
+    assert mime == "application/json"
+    report = json.loads(path.read_text(encoding="utf-8"))
+    assert result["ready"] == report["ready"]
+    return report
+
+
 def _save_tasklist(handler, account_name="alice", tasklist_id="dryrun-1"):
     tasklist = TaskList(
         id=tasklist_id,
@@ -98,7 +112,7 @@ def test_dryrun_returns_structured_results_in_order(tmp_path):
     )
     _save_tasklist(handler)
 
-    result = handler.execute(
+    result = _run_report(handler,
         {"tasklist_id": "dryrun-1"},
         account_name="alice",
         correlation_id="corr-1",
@@ -134,7 +148,7 @@ def test_dryrun_delegates_each_task_to_dryrun_with_no_import_context(tmp_path):
     handler = _handler(tmp_path)
     _save_tasklist(handler)
 
-    handler.execute({"tasklist_id": "dryrun-1"}, account_name="alice")
+    _run_report(handler, {"tasklist_id": "dryrun-1"}, account_name="alice")
 
     assert len(handler.delegate_handler.calls) == 2
     first_args, first_account = handler.delegate_handler.calls[0]
@@ -160,7 +174,7 @@ def test_dryrun_allows_agent_and_context_overrides(tmp_path):
     handler = _handler(tmp_path)
     _save_tasklist(handler)
 
-    handler.execute(
+    _run_report(handler,
         {
             "tasklist_id": "dryrun-1",
             "agentName": "star",
@@ -186,7 +200,7 @@ def test_dryrun_records_delegate_failure_and_continues(tmp_path):
     )
     _save_tasklist(handler)
 
-    result = handler.execute({"tasklist_id": "dryrun-1"}, account_name="alice")
+    result = _run_report(handler, {"tasklist_id": "dryrun-1"}, account_name="alice")
 
     assert result["ok"] is True
     assert result["tasks"][0] == {
@@ -212,7 +226,7 @@ def test_dryrun_records_invalid_json_and_continues(tmp_path):
     )
     _save_tasklist(handler)
 
-    result = handler.execute({"tasklist_id": "dryrun-1"}, account_name="alice")
+    result = _run_report(handler, {"tasklist_id": "dryrun-1"}, account_name="alice")
 
     assert result["tasks"][0]["ready"] is False
     assert "invalid dry-run JSON" in result["tasks"][0]["error"]
@@ -230,7 +244,7 @@ def test_dryrun_records_unexpected_reason(tmp_path):
     )
     _save_tasklist(handler)
 
-    result = handler.execute({"tasklist_id": "dryrun-1"}, account_name="alice")
+    result = _run_report(handler, {"tasklist_id": "dryrun-1"}, account_name="alice")
 
     assert result["tasks"][0]["ready"] is False
     assert "unexpected dry-run reason" in result["tasks"][0]["error"]
@@ -247,7 +261,7 @@ def test_dryrun_requires_one_task_result_per_delegated_task(tmp_path):
     )
     _save_tasklist(handler)
 
-    result = handler.execute({"tasklist_id": "dryrun-1"}, account_name="alice")
+    result = _run_report(handler, {"tasklist_id": "dryrun-1"}, account_name="alice")
 
     assert result["tasks"][0]["ready"] is False
     assert result["tasks"][0]["error"] == (
@@ -266,7 +280,7 @@ def test_dryrun_records_raised_task_error_and_continues(tmp_path):
     )
     _save_tasklist(handler)
 
-    result = handler.execute({"tasklist_id": "dryrun-1"}, account_name="alice")
+    result = _run_report(handler, {"tasklist_id": "dryrun-1"}, account_name="alice")
 
     assert result["ok"] is True
     assert result["tasks"][0]["ready"] is False
@@ -280,7 +294,7 @@ def test_dryrun_does_not_modify_persisted_tasklist(tmp_path):
     path = tmp_path / "ns" / "tasklists" / "alice" / "dryrun-1.json"
     before = path.read_bytes()
 
-    result = handler.execute({"tasklist_id": "dryrun-1"}, account_name="alice")
+    result = _run_report(handler, {"tasklist_id": "dryrun-1"}, account_name="alice")
 
     assert result["ok"] is True
     assert path.read_bytes() == before
@@ -289,7 +303,7 @@ def test_dryrun_does_not_modify_persisted_tasklist(tmp_path):
 def test_dryrun_missing_tasklist_is_read_only_error(tmp_path):
     handler = _handler(tmp_path)
 
-    result = handler.execute({"tasklist_id": "missing"}, account_name="alice")
+    result = _run_report(handler, {"tasklist_id": "missing"}, account_name="alice")
 
     assert result["ok"] is False
     assert result["error"]["code"] == "tasklist_not_found"
@@ -299,7 +313,7 @@ def test_dryrun_missing_tasklist_is_read_only_error(tmp_path):
 def test_dryrun_requires_tasklist_id(tmp_path):
     handler = _handler(tmp_path)
 
-    result = handler.execute({}, account_name="alice")
+    result = _run_report(handler, {}, account_name="alice")
 
     assert result["ok"] is False
     assert result["error"]["code"] == "missing_tasklist_id"
@@ -317,7 +331,7 @@ def test_dryrun_logs_delegate_result(tmp_path, caplog):
     _save_tasklist(handler)
 
     with caplog.at_level(logging.INFO):
-        handler.execute(
+        _run_report(handler,
             {
                 "tasklist_id": "dryrun-1",
                 "agentName": "dryrun",
@@ -345,7 +359,7 @@ def test_dryrun_logs_start_and_end(tmp_path, caplog):
     _save_tasklist(handler)
 
     with caplog.at_level(logging.INFO):
-        handler.execute(
+        _run_report(handler,
             {"tasklist_id": "dryrun-1"},
             account_name="alice",
             correlation_id="corr-42",
@@ -393,7 +407,7 @@ def test_dryrun_iteration_cap_is_decompose_and_continues_read_only(tmp_path):
     _save_tasklist(handler)
     path = tmp_path / "ns" / "tasklists" / "alice" / "dryrun-1.json"
     before = path.read_bytes()
-    result = handler.execute({"tasklist_id": "dryrun-1"}, account_name="alice")
+    result = _run_report(handler, {"tasklist_id": "dryrun-1"}, account_name="alice")
     assert result["ok"] is True
     assert result["ready"] is False
     assert result["tasks"][0]["ready"] is False
@@ -420,7 +434,7 @@ def test_limit_is_not_inferred_from_prose_or_iteration_count(tmp_path):
         {**_result(True), "metrics": {"iterations": 5, "max_iterations": 5, "hit_iteration_cap": False}},
     ])
     _save_tasklist(handler)
-    result = handler.execute({"tasklist_id": "dryrun-1"}, account_name="alice")
+    result = _run_report(handler, {"tasklist_id": "dryrun-1"}, account_name="alice")
     assert result["tasks"][0]["ready"] is False
     assert result["tasks"][0]["reason"] == "blocked"
     assert result["tasks"][1]["ready"] is True
@@ -430,7 +444,7 @@ def test_limit_is_not_inferred_from_prose_or_iteration_count(tmp_path):
 def test_all_ready_tasks_report_go(tmp_path):
     handler = _handler(tmp_path)
     _save_tasklist(handler)
-    result = handler.execute({"tasklist_id": "dryrun-1"}, account_name="alice")
+    result = _run_report(handler, {"tasklist_id": "dryrun-1"}, account_name="alice")
     assert result["ok"] is True
     assert result["ready"] is True
 
@@ -440,8 +454,66 @@ def test_failed_worker_cannot_claim_task_ready(tmp_path):
     delegated["metrics"] = {"success": False, "hit_iteration_cap": False}
     handler = _handler(tmp_path, results=[delegated, _result(True)])
     _save_tasklist(handler)
-    result = handler.execute({"tasklist_id": "dryrun-1"}, account_name="alice")
+    result = _run_report(handler, {"tasklist_id": "dryrun-1"}, account_name="alice")
     assert result["ready"] is False
     assert result["tasks"][0]["ready"] is False
     assert result["tasks"][0]["reason"] == "blocked"
     assert result["tasks"][1]["ready"] is True
+
+
+def test_large_report_stays_below_tool_return_limit_and_is_delivered(tmp_path):
+    from src.handlers.serve_file_handler import ServeFileHandler
+    from src.message_processors.fcp_loop import LLMLoopRunner
+    from src.message_processors.fcp_tool_executor import ToolExecutor, DEFAULT_MAX_TOOL_RESULT_CHARS
+    from src.message_processors.fcp_models import _ToolCall
+
+    detail = 'Missing prerequisite — détail. ' * 500
+    handler = _handler(tmp_path, results=[_result(False, 'blocked', detail) for _ in range(50)])
+    tasklist = TaskList(id='large', name='Large dry-run', description='Inspect only', tasks=[
+        Task(id=f't{i}', name=f'Task {i}', instructions='Inspect only', state='Pending') for i in range(50)
+    ])
+    handler.tasklist_service.save('alice', 'large', tasklist)
+    result = handler.execute({'tasklist_id': 'large'}, account_name='alice')
+    assert result['ok'] is True
+    assert result['ready'] is False
+    assert 'tasks' not in result
+    assert result['summary'] == {
+        'total': 50, 'ready': 0, 'blocked': 50, 'decompose': 0, 'invalid': 0, 'assessment_errors': 0,
+    }
+    raw = json.dumps(result, ensure_ascii=False)
+    executor = object.__new__(ToolExecutor)
+    assert executor.tool_result_to_text(raw, max_chars=2000) == raw
+    path, mime = resolve_report(handler.config, 'alice', result['file']['file_id'])
+    report = json.loads(path.read_text(encoding='utf-8'))
+    assert len(path.read_text(encoding='utf-8')) > DEFAULT_MAX_TOOL_RESULT_CHARS
+    assert len(report['tasks']) == 50
+    assert report['tasks'][49]['detail'] == detail.strip()
+    assert result['file']['size_bytes'] == path.stat().st_size
+    assert result['file']['download_name'].startswith('tasklist-dryrun-')
+    assert mime == 'application/json'
+    served = ServeFileHandler(handler.config).execute({'file_id': result['file']['file_id']}, account_name='alice')
+    assert served['ok'] is True
+    assert ServeFileHandler(handler.config).execute({'file_id': result['file']['file_id']}, account_name='bob')['ok'] is False
+    events = list(LLMLoopRunner._inspect_raw_results([(_ToolCall(
+        name='tasklist_dryrun', call_id='call-report', arguments_raw='{}'), raw)]))
+    assert len(events) == 1
+    assert events[0].type == 'file'
+    assert events[0].file_id == result['file']['file_id']
+    assert events[0].download_name == result['file']['download_name']
+
+
+def test_dryrun_report_save_failure_does_not_claim_success(tmp_path, monkeypatch):
+    handler = _handler(tmp_path)
+    _save_tasklist(handler)
+    path = tmp_path / 'ns' / 'tasklists' / 'alice' / 'dryrun-1.json'
+    before = path.read_bytes()
+
+    def cannot_save(*args, **kwargs):
+        raise OSError('Disk full')
+
+    monkeypatch.setattr('src.handlers.tasklist_dryrun_handler.save_report', cannot_save)
+    result = handler.execute({'tasklist_id': 'dryrun-1'}, account_name='alice')
+    assert result['ok'] is False
+    assert result['error'] == {'code': 'report_save_failed', 'message': 'Disk full'}
+    assert 'file' not in result
+    assert path.read_bytes() == before
