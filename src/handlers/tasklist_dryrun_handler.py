@@ -61,11 +61,11 @@ class TasklistDryrunHandler(HandlerV2):
                     },
                     "agentName": {
                         "type": ["string", "null"],
-                        "description": "Worker agent override; null defaults to colin.",
+                        "description": "Worker agent override; null defaults to dryrun.",
                     },
                     "contextName": {
                         "type": ["string", "null"],
-                        "description": "Dry-run context override; null defaults to dry-run-task.",
+                        "description": "Dry-run context override; null defaults to no_import.",
                     },
                 },
                 "required": ["tasklist_id", "agentName", "contextName"],
@@ -82,6 +82,7 @@ class TasklistDryrunHandler(HandlerV2):
                 "ok": {"type": "boolean"},
                 "tool": {"type": "string"},
                 "tasklist_id": {"type": "string"},
+                "ready": {"type": "boolean"},
                 "tasks": {
                     "type": "array",
                     "items": {
@@ -201,12 +202,20 @@ class TasklistDryrunHandler(HandlerV2):
                     if assessment is not None:
                         item.update(assessment)
                     if error:
+                        item.update(
+                            ready=False, reason="blocked",
+                            detail="Dry-run assessment could not be completed: " + error,
+                        )
                         item["error"] = error
                 except Exception as exc:
                     logger.exception(
                         "tasklist_dryrun task failed tasklist_id=%s task_id=%s",
                         tasklist_id,
                         task.id,
+                    )
+                    item.update(
+                        ready=False, reason="blocked",
+                        detail="Dry-run assessment could not be completed: " + str(exc),
                     )
                     item["error"] = str(exc)
                 tasks.append(item)
@@ -215,6 +224,7 @@ class TasklistDryrunHandler(HandlerV2):
                 "ok": True,
                 "tool": self.NAME,
                 "tasklist_id": tasklist_id,
+                "ready": all(item["ready"] is True for item in tasks),
                 "tasks": tasks,
             }
         except Exception as exc:
@@ -237,6 +247,22 @@ class TasklistDryrunHandler(HandlerV2):
     def _result_from_delegate(
         cls, delegated: Dict[str, Any]
     ) -> tuple[Optional[Dict[str, Any]], Optional[str]]:
+        metrics = delegated.get("metrics")
+        if isinstance(metrics, dict) and metrics.get("hit_iteration_cap") is True:
+            limit = metrics.get("max_iterations")
+            budget = f" of {limit} iterations" if isinstance(limit, int) and limit > 0 else ""
+            return {
+                "ready": False,
+                "reason": "decompose",
+                "detail": (
+                    f"Dry-run assessment reached its tool-turn limit{budget} before finishing. "
+                    "Split the task into smaller, explicit steps and verify repository paths before retrying."
+                ),
+            }, None
+
+        if isinstance(metrics, dict) and metrics.get("success") is False:
+            return None, "Dry-run worker execution did not complete successfully"
+
         if not delegated.get("ok"):
             error = delegated.get("error") or "delegate_task failed"
             return None, str(error)

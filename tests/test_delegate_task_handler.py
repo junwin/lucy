@@ -175,3 +175,14 @@ def test_runtime_constructor_loads_agent_manager_from_config(tmp_path):
     handler = DelegateTaskHandler(ConfigManager(str(config_file)))
 
     assert handler.agent_manager.is_valid("nelly")
+
+
+def test_delegate_preserves_worker_cap_metrics(monkeypatch, tmp_path):
+    resolved_model(monkeypatch)
+    metrics = {"hit_iteration_cap": True, "iterations": 5, "max_iterations": 5}
+    monkeypatch.setattr(
+        "src.handlers.delegate_task_handler.RemoteExecuteHandler.execute",
+        lambda self, args, **kwargs: {"ok": True, "result": "Iteration limit reached.", "metrics": metrics},
+    )
+    result = DelegateTaskHandler(write_machines(tmp_path), FakeAgentManager()).execute(base_args())
+    assert result["metrics"] == metrics

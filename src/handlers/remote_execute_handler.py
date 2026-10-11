@@ -93,6 +93,7 @@ class RemoteExecuteHandler(HandlerV2):
                 "machine": {"type": "string"},
                 "question": {"type": "string"},
                 "result": {"type": "string"},
+                "metrics": {"type": "object"},
                 "error": {"type": "string"},
             },
             "required": ["ok", "tool"],
@@ -193,6 +194,9 @@ class RemoteExecuteHandler(HandlerV2):
             for key in ("trace_id", "run_id", "parent_run_id"):
                 if key in remote:
                     result[key] = remote[key]
+        metrics = self._response_metrics(raw)
+        if metrics is not None:
+            result["metrics"] = metrics
         return result
 
     # ------------------------------------------------------------------
@@ -231,6 +235,30 @@ class RemoteExecuteHandler(HandlerV2):
             machine.name: machine
             for machine in manager.machines(enabled_only=True)
         }
+
+    @staticmethod
+    def _response_metrics(raw: str) -> Optional[Dict[str, Any]]:
+        """Preserve worker metrics independently of its final answer text."""
+        try:
+            response = json.loads(raw)
+        except json.JSONDecodeError:
+            response = None
+        if isinstance(response, dict):
+            metrics = response.get("metrics")
+            return metrics if isinstance(metrics, dict) else None
+
+        metrics = None
+        for line in raw.splitlines():
+            if not line.strip().startswith("data:"):
+                continue
+            try:
+                event = json.loads(line.strip()[len("data:"):].strip())
+            except json.JSONDecodeError:
+                continue
+            if isinstance(event, dict) and (event.get("type") or event.get("kind")) == "metrics":
+                if isinstance(event.get("metrics"), dict):
+                    metrics = event["metrics"]
+        return metrics
 
     def _parse_response(self, raw: str) -> Optional[str]:
         """Extract the final answer from an SSE or plain-JSON /ask response.
