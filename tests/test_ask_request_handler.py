@@ -292,3 +292,159 @@ def test_ask_returns_iteration_cap_metrics_for_delegated_assessments():
     assert body["metrics"]["iterations"] == 5
     assert body["metrics"]["max_iterations"] == 5
     assert body["metrics"]["success"] is False
+
+
+class TestEmptyQuestionWithAttachments:
+    def test_empty_question_without_attachments_is_rejected(self) -> None:
+        processor = FakeProcessor(FCPResult(text="hello", metrics=RunMetrics()))
+        handler = make_handler(processor, make_agent())
+
+        status, body = handler.handle(make_payload(question=""))
+
+        assert status == 400
+        assert body["error"] == "Missing question, agentName, or accountName"
+        assert processor.calls == []
+
+    def test_empty_question_with_image_ids_is_accepted(self) -> None:
+        processor = FakeProcessor(FCPResult(text="ok", metrics=RunMetrics()))
+        handler = make_handler(processor, make_agent())
+
+        status, _ = handler.handle(make_payload(question="", image_ids=["img-1"]))
+
+        assert status == 200
+        assert processor.calls[-1]["message"] == ""
+        assert processor.calls[-1]["image_ids"] == ["img-1"]
+
+    def test_empty_question_with_file_ids_is_accepted(self) -> None:
+        processor = FakeProcessor(FCPResult(text="ok", metrics=RunMetrics()))
+        handler = make_handler(processor, make_agent())
+
+        status, _ = handler.handle(make_payload(question="", file_ids=["file-1"]))
+
+        assert status == 200
+        assert processor.calls[-1]["file_ids"] == ["file-1"]
+
+    def test_empty_question_with_empty_attachment_lists_is_rejected(self) -> None:
+        processor = FakeProcessor(FCPResult(text="ok", metrics=RunMetrics()))
+        handler = make_handler(processor, make_agent())
+
+        status, body = handler.handle(make_payload(question="", image_ids=[], file_ids=[]))
+
+        assert status == 400
+        assert body["error"] == "Missing question, agentName, or accountName"
+
+    def test_empty_question_still_requires_agent_name(self) -> None:
+        processor = FakeProcessor(FCPResult(text="ok", metrics=RunMetrics()))
+        handler = make_handler(processor, make_agent())
+
+        status, body = handler.handle(make_payload(question="", image_ids=["img-1"], agentName=""))
+
+        assert status == 400
+        assert body["error"] == "Missing question, agentName, or accountName"
+
+    def test_streaming_empty_question_with_image_ids_reaches_processor(self) -> None:
+        class StreamingProcessor(FakeProcessor):
+            def process_message_streaming(self, **kwargs):
+                self.calls.append(kwargs)
+                yield 'data: {"type":"done"}\n\n'
+
+        processor = StreamingProcessor(FCPResult(text="ok", metrics=RunMetrics()))
+        handler = make_handler(processor, make_agent())
+
+        events = list(handler.handle_streaming(make_payload(question="", image_ids=["img-1"])))
+
+        assert processor.calls
+        assert all("Missing question" not in event for event in events)
+
+    def test_empty_question_with_image_and_file_ids_is_accepted(self) -> None:
+        processor = FakeProcessor(FCPResult(text="ok", metrics=RunMetrics()))
+        handler = make_handler(processor, make_agent())
+
+        status, _ = handler.handle(make_payload(question="", image_ids=["img-1"], file_ids=["file-1"]))
+
+        assert status == 200
+        assert processor.calls[-1]["message"] == ""
+        assert processor.calls[-1]["image_ids"] == ["img-1"]
+        assert processor.calls[-1]["file_ids"] == ["file-1"]
+
+    def test_empty_question_still_requires_account_name(self) -> None:
+        processor = FakeProcessor(FCPResult(text="ok", metrics=RunMetrics()))
+        handler = make_handler(processor, make_agent())
+
+        status, body = handler.handle(make_payload(question="", image_ids=["img-1"], accountName=""))
+
+        assert status == 400
+        assert body["error"] == "Missing question, agentName, or accountName"
+        assert processor.calls == []
+
+
+def test_streaming_empty_question_without_attachments_returns_error_and_done():
+    class StreamingProcessor(FakeProcessor):
+        def process_message_streaming(self, **kwargs):
+            self.calls.append(kwargs)
+            yield 'data: {"type":"done"}\n\n'
+    processor = StreamingProcessor(FCPResult(text="ok", metrics=RunMetrics()))
+    handler = make_handler(processor, make_agent())
+
+    events = [json.loads(e.removeprefix("data: ")) for e in handler.handle_streaming(make_payload(question="", conversationId="existing"))]
+
+    assert [e["type"] for e in events] == ["error", "done"]
+    assert events[0]["message"] == "Missing question, agentName, or accountName"
+    assert processor.calls == []
+
+
+def test_streaming_empty_question_with_image_ids_reaches_processor_with_message():
+    class StreamingProcessor(FakeProcessor):
+        def process_message_streaming(self, **kwargs):
+            self.calls.append(kwargs)
+            yield 'data: {"type":"done"}\n\n'
+
+    processor = StreamingProcessor(FCPResult(text="ok", metrics=RunMetrics()))
+    handler = make_handler(processor, make_agent())
+
+    events = [json.loads(e.removeprefix("data: ")) for e in handler.handle_streaming(make_payload(question="", image_ids=["img-1"], conversationId="existing"))]
+
+    assert all(event["type"] != "error" for event in events)
+    assert len(processor.calls) == 1
+    assert processor.calls[-1]["message"] == ""
+    assert processor.calls[-1]["image_ids"] == ["img-1"]
+
+
+def test_streaming_empty_question_with_file_ids_reaches_processor_with_message():
+    class StreamingProcessor(FakeProcessor):
+        def process_message_streaming(self, **kwargs):
+            self.calls.append(kwargs)
+            yield 'data: {"type":"done"}\n\n'
+
+    processor = StreamingProcessor(FCPResult(text="ok", metrics=RunMetrics()))
+    handler = make_handler(processor, make_agent())
+
+    events = [json.loads(e.removeprefix("data: ")) for e in handler.handle_streaming(make_payload(question="", file_ids=["file-1"], conversationId="existing"))]
+
+    assert all(event["type"] != "error" for event in events)
+    assert len(processor.calls) == 1
+    assert processor.calls[-1]["message"] == ""
+    assert processor.calls[-1]["file_ids"] == ["file-1"]
+
+
+def test_streaming_empty_question_with_image_ids_still_requires_agent_and_account():
+    class StreamingProcessor(FakeProcessor):
+        def process_message_streaming(self, **kwargs):
+            self.calls.append(kwargs)
+            yield 'data: {"type":"done"}\n\n'
+
+    processor = StreamingProcessor(FCPResult(text="ok", metrics=RunMetrics()))
+    handler = make_handler(processor, make_agent())
+
+    payloads = [
+        make_payload(question="", agentName="", image_ids=["img-1"], conversationId="existing"),
+        make_payload(question="", accountName="", image_ids=["img-1"], conversationId="existing"),
+    ]
+
+    for payload in payloads:
+        events = [json.loads(e.removeprefix("data: ")) for e in handler.handle_streaming(payload)]
+
+        assert [e["type"] for e in events] == ["error", "done"]
+        assert events[0]["message"] == "Missing question, agentName, or accountName"
+
+    assert processor.calls == []

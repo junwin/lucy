@@ -64,4 +64,4 @@ galet-prompt-builder==0.1.22
 # Shared handler ABI and external handler discovery.
 # Named-root schemas/runtime: galet-tools PR #30. Replace with its PyPI release
 # after merge/publication; 0.1.26 includes the patch fix but not root harmonization.
-galet-tools @ git+https://github.com/junwin/galet-tools.git@99ca6e5354e6c669482655b04dc883137b218a09
+galet-tools==0.1.27

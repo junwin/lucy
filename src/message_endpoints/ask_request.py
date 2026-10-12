@@ -38,7 +38,11 @@ def parse_request(payload: Dict[str, Any]) -> AskRequest:
 
 
 def missing_required_fields(request: AskRequest) -> bool:
-    return not request.question or not request.agent_name or not request.account_name
+    if not request.agent_name or not request.account_name:
+        return True
+    if request.question:
+        return False
+    return not request.image_ids and not request.file_ids
 
 
 def _execution_identity(payload: Dict[str, Any]) -> ExecutionIdentity:

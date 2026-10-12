@@ -22,8 +22,6 @@ def events(handler, payload):
 
 @pytest.mark.parametrize('overrides', [
     {'question': ''}, {'question': None}, {'agentName': ''}, {'accountName': ''},
-    {'question': '', 'image_ids': ['img-1']},
-    {'question': '', 'file_ids': ['file-1']},
 ])
 @pytest.mark.parametrize('streaming', [False, True])
 def test_required_fields_still_reject_before_processor(overrides, streaming):
@@ -38,6 +36,23 @@ def test_required_fields_still_reject_before_processor(overrides, streaming):
     else:
         assert handler.handle(request) == (400, {'error': 'Missing question, agentName, or accountName'})
     assert processor.calls == []
+
+
+@pytest.mark.parametrize('overrides', [
+    {'question': '', 'image_ids': ['img-1']},
+    {'question': '', 'file_ids': ['file-1']},
+])
+@pytest.mark.parametrize('streaming', [False, True])
+def test_empty_question_with_attachments_reaches_processor(overrides, streaming):
+    processor = StreamingProcessor(FCPResult(text='ok', metrics=RunMetrics()))
+    handler = make_handler(processor, make_agent())
+    request = make_payload(**overrides)
+    if streaming:
+        assert events(handler, request) == [{'type': 'done'}]
+    else:
+        assert handler.handle(request)[0] == 200
+    assert len(processor.calls) == 1
+    assert processor.calls[0]['message'] == ''
 
 
 @pytest.mark.parametrize('streaming', [False, True])
