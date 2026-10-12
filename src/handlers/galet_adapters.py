@@ -26,13 +26,18 @@ class LucyStorageLocationResolver:
         )
 
     def external_root_dir(self, name: str) -> str:
+        roots = self.external_roots()
+        if name not in roots:
+            raise ValueError(f"Unknown external_root '{name}'")
+        return roots[name]
+
+    def external_roots(self) -> dict[str, str]:
+        """Snapshot the effective configured mapping without account/namespace joins."""
         roots = self._config.get("external_roots") or {}
         if not isinstance(roots, dict):
             raise ValueError("Config 'external_roots' must be an object/map")
-        base = roots.get(name)
-        if not base:
-            raise ValueError(f"Unknown external_root '{name}'")
-        return os.path.abspath(str(base))
+        return {name: os.path.abspath(str(base)) for name, base in roots.items()
+                if isinstance(name, str) and name.strip() and base}
 
 
 class LucySandboxRootResolver:
@@ -66,3 +71,4 @@ class LucyConfigProvider:
         if isinstance(configured, (list, tuple)):
             return [str(path) for path in configured]
         return list(self._DEFAULT_FONT_PATHS)
+

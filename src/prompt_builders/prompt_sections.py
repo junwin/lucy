@@ -1,14 +1,38 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+import json
 from typing import Any, Dict, List, Optional
 
 from src.agent import Agent
 from galet_memory import HistorySnapshot
+from src.handlers.galet_adapters import LucyStorageLocationResolver
 
 
 class PromptSections:
     """Render provider-neutral prompt sections without retrieval or budgeting."""
+
+    @staticmethod
+    def build_file_root_instructions(config: Any, agent: Optional[Agent]) -> str:
+        """Present current root aliases only to agents that can use file tools."""
+        root_tools = {"file_load", "file_save", "patch_apply", "repo_index", "repo_search",
+                      "execute_command", "execute_command2", "discover_tools", "activate_tools",
+                      "lazy_tool_selector"}
+        if not root_tools.intersection(getattr(agent, "allowed_tools", ()) or ()):
+            return ""
+        roots = LucyStorageLocationResolver(config).external_roots()
+        mapping = json.dumps(roots, sort_keys=True, ensure_ascii=False)
+        return (
+            f"Configured file roots from the effective configuration: {mapping}\n"
+            "For file, patch, repository, and command tools, supply external_root using an exact "
+            "configured name and omit location. Handler path, root, and working_directory fields "
+            "are relative to that configured directory; use . for the directory itself where allowed. "
+            "Root names are arbitrary and case-sensitive. No account or namespace is added automatically; "
+            "include those subdirectories explicitly when needed. Do not invent roots. "
+            "These are the current path rules for tool calls, including when older filepaths skills "
+            "or history show location-based examples. Scripts and program arguments may contain "
+            "absolute paths when required by the program; preserve their values."
+        )
 
     @staticmethod
     def append_session_info(
@@ -138,3 +162,4 @@ class PromptSections:
             elif isinstance(last_content, str) and last_content == current_query:
                 return messages
         return messages + [{"role": "user", "content": current_query}]
+
