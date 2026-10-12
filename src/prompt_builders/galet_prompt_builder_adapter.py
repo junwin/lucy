@@ -173,6 +173,9 @@ class GaletPromptBuilderAdapter(PromptBuilderInterface):
         system_instructions = [
             PromptSections.build_agent_system_message(agent_name, agent)
         ]
+        root_instructions = PromptSections.build_file_root_instructions(self.config, agent)
+        if root_instructions:
+            system_instructions.append(root_instructions)
         if conversation_id and conversation_id not in ("none", "new"):
             system_instructions.append(f"Current session ID: {conversation_id}")
         system_instructions.extend(
@@ -290,3 +293,4 @@ class GaletPromptBuilderAdapter(PromptBuilderInterface):
 
 
 __all__ = ["GaletPromptBuilderAdapter", "prompt_policy_from_config"]
+
