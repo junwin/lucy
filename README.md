@@ -225,3 +225,10 @@ file card automatically, and `serve_file` can deliver it again using `file_id`.
 The report is stored under the account's generated-files directory and cannot
 be retrieved using another account. Report-save failures return a structured
 `report_save_failed` error instead of claiming success.
+
+## /ask implementation
+
+The endpoint is split into a public facade, shared request/session/routing
+helpers and separate ordinary JSON and streaming SSE response modules. See
+[the component map](docs/design/ask-request-components.md) for responsibilities,
+preserved transport differences and source-reading measurements.
