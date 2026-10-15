@@ -7,7 +7,7 @@
     "max_prompt_documents": 4,
     "temperature": 0,
     "save_responses": true,
-    "model": "deepseek-flash",
+    "model": "mistral-medium-latest",
     "message_processor": "function_calling_processor",
     "max_function_call_iterations": 20,
     "max_tool_result_chars": 40000,
@@ -170,7 +170,7 @@
     "max_prompt_documents": 0,
     "temperature": 0,
     "save_responses": true,
-    "model": "gpt-5-mini",
+    "model": "deepseek-flash",
     "message_processor": "function_calling_processor",
     "max_function_call_iterations": 7,
     "partner_agent": null,
@@ -343,9 +343,9 @@
       "marie-parie"
     ],
     "prompt_policy": {
-      "total_tokens": 8000,
+      "total_tokens": 10000,
       "safety_margin_tokens": 1000,
-      "procedural_tokens": 4000,
+      "procedural_tokens": 7000,
       "episodic_event_tokens": 1000,
       "episodic_digest_tokens": 1000,
       "semantic_tokens": 1000,
@@ -413,7 +413,7 @@
     "max_prompt_documents": 4,
     "temperature": 0,
     "save_responses": true,
-    "model": "deepseek-v4-pro",
+    "model": "deepseek-pro",
     "message_processor": "function_calling_processor",
     "max_function_call_iterations": 30,
     "max_tool_result_chars": 40000,
@@ -511,7 +511,7 @@
     "max_prompt_documents": 2,
     "temperature": 0,
     "save_responses": true,
-    "model": "deepseek-v4-pro",
+    "model": "mistral-medium-latest",
     "message_processor": "function_calling_processor",
     "max_function_call_iterations": 30,
     "max_tool_result_chars": 40000,
@@ -561,14 +561,14 @@
         "tool-calling",
         "structured-output"
       ],
-      "preferred_model": "gpt-5.6-sol",
-      "preferred_source": "openai",
+      "preferred_model": "deepseek-flash",
+      "preferred_source": "deepseek",
       "allow_fallback": true
     },
     "skills": [
       "image-cli",
+      "media_publish",
       "filepaths",
-      "sidecar",
       "dev-basics",
       "imagemagick",
       "gh-cli",
@@ -641,7 +641,7 @@
     "max_prompt_documents": 2,
     "temperature": 0,
     "save_responses": true,
-    "model": "deepseek-v4-flash",
+    "model": "deepseek-flash",
     "message_processor": "function_calling_processor",
     "max_function_call_iterations": 20,
     "max_tool_result_chars": 32000,
@@ -714,7 +714,7 @@
     "max_prompt_documents": 2,
     "temperature": 0,
     "save_responses": true,
-    "model": "deepseek-v4-flash",
+    "model": "deepseek-flash",
     "message_processor": "function_calling_processor",
     "max_function_call_iterations": 20,
     "max_tool_result_chars": 32000,
@@ -845,7 +845,8 @@
     "skillset": [
       "writing",
       "journals",
-      "semantic-lookup'"
+      "semantic-lookup",
+      "semantic-memory"
     ]
   },
   {
