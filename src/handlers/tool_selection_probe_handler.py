@@ -78,14 +78,14 @@ class ToolSelectionProbeHandler(HandlerV2):
                         "description": "The user request to resolve tool selection for.",
                     },
                     "account_name": {
-                        "type": "string",
+                        "type": ["string", "null"],
                         "description": (
                             "Account name for the context lookup. Defaults to "
                             "the request's account."
                         ),
                     },
                     "context_name": {
-                        "type": "string",
+                        "type": ["string", "null"],
                         "description": (
                             "Context name for the required_tools lookup. "
                             "Defaults to the request's context; 'none' means "
@@ -93,7 +93,7 @@ class ToolSelectionProbeHandler(HandlerV2):
                         ),
                     },
                 },
-                "required": ["prompt_text"],
+                "required": ["prompt_text", "account_name", "context_name"],
                 "additionalProperties": False,
             },
             "strict": True,
