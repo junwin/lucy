@@ -113,7 +113,9 @@ class SkillsetRouter:
                   and isinstance(e.content, str)]
         return [{"role": e.role, "content": e.content[:800]} for e in events[-4:]], active
 
-    def route(self, payload: dict[str, Any]) -> RouteDecision:
+    def route(self, payload: dict[str, Any], *, diagnostics: dict[str, Any] | None = None) -> RouteDecision:
+        if diagnostics is not None:
+            diagnostics.clear()
         requested = (payload.get("agentName") or "").lower()
         if payload.get("routing") != "auto":
             return RouteDecision(requested, requested, "explicit_selection")
@@ -193,13 +195,23 @@ class SkillsetRouter:
         def decision(reason, capabilities=(), clarification="", selected=fallback, direct_response=None):
             result = RouteDecision(requested, selected, reason, capabilities,
                                    clarification, 1, int((time.monotonic() - started) * 1000), direct_response)
+            logger.info("request_routing classifier_done model=%s provider=%s reason=%s duration_ms=%d",
+                        model, provider, reason, result.latency_ms)
             return result
+        fallback_agent = self.agent_manager.get_agent(fallback)
+        model = cfg.get("model") or fallback_agent.model
+        provider = (cfg.get("provider") if cfg.get("model") else cfg.get("provider", fallback_agent.provider))
+        raw = ""
+        phase = "provider_call"
+        if diagnostics is not None:
+            diagnostics.update(model=model, provider=provider)
+        logger.info("request_routing classifier_start model=%s provider=%s account=%s session_id=%s",
+                    model, provider, payload.get("accountName"), payload.get("conversationId"))
         try:
             # No embeddings, skill content, system personas or tool schemas.
-            fallback_agent = self.agent_manager.get_agent(fallback)
             response = self.llm_adapter.call_model(
-                model=cfg.get("model") or fallback_agent.model,
-                provider=(cfg.get("provider") if cfg.get("model") else cfg.get("provider", fallback_agent.provider)),
+                model=model,
+                provider=provider,
                 temperature=0.0, store=False,
                 text={"format": {"type": "json_object"}},
                 input=[
@@ -238,22 +250,31 @@ class SkillsetRouter:
                     })},
                 ],
             )
+            phase = "response_text"
             raw = (self.llm_adapter.get_text(response) or "").strip()
+            if diagnostics is not None:
+                diagnostics.update(classifier_output=raw[:2000], output_chars=len(raw),
+                                   output_truncated=len(raw) > 2000)
+            phase = "json_parse"
             # Some non-OpenAI providers wrap JSON despite the requested format.
             fenced = re.fullmatch(r"```(?:json)?\s*\n?(.*?)\n?```", raw, re.DOTALL)
             value = json.loads(fenced.group(1) if fenced else raw)
+            phase = "validation"
             if not isinstance(value, dict):
                 raise ValueError("classification must be an object")
             kind = value.get("kind")
             capabilities = value.get("capabilities")
             confidence = value.get("confidence")
             known = {c for a in catalog for c in a["skillset"]}
-            if (kind not in {"specialist", "general", "clarify", "continue", "end", "answer"}
-                or not isinstance(capabilities, list)
-                or any(not isinstance(c, str) or c not in known for c in capabilities)
-                or isinstance(confidence, bool) or not isinstance(confidence, (float, int))
-                or not math.isfinite(confidence) or not 0 <= confidence <= 1):
-                raise ValueError("invalid classification")
+            if kind not in {"specialist", "general", "clarify", "continue", "end", "answer"}:
+                raise ValueError("kind must be specialist, general, clarify, continue, end or answer")
+            if not isinstance(capabilities, list):
+                raise ValueError("capabilities must be a list")
+            if any(not isinstance(c, str) or c not in known for c in capabilities):
+                raise ValueError("capabilities contain unknown or non-string labels")
+            if (isinstance(confidence, bool) or not isinstance(confidence, (float, int))
+                    or not math.isfinite(confidence) or not 0 <= confidence <= 1):
+                raise ValueError("confidence must be a finite number between 0 and 1")
             capabilities = tuple(dict.fromkeys(capabilities))
             if kind == "clarify" or confidence < threshold:
                 return decision("uncertain", capabilities, clarification)
@@ -283,8 +304,17 @@ class SkillsetRouter:
                           if candidates else clarification)
                 return decision("ambiguous_specialists" if candidates else "no_match", capabilities, prompt)
             return decision("skillset_match", capabilities, selected=candidates[0])
-        except Exception:
-            logger.warning("request_routing classification failed", exc_info=True)
+        except Exception as exc:
+            elapsed = int((time.monotonic() - started) * 1000)
+            detail = str(exc) if phase in {"validation", "json_parse"} else "Provider call or response extraction failed"
+            if diagnostics is not None:
+                diagnostics.update(error_stage=phase, error_type=type(exc).__name__, error=detail)
+            logger.warning(
+                "request_routing classification failed stage=%s model=%s provider=%s "
+                "account=%s session_id=%s duration_ms=%d error_type=%s detail=%s "
+                "output_chars=%d output_preview=%r",
+                phase, model, provider, payload.get("accountName"), payload.get("conversationId"),
+                elapsed, type(exc).__name__, detail, len(raw), raw[:2000], exc_info=True)
             return decision("classifier_failure", clarification=
                             "Automatic routing is unavailable. Please retry, select an agent manually, "
                             "or reply with a specialist name or capability: " + ", ".join(sorted(known)) + ".")

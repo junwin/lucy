@@ -166,3 +166,57 @@ this is not yet integrated into persisted run-metrics tables.
 - Remote routing should first select agent expertise, then reuse machine eligibility
   checks from `delegate_task`; machine capability filters are not agent skillsets.
 - Multi-specialist decomposition and calibrated/embedding-based routing are deferred.
+
+## Routing diagnostics and probe
+
+`routing_probe` runs the production `SkillsetRouter.route()` without executing
+an agent, appending conversation events, or renewing/clearing dialogue affinity.
+It is registered as a Lucy tool and remains subject to the normal agent and
+context tool permissions. Add `routing_probe` to a testing agent's
+`allowed_tools` (and any restrictive context allowlist). With lazy discovery,
+use `discover_tools` and `activate_tools` as usual.
+
+Example tool arguments (all top-level fields and each case's `expected_agent`
+are required by the strict model schema; use null for unused options):
+
+```json
+{
+  "cases": [
+    {"prompt_text": "Help me revise my travel journal", "expected_agent": "belle"},
+    {"prompt_text": "Create an image of a field of daffodils", "expected_agent": "lumia"}
+  ],
+  "requested_agent": "lucy",
+  "conversation_id": null,
+  "context_name": null,
+  "model": null,
+  "provider": null
+}
+```
+
+The probe uses the calling account, never a model-supplied account override.
+An optional `conversation_id` reads only a session belonging to that account;
+it does not default to the calling agent's current session. Cases independently
+read the same session state, rather than simulating successive exchanges.
+An explicit `context_name`, including `"none"`, exercises the production context
+pinning rule. Leave it null to test automatic classification.
+
+There are at most ten cases, each at most 12000 characters. Cases requiring
+classification make real, potentially billable model calls. Model/provider
+overrides affect only this probe, not global configuration. A model override
+without a provider uses provider inference.
+
+Results include the routing catalog, selected agent, reason, capabilities,
+clarification/direct answer, classifier call count, elapsed time, optional
+`matches_expected`, and a `diagnostics` object. Classifier text is limited to
+2000 characters with `output_chars` and `output_truncated`; local decisions
+have no classifier text. `ok` means the probe completed without a classifier,
+history or request failure; inspect `matches_expected` and `clarification`
+separately to assess routing quality.
+
+Production failures keep the existing `classifier_failure` reason for client
+compatibility. Logs now distinguish `provider_call`, `response_text`,
+`json_parse`, and `validation` stages, identify model/provider, account and
+session, and show elapsed time, exception type, precise validation errors and
+a bounded, escaped classifier-output preview. Successful classifier decisions
+also log model/provider, reason and latency. No input prompts, credentials or
+full provider response bodies are added to production logs by this change.
