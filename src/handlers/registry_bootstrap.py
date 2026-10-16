@@ -42,6 +42,7 @@ from src.handlers.delegate_task_handler import DelegateTaskHandler
 from src.handlers.agents_manage_handler import AgentsManageHandler
 from src.handlers.lazy_tool_selector_handler import LazyToolSelectorHandler
 from src.handlers.tool_selection_probe_handler import ToolSelectionProbeHandler
+from src.handlers.routing_probe_handler import RoutingProbeHandler
 from src.handlers.context_handler import ContextHandler
 from src.handlers.video_generate_handler import VideoGenerateHandler
 from src.handlers.image_generate_handler import ImageGenerateHandler
@@ -138,6 +139,7 @@ def build_registry_and_catalog() -> tuple[HandlerRegistry, ToolCatalog]:
 
     # Tool selection pipeline diagnostic probe (issue #126)
     reg.register(ToolSelectionProbeHandler)
+    reg.register(RoutingProbeHandler)
 
     # Snapshot Lucy-owned names before extensions contribute handlers. These
     # source boundaries are catalog metadata only; every handler still executes
