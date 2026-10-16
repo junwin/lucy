@@ -826,7 +826,7 @@
       "semantic_item_max_chars": 1500
     },
     "use_embeddings": true,
-    "default_context": "skinny",
+    "default_context": "writing",
     "model_policy": {
       "profile": "writing",
       "required_capabilities": [
@@ -837,9 +837,7 @@
       "allow_fallback": true
     },
     "skills": [
-      "filepaths",
       "writing",
-      "loop-prevention",
       "semantic-memory"
     ],
     "skillset": [
