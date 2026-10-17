@@ -244,7 +244,7 @@ def handle(handler: "AskRequestHandler", payload: Dict[str, Any]) -> Tuple[int, 
                     "/ask: failed to append error message to session %s",
                     conversationId,
                 )
-        return 500, {"error": error_message}
+        return 500, {"error": error_message, **({"routing": route.to_dict()} if route is not None else {})}
 
     except Exception:
         # Catch-all to ensure unusual exits are logged.
@@ -255,4 +255,4 @@ def handle(handler: "AskRequestHandler", payload: Dict[str, Any]) -> Tuple[int, 
             agentName,
             conversationId,
         )
-        return 500, {"error": "An error occurred"}
+        return 500, {"error": "An error occurred", **({"routing": route.to_dict()} if route is not None else {})}
