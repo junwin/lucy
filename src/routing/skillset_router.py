@@ -55,6 +55,10 @@ class SkillsetRouter:
         Session identity/context and other metadata are preserved. A zero TTL
         disables affinity. Manual selection or general work releases it.
         """
+        if route is not None and route.reason == "one_off_agent_override":
+            # A temporary @agent dispatch must neither replace nor renew the
+            # conversation's existing specialist affinity.
+            return
         if self.episodic_store is None or not conversation_id:
             return
         session = self.episodic_store.get_session(account_name=(payload.get("accountName") or "").lower(), session_id=conversation_id)
