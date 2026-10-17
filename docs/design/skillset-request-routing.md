@@ -220,3 +220,22 @@ session, and show elapsed time, exception type, precise validation errors and
 a bounded, escaped classifier-output preview. Successful classifier decisions
 also log model/provider, reason and latency. No input prompts, credentials or
 full provider response bodies are added to production logs by this change.
+
+### Correcting malformed classifier output
+
+Every routing kind, including `continue` and `end`, requires `kind`,
+`capabilities`, and a finite numeric `confidence` between zero and one. The
+routing prompt includes complete continuation and closing examples.
+
+If the classifier returns invalid JSON or a classification that fails validation,
+Lucy makes at most one corrective model call. It sends the same original routing
+input plus a bounded preview of the rejected output and the specific validation
+error. Missing confidence is never defaulted. Valid low-confidence/clarification
+results do not trigger correction; provider connection failures retain their
+existing behavior and do not trigger this application-level retry.
+
+The original failure stays in the logs. `corrective_retry` identifies the second
+call; `classifier_done` reports the actual `classifier_calls` and `recovered`
+flag. A second invalid result returns the existing `classifier_failure` reply.
+The probe's diagnostics include an `attempts` list with separately bounded output
+and errors for each call. Cases may now make up to two classifier calls each.
