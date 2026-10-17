@@ -1,6 +1,7 @@
 """Endpoint routing replies and dialogue persistence; selection stays in SkillsetRouter."""
 
 import json
+import re
 import uuid
 from typing import TYPE_CHECKING, Any, Dict, Optional, Tuple
 
@@ -12,6 +13,49 @@ from .ask_session import resolve_or_create_session
 
 if TYPE_CHECKING:
     from .ask_request_handler import AskRequestHandler
+
+
+_AGENT_DIRECTIVE = re.compile(r"^\s*@([^\s]+)(?:\s+([\s\S]*))?$")
+
+
+def _available_agent_names(agent_manager) -> list[str]:
+    agents = getattr(agent_manager, "get_available_agents", None)
+    if callable(agents):
+        return [str(agent.name) for agent in agents() if getattr(agent, "name", None)]
+    names = getattr(agent_manager, "get_agent_names", None)
+    if callable(names):
+        return [str(name) for name in names() if name]
+    return [str(agent.name) for agent in getattr(agent_manager, "agents", []) if getattr(agent, "name", None)]
+
+
+def _directive_agent_name(agent_manager, requested_name: str) -> Optional[str]:
+    match = next((name for name in _available_agent_names(agent_manager)
+                  if name.casefold() == requested_name.casefold()), None)
+    if match is not None:
+        return match
+    # Keep compatibility with small AgentManager fakes and adapters that do
+    # not expose their catalog while still requiring configured-agent lookup.
+    normalized = requested_name.casefold()
+    if agent_manager.is_valid(normalized):
+        return normalized
+    if agent_manager.is_valid(requested_name):
+        return requested_name
+    return None
+
+
+def _fallback_agent(handler: "AskRequestHandler", payload: Dict[str, Any], mode: str) -> str:
+    requested = str(payload.get("agentName") or "").strip().lower()
+    if requested and handler.agent_manager.is_valid(requested):
+        return requested
+    if mode == "auto" and handler.request_router is not None:
+        cfg = handler.request_router.config.get("request_routing", {}) or {}
+        fallback = str(cfg.get("default_agent", "lucy")).strip().lower() if isinstance(cfg, dict) else "lucy"
+        if fallback and handler.agent_manager.is_valid(fallback):
+            return fallback
+    if handler.agent_manager.is_valid("lucy"):
+        return "lucy"
+    names = _available_agent_names(handler.agent_manager)
+    return names[0] if names else requested
 
 
 def _remember_dialogue(handler: "AskRequestHandler", payload, route, conversation_id, response_text=""):
@@ -29,6 +73,44 @@ def _route_request(handler: "AskRequestHandler", payload: Dict[str, Any]) -> Tup
     mode = payload.get("routing", "explicit")
     if mode not in ("explicit", "auto"):
         raise ValueError("routing must be 'explicit' or 'auto'")
+
+    question = payload.get("question")
+    directive = _AGENT_DIRECTIVE.match(question) if isinstance(question, str) else None
+    if directive:
+        target = directive.group(1)
+        message = (directive.group(2) or "").strip()
+        fallback = _fallback_agent(handler, payload, mode)
+        agent_name = _directive_agent_name(handler.agent_manager, target)
+        if not message:
+            return payload, RouteDecision(
+                requested_agent=fallback, selected_agent=fallback,
+                reason="invalid_agent_override",
+                clarification=f"Please include a request after @{target}.",
+            )
+        if agent_name is None:
+            available = _available_agent_names(handler.agent_manager)
+            choices = ", ".join(available)
+            detail = f" Available agents: {choices}." if choices else ""
+            return payload, RouteDecision(
+                requested_agent=fallback, selected_agent=fallback,
+                reason="invalid_agent_override",
+                clarification=f"I can't find an available agent named @{target}.{detail}",
+            )
+
+        routed = dict(payload)
+        routed["question"] = message
+        routed["agentName"] = agent_name
+        # A one-off agent uses that agent's configured context. Do not carry
+        # the sidebar's agent context into the temporary turn.
+        routed.pop("contextName", None)
+        routed.pop("contextType", None)
+        routed.pop("selectType", None)
+        routed.pop("partnerAgentName", None)
+        return routed, RouteDecision(
+            requested_agent=fallback, selected_agent=agent_name,
+            reason="one_off_agent_override",
+        )
+
     if mode != "auto":
         return payload, None
     if not payload.get("question") or not payload.get("accountName"):
