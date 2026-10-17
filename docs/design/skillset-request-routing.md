@@ -101,6 +101,32 @@ processing even if the classifier returns an answer. A classifier failure or
 uncertain/malformed answer never delivers that answer. Semantic suitability
 and factual correctness remain LLM judgments and need live evaluation.
 
+## One-off `@agent` dispatch (#283)
+
+A leading directive such as `@peace please run execution_trace for correlation
+ID …` sends that one request directly to the named configured agent. The
+directive must be the first non-whitespace token, agent-name matching is
+case-insensitive, and whitespace must separate the name from the request.
+Quoted text, later mentions and attached file contents are not dispatch
+directives. An empty request after the name or an unknown agent returns a
+clarification instead of falling through to ordinary routing.
+
+The directive takes precedence over either automatic routing or a persistent
+manual sidebar selection for the current request. Lucy removes it before
+processing the message, then uses the temporary agent's normal configuration,
+context defaults and tool permissions. It does not change the sidebar settings,
+session identity or established session context. The existing specialist
+affinity and its expiry are left untouched after success or failure, so the
+next untagged auto-routed message can continue with the previous specialist.
+Agent metadata reports the selected agent and reason
+`one_off_agent_override` in JSON responses and the streaming
+`request_routing` action. gptChum uses that metadata to label the response for
+this turn without changing its saved preferences.
+
+gptChum places the user's typed text before extracted text-file contents in
+the combined question. This keeps a directive inside an attached file from
+being mistaken for the user's leading instruction.
+
 Use `request_routing.direct_answers_enabled: false` to compare against normal
 agent execution. Direct answers also work when no specialists advertise
 skillsets. Manual routing and explicit contexts keep their existing behavior.
