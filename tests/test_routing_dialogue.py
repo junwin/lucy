@@ -9,7 +9,7 @@ from src.agent import Agent
 from src.message_endpoints.ask_request_handler import AskRequestHandler
 from src.message_processors.function_calling_processor import FCPResult
 from src.message_processors.run_metrics import RunMetrics
-from src.routing.skillset_router import SkillsetRouter
+from src.routing.skillset_router import RouteDecision, SkillsetRouter
 from tests.test_ask_request_handler import FakeProcessor, FakeProcessorFactory, FakeStorage
 from tests.test_skillset_router import make_router, payload
 
@@ -154,6 +154,19 @@ def test_manual_selection_releases_affinity_and_preserves_metadata(dialogue):
     router, memory, now, request = dialogue
     router.remember_dialogue({**request, 'routing': 'explicit'}, None, request['conversationId'])
     assert state(memory, request) == {'project': 'photos', 'default_agent': 'lucy'}
+
+
+def test_one_off_agent_override_preserves_existing_affinity(dialogue):
+    router, memory, now, request = dialogue
+    before = state(memory, request)
+    temporary = RouteDecision(
+        requested_agent='lucy', selected_agent='belle',
+        reason='one_off_agent_override',
+    )
+
+    router.remember_dialogue(request, temporary, request['conversationId'], 'Temporary reply.')
+
+    assert state(memory, request) == before
 
 
 def test_no_continuation_without_live_affinity(dialogue):
