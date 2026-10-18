@@ -309,3 +309,23 @@ def test_attachment_reference_text_lists_image_and_file_ids():
 
     assert "[Uploaded image IDs available to tools: image-one, image-two]" in text
     assert "[Uploaded file IDs available to tools: file-one]" in text
+
+
+@pytest.mark.parametrize("allowed_tools", [[], ["video_generate"], ["tasklists_manage", "tasklists_run"]])
+def test_nonvision_guidance_distinguishes_analysis_from_handler_reference(temp_images_root, allowed_tools):
+    _create_image_file(temp_images_root, "junwin", "source-photo", "photo.jpg", b"photo bytes")
+    parts = _make_attachment_resolver(temp_images_root).resolve(
+        account_name="junwin", image_ids=["source-photo"], file_ids=None,
+        agent_allowed_tools=allowed_tools, supports_images=False,
+    )
+    assert all(part["type"] == "text" for part in parts)
+    assert "source-photo" in parts[0]["text"]
+    guidance = parts[-1]["text"]
+    assert "Describe this photograph" in guidance
+    assert "delegate that visual analysis to a vision-capable agent" in guidance
+    assert "Never invent visual details" in guidance
+    assert "Generate a video from this photograph" in guidance
+    assert "video_generate directly with image_id set to the UUID" in guidance
+    assert "do not delegate merely because an image is attached" in guidance
+    assert "this guidance grants no extra permissions" in guidance
+    assert "obtain it before calling the handler" in guidance

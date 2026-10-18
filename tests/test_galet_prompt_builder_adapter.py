@@ -1,3 +1,4 @@
+import pytest
 from tests.episodic_fixtures import event_fixture
 from tests.episodic_fixtures import memory_fixture, EmptyEpisodic
 from types import SimpleNamespace
@@ -392,3 +393,33 @@ def test_prompt_resolves_shared_and_account_skills_through_configured_memory(tmp
     repo.save_context(account_name="junwin", context_name="general", text="John context")
     john = build("junwin")
     assert "John context" in john and "Shared context" not in john and "Shared writing" not in john
+
+
+@pytest.mark.parametrize("question", [
+    "Describe this photograph",
+    "Generate a video from this photograph",
+])
+def test_nonvision_prompt_preserves_image_id_and_conditional_guidance(tmp_path, question):
+    image_dir = tmp_path / "data" / "images" / "junwin"
+    image_dir.mkdir(parents=True)
+    (image_dir / "source-photo.jpg").write_bytes(b"stored image bytes")
+    adapter = GaletPromptBuilderAdapter(
+        agent_manager=_AgentManager(_agent(allowed_tools=["video_generate"])),
+        config=_Config({"storage_root_path": str(tmp_path), "storage_namespace": "data"}),
+        storage=SimpleNamespace(), semantic_memory=_UnusedMemory(),
+        episodic_memory=_UnusedMemory(), procedural_memory=_ProceduralMemory(),
+        compiler_class=_RecordingCompiler,
+    )
+    messages = adapter.build_prompt(
+        content_text=question, conversation_id="session-1", agent_name="peace",
+        account_name="junwin", context_type="none", image_ids=["source-photo"],
+        supports_images=False,
+    )
+    content = messages[-1]["content"]
+    assert all(part["type"] == "text" for part in content)
+    text = "\n".join(part["text"] for part in content)
+    assert question in text
+    assert "Uploaded image IDs available to tools: source-photo" in text
+    assert "delegate that visual analysis to a vision-capable agent" in text
+    assert "video_generate directly with image_id set to the UUID" in text
+    assert "do not delegate merely because an image is attached" in text
