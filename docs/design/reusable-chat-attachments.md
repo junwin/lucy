@@ -80,3 +80,21 @@ Tests cover both processor modes, ordered metadata, reopen and lookup beyond
 120 later messages, video retries using the same bytes, generated references,
 pagination, account/session isolation, invalidation and missing files. Video
 provider responses are mocked; automated tests do not purchase generation.
+
+## Non-vision agents and image references (#261)
+
+A model without image support receives text attachment markers and UUIDs rather
+than inline image bytes. Its attachment guidance distinguishes two cases:
+
+- Visual analysis (describe a photograph, read text in it, identify details)
+  requires delegation to a vision-capable worker. The existing tasklist workflow
+  remains available when its tools are permitted.
+- Passing a reference to an allowed handler, such as `video_generate` with
+  `image_id`, does not itself require vision and should not trigger delegation.
+  If preparing that call requires visual interpretation, delegate that analysis
+  first. Never invent visual details or assume extra handler permissions.
+
+This is prompt guidance, not a keyword-based dispatcher or a change to tool
+permissions. Automated regression coverage checks the conditional guidance,
+UUID preservation and text-only prompt construction for non-vision models;
+actual model tool choice still needs live review with both example requests.

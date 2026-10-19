@@ -72,10 +72,22 @@ class AttachmentResolver:
                 {
                     "type": "text",
                     "text": (
-                        "Your model cannot see images. To analyze images: create a tasklist via "
+                        "Your model cannot see images, but the image UUIDs above are available to tools. "
+                        "Distinguish visual analysis from passing an image reference to a handler. "
+                        "If the request only needs an allowed handler to consume the image reference, "
+                        "call that handler directly with the image UUID; do not delegate merely because "
+                        "an image is attached. For example, 'Generate a video from this photograph' "
+                        "can use video_generate directly with image_id set to the UUID. "
+                        "Use only handlers you are permitted to call; this guidance grants no extra permissions. "
+                        "If the task requires seeing, describing, reading or interpreting the image "
+                        "(for example, 'Describe this photograph'), delegate that visual analysis to "
+                        "a vision-capable agent. Never invent visual details. If visual analysis is "
+                        "needed to prepare a handler call, obtain it before calling the handler. "
+                        "To delegate analysis when these tools are permitted: create a tasklist via "
                         "tasklists_manage (action='put') with a task that includes the image UUIDs "
                         "above in meta.image_ids as a list of strings. Then run it with "
-                        "tasklists_run (worker_agent='colin'). Use the worker's output to answer the user."
+                        "tasklists_run (worker_agent='colin'), provided that worker supports images. "
+                        "Use the worker's output to answer the user."
                     ),
                 }
             )
