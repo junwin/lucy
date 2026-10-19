@@ -1,3 +1,4 @@
+from src.message_processors.edit_diagnostics import log_edit_diagnostic
 from src.episodic import LucyEpisodicStore
 from src.message_processors.image_delivery import image_result_for_model
 import json
@@ -304,6 +305,8 @@ class ToolExecutor:
                 except (TypeError, ValueError):
                     outcome = None
                 outcome = outcome if isinstance(outcome, dict) else {}
+                log_edit_diagnostic(tc.name, tc.arguments_raw, outcome,
+                                    correlation_id=correlation_id, call_id=tc.call_id)
                 outcome_ok = outcome.get("ok")
                 outcome_status = outcome.get("status")
                 if outcome_ok is False or outcome_status in ("error", "failed"):

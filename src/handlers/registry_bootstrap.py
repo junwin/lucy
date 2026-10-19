@@ -36,6 +36,7 @@ from src.handlers.episodic_memory_handler import EpisodicMemoryHandler
 from src.handlers.procedural_memory_handler import ProceduralMemoryHandler
 from src.handlers.remote_execute_handler import RemoteExecuteHandler
 from src.handlers.patch_apply_handler import PatchApplyHandler
+from src.handlers.text_replace_handler import TextReplaceHandler
 from src.handlers.repo_index_handler import RepoIndexHandler
 from src.handlers.repo_search_handler import RepoSearchHandler
 from src.handlers.delegate_task_handler import DelegateTaskHandler
@@ -130,6 +131,7 @@ def build_registry_and_catalog() -> tuple[HandlerRegistry, ToolCatalog]:
     reg.register(DelegateTaskHandler)
     # Patch application — constrained single-file unified diffs
     reg.register(PatchApplyHandler)
+    reg.register(TextReplaceHandler)
 
     # Agent management (list/get/upsert/delete/reload)
     reg.register(AgentsManageHandler)

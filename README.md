@@ -232,3 +232,22 @@ The endpoint is split into a public facade, shared request/session/routing
 helpers and separate ordinary JSON and streaming SSE response modules. See
 [the component map](docs/design/ask-request-components.md) for responsibilities,
 preserved transport differences and source-reading measurements.
+
+
+## Reliable text edits
+
+The integration branch pins galet-tools commit `859e0523904aac51e1d8ebf908c234221a534e2d`
+until 0.1.28 is released. Install with `python -m pip install -r requirements.txt`.
+Small edits should use `text_replace` (unique exact match, optional check-only,
+bounded diff). Larger patches require unchanged context lines. After an error,
+reread a narrow affected region and inspect the structured error before retrying.
+
+The repository agent definitions grant `text_replace` wherever `patch_apply` was
+already allowed. If your installation uses separate agent files or restrictive
+context tool lists, add `text_replace` there too. Registration does not bypass
+the normal permissions or lazy-tool activation.
+
+Execution logs now record a separate bounded diagnostic for `patch_apply` and
+`text_replace`. Execution traces recover patch content up to 16000 characters,
+old/new text up to 2000 each, and individual error/diff fields up to 4000 each.
+Truncation is marked. Older runs cannot recover data that was never logged.

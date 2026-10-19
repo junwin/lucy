@@ -15,7 +15,7 @@ class PromptSections:
     @staticmethod
     def build_file_root_instructions(config: Any, agent: Optional[Agent]) -> str:
         """Present current root aliases only to agents that can use file tools."""
-        root_tools = {"file_load", "file_save", "patch_apply", "repo_index", "repo_search",
+        root_tools = {"file_load", "file_save", "text_replace", "patch_apply", "repo_index", "repo_search",
                       "execute_command", "execute_command2", "discover_tools", "activate_tools",
                       "lazy_tool_selector"}
         if not root_tools.intersection(getattr(agent, "allowed_tools", ()) or ()):
@@ -31,7 +31,14 @@ class PromptSections:
             "include those subdirectories explicitly when needed. Do not invent roots. "
             "These are the current path rules for tool calls, including when older filepaths skills "
             "or history show location-based examples. Scripts and program arguments may contain "
-            "absolute paths when required by the program; preserve their values."
+            "absolute paths when required by the program; preserve their values. "
+            "For small exact edits prefer text_replace when permitted: read the current text and "
+            "provide old_text that matches exactly once, plus new_text. Use check_only for a preview. "
+            "For larger edits use patch_apply with numbered unified-diff hunks and unchanged context lines. "
+            "After an edit fails, inspect error_code, details and stderr, then reread only the affected "
+            "region; do not repeatedly guess hunk counts or resend a failed patch. "
+            "Keep searches and reads narrow, especially in asset folders; avoid unbounded listings. "
+            "Discover and activate permitted edit tools when needed. Verify the resulting diff."
         )
 
     @staticmethod

@@ -62,6 +62,6 @@ galet-memory[vec]==0.1.25
 galet-prompt-builder==0.1.22
 
 # Shared handler ABI and external handler discovery.
-# Named-root schemas/runtime: galet-tools PR #30. Replace with its PyPI release
-# after merge/publication; 0.1.26 includes the patch fix but not root harmonization.
-galet-tools==0.1.27
+# Exact review commit for text_replace and actionable patch diagnostics.
+# Replace with galet-tools==0.1.28 after that release is published.
+galet-tools @ git+https://github.com/junwin/galet-tools.git@859e0523904aac51e1d8ebf908c234221a534e2d

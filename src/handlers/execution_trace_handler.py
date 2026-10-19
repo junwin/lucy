@@ -23,6 +23,7 @@ _SUMMARY = re.compile(r"FunctionCallingProcessor summary:.*?iterations=(\d+) ope
 _TOKEN_BREAKDOWN = re.compile(r"Prompt.token_breakdown:.*?system=(\d+) handlers=(\d+) context=(\d+) obsidian=(\d+) digest=(\d+) history=(\d+) user=(\d+) total=(\d+)")
 _USAGE = re.compile(r"prompt_tokens=(\d+).*?completion_tokens=(\d+).*?total_tokens=(\d+)")
 _OUTCOME = re.compile(r"tool_execute_outcome correlation_id=([\w-]+) tool=(\S+) call_id=(\S+) status=(\S+) error_code=(\S+) result_chars=(\d+)")
+_EDIT_DIAGNOSTIC = re.compile(r"tool_edit_diagnostic correlation_id=([\w-]+) tool=(\S+) call_id=(\S+) diagnostic=(.*)$")
 _MODEL_CALL = re.compile(r"model_call_done correlation_id=([\w-]+) agent=(\S+) session_id=(\S+) iteration=(\d+) attempt=(\d+) duration_ms=(\d+) input_tokens=(\S+) output_tokens=(\S+) total_tokens=(\S+)")
 _SENSITIVE = re.compile(r"(password|secret|api[_-]?key|token|authorization|credential|private[_-]?key)", re.I)
 
@@ -143,6 +144,7 @@ class ExecutionTraceHandler(HandlerV2):
         times = []
         outcome_by_call = {}
         model_calls = []
+        edit_diagnostics = {}
         for line in iter_lines(paths):
             marker = CORRELATION_RE.search(line)
             # Prompt breakdown logs lack a correlation_id. Associate only when
@@ -167,6 +169,14 @@ class ExecutionTraceHandler(HandlerV2):
                     "error_code": None if outcome.group(5) == "-" else outcome.group(5),
                     "result_chars": int(outcome.group(6)),
                 }
+            edit = _EDIT_DIAGNOSTIC.search(line)
+            if edit and edit.group(2) in {"patch_apply", "text_replace"}:
+                try:
+                    diagnostic = json.loads(ast.literal_eval(edit.group(4)))
+                    if isinstance(diagnostic, dict):
+                        edit_diagnostics[edit.group(3)] = _redact(diagnostic, 16000)
+                except (ValueError, SyntaxError, TypeError):
+                    pass
             model_call = _MODEL_CALL.search(line)
             if model_call:
                 def _optional_int(value):
@@ -189,6 +199,10 @@ class ExecutionTraceHandler(HandlerV2):
             if " - ERROR -" in line or " - WARNING -" in line:
                 errors.append(_redact(line.split(" - ", 4)[-1], 360))
         for record in records:
+            diagnostic = edit_diagnostics.get(record["call_id"])
+            if diagnostic:
+                record["parameters"].update(diagnostic.get("parameters", {}))
+                record["result"] = diagnostic.get("result")
             outcome = outcome_by_call.get(record["call_id"])
             if outcome:
                 record.update(outcome)
