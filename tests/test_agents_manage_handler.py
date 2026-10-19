@@ -26,6 +26,20 @@ def _write_agents(path, agents):
     path.write_text(json.dumps(agents), encoding="utf-8")
 
 
+@pytest.mark.parametrize("payload", ["{", "42", '[{"name":"ok"}, {}]'])
+def test_reload_failure_is_reported_and_preserves_shared_agents(tmp_path, payload):
+    path = tmp_path / "agents.json"
+    _write_agents(path, [{"name": "original"}])
+    manager = AgentManager(str(path))
+    handler = AgentsManageHandler(FakeConfig(str(path)))
+    before = manager.agents
+    path.write_text(payload)
+    result = handler.execute({"action": "reload"}, agent_manager=manager)
+    assert result["ok"] is False
+    assert manager.agents is before
+    assert manager.get_agent_names() == ["original"]
+
+
 @pytest.fixture
 def agents_path(tmp_path):
     p = tmp_path / "agents.json"

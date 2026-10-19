@@ -47,8 +47,7 @@ class AgentManager:
 
         try:
             if not self.path.exists():
-                logger.info("Agents file does not exist at %s; starting with empty agent list", self.path)
-                self.agents = []
+                logger.warning("Agents file does not exist at %s; keeping current agents", self.path)
                 return
 
             with self.path.open("r", encoding="utf-8") as f:
@@ -62,7 +61,6 @@ class AgentManager:
                 raw_agents = raw
             else:
                 logger.error("Unexpected JSON structure in %s: expected list or object, got %s", self.path, type(raw))
-                self.agents = []
                 return
 
             loaded_agents: List[Agent] = []
@@ -79,10 +77,35 @@ class AgentManager:
 
         except json.JSONDecodeError as e:
             logger.error("Invalid JSON in agents file %s: %s", self.path, e)
-            self.agents = []
         except Exception as e:
             logger.exception("Error loading agents from %s: %s", self.path, e)
-            self.agents = []
+
+    def read_agents(self, path=None, strict: Optional[bool] = None) -> List[Agent]:
+        """Validate every entry before publishing a runtime reload.
+
+        Startup loading remains tolerant of individual bad entries. Runtime
+        reloads reject the whole candidate so a typo cannot remove live agents.
+        """
+        source = Path(path) if path is not None else self.path
+        use_strict = self.strict_fields if strict is None else strict
+        with source.open("r", encoding="utf-8") as f:
+            raw = json.load(f)
+        if isinstance(raw, dict):
+            raw = [raw]
+        if not isinstance(raw, list):
+            raise ValueError("Agents must be a JSON list or object")
+        agents = [Agent.from_dict(item, strict=use_strict) for item in raw]
+        names = [agent.name for agent in agents]
+        if len(set(names)) != len(names):
+            raise ValueError("Agent names must be unique")
+        return agents
+
+    def reload_agents(self, strict: Optional[bool] = None) -> None:
+        """Reload all agents, raising on failure while preserving live state."""
+        agents = self.read_agents(strict=strict)
+        self.agents = agents
+        if strict is not None:
+            self.strict_fields = strict
 
     def save_agents(self) -> None:
         data = [agent.to_dict() for agent in self.agents]

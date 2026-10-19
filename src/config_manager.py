@@ -66,7 +66,7 @@ class ConfigManager:
         self.config = self.load_config(file_name)
         validate_sandbox_relative_paths(self.config)  # fail fast
 
-    def load_config(self, file_name: str) -> dict:
+    def load_config(self, file_name: str, *, strict_local: bool = False) -> dict:
         try:
             with open(file_name, "r", encoding="utf-8") as f:
                 config = json.load(f)
@@ -75,15 +75,22 @@ class ConfigManager:
         except json.JSONDecodeError as e:
             raise ValueError(f"Config file '{file_name}' is not valid JSON: {e}")
 
+        if not isinstance(config, dict):
+            raise ValueError("Config must be a JSON object")
+
         # --- local overrides ---
         local_file = _local_config_path(file_name)
         if os.path.exists(local_file):
             try:
                 with open(local_file, "r", encoding="utf-8") as f:
                     local_config = json.load(f)
+                if not isinstance(local_config, dict):
+                    raise ValueError("Local config must be a JSON object")
                 config = _deep_merge(config, local_config)
                 logger.info("Merged local config from %s", local_file)
-            except (json.JSONDecodeError, OSError) as e:
+            except (ValueError, OSError) as e:
+                if strict_local:
+                    raise ValueError(f"Failed to load local config {local_file}: {e}") from e
                 logger.warning("Failed to load local config %s: %s", local_file, e)
 
         return config
@@ -104,18 +111,24 @@ class ConfigManager:
         If the file is missing, invalid JSON, or fails validation, the old
         config is kept and the summary includes an 'error' key.
         """
-        old_config = copy.deepcopy(self.config)
-
         try:
-            new_config = self.load_config(self.file_name)
-            validate_sandbox_relative_paths(new_config)
+            new_config = self.read_reload_config()
         except Exception as e:
             logger.exception("Config reload failed for %s: %s", self.file_name, e)
-            return {
-                "config_reloaded": False,
-                "error": str(e),
-            }
+            return {"config_reloaded": False, "error": str(e)}
+        return self.apply_config(new_config)
 
+    def read_reload_config(self) -> dict:
+        """Read and validate a candidate without changing live configuration."""
+        candidate = self.load_config(self.file_name, strict_local=True)
+        validate_sandbox_relative_paths(candidate)
+        if not isinstance(candidate.get("strict_agent_fields", True), bool):
+            raise ValueError("strict_agent_fields must be a boolean")
+        return candidate
+
+    def apply_config(self, new_config: dict) -> Dict[str, Any]:
+        """Publish an already validated candidate, preserving dict identity."""
+        old_config = self.config
         # Compute diff
         old_keys = set(old_config.keys())
         new_keys = set(new_config.keys())

@@ -268,7 +268,7 @@ class AgentsManageHandler(HandlerV2):
         }
 
     def _handle_reload(self, am: AgentManager) -> Dict[str, Any]:
-        am.load_agents()
+        am.reload_agents(strict=self.config.get("strict_agent_fields", True))
         names = am.get_agent_names()
         return {
             "ok": True,
