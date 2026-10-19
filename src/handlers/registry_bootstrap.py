@@ -41,6 +41,7 @@ from src.handlers.repo_index_handler import RepoIndexHandler
 from src.handlers.repo_search_handler import RepoSearchHandler
 from src.handlers.delegate_task_handler import DelegateTaskHandler
 from src.handlers.agents_manage_handler import AgentsManageHandler
+from src.handlers.config_reload_handler import ConfigReloadHandler
 from src.handlers.lazy_tool_selector_handler import LazyToolSelectorHandler
 from src.handlers.tool_selection_probe_handler import ToolSelectionProbeHandler
 from src.handlers.routing_probe_handler import RoutingProbeHandler
@@ -135,6 +136,9 @@ def build_registry_and_catalog() -> tuple[HandlerRegistry, ToolCatalog]:
 
     # Agent management (list/get/upsert/delete/reload)
     reg.register(AgentsManageHandler)
+
+    # Runtime reload of config + agents (same logic as POST /admin/reload)
+    reg.register(ConfigReloadHandler)
 
     # Lazy tool-loading scaffolding (test rig)
     reg.register(LazyToolSelectorHandler)

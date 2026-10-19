@@ -31,6 +31,7 @@ RemoteExecuteHandler = _safe_import('.remote_execute_handler', 'RemoteExecuteHan
 DelegateTaskHandler = _safe_import('.delegate_task_handler', 'DelegateTaskHandler')
 PatchApplyHandler = _safe_import('.patch_apply_handler', 'PatchApplyHandler')
 AgentsManageHandler = _safe_import('.agents_manage_handler', 'AgentsManageHandler')
+ConfigReloadHandler = _safe_import('.config_reload_handler', 'ConfigReloadHandler')
 
 # Optional: GetKeywordsHandler depends on NLP libraries (spaCy/nltk/sklearn).
 # Import defensively so consumers can still import src.handlers when those
@@ -48,6 +49,7 @@ __all__ = [
     "DelegateTaskHandler",
     "PatchApplyHandler",
     "AgentsManageHandler",
+    "ConfigReloadHandler",
 ]
 
 if GetKeywordsHandler is not None:
