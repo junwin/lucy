@@ -67,3 +67,29 @@ def test_execution_trace_rejects_missing_or_unknown_id(tmp_path, monkeypatch):
     h = ExecutionTraceHandler()
     assert not h.execute({"correlation_id": "../something"})["ok"]
     assert not h.execute({"correlation_id": CID})["ok"]
+
+
+def test_trace_retains_edit_patch_and_git_error_beyond_short_preview(tmp_path, monkeypatch, caplog):
+    from src.message_processors.edit_diagnostics import log_edit_diagnostic
+    patch='--- a/index.html\n+++ b/index.html\n@@ -1,5 +1,6 @@\n'+' context\n'*70
+    with caplog.at_level('INFO'):
+        log_edit_diagnostic('patch_apply', {'path':'index.html','patch_content':patch},
+            {'ok':False,'applied':False,'error_code':'malformed_patch',
+             'stderr':'error: corrupt patch at line 8'}, correlation_id=CID,call_id='call_edit')
+    record=caplog.records[-1].getMessage()
+    log=tmp_path/'edit.log'
+    log.write_text(
+        f'2026-10-19 10:00:00,000 - INFO - root - tool_execute_start correlation_id={CID} tool=patch_apply call_id=call_edit account=alice\n'
+        f'2026-10-19 10:00:00,100 - INFO - root - {record}\n'
+        f'2026-10-19 10:00:00,101 - INFO - root - tool_execute_outcome correlation_id={CID} tool=patch_apply call_id=call_edit status=failed error_code=malformed_patch result_chars=800\n'
+        f'2026-10-19 10:00:00,102 - INFO - root - tool_execute_done correlation_id={CID} tool=patch_apply call_id=call_edit result_preview=\'{{"ok":false}}\'\n')
+    monkeypatch.setattr(trace,'DEFAULT_LOG',log)
+    class Config:
+        def get(self,key,default=None):return {'storage_root_path':str(tmp_path),'storage_namespace':'data'}.get(key,default)
+    cfg=Config()
+    result=ExecutionTraceHandler(cfg).execute({'correlation_id':CID,'format':'json','include_rotated':False},account_name='alice')
+    report=json.loads(resolve_report(cfg,'alice',result['file']['file_id'])[0].read_text())
+    call=report['tool_calls'][0]
+    assert call['parameters']['patch_content']==patch
+    assert call['result']['stderr']=='error: corrupt patch at line 8'
+    assert call['status']=='failed'
