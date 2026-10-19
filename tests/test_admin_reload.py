@@ -224,8 +224,8 @@ class TestAgentManagerReload:
         mgr.load_agents(strict=True)
         assert mgr.get_agent_names() == ["ok"]
 
-    def test_reload_with_invalid_json_clears_agents(self, tmp_path):
-        """If agents file becomes invalid JSON, agent list is cleared."""
+    def test_reload_with_invalid_json_keeps_agents(self, tmp_path):
+        """If agents file becomes invalid JSON, old agents are preserved."""
         from src.agent.agent_manager import AgentManager
 
         agents = [{"name": "ok"}]
@@ -239,10 +239,10 @@ class TestAgentManagerReload:
         agents_path.write_text("not json {{{", encoding="utf-8")
 
         mgr.load_agents()
-        assert mgr.get_agent_names() == []
+        assert mgr.get_agent_names() == ["ok"]
 
-    def test_reload_with_missing_file_clears_agents(self, tmp_path):
-        """If agents file is deleted, agent list is cleared on reload."""
+    def test_reload_with_missing_file_keeps_agents(self, tmp_path):
+        """If agents file is deleted, old agents are preserved."""
         from src.agent.agent_manager import AgentManager
 
         agents = [{"name": "ok"}]
@@ -256,4 +256,4 @@ class TestAgentManagerReload:
         agents_path.unlink()
 
         mgr.load_agents()
-        assert mgr.get_agent_names() == []
+        assert mgr.get_agent_names() == ["ok"]
