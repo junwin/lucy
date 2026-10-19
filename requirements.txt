@@ -64,4 +64,4 @@ galet-prompt-builder==0.1.22
 # Shared handler ABI and external handler discovery.
 # Exact review commit for text_replace and actionable patch diagnostics.
 # Replace with galet-tools==0.1.28 after that release is published.
-galet-tools @ git+https://github.com/junwin/galet-tools.git@859e0523904aac51e1d8ebf908c234221a534e2d
+galet-tools==0.1.29
