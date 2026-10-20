@@ -4,7 +4,6 @@ from src.episodic import LucyEpisodicStore
 
 import json
 import logging
-import traceback
 import uuid
 from datetime import datetime, timezone
 from typing import Any, Dict, Optional, Tuple, TYPE_CHECKING
@@ -28,7 +27,8 @@ from src.message_processors.automation_agents import (
     resolve_task_context,
     resolve_worker_agent,
 )
-from src.message_processors.automation_inputs import build_task_input
+from src.message_processors.automation_execution import MandatoryStopError, execute_task
+from src.message_processors.automation_records import build_task_execution_record
 from src.prompt_builders.prompt_builder_interface import PromptBuilderInterface
 from src.storage.interfaces import TasklistStore
 
@@ -80,13 +80,6 @@ _MANDATORY_STOP_MARKERS = (
     "I noticed I was repeating the same tool call without making progress",
 )
 
-
-class MandatoryStopError(Exception):
-    """Raised when a task's model response indicates incomplete work.
-
-    AutomationProcessor treats this as a hard stop: the current task is marked
-    failed/error and the tasklist run is terminated.
-    """
 
 
 def _is_mandatory_stop_response(text: str) -> bool:
@@ -581,68 +574,26 @@ class AutomationProcessor(MessageProcessorInterface):
                 else None
             )
 
-            # Execute the task using the FunctionCallingProcessor if available;
-            # otherwise attach a placeholder result.
-            task_result = None
-            task_error = None
-            run_metrics = None
-            error_detail = None
-            try:
-                if function_processor is not None:
-                    task_input = build_task_input(tasklist, task)
-                    task_message = task_input.message
-                    file_ids = task_input.file_ids
-                    image_ids = task_input.image_ids
-                    if not task_message:
-                        warning_messages.append(
-                            f"Task '{last_task_name}' has no instructions; marking completed with warning."
-                        )
-                        task_result = {
-                            "timestamp": _now_utc().isoformat(),
-                            "warning": "Task has no instructions. Provide task.instructions to execute.",
-                        }
-                    else:
-                        fcp_result = function_processor.process_message(
-                            primary_agent=task_agent,
-                            account=account,
-                            message=task_message,
-                            conversation_id=conversation_id,
-                            context_name=effective_context,
-                            secondary_agent=secondary_agent,
-                            processor_factory=processor_factory,
-                            image_ids=image_ids,
-                            file_ids=file_ids,
-                            correlation_id=(child_identity.run_id if child_identity else correlation_id),
-                            trace_id=(child_identity.trace_id if child_identity else trace_id),
-                        )
-
-                        response = fcp_result.text
-                        run_metrics = fcp_result.metrics.to_dict()
-                        task_result = {"timestamp": _now_utc().isoformat(), "output": response}
-
-                        if _is_mandatory_stop_response(response):
-                            logger.error(
-                                "AutomationProcessor: mandatory-stop response detected for task=%s tasklist_id=%s; aborting",
-                                last_task_name,
-                                tasklist_id,
-                            )
-                            raise MandatoryStopError(
-                                "Model reported it could not complete the task "
-                                f"(internal limit / incomplete response). Aborting tasklist run for task '{last_task_name}'."
-                            )
-                else:
-                    task_result = {
-                        "timestamp": _now_utc().isoformat(),
-                        "note": "Placeholder result. External tool execution disabled for Part 1+2.",
-                        "intended_action": {"task": last_task_name, "mode": mode},
-                    }
-            except MandatoryStopError as e:
-                logger.error("Task execution aborted (mandatory stop) for task=%s: %s", last_task_name, e)
-                task_error = str(e)
-            except Exception as e:
-                logger.exception("Task execution failed for task=%s", last_task_name)
-                task_error = str(e)
-                error_detail = traceback.format_exc()
+            task_result, task_error, run_metrics, error_detail = execute_task(
+                tasklist=tasklist,
+                task=task,
+                tasklist_id=tasklist_id,
+                last_task_name=last_task_name,
+                mode=mode,
+                function_processor=function_processor,
+                task_agent=task_agent,
+                account=account,
+                conversation_id=conversation_id,
+                effective_context=effective_context,
+                secondary_agent=secondary_agent,
+                processor_factory=processor_factory,
+                child_identity=child_identity,
+                correlation_id=correlation_id,
+                trace_id=trace_id,
+                warning_messages=warning_messages,
+                now=_now_utc,
+                is_mandatory_stop=_is_mandatory_stop_response,
+            )
 
             try:
                 if task_error is not None:
@@ -663,32 +614,18 @@ class AutomationProcessor(MessageProcessorInterface):
 
             executed_count += 1
 
-            record: dict = {
-                "schema_version": 1,
-                "record_id": uuid.uuid4().hex,
-                "tasklist_key": resolved_key,
-                "task_id": task.id,
-                "task_name": task.name,
-                "state": "completed" if task_error is None else "failed",
-                "started": started_at,
-                "ended": _now_utc().isoformat(),
-            }
-            task_meta = tasklist.meta if isinstance(getattr(tasklist, "meta", None), dict) else {}
-            correlation = task_meta.get("correlation_id")
-            if correlation:
-                record["correlation_id"] = correlation
-            if child_identity is not None:
-                record["trace_id"] = child_identity.trace_id
-                record["run_id"] = child_identity.run_id
-                record["parent_run_id"] = child_identity.parent_run_id
-            if task_error is not None:
-                record["error"] = task_error
-                if error_detail is not None:
-                    record["error_detail"] = error_detail
-            if run_metrics is not None:
-                record["metrics"] = run_metrics
-            if task_result is not None:
-                record["result"] = task_result
+            record = build_task_execution_record(
+                tasklist=tasklist,
+                task=task,
+                resolved_key=resolved_key,
+                started_at=started_at,
+                child_identity=child_identity,
+                task_result=task_result,
+                task_error=task_error,
+                run_metrics=run_metrics,
+                error_detail=error_detail,
+                now=_now_utc,
+            )
             try:
                 self.storage.append_task_execution_record(account_name, resolved_key, record)
             except Exception as e:
