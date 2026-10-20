@@ -13,32 +13,23 @@ except Exception:
         return decorator
 import contextvars
 import logging
-from datetime import datetime, timezone
 from typing import Optional, Dict, Any, List, Generator, NamedTuple
-import json
-import os
 import time
-import uuid
 
 from src.config_manager import ConfigManager
 from src.message_processors.message_processor_interface import MessageProcessorInterface
 from src.message_processors.sse_events import SSEEvent
 from src.message_processors.image_delivery import image_event_for_browser, image_event_for_history
 from src.prompt_builders.prompt_builder_interface import PromptBuilderInterface
-from src.handlers.handler_registry import HandlerRegistry, filter_eligible_tool_defs
+from src.handlers.handler_registry import HandlerRegistry
 from src.agent import Agent
 from src.agent.agent_manager import AgentManager
-from src.agent.caps import resolve_effective_cap
 
 from galet.adapter_interface import LLMAdapter
-from galet.provider_registry import ProviderRegistry
-from galet_prompt_builder import ApproximateTokenCounter
 
 
 from src.message_processors.fcp_models import ProcessorContext, ToolHandlerError, DEFAULT_MAX_HANDLER_SCHEMA_TOKENS
 from src.message_processors.episodic_recorder import EpisodicRecorder
-
-_TOKEN_COUNTER = ApproximateTokenCounter()
 
 from src.tool_selection import ToolSelectionError, ToolSelectionPipeline
 from src.message_processors.fcp_tool_executor import ToolExecutor, load_context_state
@@ -47,255 +38,36 @@ from src.message_processors.run_metrics import RunMetrics, record_processor_fail
 from src.metrics import CorrelationLogHandler, RunMetricsLogger
 
 
-_correlation_id_var: contextvars.ContextVar[str] = contextvars.ContextVar(
-    "fcp_correlation_id", default="-"
+from src.message_processors.fcp_prompt_metrics import (
+    _TOKEN_COUNTER,
+    _compute_prompt_token_breakdown,
+    _handler_schema_tokens,
+    _log_token_breakdown,
+    apply_handler_schema_budget,
+    resolve_tool_defs,
 )
-
-_TOOL_DISCOVERY_SYSTEM_MESSAGE = (
-    "When the currently active tools are insufficient, use discover_tools to "
-    "search the tools you are permitted to use. Before calling a discovered "
-    "tool that is not currently active, call activate_tools with its qualified "
-    "tool ID. Activated tools remain available only for the current request."
+from src.message_processors.fcp_prompt_preparation import (
+    _PromptSetupResult,
+    _TOOL_DISCOVERY_SYSTEM_MESSAGE,
+    get_environment_system_messages,
+    prepare_prompt_and_tools,
+    resolve_tool_defs_pipeline,
 )
-
-
-class _CorrelationIdFilter(logging.Filter):
-    """Inject the active FCP correlation id into log records.
-
-    Same pattern as RequestIdFilter in app.py: a filter attached to the
-    correlation handler stamps a contextvar-backed id onto every record so
-    the handler can attribute ERROR/WARNING counts to the active run.
-    """
-
-    def filter(self, record: logging.LogRecord) -> bool:
-        record.correlation_id = _correlation_id_var.get("-")
-        return True
-
-
-_CORRELATION_HANDLER = CorrelationLogHandler()
-_CORRELATION_HANDLER.addFilter(_CorrelationIdFilter())
-
-
-def _utc_now_iso() -> str:
-    """Return the current UTC time as ISO-8601 with milliseconds and a Z suffix."""
-
-    return (
-        datetime.now(timezone.utc)
-        .isoformat(timespec="milliseconds")
-        .replace("+00:00", "Z")
-    )
-
-
-def _resolve_metrics_logger(config: Any) -> Optional[RunMetricsLogger]:
-    """Resolve the runs log logger from config, or None when unconfigured.
-
-    Priority: explicit ``metrics_runs_log_path``, then the design default
-    ``<storage_root_path>/<storage_namespace>/metrics/runs.jsonl``.
-    """
-
-    if config is None:
-        return None
-    path = config.get("metrics_runs_log_path")
-    if not path:
-        storage_root = config.get("storage_root_path")
-        if storage_root:
-            path = os.path.join(
-                str(storage_root),
-                str(config.get("storage_namespace") or ""),
-                "metrics",
-                "runs.jsonl",
-            )
-    if not path:
-        return None
-    return RunMetricsLogger(path)
-
-
-def _compute_prompt_token_breakdown(prompt_builder: Any, filtered_function_defs: List[Dict[str, Any]]) -> Dict[str, int]:
-    """Compute token counts for all prompt sections including handler definitions.
-
-    Guarded against Mock objects in tests: if prompt_builder doesn't have a real
-    breakdown dict, returns zeros across the board. Handlers use the shared
-    _handler_schema_tokens() estimator so all callers agree on the same count.
-    """
-    pb_breakdown = getattr(prompt_builder, "_last_prompt_token_breakdown", {})
-    if isinstance(pb_breakdown, dict):
-        system_tokens = pb_breakdown.get("system_session", 0)
-        context_tokens = pb_breakdown.get("context_text", 0)
-        obsidian_tokens = pb_breakdown.get("obsidian_notes", 0)
-        digest_tokens = pb_breakdown.get("digest_embeddings", 0)
-        history_tokens = pb_breakdown.get("chat_history", 0)
-        user_tokens = pb_breakdown.get("current_user_message", 0)
-        total_without_handlers = pb_breakdown.get("total_without_handlers", 0)
-    else:
-        # Mock or other non-dict — safe zeroes
-        system_tokens = context_tokens = obsidian_tokens = digest_tokens = history_tokens = user_tokens = total_without_handlers = 0
-
-    try:
-        handler_tokens = _handler_schema_tokens(filtered_function_defs)
-    except Exception:
-        handler_tokens = 0
-
-    return {
-        "system": system_tokens,
-        "handlers": handler_tokens,
-        "context": context_tokens,
-        "obsidian": obsidian_tokens,
-        "digest": digest_tokens,
-        "history": history_tokens,
-        "user": user_tokens,
-        "total": total_without_handlers + handler_tokens,
-    }
-
-
-def _log_token_breakdown(ctx: ProcessorContext, prompt_builder: Any, filtered_function_defs: List[Dict[str, Any]]) -> Dict[str, int]:
-    """Measure and log token counts for all prompt sections including handler definitions.
-
-    Calls _compute_prompt_token_breakdown() once and returns the breakdown dict
-    so callers can reuse it without recomputing.
-    """
-    breakdown = _compute_prompt_token_breakdown(prompt_builder, filtered_function_defs)
-
-    logging.info(
-        "Prompt.token_breakdown: agent=%s account=%s session=%s system=%d handlers=%d context=%d obsidian=%d digest=%d history=%d user=%d total=%d",
-        ctx.agent_name,
-        ctx.account_id,
-        ctx.conversation_id,
-        breakdown["system"],
-        breakdown["handlers"],
-        breakdown["context"],
-        breakdown["obsidian"],
-        breakdown["digest"],
-        breakdown["history"],
-        breakdown["user"],
-        breakdown["total"],
-    )
-    return breakdown
-
-
-def resolve_tool_defs(registry, agent, context_state: Optional[Any] = None) -> List[Dict[str, Any]]:
-    """Resolve the tool definitions the agent is allowed to use.
-
-    Thin wrapper over the shared filter_eligible_tool_defs() helper (the
-    same one HandlerRegistry.eligible_tool_defs uses). Kept for backward
-    compatibility with existing callers.
-
-    Single source of truth for tool-list resolution across
-    process_message(), process_message_streaming(), and the
-    /prompt_builder/metrics endpoint.
-
-    See filter_eligible_tool_defs() for the full filtering rules.
-    """
-    function_defs = registry.tools() if registry is not None else []
-    return filter_eligible_tool_defs(function_defs, agent, context_state)
-
-
-def _handler_schema_tokens(function_defs: List[Dict[str, Any]]) -> int:
-    """Estimate schema tokens for a list of tool defs (same estimator as the prompt builder)."""
-    if not function_defs:
-        return 0
-    try:
-        text = json.dumps(function_defs, ensure_ascii=False)
-    except Exception:
-        return 0
-    return _TOKEN_COUNTER.count(text)
-
-
-def apply_handler_schema_budget(
-    function_defs: List[Dict[str, Any]],
-    config: Any,
-    agent: Optional[Any] = None,
-    *,
-    agent_name: str = "<unknown>",
-) -> List[Dict[str, Any]]:
-    """Trim tool defs from the tail when schema tokens exceed the configured cap.
-
-    Pure guardrail - never a selection mechanism. Runs AFTER resolution
-    (resolve_tool_defs), so it can only remove tools, never add or reorder.
-
-    - Under/at the cap: returns the list unchanged, no log.
-    - Over the cap: removes tool defs from the tail until under the cap,
-      always keeping at least one def (a single oversized def is kept; trimming
-      to zero tools would disable tool use entirely, which is a policy decision
-      for allowed_tools, not a token guardrail). Logs a warning with the
-      before/after token counts and how many defs were trimmed.
-    """
-    if not function_defs:
-        return function_defs
-
-    cap = resolve_effective_cap("max_handler_schema_tokens", agent, config, DEFAULT_MAX_HANDLER_SCHEMA_TOKENS, disable_on_non_positive=True)
-    if cap is None:
-        return function_defs
-
-    trimmed = list(function_defs)
-    tokens = _handler_schema_tokens(trimmed)
-    if tokens <= cap:
-        return trimmed
-
-    original_count = len(trimmed)
-    original_tokens = tokens
-    while len(trimmed) > 1 and tokens > cap:
-        trimmed.pop()
-        tokens = _handler_schema_tokens(trimmed)
-
-    logging.warning(
-        "FunctionCallingProcessor: handler schema tokens=%d exceed cap=%d for agent '%s'; "
-        "trimmed %d tool def(s) from the tail (kept %d, tokens=%d)",
-        original_tokens,
-        cap,
-        agent_name,
-        original_count - len(trimmed),
-        len(trimmed),
-        tokens,
-    )
-    return trimmed
-
-
-class _PromptSetupResult(NamedTuple):
-    prompt_messages: List[Dict[str, Any]]
-    filtered_function_defs: List[Dict[str, Any]]
-    supports_images: bool
-    prompt_breakdown: Dict[str, int]
-
+from src.message_processors.fcp_run_lifecycle import (
+    _CORRELATION_HANDLER,
+    _CorrelationIdFilter,
+    _correlation_id_var,
+    _utc_now_iso,
+    _resolve_metrics_logger,
+    _build_run_metrics,
+    begin_run,
+    finalize_run,
+)
 
 class FCPResult(NamedTuple):
     text: str
     metrics: RunMetrics
 
-
-def _build_run_metrics(
-    metrics: Dict[str, Any],
-    ctx: Optional[ProcessorContext],
-    correlation_id: str,
-    latency_ms: int,
-    started: str = "",
-    errors: int = 0,
-    warnings: int = 0,
-) -> RunMetrics:
-    failures = metrics.get("failures", 0)
-    hit_iteration_cap = metrics.get("hit_iteration_cap", False)
-    return RunMetrics(
-        correlation_id=correlation_id,
-        iterations=metrics.get("iterations", 0),
-        max_iterations=ctx.max_iterations if ctx is not None else 0,
-        hit_iteration_cap=hit_iteration_cap,
-        openai_calls=metrics.get("openai_calls", 0),
-        tool_calls=metrics.get("tool_calls", 0),
-        prompt_tokens=metrics.get("prompt_tokens", 0),
-        completion_tokens=metrics.get("completion_tokens", 0),
-        total_tokens=metrics.get("total_tokens", 0),
-        failures=failures,
-        tool_failures=metrics.get("tool_failures", 0),
-        processor_failures=metrics.get("processor_failures", 0),
-        tool_error=metrics.get("tool_error"),
-        duration_ms=latency_ms,
-        agent=ctx.agent_name if ctx is not None else "",
-        account=ctx.account_id if ctx is not None else "",
-        session_id=ctx.conversation_id if ctx is not None else "",
-        started=started,
-        errors=errors,
-        warnings=warnings,
-        success=not (hit_iteration_cap or failures > 0),
-    )
 
 
 class FunctionCallingProcessor(MessageProcessorInterface):
@@ -347,20 +119,8 @@ class FunctionCallingProcessor(MessageProcessorInterface):
     # ------------------------------------------------------------------
 
     def _get_environment_system_messages(self) -> List[str]:
-        """Return server-wide environment prompt injection messages.
-
-        Config key: environment_prompt_block
-
-        - Missing/empty => []
-        - Non-empty string => one system message containing the full block
-        """
-
-        env_block = self.config.get("environment_prompt_block", "")
-        if not isinstance(env_block, str) or not env_block.strip():
-            return []
-
-        # Keep as a single structured block to preserve formatting.
-        return [env_block.strip()]
+        """Compatibility hook for server-wide environment prompt injection."""
+        return get_environment_system_messages(self.config)
 
     def _resolve_tool_defs_pipeline(
         self,
@@ -369,31 +129,16 @@ class FunctionCallingProcessor(MessageProcessorInterface):
         ctx: ProcessorContext,
         message: str,
     ) -> List[Dict[str, Any]]:
-        """Resolve active tool defs via the tool-selection pipeline (issue #126).
-
-        The pipeline owns tool-list resolution end to end: agent.allowed_tools
-        (permission) → registry ∩ allowed (eligible) → context required tools →
-        LLM prompt-based subset → schema budget. It replaces the FCP's previous
-        four-step sequence (resolve_tool_defs → lazy selection →
-        mandatory-tool merge → apply_handler_schema_budget).
-
-        Unlike the old path, the pipeline raises ToolSelectionError on
-        required-tool validation failures and on budget overflow (no silent
-        skip / trim). Those propagate to the caller, which surfaces the
-        human-readable message to the user.
-        """
-        pipeline = ToolSelectionPipeline(
+        """Compatibility hook using the existing tool-selection pipeline."""
+        return resolve_tool_defs_pipeline(
             registry=self.registry,
-            storage=getattr(self.prompt_builder, "storage", None),
-            procedural_memory=getattr(self.prompt_builder, "procedural_memory", None),
+            prompt_builder=self.prompt_builder,
             llm_adapter=self.llm_adapter,
             config=self.config,
-        )
-        return pipeline.get_tool_handler_defs(
-            agent=primary_agent,
-            account_name=ctx.account_id,
-            context_name=ctx.context_name,
-            prompt_text=message,
+            pipeline_factory=ToolSelectionPipeline,
+            primary_agent=primary_agent,
+            ctx=ctx,
+            message=message,
         )
 
     def _prepare_prompt_and_tools(
@@ -407,71 +152,22 @@ class FunctionCallingProcessor(MessageProcessorInterface):
         supports_images: Optional[bool] = None,
         correlation_id: Optional[str] = None,
     ) -> _PromptSetupResult:
-        if supports_images is None:
-            supports_images = self.llm_adapter.supports_image_processing(ctx.model, ctx.provider)
-
-        extra_system_messages = self._get_environment_system_messages()
-        if "attachments" in (getattr(primary_agent, "allowed_tools", None) or []):
-            extra_system_messages.append(
-                "Images uploaded or generated earlier in this chat can be reused. "
-                "When the user refers to an earlier image or asks to retry a video, "
-                "use attachments to find the source image ID in the current conversation. "
-                "Discover and activate attachments if needed. Do not invent IDs or ask "
-                "for another upload before checking. If several images could match, ask "
-                "which filename or image they mean; do not silently pick the latest. "
-                "Pass the selected image_id to video_generate with the revised prompt, "
-                "or put it in image_generate.image_ids for image editing."
-            )
-        if extra_system_messages:
-            logging.debug("FunctionCallingProcessor: injecting %d environment system message(s) from environment_prompt_block", len(extra_system_messages))
-
-        has_tool = getattr(self.registry, "has_tool", None)
-        discovery_registered = (
-            callable(has_tool)
-            and has_tool("discover_tools")
-            and has_tool("activate_tools")
-        )
-        if (
-            discovery_registered
-            and getattr(primary_agent, "tool_discovery_enabled", True)
-        ):
-            extra_system_messages.append(_TOOL_DISCOVERY_SYSTEM_MESSAGE)
-
-        provider_name = ProviderRegistry.resolve_name(ctx.model, ctx.provider)
-        provider_block = self.config.get("provider_prompt_blocks", {}).get(provider_name, "")
-        if provider_block:
-            extra_system_messages.append(provider_block)
-            logging.debug("FunctionCallingProcessor: injecting provider prompt block for provider=%s (%d chars)", provider_name, len(provider_block))
-
-        prompt_messages = self.prompt_builder.build_prompt(
-            content_text=message,
-            conversation_id=ctx.conversation_id,
-            agent_name=ctx.agent_name,
-            account_name=ctx.account_id,
-            context_type=ctx.context_type,
-            max_prompt_chars=6000,
-            context_name=ctx.context_name,
-            extra_system_messages=extra_system_messages,
+        return prepare_prompt_and_tools(
+            config=self.config,
+            registry=self.registry,
+            prompt_builder=self.prompt_builder,
+            llm_adapter=self.llm_adapter,
+            environment_messages=self._get_environment_system_messages,
+            resolve_tools=self._resolve_tool_defs_pipeline,
+            measure_tokens=_log_token_breakdown,
+            ctx=ctx,
+            primary_agent=primary_agent,
+            message=message,
             image_ids=image_ids,
             file_ids=file_ids,
             supports_images=supports_images,
+            correlation_id=correlation_id,
         )
-
-        filtered_function_defs = self._resolve_tool_defs_pipeline(
-            primary_agent=primary_agent,
-            ctx=ctx,
-            message=message,
-        )
-
-        breakdown = _log_token_breakdown(ctx, self.prompt_builder, filtered_function_defs)
-
-        return _PromptSetupResult(
-            prompt_messages=prompt_messages,
-            filtered_function_defs=filtered_function_defs,
-            supports_images=supports_images,
-            prompt_breakdown=breakdown,
-        )
-
 
     # ------------------------------------------------------------------
     # Episodic memory helpers
@@ -527,37 +223,11 @@ class FunctionCallingProcessor(MessageProcessorInterface):
         latency_ms: int,
         correlation_token: Optional[contextvars.Token] = None,
     ) -> RunMetrics:
-        """End correlation-scoped counting and persist the run metrics record.
-
-        Deregisters the run's ERROR/WARNING accumulator, reads the final
-        counts, builds the RunMetrics record with the envelope fields, and
-        appends it to the runs log when a logger is configured. Appending is
-        best-effort: a log write failure never fails the request.
-        """
-
-        context = self._correlation_handler.end_run(correlation_id)
-        if correlation_token is not None:
-            _correlation_id_var.reset(correlation_token)
-        errors = context.errors if context is not None else 0
-        warnings = context.warnings if context is not None else 0
-        record = _build_run_metrics(
-            metrics,
-            ctx,
-            correlation_id,
-            latency_ms,
-            started=started,
-            errors=errors,
-            warnings=warnings,
+        return finalize_run(
+            metrics, ctx, correlation_id, started, latency_ms, correlation_token,
+            correlation_handler=self._correlation_handler,
+            metrics_logger=self._metrics_logger,
         )
-        if self._metrics_logger is not None:
-            try:
-                self._metrics_logger.append(record)
-            except Exception:
-                logging.exception(
-                    "FunctionCallingProcessor: failed to append run metrics record correlation_id=%s",
-                    correlation_id,
-                )
-        return record
 
     # ------------------------------------------------------------------
     # Public API
@@ -578,26 +248,9 @@ class FunctionCallingProcessor(MessageProcessorInterface):
         correlation_id: Optional[str] = None,
         trace_id: Optional[str] = None,
     ) -> FCPResult:
-        start_ts = time.perf_counter()
-        metrics: Dict[str, Any] = {
-            "iterations": 0,
-            "openai_calls": 0,
-            "tool_calls": 0,
-            "failures": 0,
-            "tool_failures": 0,
-            "processor_failures": 0,
-            "hit_iteration_cap": False,
-            "prompt_tokens": 0,
-            "completion_tokens": 0,
-            "total_tokens": 0,
-        }
-
-        if correlation_id is None:
-            correlation_id = str(uuid.uuid4())
-
-        started = _utc_now_iso()
-        self._correlation_handler.start_run(correlation_id)
-        correlation_token = _correlation_id_var.set(correlation_id)
+        start_ts, metrics, correlation_id, started, correlation_token = begin_run(
+            self._correlation_handler, correlation_id, now=_utc_now_iso
+        )
 
         logging.info("FunctionCallingProcessor inbound message: %s", message)
 
@@ -808,26 +461,9 @@ class FunctionCallingProcessor(MessageProcessorInterface):
         before yielding it to the client. This keeps history recoverable when
         SSE delivery stalls or the client disconnects.
         """
-        start_ts = time.perf_counter()
-        metrics: Dict[str, Any] = {
-            "iterations": 0,
-            "openai_calls": 0,
-            "tool_calls": 0,
-            "failures": 0,
-            "tool_failures": 0,
-            "processor_failures": 0,
-            "hit_iteration_cap": False,
-            "prompt_tokens": 0,
-            "completion_tokens": 0,
-            "total_tokens": 0,
-        }
-
-        if correlation_id is None:
-            correlation_id = str(uuid.uuid4())
-
-        started = _utc_now_iso()
-        self._correlation_handler.start_run(correlation_id)
-        correlation_token = _correlation_id_var.set(correlation_id)
+        start_ts, metrics, correlation_id, started, correlation_token = begin_run(
+            self._correlation_handler, correlation_id, now=_utc_now_iso
+        )
 
         logging.info(
             "FunctionCallingProcessor(streaming) inbound message: correlation_id=%s message=%s",
