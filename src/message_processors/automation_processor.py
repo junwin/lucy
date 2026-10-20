@@ -23,6 +23,12 @@ from src.config_manager import ConfigManager
 from src.execution_identity import ExecutionIdentity
 from src.handlers.handler_registry import HandlerRegistry
 from src.message_processors.message_processor_interface import MessageProcessorInterface
+from src.message_processors.automation_agents import (
+    resolve_task_agent,
+    resolve_task_context,
+    resolve_worker_agent,
+)
+from src.message_processors.automation_inputs import build_task_input
 from src.prompt_builders.prompt_builder_interface import PromptBuilderInterface
 from src.storage.interfaces import TasklistStore
 
@@ -342,79 +348,11 @@ class AutomationProcessor(MessageProcessorInterface):
         agent_name: str,
         secondary_agent: Optional[Agent] = None,
     ) -> Agent:
-        """Resolve the agent to use for executing a task.
-
-        task.agent set and differing from the caller must resolve via AgentManager
-        or ValueError is raised. task.agent matching the caller uses the caller.
-        task.agent unset uses the caller's partner (secondary_agent, else the
-        caller's configured partner_agent) when available, else the caller.
-
-        Returns the resolved Agent to use for this task.
-        """
-        task_agent_name = (task.agent or "").strip().lower()
-        caller_name = (agent_name or "").strip().lower()
-
-        if task_agent_name:
-            if task_agent_name == caller_name:
-                logger.info(
-                    "AutomationProcessor: task '%s' agent=%s (same as caller=%s), using primary agent",
-                    task.name,
-                    task_agent_name,
-                    caller_name,
-                )
-                return primary_agent
-
-            logger.info(
-                "AutomationProcessor: task '%s' requested agent=%s, caller=%s — resolving worker agent",
-                task.name,
-                task_agent_name,
-                caller_name,
-            )
-
-            if self.agent_manager is not None:
-                worker = self.agent_manager.get_agent(task_agent_name)
-                if worker is not None:
-                    logger.info(
-                        "AutomationProcessor: resolved worker agent '%s' for task '%s'",
-                        task_agent_name,
-                        task.name,
-                    )
-                    return worker
-
-            raise ValueError(
-                f"task agent '{task_agent_name}' not found (task '{task.name}')"
-            )
-
-        partner: Optional[Agent] = None
-        if secondary_agent is not None:
-            partner = secondary_agent
-        else:
-            partner_name = (
-                getattr(primary_agent, "partner_agent", None) or ""
-            ).strip().lower()
-            if partner_name and self.agent_manager is not None:
-                partner = self.agent_manager.get_agent(partner_name)
-            if partner_name and partner is None:
-                logger.warning(
-                    "AutomationProcessor: partner agent '%s' of caller '%s' not resolvable; treating as no partner",
-                    partner_name,
-                    caller_name,
-                )
-
-        if partner is not None:
-            logger.info(
-                "AutomationProcessor: task '%s' agent unset; using partner agent '%s'",
-                task.name,
-                (getattr(partner, "name", "") or "").lower().strip(),
-            )
-            return partner
-
-        logger.info(
-            "AutomationProcessor: task '%s' agent=%s (none, no partner), using primary agent",
-            task.name,
-            "(none)",
+        """Compatibility entry point for per-task agent selection."""
+        return resolve_task_agent(
+            task, primary_agent, agent_name, secondary_agent,
+            agent_manager=self.agent_manager,
         )
-        return primary_agent
 
     # ------------------------------------------------------------------
     # Core execution logic
@@ -466,21 +404,9 @@ class AutomationProcessor(MessageProcessorInterface):
         )
 
         # Resolve worker agent override (top-level, applies to ALL tasks).
-        resolved_worker: Optional[Agent] = None
-        resolved_worker_name: Optional[str] = None
-        if worker_agent:
-            worker_name = worker_agent.strip().lower()
-            if self.agent_manager is not None:
-                resolved_worker = self.agent_manager.get_agent(worker_name)
-            if resolved_worker is None:
-                raise ValueError(f"worker agent '{worker_name}' not found")
-            resolved_worker_name = (
-                getattr(resolved_worker, "name", "") or ""
-            ).lower().strip()
-            logger.info(
-                "execute_tasklist: using worker agent '%s' for all tasks",
-                resolved_worker_name,
-            )
+        resolved_worker, resolved_worker_name = resolve_worker_agent(
+            worker_agent, self.agent_manager
+        )
 
         # Resolve tasklist: tasklist_id may be either a storage key (friendly name)
         # or a UUID (the tasklist's id field). Try direct key lookup first, then
@@ -593,13 +519,7 @@ class AutomationProcessor(MessageProcessorInterface):
                 )
                 task_agent_name = (getattr(task_agent, "name", "") or "").lower().strip()
 
-            effective_context = context_name
-            if not effective_context:
-                effective_context = (task.context or "").strip()
-            if not effective_context:
-                effective_context = (
-                    getattr(task_agent, "default_context", None) or ""
-                ).strip()
+            effective_context = resolve_task_context(context_name, task, task_agent)
 
             logger.info(
                 "AutomationProcessor executing task id=%s name=%s task_agent=%s effective_context=%s (caller=%s)",
@@ -669,45 +589,10 @@ class AutomationProcessor(MessageProcessorInterface):
             error_detail = None
             try:
                 if function_processor is not None:
-                    # Build the message for the task execution.
-                    # Order:
-                    # 1) tasklist.general_instructions
-                    # 2) task.instructions
-                    # 3) task.meta fields (format: name = value)
-                    message_parts = []
-
-                    general_instructions = (getattr(tasklist, "general_instructions", "") or "").strip()
-                    if general_instructions:
-                        message_parts.append(general_instructions)
-
-                    task_instructions = (task.instructions or "").strip()
-                    if task_instructions:
-                        message_parts.append(task_instructions)
-
-                    meta = task.meta or {}
-                    # Extract attachment IDs from meta before building message text.
-                    file_ids = None
-                    image_ids = None
-                    if isinstance(meta, dict):
-                        # Support both 'files' (list) and 'file' (singular) for file IDs.
-                        raw_files = meta.pop("files", None)
-                        raw_file = meta.pop("file", None)
-                        if isinstance(raw_files, list):
-                            file_ids = [str(f) for f in raw_files]
-                        elif raw_file is not None:
-                            file_ids = [str(raw_file)]
-
-                        raw_images = meta.pop("image_ids", None)
-                        if isinstance(raw_images, list):
-                            image_ids = [str(i) for i in raw_images]
-
-                        for k, v in meta.items():
-                            key = str(k).strip()
-                            if not key:
-                                continue
-                            message_parts.append(f"{key} = {v}")
-
-                    task_message = "\n".join(message_parts).strip()
+                    task_input = build_task_input(tasklist, task)
+                    task_message = task_input.message
+                    file_ids = task_input.file_ids
+                    image_ids = task_input.image_ids
                     if not task_message:
                         warning_messages.append(
                             f"Task '{last_task_name}' has no instructions; marking completed with warning."
