@@ -49,7 +49,7 @@ mcp==2.1.1
 # galet is a separate public repo: https://github.com/junwin/galet.git
 # It is a provider-agnostic LLM/embedding/image-generation stack extracted from Lucy.
 # Pinned to a released PyPI artefact for reproducible installs.
-galet==0.1.25
+galet==0.1.26
 
 # Galet memory (separate repo, published to PyPI)
 # Owns provider-neutral memory implementations and sqlite-vec/vec0 support.
@@ -64,4 +64,4 @@ galet-prompt-builder==0.1.22
 # Shared handler ABI and external handler discovery.
 # Exact review commit for text_replace and actionable patch diagnostics.
 # Replace with galet-tools==0.1.28 after that release is published.
-galet-tools==0.1.31
+galet-tools==0.1.32
