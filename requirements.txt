@@ -59,9 +59,9 @@ galet==0.1.26
 galet-memory[vec]==0.1.28
 
 # Provider-neutral prompt selection, budgeting, and compilation.
-galet-prompt-builder==0.1.22
+galet-prompt-builder==0.1.23
 
 # Shared handler ABI and external handler discovery.
 # Reviewed focused episodic operations and shared memory tool adapters.
 # Replace with a matching PyPI release once published.
-galet-tools @ git+https://github.com/junwin/galet-tools.git@80425fbfdb15a85de0878aa9394f2403e8d61861
+galet-tools==0.1.33
