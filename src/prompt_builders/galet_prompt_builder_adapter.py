@@ -9,6 +9,7 @@ from galet_prompt_builder import (
     PromptCompiler,
     PromptPolicy,
     PromptRequest,
+    build_prompt_builder,
 )
 from galet_memory import ProceduralMemory, ProceduralMemoryRequest
 
@@ -102,6 +103,7 @@ class GaletPromptBuilderAdapter(PromptBuilderInterface):
         semantic_memory: SemanticMemory,
         episodic_memory: LucyEpisodicStore,
         procedural_memory: ProceduralMemory,
+        memory_runtime: Any = None,
         compiler_class: type[PromptCompiler] = PromptCompiler,
     ) -> None:
         self.agent_manager = agent_manager
@@ -111,6 +113,13 @@ class GaletPromptBuilderAdapter(PromptBuilderInterface):
         self.episodic_memory = episodic_memory
         self.procedural_memory = procedural_memory
         self.compiler_class = compiler_class
+        # The process owns this runtime; prompt-builder only borrows it. An
+        # explicit policy-only config avoids selecting a second memory source
+        # through GALET_PROMPT_BUILDER_CONFIG_PATH.
+        self._configured_builder = (
+            build_prompt_builder({"config_version": 1}, memory_runtime=memory_runtime)
+            if memory_runtime is not None else None
+        )
         self._attachments = AttachmentResolver(config)
         self._last_prompt_token_breakdown: Dict[str, int] = {}
         self._last_compiled_prompt: Any = None
@@ -167,7 +176,7 @@ class GaletPromptBuilderAdapter(PromptBuilderInterface):
             agent
             and agent.use_embeddings
             and context_type in ("documents", "hybrid")
-            and namespaces
+            and (namespaces or self._configured_builder is not None)
         )
 
         system_instructions = [
@@ -184,7 +193,7 @@ class GaletPromptBuilderAdapter(PromptBuilderInterface):
             if value and value.strip()
         )
 
-        compiler = self.compiler_class(
+        compiler = self._configured_builder or self.compiler_class(
             procedural_memory=self.procedural_memory,
             episodic_memory=self.episodic_memory,
             digest_memory=self.episodic_memory,
@@ -236,6 +245,10 @@ class GaletPromptBuilderAdapter(PromptBuilderInterface):
     def _semantic_namespaces(
         self, account_name: str, context_name: str
     ) -> List[str]:
+        if self._configured_builder is not None:
+            # Let Galet select context namespaces, then the account's available
+            # namespaces, using the same rule as the standalone samples.
+            return []
         if not context_name or context_name == "none":
             return list(DEFAULT_SEARCH_NAMESPACES)
         result = self.procedural_memory.recall(

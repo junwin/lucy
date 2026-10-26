@@ -246,6 +246,7 @@ class PromptBuilderModule(Module):
         episodic_memory: LucyEpisodicStore,
         procedural_memory: ProceduralMemory,
     ) -> PromptBuilderInterface:
+        services = get_shared_memory(config)
         return GaletPromptBuilderAdapter(
             agent_manager=agent_manager,
             config=config,
@@ -253,6 +254,7 @@ class PromptBuilderModule(Module):
             semantic_memory=semantic_memory,
             episodic_memory=episodic_memory,
             procedural_memory=procedural_memory,
+            memory_runtime=services.runtime if services is not None else None,
         )
 
 

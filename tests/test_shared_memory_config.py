@@ -83,6 +83,14 @@ def test_shared_di_tool_and_context_backends_use_one_runtime(shared, monkeypatch
     assert ProceduralMemoryHandler(config).memory is services.runtime.procedural
     assert ContextHandler(config).memory is services.runtime.procedural
     assert build_procedural_memory(config) is services.runtime.procedural
+    builder = wiring.PromptBuilderModule().provide_prompt_builder(
+        agent_manager=Mock(), config=config, storage=SimpleNamespace(),
+        semantic_memory=services.semantic, episodic_memory=services.runtime.episodic,
+        procedural_memory=services.runtime.procedural,
+    )
+    assert builder._configured_builder.memory is services.runtime
+    builder._configured_builder.close()
+    assert not services.closed
     assert {s.session_id for s in services.runtime.episodic.list_sessions(account_name='junwin').items} == {'existing'}
     services.runtime.working.start_run('junwin', 'working')
     services.runtime.working.put('junwin', 'working', 'ready', True, expected_version=0)
@@ -113,7 +121,16 @@ def test_vector_recall_tools_http_search_and_real_prompt_compilation(shared):
     assert status == 200 and items[0]['snippet'].startswith('Orchard apples')
     adapter = GaletPromptBuilderAdapter(agent_manager=_AgentManager(_agent(default_context='reading')),
         config=config, storage=SimpleNamespace(), semantic_memory=services.semantic,
-        episodic_memory=services.runtime.episodic, procedural_memory=services.runtime.procedural)
+        episodic_memory=services.runtime.episodic, procedural_memory=services.runtime.procedural,
+        memory_runtime=services.runtime)
+    from galet_prompt_builder import ConfiguredPromptBuilder
+    assert isinstance(adapter._configured_builder, ConfiguredPromptBuilder)
+    assert adapter._configured_builder.memory is services.runtime
+    assert not adapter._configured_builder.owns_memory
+    # The configured facade must handle model selection and retrieval directly,
+    # without Lucy's legacy prompt/compiler adapters.
+    adapter.compiler_class = lambda **kwargs: pytest.fail('legacy compiler assembled')
+    adapter.semantic_memory = SimpleNamespace(recall=lambda request: pytest.fail('Lucy semantic bridge used'))
     messages = adapter.build_prompt(content_text='What grows by the orchard wall?', conversation_id='existing',
         agent_name='peace', account_name='junwin', context_type='hybrid', context_name='reading')
     rendered = json.dumps(messages)
@@ -124,6 +141,36 @@ def test_vector_recall_tools_http_search_and_real_prompt_compilation(shared):
     (notes / 'orchard.md').unlink()
     missing = SemanticMemoryHandler(config).execute({'action': 'recall', 'query': 'apples', 'namespaces': ['books']}, account_name='junwin')
     assert missing['documents'] == [] and missing['metadata']['unavailable_resources']
+
+
+@pytest.mark.parametrize('enabled', [True, False])
+def test_configured_prompt_namespace_fallback_and_agent_opt_out(shared, monkeypatch, enabled):
+    from src import container_config as wiring
+    from tests.test_galet_prompt_builder_adapter import _agent, _AgentManager
+
+    config, _, _, _ = shared
+    services = get_shared_memory(config)
+    services.runtime.ingest_file(account_name='junwin', external_root='obsidian',
+                                relative_path='orchard.md', namespace='books')
+    # A host that already owns its memory must not select another source from
+    # the standalone comparison CLI's environment setting.
+    monkeypatch.setenv('GALET_PROMPT_BUILDER_CONFIG_PATH', '/missing/standalone.json')
+    builder = wiring.PromptBuilderModule().provide_prompt_builder(
+        agent_manager=_AgentManager(_agent(default_context='', use_embeddings=enabled)),
+        config=config, storage=SimpleNamespace(), semantic_memory=services.semantic,
+        episodic_memory=services.runtime.episodic, procedural_memory=services.runtime.procedural,
+    )
+    recall = Mock(wraps=services.runtime.semantic.recall)
+    monkeypatch.setattr(services.runtime.semantic, 'recall', recall)
+    messages = builder.build_prompt(content_text='What grows beside the wall?',
+        conversation_id='existing', agent_name='peace', account_name='junwin', context_type='documents')
+    assert ('Orchard apples' in json.dumps(messages)) is enabled
+    assert recall.call_count == int(enabled)
+    if enabled:
+        request = recall.call_args.args[0]
+        assert tuple(request.namespaces) == ('books',)
+        assert request.embedding_model == 'configured-model'
+    assert not services.closed
 
 
 def test_archive_writes_v3_digest_locators_and_invalidation_hides_search(shared):

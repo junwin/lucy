@@ -18,9 +18,8 @@ python -m pip install -r requirements.txt
 python -m pytest
 ```
 
-The requirements use galet 0.1.26, galet-memory 0.1.28 and a reviewed immutable
-galet-tools revision containing the focused episodic operations. The exact tools
-revision is temporary until a coordinated PyPI release is available.
+The requirements use the published galet 0.1.26, galet-memory 0.1.28,
+galet-prompt-builder 0.1.23 and galet-tools 0.1.33 releases.
 
 Merge this property into the existing `config.local.json`; retain the other
 Mint-specific settings. Do not replace the whole local config with this snippet.
@@ -96,3 +95,30 @@ Stop Lucy, remove the `memory_config_path` override and unset
 `GALET_MEMORY_CONFIG_PATH`, then restart. The original legacy settings and V2
 embedding database remain available. Writes already made to the selected shared
 episodic/procedural stores remain there; changing configuration does not undo them.
+
+## Application and package responsibilities
+
+Configured prompt assembly calls `galet_prompt_builder.build_prompt_builder`
+with Lucy's existing runtime as borrowed memory. Prompt-builder selects memory,
+pins retrieval to the configured embedding profile, applies policy and renders
+the prompt. It uses the same namespace rule as the standalone samples: context
+`search_namespaces`, then all namespaces belonging to the account. Agent
+embedding opt-out and Lucy's per-agent prompt policy still apply. This path
+does not assemble the legacy compiler or use Lucy's semantic prompt bridge.
+
+Lucy continues to access galet-memory directly for host responsibilities:
+
+| Responsibility | Owner |
+| --- | --- |
+| Assemble and close the process memory runtime | Lucy composition, using galet-memory |
+| List/create chats and read/append/invalidate events | Lucy endpoints and processors, using memory ports |
+| Generate, archive/reset and publish digests | Lucy curation, using galet-memory services |
+| Select memory for a prompt, budget and render it | galet-prompt-builder |
+| Agent instructions, permissions and attachments | Lucy |
+| Model-visible memory tools | galet-tools, using the shared backends |
+
+The remaining direct imports are not all redundant: prompt-builder is a reader
+and compiler, so it does not replace session writes, curation or runtime ownership.
+Legacy backend construction remains available only when shared configuration is
+absent. Lucy does not need a second prompt-builder settings file: its existing
+global and per-agent policy is passed to the borrowed builder for each request.
