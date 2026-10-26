@@ -95,8 +95,8 @@ class CurateChatHandler(GaletCurateChatHandler):
                 session_id = session.session_id
             if service is None:
                 engine = self._engine(context)
-                publisher = None
-                if engine.embedding_facade is not None and engine.storage is not None:
+                publisher = getattr(engine, "digest_publisher", None)
+                if publisher is None and engine.embedding_facade is not None and engine.storage is not None:
                     publisher = EmbeddingDigestPublisher(
                         FilesystemDigestStore(engine.digests_root),
                         LucyEmbeddingProvider(engine.embedding_facade),

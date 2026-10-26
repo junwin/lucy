@@ -232,6 +232,7 @@ class ToolExecutor:
             "storage": getattr(self, "_storage", None),
             "registry": self.registry,
             "prompt_builder": self.prompt_builder,
+            "semantic_memory": getattr(self.prompt_builder, "semantic_memory", None),
             "procedural_memory": getattr(self.prompt_builder, "procedural_memory", None),
             "config": self.config,
             "episodic_store": self.episodic_store,

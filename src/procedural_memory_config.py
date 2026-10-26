@@ -8,6 +8,10 @@ from src.storage_paths.storage_paths import StoragePaths
 
 
 def build_procedural_memory(config) -> FileProceduralMemory:
+    from src.memory_config import get_shared_memory
+    services = get_shared_memory(config)
+    if services is not None:
+        return services.runtime.procedural
     paths = StoragePaths(
         config.get("storage_root_path") or "/home/junwin/lucydata",
         config.get("storage_namespace") or "data",

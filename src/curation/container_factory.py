@@ -32,6 +32,16 @@ def get_curation_engine() -> CurationEngine:
     config = container.get(ConfigManager)
     episodic_store = container.get(LucyEpisodicStore)
     llm_api = container.get(LLMApi)
+    from src.memory_config import get_shared_memory
+    services = get_shared_memory(config)
+    if services is not None:
+        engine = CurationEngine(
+            episodic_store=services.runtime.episodic, llm_api=llm_api,
+            llm_model=config.get("curation_llm_model", "gpt-4o-mini"),
+            digests_root=services.digests_root,
+            digest_publisher=services.digest_publisher,
+        )
+        return engine
     embedding_facade = container.get(EmbeddingFacade)
     embedding_store = container.get(EmbeddingStore)
 
@@ -59,8 +69,8 @@ def get_curation_service():
     from src.handlers.curate_chat_handler import LucyDigestGenerator
     from src.curation.digest_publication_adapters import LucyEmbeddingIndex, LucyEmbeddingProvider
     engine = get_curation_engine()
-    publisher = None
-    if engine.embedding_facade is not None and engine.storage is not None:
+    publisher = getattr(engine, "digest_publisher", None)
+    if publisher is None and engine.embedding_facade is not None and engine.storage is not None:
         publisher = EmbeddingDigestPublisher(
             FilesystemDigestStore(engine.digests_root),
             LucyEmbeddingProvider(engine.embedding_facade), LucyEmbeddingIndex(engine.storage),

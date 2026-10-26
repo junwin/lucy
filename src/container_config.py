@@ -18,6 +18,7 @@ except ModuleNotFoundError:  # pragma: no cover
 
 from src.config_manager import ConfigManager
 from src.procedural_memory_config import build_procedural_memory
+from src.memory_config import get_shared_memory
 from src.agent import AgentManager
 from src.storage_paths.storage_paths import StoragePaths
 from src.storage.base import Storage
@@ -162,21 +163,27 @@ class CoALAMemoryModule(Module):
     @singleton
     def provide_semantic_memory(
         self,
-        embedding_facade: EmbeddingFacade,
-        embedding_store: EmbeddingStore,
+        injector: Injector,
     ) -> SemanticMemory:
+        services = get_shared_memory(config)
+        if services is not None:
+            return services.semantic
         return SqliteVecSemanticMemory(
-            embedding_facade=embedding_facade,
-            embedding_store=embedding_store,
+            embedding_facade=injector.get(EmbeddingFacade),
+            embedding_store=injector.get(EmbeddingStore),
         )
 
     @provider
     @singleton
     def provide_episodic_memory(
         self,
-        embedding_facade: EmbeddingFacade,
-        embedding_store: EmbeddingStore,
+        injector: Injector,
     ) -> LucyEpisodicStore:
+        services = get_shared_memory(config)
+        if services is not None:
+            return services.runtime.episodic
+        embedding_facade = injector.get(EmbeddingFacade)
+        embedding_store = injector.get(EmbeddingStore)
         storage_root = config.get("storage_root_path") or "/home/junwin/lucydata"
         storage_namespace = config.get("storage_namespace") or "data"
         storage_base = Path(storage_root) / storage_namespace

@@ -17,6 +17,11 @@ class SemanticMemoryHandler(GaletSemanticMemoryHandler):
     def __init__(self, config, memory=None):
         self.config = config
         if memory is None:
+            from src.memory_config import get_shared_memory
+            services = get_shared_memory(config)
+            if services is not None:
+                memory = services.semantic
+        if memory is None:
             settings = Settings(
                 credential_path=config.get("credential_path"),
                 ollama_base_url=config.get("ollama_base_url"),
@@ -33,7 +38,8 @@ class SemanticMemoryHandler(GaletSemanticMemoryHandler):
             )
         else:
             facade = getattr(memory, "embedding_facade", None)
-        super().__init__(memory, embedding_facade=facade)
+        super().__init__(memory, embedding_facade=facade,
+                         embedding_model=getattr(memory, "embedding_model", "text-embedding-3-small"))
 
 
 __all__ = ["SemanticMemoryHandler"]
