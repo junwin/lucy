@@ -49,17 +49,17 @@ mcp==2.1.1
 # galet is a separate public repo: https://github.com/junwin/galet.git
 # It is a provider-agnostic LLM/embedding/image-generation stack extracted from Lucy.
 # Pinned to a released PyPI artefact for reproducible installs.
-galet==0.1.26
+galet==0.1.27
 
 # Galet memory (separate repo, published to PyPI)
 # Owns provider-neutral memory implementations and sqlite-vec/vec0 support.
 # Include the vec extra so a normal Lucy install has sqlite-vec available when
 # embedding_store_backend=sqlite_vec is configured.
 # Shared resource configuration and explicit episodic interfaces.
-galet-memory[vec]==0.1.28
+galet-memory[vec]==0.1.29
 
 # Provider-neutral prompt selection, budgeting, and compilation.
-galet-prompt-builder==0.1.23
+galet-prompt-builder==0.1.24
 
 # Shared handler ABI and external handler discovery.
 # Reviewed focused episodic operations and shared memory tool adapters.
