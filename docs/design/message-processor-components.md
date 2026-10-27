@@ -13,7 +13,8 @@
 | `fcp_prompt_preparation.py` | Prompt system-message assembly, attachment/image arguments, existing tool-pipeline invocation | Receives current config/registry/builder/adapter and hook callbacks; no processor import or retained state. |
 | `fcp_prompt_metrics.py` | Prompt/token accounting and legacy metrics-endpoint eligibility/schema-budget helpers | Existing shared token estimator, cap resolver and eligibility filter; active selection still belongs to ToolSelectionPipeline. |
 | `fcp_run_lifecycle.py` | Fresh per-run counters, correlation context/filter/handler, metrics-envelope construction and best-effort append | Shared singleton identities; receives the current handler/logger and clock; no presentation or model loop. |
-| `fcp_loop.py` | Model/tool iteration and continuation, iteration accounting, termination and output checks | Adapter, ToolExecutor, ProcessorContext, SSE events and metrics. Unchanged in PR 1. |
+| `fcp_loop.py` | Model/tool iteration and continuation, retry and duplicate state, activation and stopping rules | Adapter, ToolExecutor, ProcessorContext and metrics; controls event timing. |
+| `fcp_result_events.py` | Decode result status and action/image/file/video payloads | Receives raw results/output items; builds SSEEvent objects with no execution, metrics, persistence or loop state. |
 
 The extracted modules never import AutomationProcessor. Their model/manager imports
 are for type checking only. The processor constructor, public processing methods,
@@ -51,14 +52,15 @@ capturing a copy at construction. Selection logs now originate in
 2. **Merged in PR #292:** individual task execution/result interpretation and execution-record
    construction. Checkpoint ordering, stop decisions and episodic reporting stay
    explicit in the coordinator. Add failure-path characterization for validation.
-3. **PR 3:** FCP prompt/tool preparation and shared run lifecycle/metrics. Reuse
+3. **Merged in PR #293:** FCP prompt/tool preparation and shared run lifecycle/metrics. Reuse
    existing collaborators and preserve ordinary/streaming persistence and SSE
    ordering rather than forcing both interfaces into one presentation path.
-4. **Finally:** reassess remaining `fcp_loop.run()` responsibilities with the
+4. **PR 4:** review remaining `fcp_loop.run()` responsibilities with the
    smaller coordinators. Keep iteration state and semantics understandable
    together; avoid a split justified solely by file size.
 
-PRs 1–3 advance #279; they do not complete or close it.
+PRs 1–4 implement the bounded #279 workstream. The issue remains open pending
+stage-four validation and merge.
 
 ## Source measurements
 
@@ -255,9 +257,10 @@ reading is reduced without claiming token savings from the number of files:
 
 ### Stage 3 validation status
 
-The session preparing stage 3 has no usable execution environment. **Python
-syntax checks and pytest are pending.** The draft PR is prepared for dev-machine
-validation.
+Stage 3 was prepared without an execution environment, with runtime validation
+left to the dev machine. John subsequently reported green tests, good normal
+usage and working tasklists, and merged PR #293. This is user-reported validation;
+the assistant did not run stage-three pytest locally.
 
 Static comparison verifies that both public presentation-method bodies match the
 base exactly after expanding the shared initialization call, that copied
@@ -279,5 +282,112 @@ Run the existing regression groups plus the new boundary cases:
 python -m pytest tests/test_fcp_component_boundaries.py tests/test_function_calling_processor.py tests/test_fcp_chat2_sqlite.py tests/test_fcp_models.py tests/test_allowed_tools.py tests/test_agent_caps.py tests/test_prompt_builder_metrics_endpoints.py tests/test_tool_selection*.py tests/test_run_metrics.py tests/test_run_metrics_logger.py tests/test_correlation_log_handler.py tests/test_image_delivery.py tests/test_image_generation_flow.py tests/test_generated_file_delivery.py tests/test_reusable_attachments.py tests/test_automation*.py tests/test_task_agent_resolution.py tests/test_tasklists_run_handler.py
 ```
 
-Stage 4 remains a responsibility-based review of the remaining fcp_loop.run(),
-rather than another split based solely on line count. Issue #279 stays open.
+Stage 4's loop review and final extraction are recorded below.
+
+
+## Stage 4: result-event decoding and final loop review
+
+Base: develop `03c53288efd5d0a9b4e6fabcbdc6b59833521954`, after merged
+PR #293.
+
+### Boundary chosen
+
+The loop previously mixed orchestration with JSON payload inspection and status
+normalization. `fcp_result_events.py` now owns those two decoding responsibilities:
+
+- `tool_result_events()` pairs raw results with output items in the existing zip
+  order; it uses output-item call IDs and preserves existing ok/status defaults,
+  explicit statuses and malformed/non-object JSON behaviour.
+- `inspect_raw_results()` preserves payload detection, action → image → file →
+  video order, generated-image short-circuiting, SVG priority, file-tool
+  allowlisting, defaults, failed-payload suppression and compact image references.
+- The existing `LLMLoopRunner._inspect_raw_results` static method remains a
+  compatibility hook for callers and tests.
+
+The module constructs SSEEvent objects, not wire strings. It does not execute
+tools, change model input, enforce result limits, update counters, activate tools
+or persist/deliver anything. File/image/video transport and storage continue
+through the existing presentation and delivery components.
+
+### Why the rest of run() stays together
+
+The review found shared state connecting retries, response IDs and iteration
+control. Splitting them would require moving or passing that state around without
+a clearer ownership boundary. These remain explicit in run():
+
+1. Increment the iteration/model-call counters; retry an empty model response
+   up to the existing limit, accumulating usage for every attempt and carrying
+   forward any response ID.
+2. Emit interim assistant text, detect duplicate calls and reject tool calls
+   without a usable response ID.
+3. Emit tool-call events and invoke the existing ToolExecutor once.
+4. Emit **all result-status events before payload deliverables**, preserving the
+   existing execution-error early return.
+5. Apply run-scoped activation, set continuation input, check the iteration cap,
+   apply the existing provider throttle and continue or stop.
+6. Emit terminal assistant text, metrics and done at the existing locations.
+
+Source comparison confirms run() is unchanged after expanding its one new
+status-event call. Model call order, retries, provider continuation, activation,
+iteration accounting, output limits and stop messages are not reimplemented in
+a parallel runner.
+
+### Measurements and focused reading
+
+| Source | Stage 3 | Stage 4 |
+| --- | ---: | ---: |
+| fcp_loop.py | 425 lines / 18,591 characters | 331 lines / 14,568 characters |
+| run() span | 291 lines | 276 lines |
+| fcp_result_events.py | — | 120 lines / 4,629 characters |
+
+A status/media decoding change now requires the 120-line event module and the
+short loop call sites that determine when decoding runs. Investigating iteration
+or stopping policy still requires run(); its state is deliberately kept together.
+For oversized-result failures, the existing 379-line ToolExecutor still owns the
+limit and the loop owns failure-event order. This PR reduces unrelated decoder
+source in that loop, not the result-limit implementation itself.
+
+Cumulative coordinator measurements for the workstream:
+
+| Module | Original baseline | After stage 4 |
+| --- | ---: | ---: |
+| automation_processor.py | 1,071 / 42,146 | 893 / 33,735 |
+| function_calling_processor.py | 1,015 / 39,972 | 651 / 25,635 |
+| fcp_loop.py | 425 / 18,591 | 331 / 14,568 |
+
+Entries are lines / decoded source characters. Total package source has grown
+with explicit interfaces, compatibility hooks and documentation; the improvement
+is cohesive reading scope. Input assembly, selection, records, prompt preparation,
+metrics lifecycle and result-event decoding can each be reviewed independently.
+No blanket token/cost reduction is claimed.
+
+### Stage 4 validation status
+
+No usable execution environment is available in this session. **Python syntax
+checks, baseline characterization and pytest remain pending.** This PR stays
+draft for dev-machine verification.
+
+Static checks passed for exact extracted decoding bodies, run() equivalence after
+expanding the delegated status block, and trailing whitespace. These checks do
+not establish Python runtime correctness.
+
+`tests/test_fcp_result_event_boundary.py` adds 27 model-free characterization
+cases using the existing loop interface/inspection hook. They cover status
+defaults and explicit overrides, malformed/non-object/failed payloads, output
+call IDs, payload order/priority/allowlists, status-before-deliverable-before-
+activation ordering, continuation inputs and activated schemas, retry usage and
+response IDs, duplicate calls, caps, missing response IDs and execution errors.
+The same file can be run on the stage-three base as characterization, but that
+execution is also pending.
+
+Run the stage-four cases with the existing processor, delivery, metrics,
+selection and automation regressions:
+
+```bash
+python -m pytest tests/test_fcp_result_event_boundary.py tests/test_fcp_component_boundaries.py tests/test_function_calling_processor.py tests/test_fcp_chat2_sqlite.py tests/test_run_metrics.py tests/test_image_generation_flow.py tests/test_image_delivery.py tests/test_video_sse_events.py tests/test_generated_file_delivery.py tests/test_activate_tools_handler.py tests/test_allowed_tools.py tests/test_prompt_builder_metrics_endpoints.py tests/test_tool_selection*.py tests/test_automation*.py tests/test_task_agent_resolution.py tests/test_tasklists_run_handler.py
+```
+
+The planned responsibility review is complete. After the final branch's regression
+tests and ordinary/streaming/tasklist smoke tests pass and its PR is merged,
+#279 can be closed. Any subsequently discovered processing-policy changes should
+be tracked separately from these structural extractions.
