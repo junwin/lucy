@@ -13,6 +13,7 @@ warning logged.
 
 import logging
 from galet_tools import HandlerRegistry, register_installed_handlers
+from galet_tools.tools.episodic_operations import EPISODIC_OPERATION_HANDLERS
 from src.handlers.file_load_handler2 import FileLoadHandler2
 from src.handlers.file_save_handler import FileSaveHandler2
 from src.handlers.command_execution_handler2 import CommandExecutionHandler2
@@ -123,6 +124,8 @@ def build_registry_and_catalog() -> tuple[HandlerRegistry, ToolCatalog]:
     reg.register(SemanticMemoryHandler)
     # Episodic memory supplied through the galet-memory interface
     reg.register(EpisodicMemoryHandler)
+    for operation in EPISODIC_OPERATION_HANDLERS:
+        reg.register(operation, factory=lambda config, cls=operation: cls())
     # Scoped contexts and skills supplied through galet-memory.
     reg.register(ProceduralMemoryHandler)
 

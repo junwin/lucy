@@ -38,6 +38,7 @@ class CurationEngine:
         digests_root: Optional[Path] = None,
         embedding_facade: Optional[EmbeddingFacade] = None,
         storage: Optional[EmbeddingStore] = None,
+        digest_publisher=None,
     ) -> None:
         self.episodic_store = episodic_store
         self.llm_api = llm_api
@@ -45,6 +46,7 @@ class CurationEngine:
         self.digests_root = digests_root or Path("data/digests")
         self.embedding_facade = embedding_facade
         self.storage = storage
+        self.digest_publisher = digest_publisher
 
     def curate(
         self,
@@ -145,8 +147,15 @@ class CurationEngine:
                 "session_id": sid,
             }
 
-        output_path = self._write_digest(sid, account, note_text)
-        self._maybe_embed_digest(note_text, output_path, sid, account, [event.event_id for event in events])
+        if self.digest_publisher is not None:
+            publication = self.digest_publisher.publish(
+                account_name=account, session_id=sid, digest=note_text,
+                source_event_ids=[event.event_id for event in events],
+            )
+            output_path = Path(publication.path)
+        else:
+            output_path = self._write_digest(sid, account, note_text)
+            self._maybe_embed_digest(note_text, output_path, sid, account, [event.event_id for event in events])
         return {
             "status": "published",
             "note_text": note_text,

@@ -251,3 +251,11 @@ Execution logs now record a separate bounded diagnostic for `patch_apply` and
 `text_replace`. Execution traces recover patch content up to 16000 characters,
 old/new text up to 2000 each, and individual error/diff fields up to 4000 each.
 Truncation is marked. Older runs cannot recover data that was never logged.
+
+## Shared memory configuration (Mint opt-in)
+
+Lucy can use the same `memory_config_path` tested with galet-tools MCP for
+semantic, episodic, procedural and working memory. See the
+[Mint setup and verification steps](docs/shared-memory-mint.md). Memory services
+share one process-owned runtime; the current configuration remains the default
+until the shared file is selected explicitly.

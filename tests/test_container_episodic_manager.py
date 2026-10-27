@@ -48,7 +48,7 @@ def test_provider_uses_fresh_default_and_respects_explicit_path(tmp_path, monkey
                                   (str(tmp_path / 'custom.sqlite'), tmp_path / 'custom.sqlite')]:
         monkeypatch.setattr(wiring, 'config', FakeConfig({'storage_root_path': str(tmp_path),
                            'episodic_memory_db_path': configured}))
-        memory = CoALAMemoryModule().provide_episodic_memory(Mock(), Mock())
+        memory = CoALAMemoryModule().provide_episodic_memory(Mock())
         try:
             assert memory.db_path == str(expected)
             memory.create_session(account_name='acct', session_id='s')

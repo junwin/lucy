@@ -54,7 +54,7 @@ def test_semantic_memory_handler_exposes_handler_v2_tool_contract():
 
     assert SemanticMemoryHandler.name() == "semantic_memory"
     assert tool["name"] == "semantic_memory"
-    assert tool["strict"] is True
+    assert tool["strict"] is False
     # Contract updated to include utility actions
     assert tool["parameters"]["properties"]["action"]["enum"] == [
         "recall",
@@ -69,19 +69,7 @@ def test_semantic_memory_handler_exposes_handler_v2_tool_contract():
     assert "search" not in tool["parameters"]["properties"]["action"]["enum"]
     assert "embedding_model" in tool["parameters"]["properties"]
     required = tool["parameters"].get("required", [])
-    # union properties must be listed in required
-    for prop in [
-        "action",
-        "query",
-        "account_name",
-        "namespaces",
-        "top_k",
-        "max_chars",
-        "score_threshold",
-        "embedding_model",
-        "source_type",
-    ]:
-        assert prop in required
+    assert required == ["action"]
 
 
 def test_semantic_memory_handler_uses_caller_account_and_returns_documents():
