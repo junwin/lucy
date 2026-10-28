@@ -72,8 +72,8 @@ Key design decisions include the use of logging for error handling and the caref
 - **Internal modules**:
   - `src.config_manager`
   - `src.agent`
-  - `src.coala_memory.episodic`
-  - `src.coala_memory.procedural`
+  - `galet_memory.episodic`
+  - `galet_memory.procedural`
   - `src.storage.base`
   - `src.storage.interfaces`
   - `src.utils.text_snippet_loader`

@@ -19,7 +19,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from src.config_manager import ConfigManager
-from src.coala_memory.semantic import SemanticMemory, SemanticMemoryRequest
+from galet_memory.semantic import SemanticMemory, SemanticMemoryRequest
 
 QUERY = "What does the obsidian importer do and how does it create DocumentRef records?"
 ACCOUNT_NAME = "junwin"

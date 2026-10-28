@@ -11,10 +11,9 @@ from types import SimpleNamespace
 
 from galet_memory import build_memory, load_memory_config, ResourceLocation
 from galet_memory.ports import EmbeddingResource, EmbeddingMatch
-from galet_memory.semantic import SemanticMemoryRequest as GaletSemanticRequest
+from galet_memory.semantic import SemanticMemory, SemanticMemoryRequest
 from galet_memory.publication import EmbeddingDigestPublisher, FilesystemDigestStore
 from galet_memory import EmbeddingDigestRecall
-from src.coala_memory.semantic.interface import SemanticMemory
 
 logger = logging.getLogger(__name__)
 _lock = RLock()
@@ -29,7 +28,7 @@ class ConfiguredSemanticMemory(SemanticMemory):
         self.embedding_model = runtime.config.embedding_profiles[runtime.config.semantic.embedding_profile].model
 
     def recall(self, request):
-        return self.runtime.semantic.recall(GaletSemanticRequest(
+        return self.runtime.semantic.recall(SemanticMemoryRequest(
             account_name=request.account_name, query=request.query,
             use_embeddings=request.use_embeddings, namespaces=list(request.namespaces or []),
             top_k=request.top_k, max_chars=request.max_chars,

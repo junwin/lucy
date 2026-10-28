@@ -25,7 +25,8 @@ from src.storage.base import Storage
 from src.storage.interfaces import ContextStore, DocumentStore, EmbeddingStore, TasklistStore
 from src.storage.json_file_storage import JsonFileStorage
 from src.storage.primitives_embedding_store import build_primitives_embedding_store
-from src.coala_memory.semantic import SemanticMemory, SqliteVecSemanticMemory
+from galet_memory.semantic import SemanticMemory
+from src.coala_memory.semantic import SqliteVecSemanticMemory
 from galet_memory import (
     EmbeddingDigestRecall,
     SqliteEpisodicMemory,

@@ -1,10 +1,5 @@
-from .interface import SemanticMemory, SemanticMemoryRequest, SemanticMemoryResult, SemanticDocument
+"""Local semantic implementation; contracts come from galet_memory.semantic."""
+
 from .sqlite_vec_memory import SqliteVecSemanticMemory
 
-__all__ = [
-    "SemanticMemory",
-    "SemanticMemoryRequest",
-    "SemanticMemoryResult",
-    "SemanticDocument",
-    "SqliteVecSemanticMemory",
-]
+__all__ = ["SqliteVecSemanticMemory"]

@@ -1,7 +1,15 @@
-# CoALA memory scaffold
+# Lucy semantic memory adapter
 
-This package contains Lucy-specific semantic and procedural memory adapters.
-Episodic memory is supplied directly by `galet-memory`.
+All memory contracts and models are supplied by `galet-memory`. Import semantic
+types from `galet_memory.semantic` and procedural types from `galet_memory`.
+This package retains only Lucy's `SqliteVecSemanticMemory` implementation for
+the fallback path without a shared memory configuration.
+
+The retired `ContextProceduralMemory` adapter and duplicate local contracts have
+been removed. Procedural memory is composed in `src/procedural_memory_config.py`
+using Galet's `FileProceduralMemory` or the shared runtime. Galet's procedural
+request defaults to `create_if_missing=False`; prompt recall does not create
+missing contexts.
 
 ## Mapping from current Lucy code
 
@@ -61,26 +69,20 @@ Embedding infrastructure:
 - `SqliteVecSemanticMemory` adapts the existing `EmbeddingStore`; production can
   supply `Vec0EmbeddingStore` without moving sqlite-vec persistence into CoALA.
 
-Contract: `SemanticMemory.recall(SemanticMemoryRequest)`.
+Contract: `galet_memory.semantic.SemanticMemory.recall(SemanticMemoryRequest)`.
 
 ### Procedural memory
 
-Current sources:
+Prompts and tools use Galet's procedural memory, including context and skill
+resolution, required tools and search namespaces. Lucy converts the resolved
+result to its `Context` representation where tool eligibility needs it.
 
-- `_get_context_state()` -> `ContextStore.get_or_create_context()`.
-- `_get_context_text()` -> `Context.resolved_text`.
-- `Context.resolved_skills`, `required_tools`, `search_namespaces`, `tag` and
-  `missing_imports`.
-
-The resolved Context already combines the intrinsic context body with imported
-skill bodies. That makes it the natural Lucy representation of procedural
-memory.
-
-Contract: `ProceduralMemory.recall(ProceduralMemoryRequest)`.
+Contract: `galet_memory.ProceduralMemory.recall(ProceduralMemoryRequest)`.
 
 ## Architectural boundary
 
-The CoALA package is a domain layer, not a replacement API layer.
+Galet owns memory contracts and reusable implementations. Lucy owns application
+configuration, process lifetime and integration adapters.
 
 Expected direction:
 
@@ -89,11 +91,12 @@ Expected direction:
   `EpisodicMemoryManager` adapter.
 - Semantic adapters depend on Lucy's `DocumentStore`, `EmbeddingStore` and
   embedding facade internally.
-- Procedural adapters depend on `ContextStore` and return fully-resolved context
+- Procedural memory is supplied directly by Galet and returns resolved context
   state without exposing storage/import mechanics to PromptBuilder.
 
 ## Next step
 
-Wire the concrete adapters through Lucy's dependency/container setup and compare
-PromptBuilder output against the current episodic/document/context reads
-before replacing those calls.
+Replace the remaining local semantic recall implementation with Galet's
+`VectorSemanticMemory`, preserving Lucy's embedding-store integration and file
+loading behavior, then remove this package. The shared memory path already
+delegates semantic recall to the configured Galet runtime.

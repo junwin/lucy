@@ -468,7 +468,7 @@ class TestPromptBuilderContextRendering:
         from galet_memory import (
             FileProceduralMemory, ProceduralLayout,
         )
-        from src.coala_memory.semantic import SemanticMemoryResult
+        from galet_memory.semantic import SemanticMemoryResult
         from src.prompt_builders.galet_prompt_builder_adapter import (
             GaletPromptBuilderAdapter,
         )

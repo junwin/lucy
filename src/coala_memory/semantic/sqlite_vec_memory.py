@@ -5,7 +5,7 @@ from typing import Any, Optional
 from src.storage.interfaces import EmbeddingStore
 from src.utils.text_snippet_loader import load_text_snippet
 
-from .interface import (
+from galet_memory.semantic import (
     SemanticDocument,
     SemanticMemory,
     SemanticMemoryRequest,

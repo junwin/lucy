@@ -56,7 +56,7 @@ from src.http_endpoints.upload_endpoints import (
     get_image_download_impl,
     post_upload_image_impl,
 )
-from src.coala_memory.semantic import SemanticMemory
+from galet_memory.semantic import SemanticMemory
 from galet_memory import ProceduralMemory
 from src.http_endpoints.admin_reload import reload_config_and_agents
 from src.api_key import validate_api_key
