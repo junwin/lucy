@@ -14,7 +14,7 @@ from galet_prompt_builder import (
 from galet_memory import ProceduralMemory, ProceduralMemoryRequest
 
 from src.agent import Agent, AgentManager
-from src.coala_memory.semantic import (
+from galet_memory.semantic import (
     SemanticMemory,
     SemanticMemoryRequest,
 )

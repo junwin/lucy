@@ -9,7 +9,7 @@ import logging
 from pathlib import Path
 from typing import List, Any
 
-from src.coala_memory.semantic import SemanticMemory, SemanticMemoryRequest
+from galet_memory.semantic import SemanticMemory, SemanticMemoryRequest
 from src.prompt_builders.constants import DEFAULT_SEARCH_NAMESPACES
 
 

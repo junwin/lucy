@@ -60,8 +60,8 @@ The `prompt_builders` module provides a framework for constructing prompts in a 
   
 - **Internal modules**
   - src.config_manager
-  - src.coala_memory.episodic
-  - src.coala_memory.procedural
+  - galet_memory.episodic
+  - galet_memory.procedural
   - src.storage.base
   - src.storage.interfaces
   - src.utils.text_snippet_loader

@@ -1,4 +1,4 @@
-from src.coala_memory.semantic import (
+from galet_memory.semantic import (
     SemanticDocument,
     SemanticMemoryResult,
 )

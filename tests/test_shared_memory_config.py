@@ -64,7 +64,7 @@ def test_shared_di_tool_and_context_backends_use_one_runtime(shared, monkeypatch
     from src.handlers.procedural_memory_handler import ProceduralMemoryHandler
     from src.handlers.context_handler import ContextHandler
     from src.procedural_memory_config import build_procedural_memory
-    from src.coala_memory.semantic import SemanticMemory
+    from galet_memory.semantic import SemanticMemory
     from src.episodic import LucyEpisodicStore
     from galet_memory import ProceduralMemory
 
@@ -240,7 +240,7 @@ assembly.galet_embedding_factory = lambda: lambda profile: SimpleNamespace(
     profile=profile, embed=lambda texts, model: [[1.0] + [0.0]*1535 for _ in texts])
 from src import container_config as wiring
 from src.memory_config import get_shared_memory, close_shared_memory
-from src.coala_memory.semantic import SemanticMemory
+from galet_memory.semantic import SemanticMemory
 from src.episodic import LucyEpisodicStore
 from galet_memory import ProceduralMemory
 config_values = {'memory_config_path': sys.argv[1]}

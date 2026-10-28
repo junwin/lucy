@@ -1,7 +1,13 @@
 from dataclasses import dataclass
 from datetime import datetime, timezone
 
-from src.coala_memory.semantic import SemanticMemoryRequest, SqliteVecSemanticMemory
+from galet_memory.semantic import (
+    SemanticDocument,
+    SemanticMemory,
+    SemanticMemoryRequest,
+    SemanticMemoryResult,
+)
+from src.coala_memory.semantic import SqliteVecSemanticMemory
 from src.storage.models import EmbeddingRecord
 
 
@@ -72,6 +78,9 @@ def test_sqlite_vec_semantic_memory_recalls_matching_documents(tmp_path):
         )
     )
 
+    assert isinstance(memory, SemanticMemory)
+    assert isinstance(result, SemanticMemoryResult)
+    assert isinstance(result.documents[0], SemanticDocument)
     assert facade.calls == [(["CoALA memory"], "text-embedding-3-small")]
     assert store.calls[0]["namespaces"] == ["external"]
     assert store.calls[0]["account_name"] == "junwin"

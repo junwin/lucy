@@ -6,8 +6,8 @@ from types import SimpleNamespace
 from galet_prompt_builder import CompiledPrompt, PromptMessage, PromptMetrics
 from galet_prompt_builder.metrics import SectionMetrics
 
-from src.coala_memory.procedural import ProceduralMemoryResult
-from src.coala_memory.semantic import (
+from galet_memory import ProceduralMemoryResult
+from galet_memory.semantic import (
     SemanticDocument,
     SemanticMemoryResult,
 )
