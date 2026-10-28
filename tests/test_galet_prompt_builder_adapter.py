@@ -142,6 +142,7 @@ def test_adapter_translates_lucy_call_to_explicit_galet_policy():
         is adapter.episodic_memory
     )
     assert _RecordingCompiler.instance.memories["digest_memory"] is adapter.episodic_memory
+    assert _RecordingCompiler.instance.memories["semantic_memory"] is adapter.semantic_memory
     assert request.current_input == "What did I write about attention?"
     assert request.context_name == "lucyproject"
     assert request.semantic_namespaces == ("vol_6", "documents")

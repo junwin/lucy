@@ -1,4 +1,5 @@
 """Lucy composition seam for galet-memory's explicit account-scoped contracts."""
+from pathlib import Path
 from typing import Protocol
 from galet_memory import Session, SessionStore, EventStore, CurationStore
 
@@ -19,3 +20,11 @@ def list_account_sessions(store: SessionStore, account_name: str, count: int | N
         if cursor is None:
             break
     return selected
+
+
+def episodic_database_path(config) -> Path:
+    """Use the same episodic database for DI and standalone tool validation."""
+    base = Path(config.get("storage_root_path") or "/home/junwin/lucydata") / (
+        config.get("storage_namespace") or "data"
+    )
+    return Path(config.get("episodic_memory_db_path") or base / "episodic-v2.sqlite")

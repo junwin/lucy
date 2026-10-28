@@ -27,13 +27,10 @@ class ConfiguredSemanticMemory(SemanticMemory):
         self.runtime = runtime
         self.embedding_model = runtime.config.embedding_profiles[runtime.config.semantic.embedding_profile].model
 
-    def recall(self, request):
-        return self.runtime.semantic.recall(SemanticMemoryRequest(
-            account_name=request.account_name, query=request.query,
-            use_embeddings=request.use_embeddings, namespaces=list(request.namespaces or []),
-            top_k=request.top_k, max_chars=request.max_chars,
-            score_threshold=request.score_threshold, embedding_model=self.embedding_model,
-            source_type=getattr(request, 'source_type', None),
+    def recall(self, request: SemanticMemoryRequest):
+        return self.runtime.semantic.recall(replace(request,
+            embedding_model=self.embedding_model,
+            namespaces=list(request.namespaces or []),
         ))
 
     def list_namespaces(self, account_name):
