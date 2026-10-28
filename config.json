@@ -12,7 +12,7 @@
       "project_skills": null
     }
   },
-  "memory_config_path": "/home/junwin/src/repos/galet-tools/galet-memory-mcp.json",
+  "memory_config_path": "/home/junwin/pishare/lucy/mint/galet-memory-mcp.json",
   "galet_prompt_builder": {
     "total_tokens": 6000,
     "safety_margin_tokens": 500,
