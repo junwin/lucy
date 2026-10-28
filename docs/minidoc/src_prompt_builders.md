@@ -210,7 +210,7 @@ print(messages)
 | Consumer                     | What it uses                                      |
 |------------------------------|--------------------------------------------------|
 | `src.agent`                  | Uses `PromptBuilder` for generating prompts.     |
-| `src.coala_memory`           | Integrates with `CoALAPromptBuilder` for memory.|
+| `galet_memory`              | Supplies memory contracts and recall implementations.|
 | `src.storage`                | Utilizes `PromptBuilder` for context retrieval.  |
 | `src.utils`                  | Uses `TokenBudgetAllocator` for token management.|
 | Unknown — trace imports to confirm. | Unknown — trace imports to confirm. |

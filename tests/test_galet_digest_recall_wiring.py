@@ -3,7 +3,7 @@ from types import SimpleNamespace
 from galet_memory import EmbeddingDigestRecall, SqliteEpisodicMemory
 from galet_memory.ports import FileTextLoader
 
-from src.curation.digest_publication_adapters import LucyEmbeddingIndex, LucyEmbeddingProvider
+from src.embeddings.memory_adapters import LucyEmbeddingIndex, LucyEmbeddingProvider
 
 
 def test_galet_digest_recall_uses_lucy_embedding_ports(tmp_path):

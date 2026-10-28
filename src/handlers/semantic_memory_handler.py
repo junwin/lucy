@@ -8,7 +8,8 @@ from galet_tools.tools.semantic_memory_handler import (
     SemanticMemoryHandler as GaletSemanticMemoryHandler,
 )
 
-from src.coala_memory.semantic import SqliteVecSemanticMemory
+from src.semantic_memory_config import build_semantic_memory, FileDigestValidator
+from src.episodic import episodic_database_path
 from src.embeddings.facade import EmbeddingFacade
 from src.storage.primitives_embedding_store import build_primitives_embedding_store
 
@@ -32,9 +33,10 @@ class SemanticMemoryHandler(GaletSemanticMemoryHandler):
                     mistral_api=MistralEmbeddingApi(settings=settings),
                 )
             )
-            memory = SqliteVecSemanticMemory(
+            memory = build_semantic_memory(
                 embedding_facade=facade,
                 embedding_store=build_primitives_embedding_store(config),
+                episodic_store=FileDigestValidator(episodic_database_path(config)),
             )
         else:
             facade = getattr(memory, "embedding_facade", None)

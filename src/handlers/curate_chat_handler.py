@@ -13,7 +13,7 @@ from galet_memory.publication import EmbeddingDigestPublisher, FilesystemDigestS
 from galet_tools.tools.curate_chat_handler import CurateChatHandler as GaletCurateChatHandler
 
 from src.curation.container_factory import get_curation_engine
-from src.curation.digest_publication_adapters import LucyEmbeddingIndex, LucyEmbeddingProvider
+from src.embeddings.memory_adapters import LucyEmbeddingIndex, LucyEmbeddingProvider
 from src.curation.summarizer import summarize_session
 from src.curation.resolver import resolve_session
 

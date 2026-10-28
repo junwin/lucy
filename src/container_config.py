@@ -1,4 +1,4 @@
-from src.episodic import LucyEpisodicStore
+from src.episodic import LucyEpisodicStore, episodic_database_path
 # container_config.py
 
 from pathlib import Path
@@ -26,13 +26,13 @@ from src.storage.interfaces import ContextStore, DocumentStore, EmbeddingStore, 
 from src.storage.json_file_storage import JsonFileStorage
 from src.storage.primitives_embedding_store import build_primitives_embedding_store
 from galet_memory.semantic import SemanticMemory
-from src.coala_memory.semantic import SqliteVecSemanticMemory
+from src.semantic_memory_config import build_semantic_memory
 from galet_memory import (
     EmbeddingDigestRecall,
     SqliteEpisodicMemory,
 )
 from galet_memory.ports import FileTextLoader
-from src.curation.digest_publication_adapters import LucyEmbeddingIndex, LucyEmbeddingProvider
+from src.embeddings.memory_adapters import LucyEmbeddingIndex, LucyEmbeddingProvider
 from galet_memory import ProceduralMemory
 
 from src.handlers.handler_registry import HandlerRegistry
@@ -169,9 +169,10 @@ class CoALAMemoryModule(Module):
         services = get_shared_memory(config)
         if services is not None:
             return services.semantic
-        return SqliteVecSemanticMemory(
+        return build_semantic_memory(
             embedding_facade=injector.get(EmbeddingFacade),
             embedding_store=injector.get(EmbeddingStore),
+            episodic_store=injector.get(LucyEpisodicStore),
         )
 
     @provider
@@ -189,10 +190,7 @@ class CoALAMemoryModule(Module):
         storage_namespace = config.get("storage_namespace") or "data"
         storage_base = Path(storage_root) / storage_namespace
         storage_base.mkdir(parents=True, exist_ok=True)
-        db_path = (
-            config.get("episodic_memory_db_path")
-            or storage_base / "episodic-v2.sqlite"
-        )
+        db_path = episodic_database_path(config)
         return SqliteEpisodicMemory(
             db_path,
             digests_root=storage_base / "digests",

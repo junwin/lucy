@@ -113,15 +113,19 @@ def test_semantic_memory_handler_reports_recall_errors():
     assert "embedding store unavailable" in result["error"]
 
 
-def test_constructor_injected_path_builds_no_router_or_store():
+def test_constructor_injected_path_builds_no_router_or_store(monkeypatch):
+    from unittest.mock import Mock
+    import src.handlers.semantic_memory_handler as wiring
+
+    build = Mock(side_effect=AssertionError("injected memory must bypass construction"))
+    monkeypatch.setattr(wiring, "Settings", build)
+    monkeypatch.setattr(wiring, "build_primitives_embedding_store", build)
+    monkeypatch.setattr(wiring, "build_semantic_memory", build)
     memory = FakeSemanticMemory()
     handler = SemanticMemoryHandler(DummyConfig(), memory=memory)
 
     assert handler.memory is memory
-    # Ensure it's not the default SqliteVecSemanticMemory
-    from src.coala_memory.semantic.sqlite_vec_memory import SqliteVecSemanticMemory
-
-    assert not isinstance(handler.memory, SqliteVecSemanticMemory)
+    build.assert_not_called()
 
 
 def test_unknown_action_error_lists_allowed_actions():

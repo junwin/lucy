@@ -67,7 +67,7 @@ def get_curation_service():
     from galet_memory import CurationService
     from galet_memory.publication import EmbeddingDigestPublisher, FilesystemDigestStore
     from src.handlers.curate_chat_handler import LucyDigestGenerator
-    from src.curation.digest_publication_adapters import LucyEmbeddingIndex, LucyEmbeddingProvider
+    from src.embeddings.memory_adapters import LucyEmbeddingIndex, LucyEmbeddingProvider
     engine = get_curation_engine()
     publisher = getattr(engine, "digest_publisher", None)
     if publisher is None and engine.embedding_facade is not None and engine.storage is not None:

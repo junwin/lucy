@@ -14,10 +14,7 @@ from galet_prompt_builder import (
 from galet_memory import ProceduralMemory, ProceduralMemoryRequest
 
 from src.agent import Agent, AgentManager
-from galet_memory.semantic import (
-    SemanticMemory,
-    SemanticMemoryRequest,
-)
+from galet_memory.semantic import SemanticMemory
 from src.config_manager import ConfigManager
 from src.prompt_builders.attachment_resolver import AttachmentResolver
 from src.prompt_builders.constants import DEFAULT_SEARCH_NAMESPACES
@@ -67,24 +64,6 @@ def prompt_policy_from_config(config: ConfigManager, agent: Optional[Agent]) -> 
             raise ValueError(f"unknown agent prompt_policy settings: {', '.join(sorted(unknown))}")
         values.update(overrides)
     return PromptPolicy(**values)
-
-
-class _LucySemanticMemoryAdapter:
-    def __init__(self, memory: SemanticMemory) -> None:
-        self.memory = memory
-
-    def recall(self, request: Any) -> Any:
-        return self.memory.recall(
-            SemanticMemoryRequest(
-                account_name=request.account_name,
-                query=request.query,
-                use_embeddings=True,
-                namespaces=list(request.namespaces),
-                top_k=request.top_k,
-                max_chars=request.max_chars,
-                score_threshold=request.score_threshold,
-            )
-        )
 
 
 class GaletPromptBuilderAdapter(PromptBuilderInterface):
@@ -197,7 +176,7 @@ class GaletPromptBuilderAdapter(PromptBuilderInterface):
             procedural_memory=self.procedural_memory,
             episodic_memory=self.episodic_memory,
             digest_memory=self.episodic_memory,
-            semantic_memory=_LucySemanticMemoryAdapter(self.semantic_memory),
+            semantic_memory=self.semantic_memory,
         )
         compiled = compiler.build(
             PromptRequest(
