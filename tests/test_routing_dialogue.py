@@ -248,12 +248,25 @@ def test_execution_failure_does_not_create_affinity(tmp_path, streaming):
         assert 'routing_dialogue' not in memory.get_session(account_name='alice', session_id=session_id).metadata
 
 
-def test_configured_catalog_can_shift_from_image_work_to_writing(dialogue):
+@pytest.mark.parametrize('writer', ['belle', 'clio'])
+def test_configured_catalog_clarifies_writer_before_switching_dialogue(dialogue, writer):
     from pathlib import Path
     from src.agent import AgentManager
     router, memory, now, request = dialogue
     router.agent_manager = AgentManager(str(Path(__file__).parents[1] / 'static/data/agents.json'))
     classification(router, 'specialist', ['writing'])
     result = router.route({**request, 'question': 'Now write a blog about these pictures'})
-    assert result.selected_agent == 'belle'
+    # Belle and Clio both advertise writing; auto routing must ask, not pick one.
+    assert result.selected_agent == 'lucy'
+    assert result.reason == 'ambiguous_specialists'
     assert result.capabilities == ('writing',)
+    assert 'belle' in result.clarification and 'clio' in result.clarification
+
+    router.llm_adapter.reset_mock()
+    selected = router.route({**request, 'question': writer})
+    assert selected.selected_agent == writer
+    assert selected.reason == 'user_selection'
+    router.llm_adapter.call_model.assert_not_called()
+    router.remember_dialogue(request, selected, request['conversationId'], 'What tone would you like?')
+    assert state(memory, request)['routing_dialogue']['agent'] == writer
+    assert router.route({**request, 'question': 'yes'}).selected_agent == writer
