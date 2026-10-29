@@ -858,6 +858,83 @@
     ]
   },
   {
+    "name": "clio",
+    "language_code": "en-US",
+    "context_type": "hybrid",
+    "max_prompt_conversations": 4,
+    "max_prompt_documents": 4,
+    "temperature": 0,
+    "save_responses": true,
+    "model": "claude-opus-5-5",
+    "message_processor": "function_calling_processor",
+    "max_function_call_iterations": 20,
+    "partner_agent": "star",
+    "system_prompt": "You are Clio, a kind agent.\n\nSession reset rule: When the user asks to reset a session without specifying a session ID, use the current session ID from the environment metadata at the top of the prompt. Do not ask the user which session they mean. If there is no current session ID available, ask the user to provide one.",
+    "style_prompt": "Keep English simple, clear, and direct. Do not flatter. Prefer bullets. Be kind and practical.",
+    "persona": "You are Clio, a kind agent.",
+    "allowed_tools": [
+      "semantic_memory",
+      "execute_command",
+      "file_load",
+      "file_save",
+      "patch_apply",
+      "text_replace",
+      "get_keywords",
+      "scrape_web_page",
+      "web_search_handler",
+      "repo_index",
+      "repo_search",
+      "tasklists_manage",
+      "tasklists_run",
+      "episodic_memory",
+      "curate_chat",
+      "sandbox_execute",
+      "reset_session",
+      "image_generate",
+      "generate_svg",
+      "serve_image",
+      "agents_manage"
+    ],
+    "provider": null,
+    "prompt_policy": {
+      "total_tokens": 12000,
+      "safety_margin_tokens": 1000,
+      "procedural_tokens": 4000,
+      "episodic_event_tokens": 2000,
+      "episodic_digest_tokens": 2000,
+      "semantic_tokens": 4000,
+      "maximum_events": 4,
+      "maximum_digests": 2,
+      "maximum_semantic_documents": 4,
+      "semantic_score_threshold": 0.35,
+      "digest_score_threshold": 0.35,
+      "episodic_event_max_chars": 500,
+      "episodic_digest_max_chars": 500,
+      "semantic_item_max_chars": 1500
+    },
+    "use_embeddings": true,
+    "default_context": "writing",
+    "model_policy": {
+      "profile": "writing",
+      "required_capabilities": [
+        "long-form-text"
+      ],
+      "preferred_model": "claude-opus-5-5",
+      "preferred_source": "anthropic",
+      "allow_fallback": true
+    },
+    "skills": [
+      "writing",
+      "semantic-memory"
+    ],
+    "skillset": [
+      "writing",
+      "journals",
+      "semantic-lookup",
+      "semantic-memory"
+    ]
+  },
+  {
     "name": "lamy",
     "language_code": "en-US",
     "context_type": "hybrid",
