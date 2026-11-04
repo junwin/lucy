@@ -39,7 +39,7 @@ The galet stack is a provider-agnostic LLM/embedding/image-generation family ext
 | `galet` | 0.1.2 | Provider-agnostic LLM, embedding and image-generation core |
 | `galet-memory[vec]` | 0.1.0 | Provider-neutral memory implementations, plus sqlite-vec/vec0 support |
 | `galet-prompt-builder` | 0.1.1 | Prompt selection, budgeting and compilation |
-| `galet-tools` | 0.1.0 | Shared handler ABI and external handler discovery |
+| `galet-tools` | 0.1.34 | Shared handler ABI, built-in composition and external handler discovery |
 
 Everything then resolves from a single index; `pip check` should report no broken requirements.
 
@@ -236,8 +236,8 @@ preserved transport differences and source-reading measurements.
 
 ## Reliable text edits
 
-The integration branch pins galet-tools commit `859e0523904aac51e1d8ebf908c234221a534e2d`
-until 0.1.28 is released. Install with `python -m pip install -r requirements.txt`.
+`requirements.txt` pins the released `galet-tools==0.1.34`.
+Install with `python -m pip install -r requirements.txt`.
 Small edits should use `text_replace` (unique exact match, optional check-only,
 bounded diff). Larger patches require unchanged context lines. After an error,
 reread a narrow affected region and inspect the structured error before retrying.
@@ -259,3 +259,11 @@ semantic, episodic, procedural and working memory. See the
 [Mint setup and verification steps](docs/shared-memory-mint.md). Memory services
 share one process-owned runtime; the current configuration remains the default
 until the shared file is selected explicitly.
+
+## Built-in tool composition
+
+Lucy composes galet-tools built-ins automatically after registering its own
+adapters. Existing Lucy classes and factories take precedence. New package
+tools enter discovery on upgrade; agent/context allowlists still govern access.
+See [the composition contract](docs/design/builtin-handler-composition.md) for
+host services, shared memory execution context and missing-service behavior.

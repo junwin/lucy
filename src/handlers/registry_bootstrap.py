@@ -12,8 +12,8 @@ warning logged.
 """
 
 import logging
-from galet_tools import HandlerRegistry, register_installed_handlers
-from galet_tools.tools.episodic_operations import EPISODIC_OPERATION_HANDLERS
+from galet_tools import HandlerRegistry, register_builtin_handlers, register_installed_handlers
+from src.handlers.galet_adapters import build_handler_services
 from src.handlers.file_load_handler2 import FileLoadHandler2
 from src.handlers.file_save_handler import FileSaveHandler2
 from src.handlers.command_execution_handler2 import CommandExecutionHandler2
@@ -124,8 +124,6 @@ def build_registry_and_catalog() -> tuple[HandlerRegistry, ToolCatalog]:
     reg.register(SemanticMemoryHandler)
     # Episodic memory supplied through the galet-memory interface
     reg.register(EpisodicMemoryHandler)
-    for operation in EPISODIC_OPERATION_HANDLERS:
-        reg.register(operation, factory=lambda config, cls=operation: cls())
     # Scoped contexts and skills supplied through galet-memory.
     reg.register(ProceduralMemoryHandler)
 
@@ -150,10 +148,21 @@ def build_registry_and_catalog() -> tuple[HandlerRegistry, ToolCatalog]:
     reg.register(ToolSelectionProbeHandler)
     reg.register(RoutingProbeHandler)
 
-    # Snapshot Lucy-owned names before extensions contribute handlers. These
-    # source boundaries are catalog metadata only; every handler still executes
+    # Snapshot Lucy-owned names before package built-ins or extensions contribute.
+    # These source boundaries are catalog metadata only; every handler executes
     # through this same registry and the existing permission filters.
     lucy_tool_names = frozenset(reg.tool_names())
+
+    # Lucy adapters and factories win collisions. The package owns the built-in
+    # manifest, so future tools need no individual Lucy imports/registrations.
+    # Service construction is deferred until registry.create(config=...).
+    report = register_builtin_handlers(
+        reg, services=build_handler_services, collision="preserve",
+    )
+    logger.info(
+        "Built-in handlers composed: registered=%s preserved=%s unavailable=%s",
+        report.registered, report.preserved, report.unavailable,
+    )
 
     # Installed extension packages contribute handlers through the shared
     # galet_tools.handlers entry-point group. Registration does not grant an

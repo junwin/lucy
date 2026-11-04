@@ -11,6 +11,7 @@ from src.agent.agent_manager import AgentManager
 from src.agent.caps import resolve_effective_cap
 from src.config_manager import ConfigManager
 from src.handlers.handler_registry import HandlerRegistry
+from galet_tools import HandlerServices
 from galet.adapter_interface import LLMAdapter
 from src.message_processors.run_metrics import record_tool_failure
 from src.message_processors.fcp_models import (
@@ -232,10 +233,12 @@ class ToolExecutor:
             "storage": getattr(self, "_storage", None),
             "registry": self.registry,
             "prompt_builder": self.prompt_builder,
-            "semantic_memory": getattr(self.prompt_builder, "semantic_memory", None),
-            "procedural_memory": getattr(self.prompt_builder, "procedural_memory", None),
+            **HandlerServices(
+                semantic_memory=getattr(self.prompt_builder, "semantic_memory", None),
+                procedural_memory=getattr(self.prompt_builder, "procedural_memory", None),
+                episodic_store=self.episodic_store,
+            ).execution_context(),
             "config": self.config,
-            "episodic_store": self.episodic_store,
             "llm_adapter": self.llm_adapter,
             "agent_manager": self.agent_manager,
         }
