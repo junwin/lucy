@@ -72,3 +72,19 @@ class LucyConfigProvider:
             return [str(path) for path in configured]
         return list(self._DEFAULT_FONT_PATHS)
 
+
+
+def build_handler_services(config: Any):
+    """Supply Lucy's constructor ports without opening memory backends.
+
+    Memory services come from the request's ToolExecutor execution context,
+    shared with prompt building. Existing Lucy adapters retain their factories.
+    """
+    from galet_tools import HandlerServices
+    from galet_tools.host.security import DefaultSecurityPolicy
+
+    return HandlerServices(
+        storage_resolver=LucyStorageLocationResolver(config),
+        sandbox_resolver=LucySandboxRootResolver(config),
+        security_policy=DefaultSecurityPolicy(),
+    )
