@@ -106,7 +106,7 @@ def _export_root(config, external_root, relative_path):
         raise ValueError("relative_path must be a string")
     if not relative_path or relative_path in (".", ".."):
         raise ValueError("Supply a nonempty subfolder relative to external_root")
-    if os.path.isabs(relative_path) or "\\\\" in relative_path:
+    if os.path.isabs(relative_path) or chr(92) in relative_path:
         raise ValueError("relative_path must use root-relative POSIX separators")
     parts = Path(relative_path).parts
     if ".." in parts or "." in parts:
