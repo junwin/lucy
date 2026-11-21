@@ -25,7 +25,7 @@ class AttachmentsHandler(HandlerV2):
                 "Reuse image_id with video_generate or image_generate.image_ids. "
                 "last_video_id identifies a video made from that still, for prompt revisions; use the storage path "
                 "with serve_image to show a candidate. Never invent an ID or request another "
-                "upload before checking here. If several images match, ask which one to use. Export copies images to a fresh batch under an approved destination alias."
+                "upload before checking here. If several images match, ask which one to use. Export copies images to a fresh batch under an approved external_root and relative_path."
             ),
             "parameters": {
                 "type": "object",
@@ -37,11 +37,13 @@ class AttachmentsHandler(HandlerV2):
                               "description": "List page size; 1 for get."},
                     "image_ids": {"type": ["array", "null"], "items": {"type": "string"},
                                   "description": "Export: IDs from current conversation."},
-                    "destination": {"type": ["string", "null"],
-                                    "description": "Export: configured destination alias only."},
+                    "external_root": {"type": ["string", "null"],
+                                      "description": "Export: approved external root name, e.g. pictures."},
+                    "relative_path": {"type": ["string", "null"],
+                                      "description": "Export: directory relative to the root, e.g. incomming-mp."},
                     "collision": {"type": ["string", "null"], "enum": ["rename", "fail", None]},
                 },
-                "required": ["action", "image_id", "offset", "count", "image_ids", "destination", "collision"],
+                "required": ["action", "image_id", "offset", "count", "image_ids", "external_root", "relative_path", "collision"],
                 "additionalProperties": False,
             },
             "strict": True,
@@ -56,7 +58,8 @@ class AttachmentsHandler(HandlerV2):
             "error": {"type": "string"},
             "exported": {"type": "array", "items": {"type": "object"}},
             "count": {"type": "integer"}, "batch_directory": {"type": "string"},
-            "destination": {"type": "string"},
+            "external_root": {"type": "string"}, "relative_path": {"type": "string"},
+            "batch_relative_path": {"type": "string"},
         }, "required": ["ok", "tool"], "additionalProperties": False}
 
     def execute(self, args, *, account_name="auto", **context):
@@ -77,7 +80,8 @@ class AttachmentsHandler(HandlerV2):
                     self.config, context.get("episodic_store"),
                     account_name=account_name, session_id=session_id,
                     image_ids=args.get("image_ids"),
-                    destination=args.get("destination"),
+                    external_root=args.get("external_root"),
+                    relative_path=args.get("relative_path"),
                     collision=args.get("collision") or "rename",
                 )
                 return {"ok": True, "tool": self.NAME, **result}
