@@ -1,6 +1,6 @@
 """Find images from earlier turns without uploading their bytes again."""
 
-from src.attachments import ConversationAttachments
+from src.attachments import ConversationAttachments, export_conversation_images
 from src.handlers.handler_v2 import HandlerV2
 
 
@@ -25,18 +25,23 @@ class AttachmentsHandler(HandlerV2):
                 "Reuse image_id with video_generate or image_generate.image_ids. "
                 "last_video_id identifies a video made from that still, for prompt revisions; use the storage path "
                 "with serve_image to show a candidate. Never invent an ID or request another "
-                "upload before checking here. If several images match, ask which one to use."
+                "upload before checking here. If several images match, ask which one to use. Export copies images to a fresh batch under an approved destination alias."
             ),
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "action": {"type": "string", "enum": ["list", "get"]},
+                    "action": {"type": "string", "enum": ["list", "get", "export"]},
                     "image_id": {"type": "string", "description": "ID for get; empty string for list."},
                     "offset": {"type": "integer", "minimum": 0, "description": "List offset; 0 for get."},
                     "count": {"type": "integer", "minimum": 1, "maximum": 20,
                               "description": "List page size; 1 for get."},
+                    "image_ids": {"type": ["array", "null"], "items": {"type": "string"},
+                                  "description": "Export: IDs from current conversation."},
+                    "destination": {"type": ["string", "null"],
+                                    "description": "Export: configured destination alias only."},
+                    "collision": {"type": ["string", "null"], "enum": ["rename", "fail", None]},
                 },
-                "required": ["action", "image_id", "offset", "count"],
+                "required": ["action", "image_id", "offset", "count", "image_ids", "destination", "collision"],
                 "additionalProperties": False,
             },
             "strict": True,
@@ -49,6 +54,9 @@ class AttachmentsHandler(HandlerV2):
             "images": {"type": "array", "items": {"type": "object"}},
             "total": {"type": "integer"}, "next_offset": {"type": ["integer", "null"]},
             "error": {"type": "string"},
+            "exported": {"type": "array", "items": {"type": "object"}},
+            "count": {"type": "integer"}, "batch_directory": {"type": "string"},
+            "destination": {"type": "string"},
         }, "required": ["ok", "tool"], "additionalProperties": False}
 
     def execute(self, args, *, account_name="auto", **context):
@@ -57,13 +65,22 @@ class AttachmentsHandler(HandlerV2):
             if not session_id or not account_name or account_name == "auto":
                 raise ValueError("Current account and conversation are required")
             action = args.get("action")
-            if action not in {"list", "get"}:
-                raise ValueError("action must be list or get")
+            if action not in {"list", "get", "export"}:
+                raise ValueError("action must be list, get or export")
             count, offset = args.get("count", 10), args.get("offset", 0)
             if type(count) is not int or not 1 <= count <= 20:
                 raise ValueError("count must be between 1 and 20")
             if type(offset) is not int or offset < 0:
                 raise ValueError("offset must be a nonnegative integer")
+            if action == "export":
+                result = export_conversation_images(
+                    self.config, context.get("episodic_store"),
+                    account_name=account_name, session_id=session_id,
+                    image_ids=args.get("image_ids"),
+                    destination=args.get("destination"),
+                    collision=args.get("collision") or "rename",
+                )
+                return {"ok": True, "tool": self.NAME, **result}
             images = ConversationAttachments(self.config, context.get("episodic_store")).images(
                 account_name=account_name, session_id=session_id,
             )
