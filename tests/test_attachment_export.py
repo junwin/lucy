@@ -11,19 +11,20 @@ from tests.test_reusable_attachments import upload
 
 
 def run_export(config, memory, ids, *, account="arla", session="chat",
-               destination="marie_parie_incoming", collision="rename"):
+               external_root="pictures", relative_path="incomming-mp", collision="rename"):
     return AttachmentsHandler(config).execute(
         {"action": "export", "image_id": "", "offset": 0, "count": 10,
-         "image_ids": ids, "destination": destination, "collision": collision},
+         "image_ids": ids, "external_root": external_root,
+         "relative_path": relative_path, "collision": collision},
         account_name=account, conversation_id=session, episodic_store=memory,
     )
 
 
 def test_export_copies_in_order_and_retains_uploads(tmp_path):
-    target = tmp_path / "incoming"
+    target = tmp_path / "incomming-mp"
     config = FakeConfig({
         "storage_root_path": str(tmp_path), "storage_namespace": "data",
-        "attachment_export_destinations": {"marie_parie_incoming": str(target)},
+        "external_roots": {"pictures": str(tmp_path)},
     })
     first, first_bytes = upload(config, "rose dress.png")
     second, second_bytes = upload(config, "blue-jacket.png")
@@ -50,10 +51,10 @@ def test_export_copies_in_order_and_retains_uploads(tmp_path):
 
 
 def test_export_rejects_cross_conversation_and_account(tmp_path):
-    target = tmp_path / "incoming"
+    target = tmp_path / "incomming-mp"
     config = FakeConfig({
         "storage_root_path": str(tmp_path), "storage_namespace": "data",
-        "attachment_export_destinations": {"marie_parie_incoming": str(target)},
+        "external_roots": {"pictures": str(tmp_path)},
     })
     image_id, _ = upload(config, account="arla")
     john_id, _ = upload(config, account="john")
@@ -70,10 +71,10 @@ def test_export_rejects_cross_conversation_and_account(tmp_path):
 
 
 def test_export_collision_policy_and_unsafe_alias(tmp_path):
-    target = tmp_path / "incoming"
+    target = tmp_path / "incomming-mp"
     config = FakeConfig({
         "storage_root_path": str(tmp_path), "storage_namespace": "data",
-        "attachment_export_destinations": {"marie_parie_incoming": str(target)},
+        "external_roots": {"pictures": str(tmp_path)},
     })
     first, _ = upload(config, "same.png")
     second, _ = upload(config, "same.png")
@@ -90,7 +91,7 @@ def test_export_collision_policy_and_unsafe_alias(tmp_path):
         assert result["ok"], result
         files = [x["filename"] for x in result["exported"]]
         assert len(set(files)) == 2
-        assert not run_export(config, memory, [first], destination="../bad")["ok"]
+        assert not run_export(config, memory, [first], relative_path="../bad")["ok"]
         assert not run_export(config, memory, [first, first])["ok"]
 
 
@@ -101,7 +102,7 @@ def test_export_excludes_unsupported_gif(tmp_path):
     from src.http_endpoints.upload_endpoints import post_upload_image_impl
     config = FakeConfig({
         "storage_root_path": str(tmp_path), "storage_namespace": "data",
-        "attachment_export_destinations": {"marie_parie_incoming": str(tmp_path / "incoming")},
+        "external_roots": {"pictures": str(tmp_path)},
     })
     output = io.BytesIO()
     Image.new("RGB", (4, 4)).save(output, format="GIF")
@@ -120,4 +121,42 @@ def test_attachment_export_schema_has_approved_destination():
     definition = AttachmentsHandler.tool_def()
     assert "export" in definition["parameters"]["properties"]["action"]["enum"]
     props = definition["parameters"]["properties"]
-    assert "destination" in props and "image_ids" in props
+    assert "external_root" in props and "relative_path" in props and "image_ids" in props
+
+
+def test_export_rejects_unknown_root_and_absolute_paths(tmp_path):
+    config = FakeConfig({
+        "storage_root_path": str(tmp_path), "storage_namespace": "data",
+        "external_roots": {"pictures": str(tmp_path / "Pictures")},
+    })
+    image_id, _ = upload(config)
+    with SqliteEpisodicMemory(tmp_path / "history.sqlite") as memory:
+        memory.create_session(account_name="arla", session_id="chat")
+        memory.append_events(account_name="arla", session_id="chat", events=[
+            NewEvent("user", "Image", "arla", metadata={"image_ids": [image_id]})
+        ])
+        assert not run_export(config, memory, [image_id], external_root="unlisted")["ok"]
+        assert not run_export(config, memory, [image_id], relative_path="/tmp/escape")["ok"]
+        assert not run_export(config, memory, [image_id], relative_path="incomming-mp/../../escape")["ok"]
+        assert not run_export(config, memory, [image_id], relative_path=".")["ok"]
+        assert not (tmp_path / "Pictures").exists()
+
+
+def test_export_resolves_root_relative_batch(tmp_path):
+    pictures = tmp_path / "Pictures"
+    config = FakeConfig({
+        "storage_root_path": str(tmp_path), "storage_namespace": "data",
+        "external_roots": {"pictures": str(pictures)},
+    })
+    image_id, _ = upload(config)
+    with SqliteEpisodicMemory(tmp_path / "history.sqlite") as memory:
+        memory.create_session(account_name="arla", session_id="chat")
+        memory.append_events(account_name="arla", session_id="chat", events=[
+            NewEvent("user", "Image", "arla", metadata={"image_ids": [image_id]})
+        ])
+        result = run_export(config, memory, [image_id])
+        assert result["ok"], result
+        assert result["external_root"] == "pictures"
+        assert result["relative_path"] == "incomming-mp"
+        assert result["batch_relative_path"].startswith("incomming-mp/batch-")
+        assert Path(result["batch_directory"]).parent == pictures / "incomming-mp"
