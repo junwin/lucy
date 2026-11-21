@@ -5,7 +5,6 @@ import os
 import re
 import shutil
 import uuid
-from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import quote
 
@@ -119,10 +118,10 @@ def export_conversation_images(config, store, *, account_name, session_id,
     """
     if not isinstance(image_ids, list) or not 1 <= len(image_ids) <= 20:
         raise ValueError("Supply 1-20 image IDs")
-    if len(image_ids) != len(set(image_ids)) or not all(
-        isinstance(i, str) and i for i in image_ids
-    ):
-        raise ValueError("Image IDs must be unique nonempty strings")
+    if not all(isinstance(i, str) and i for i in image_ids):
+        raise ValueError("Image IDs must be nonempty strings")
+    if len(image_ids) != len(set(image_ids)):
+        raise ValueError("Image IDs must be unique")
     if collision not in ("rename", "fail"):
         raise ValueError("collision must be rename or fail")
     references = ConversationAttachments(config, store).images(
