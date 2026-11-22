@@ -167,12 +167,8 @@ class MariePreviewService:
         return {"collection": collection, "count": len(images),
                 "sha256": self._gallery_sha(gallery)}
 
-    def publish(self, sid, owner):
-        state = self._load(sid, owner)
-        if state["status"] != "active":
-            raise ValueError("Preview session is closed")
-        wt = Path(state["worktree"])
-        # Protect the user from committing unexpected non-gallery content.
+    def _safe_changes(self, wt):
+        """Allow only asset changes, never arbitrary repo or runtime files."""
         dirty = _git(wt, "status", "--porcelain", "--untracked-files=all")
         for line in dirty.splitlines():
             changed = line[3:]
@@ -180,16 +176,41 @@ class MariePreviewService:
                 raise ValueError("Renamed paths are not supported in Phase 1")
             if not changed.startswith("assets/"):
                 raise ValueError(f"Unexpected non-gallery change: {changed}")
-        if not dirty:
+        return dirty
+
+    def _commit_assets(self, state):
+        wt = Path(state["worktree"])
+        dirty = self._safe_changes(wt)
+        if dirty:
+            _git(wt, "add", "-A", "--", "assets")
+            _git(wt, "commit", "-m", f"Marie-Parie preview {state['id'][:10]}")
+        return _git(wt, "rev-parse", "HEAD")
+
+    def share(self, sid, owner):
+        """Push the preview branch to GitHub for troubleshooting, not staging."""
+        state = self._load(sid, owner)
+        if state["status"] != "active":
+            raise ValueError("Preview session is closed")
+        commit = self._commit_assets(state)
+        if commit == state["base_sha"]:
+            raise ValueError("No changes to share yet")
+        _git(state["worktree"], "push", "origin",
+             f"HEAD:refs/heads/{state['branch']}")
+        return {"status": "active", "branch": state["branch"], "commit": commit,
+                "shared": True}
+
+    def publish(self, sid, owner):
+        state = self._load(sid, owner)
+        if state["status"] != "active":
+            raise ValueError("Preview session is closed")
+        commit = self._commit_assets(state)
+        if commit == state["base_sha"]:
             raise ValueError("Nothing to publish")
-        _git(wt, "add", "-A", "--", "assets")
-        _git(wt, "commit", "-m", f"Marie-Parie preview {sid[:10]}")
         # Fast-forward only. Refuse silently overwriting newer staging changes.
-        _git(wt, "push", "origin", "HEAD:refs/heads/staging")
+        _git(state["worktree"], "push", "origin", "HEAD:refs/heads/staging")
         state["status"] = "published"
         self._save(state)
-        return {"status": "published", "branch": state["branch"],
-                "commit": _git(wt, "rev-parse", "HEAD")}
+        return {"status": "published", "branch": state["branch"], "commit": commit}
 
     def cancel(self, sid, owner):
         state = self._load(sid, owner)
