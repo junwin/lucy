@@ -20,7 +20,8 @@ class MariePreviewHandler(HandlerV2):
             "description": (
                 "Manage a private Marie-Parie website editing session. "
                 "Create a Git worktree from remote staging, review its temporary preview, "
-                "save a gallery order, publish approved changes to staging, or cancel. "
+                "save a gallery order, share the preview branch for debugging, "
+                "publish approved changes to staging, or cancel. "
                 "Never publish or cancel without explicit user confirmation. "
                 "The preview's worktree path can be supplied as --repo to marie-publish "
                 "when preparing the initial images, without --commit or --push."
@@ -28,7 +29,7 @@ class MariePreviewHandler(HandlerV2):
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "action": {"type": "string", "enum": ["create", "status", "gallery", "save_gallery", "publish", "cancel"]},
+                    "action": {"type": "string", "enum": ["create", "status", "gallery", "save_gallery", "share", "publish", "cancel"]},
                     "session_id": {"type": ["string", "null"]},
                     "collection": {"type": ["string", "null"]},
                     "images": {"type": ["array", "null"], "items": {"type": "string"}},
@@ -66,6 +67,8 @@ class MariePreviewHandler(HandlerV2):
             elif action == "save_gallery":
                 data = service.save_gallery(sid, account_name, args.get("collection"),
                                             args.get("images"), args.get("expected_sha"))
+            elif action == "share":
+                data = service.share(sid, account_name)
             elif action == "publish":
                 data = service.publish(sid, account_name)
             elif action == "cancel":
