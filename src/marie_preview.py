@@ -177,15 +177,22 @@ class MariePreviewService:
                 "sha256": self._gallery_sha(gallery)}
 
     def _safe_changes(self, wt):
-        """Allow only asset changes, never arbitrary repo or runtime files."""
-        dirty = _git(wt, "status", "--porcelain", "--untracked-files=all")
-        for line in dirty.splitlines():
-            changed = line[3:]
-            if " -> " in changed:
-                raise ValueError("Renamed paths are not supported in Phase 1")
+        """Inspect Git's NUL-separated paths, including names containing spaces."""
+        result = subprocess.run(
+            ["git", "-C", str(wt), "status", "--porcelain", "-z",
+             "--untracked-files=all"],
+            check=True, capture_output=True, text=True,
+        ).stdout
+        records = [record for record in result.split("\0") if record]
+        for record in records:
+            if len(record) < 4:
+                raise ValueError("Malformed Git status output")
+            status, changed = record[:2], record[3:]
+            if "R" in status or "C" in status:
+                raise ValueError("Renamed/copied paths are not supported in Phase 1")
             if not changed.startswith("assets/"):
                 raise ValueError(f"Unexpected non-gallery change: {changed}")
-        return dirty
+        return bool(records)
 
     def _commit_assets(self, state):
         wt = Path(state["worktree"])
