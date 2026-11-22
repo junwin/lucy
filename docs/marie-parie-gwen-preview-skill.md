@@ -54,8 +54,18 @@ existing collection, **without `--commit` or `--push`**.
 If the checkout already contains edited files, do not repeat
 `marie-publish`; inspect the preview status and use gallery editing.
 
-Give Arla the preview page and editor links, on the same HTTPS/ngrok origin
-as Lucy. The gallery editor supports ordering and removing displayed
+**Preview URL rule:** The tool returns root-relative `view_path` and
+`editor_path`, NOT a Cloudflare URL. On the Mint Surface, Lucy runs at
+`http://localhost:5000`, so combine that origin with the returned path:
+`http://localhost:5000/preview/<token>/`. For Arla's remote PC, use
+the actual Lucy ngrok/HTTPS origin from the current deployment, never guess
+a hostname. If the origin is unknown, report the relative path and ask for
+Lucy's current browser address. **Never prepend the Cloudflare staging
+domain to a temporary preview path.** Cloudflare staging is only for
+post-push reviews by Heidi.
+
+Give Arla the preview page and editor links using the verified Lucy origin.
+The gallery editor supports ordering and removing displayed
 pictures without deleting their image files. The preview editor adds
 **Save to Lucy preview**, which updates the session's `gallery.txt`.
 
