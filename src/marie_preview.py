@@ -16,8 +16,8 @@ import uuid
 from pathlib import Path
 
 _IMAGE_EXT = {".jpg", ".jpeg", ".png"}
-_COLLECTION = re.compile(r"^[^/\\\\.][^/\\\\]*$")
-_FILENAME = re.compile(r"^[^/\\\\]+\\.(?:jpg|jpeg|png)$", re.I)
+_COLLECTION = re.compile(r"^[^/\\]+$")
+_FILENAME = re.compile(r"^[^/\\]+\.(?:jpg|jpeg|png)$", re.I)
 
 
 def _git(repo, *args):
@@ -157,7 +157,7 @@ class MariePreviewService:
         current = self._gallery_sha(gallery)
         if expected_sha is not None and expected_sha != current:
             raise ValueError("Gallery changed since it was loaded; refresh before saving")
-        new_content = "\\n".join(images) + ("\\n" if images else "")
+        new_content = "\n".join(images) + ("\n" if images else "")
         tmp = gallery.with_name(".gallery-" + uuid.uuid4().hex + ".tmp")
         try:
             tmp.write_text(new_content, encoding="utf-8")
