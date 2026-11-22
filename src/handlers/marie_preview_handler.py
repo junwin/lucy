@@ -29,7 +29,7 @@ class MariePreviewHandler(HandlerV2):
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "action": {"type": "string", "enum": ["create", "status", "gallery", "save_gallery", "share", "publish", "cancel"]},
+                    "action": {"type": "string", "enum": ["create", "list", "status", "gallery", "save_gallery", "share", "publish", "cancel"]},
                     "session_id": {"type": ["string", "null"]},
                     "collection": {"type": ["string", "null"]},
                     "images": {"type": ["array", "null"], "items": {"type": "string"}},
@@ -60,6 +60,8 @@ class MariePreviewHandler(HandlerV2):
             sid = args.get("session_id")
             if action == "create":
                 data = service.create(account_name)
+            elif action == "list":
+                data = service.list(account_name)
             elif action == "status":
                 data = service.status(sid, account_name)
             elif action == "gallery":
