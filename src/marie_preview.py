@@ -39,13 +39,16 @@ class MariePreviewService:
         roots = config.get("external_roots") or {}
         if not isinstance(roots, dict) or not roots.get("repos"):
             raise ValueError("external_roots.repos is required")
-        self.repo = Path(roots["repos"]).resolve() / "marie-parie-web"
+        self.repos_root = Path(roots["repos"]).resolve()
+        self.repo = self.repos_root / "marie-parie-web"
+        self.worktrees = self.repos_root / "marie-parie-previews"
         if not (self.repo / ".git").exists():
             raise ValueError("Marie-Parie web Git checkout not found")
         storage = Path(config.get("storage_root_path", "/home/junwin/lucy_storage"))
         namespace = config.get("storage_namespace", "data")
         self.base = storage / namespace / "marie_parie_previews"
         self.base.mkdir(parents=True, exist_ok=True)
+        self.worktrees.mkdir(parents=True, exist_ok=True)
 
     def _state_path(self, sid):
         if not re.fullmatch(r"[0-9a-f]{32}", str(sid)):
@@ -71,7 +74,7 @@ class MariePreviewService:
         _git(self.repo, "fetch", "origin", "staging")
         sid = uuid.uuid4().hex
         branch = f"preview/marie-parie/{owner}-{sid[:10]}"
-        worktree = self.base / ("worktree-" + sid)
+        worktree = self.worktrees / ("session-" + sid)
         _git(self.repo, "worktree", "add", "-b", branch, str(worktree), "origin/staging")
         state = {
             "id": sid, "owner": owner, "branch": branch, "status": "active",
