@@ -24,7 +24,11 @@ class MariePreviewHandler(HandlerV2):
                 "publish approved changes to staging, or cancel. "
                 "Never publish or cancel without explicit user confirmation. "
                 "The preview's worktree path can be supplied as --repo to marie-publish "
-                "when preparing the initial images, without --commit or --push."
+                "when preparing the initial images, without --commit or --push. "
+                "view_path and editor_path belong to Lucy's Flask server, NOT "
+                "Cloudflare staging. For local Mint tests use http://localhost:5000 "
+                "as the base URL; for remote use the actual Lucy ngrok origin. "
+                "Never guess a staging hostname for a temporary preview."
             ),
             "parameters": {
                 "type": "object",
