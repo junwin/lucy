@@ -60,6 +60,7 @@ from galet_memory.semantic import SemanticMemory
 from galet_memory import ProceduralMemory
 from src.http_endpoints.admin_reload import reload_config_and_agents
 from src.api_key import validate_api_key
+from src.marie_preview_web import preview_blueprint
 
 
 # -----------------------------------------------------------------------------
@@ -117,6 +118,8 @@ app = Flask(__name__)
 CORS(app)
 
 config = ConfigManager("config.json")
+app.config["lucy_config"] = config
+app.register_blueprint(preview_blueprint)
 
 # Configure logging (initialized once in app.py and used throughout the app)
 configure_logging()
@@ -188,6 +191,10 @@ def _check_api_key():
     the request is aborted with a 401 response.
     """
     # Skip API key check for Swagger UI static assets, the spec file, and CORS preflight
+    # Preview routes validate a high-entropy, revocable session capability.
+    # The browser cannot attach Lucy API keys to normal image/CSS requests.
+    if request.path.startswith("/preview/"):
+        return
     if request.path.startswith("/api/docs") or request.path == "/swagger.json":
         return
     if request.method == "OPTIONS":
