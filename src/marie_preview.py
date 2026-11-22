@@ -91,6 +91,15 @@ class MariePreviewService:
             "worktree": state["worktree"],
         }
 
+    def list(self, owner):
+        """Return owned sessions without depending on Lucy chat history."""
+        results = []
+        for path in sorted(self.base.glob("*.json")):
+            state = json.loads(path.read_text(encoding="utf-8"))
+            if state.get("owner") == owner:
+                results.append(self._public(state))
+        return {"sessions": results, "count": len(results)}
+
     def status(self, sid, owner):
         state = self._load(sid, owner)
         result = self._public(state)
