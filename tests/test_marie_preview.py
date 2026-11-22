@@ -123,3 +123,33 @@ def test_share_preview_branch_without_publishing_to_staging(project):
     published = service.publish(session["id"], "arla")
     assert published["status"] == "published"
     assert git(remote, "show", "staging:assets/New Arrivals/gallery.txt") == "two.jpg"
+
+
+def test_browser_preview_and_gallery_save_capabilities(project):
+    from flask import Flask
+    from src.marie_preview_web import preview_blueprint
+    service, _ = project
+    session = service.create("arla")
+    view_token = session["view_path"].split("/")[2]
+    edit_token = session["editor_path"].split("/")[2]
+    app = Flask(__name__)
+    app.config["lucy_config"] = Config(service.repo.parent, service.base.parent.parent)
+    app.register_blueprint(preview_blueprint)
+    client = app.test_client()
+    assert client.get(f"/preview/{view_token}/").status_code == 200
+    html = client.get(f"/preview/{edit_token}/gallery-editor.html")
+    assert html.status_code == 200
+    assert b"Save to Lucy preview" in html.data
+    endpoint = f"/preview/{view_token}/api/gallery/New%20Arrivals"
+    assert client.put(endpoint, json={"images": ["two.jpg"]}).status_code == 403
+    editor = f"/preview/{edit_token}/api/gallery/New%20Arrivals"
+    old = client.get(editor)
+    assert old.status_code == 200
+    assert old.json["images"] == ["one.jpg", "two.jpg"]
+    saved = client.put(editor, json={"images": ["two.jpg"],
+                                     "expected_sha": old.json["sha256"]})
+    assert saved.status_code == 200
+    assert client.get(editor).json["images"] == ["two.jpg"]
+    assert client.get(f"/preview/{edit_token}/.git/config").status_code == 404
+    service.cancel(session["id"], "arla")
+    assert client.get(f"/preview/{view_token}/").status_code == 404
