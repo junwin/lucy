@@ -153,3 +153,22 @@ def test_browser_preview_and_gallery_save_capabilities(project):
     assert client.get(f"/preview/{edit_token}/.git/config").status_code == 404
     service.cancel(session["id"], "arla")
     assert client.get(f"/preview/{view_token}/").status_code == 404
+
+def test_preview_urls_default_to_local_lucy_origin(project):
+    service, _ = project
+    session = service.create("arla")
+    assert session["view_url"] == "http://localhost:5000" + session["view_path"]
+    assert session["editor_url"] == "http://localhost:5000" + session["editor_path"]
+    recovered = service.status(session["id"], "arla")
+    assert recovered["view_url"] == session["view_url"]
+    service.cancel(session["id"], "arla")
+
+
+def test_preview_url_can_use_configured_ngrok_origin(project):
+    service, _ = project
+    original = service.preview_origin
+    service.preview_origin = "https://example.ngrok.app"
+    session = service.create("arla")
+    assert session["view_url"].startswith("https://example.ngrok.app/preview/")
+    service.cancel(session["id"], "arla")
+    service.preview_origin = original
