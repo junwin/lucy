@@ -14,6 +14,7 @@ import shutil
 import subprocess
 import uuid
 from pathlib import Path
+from urllib.parse import urlsplit
 
 _IMAGE_EXT = {".jpg", ".jpeg", ".png"}
 _COLLECTION = re.compile(r"^[^/\\]+$")
@@ -47,6 +48,19 @@ class MariePreviewService:
         storage = Path(config.get("storage_root_path", "/home/junwin/lucy_storage"))
         namespace = config.get("storage_namespace", "data")
         self.base = storage / namespace / "marie_parie_previews"
+        explicit_origin = str(config.get("preview_public_base_url", "") or "").strip().rstrip("/")
+        if explicit_origin:
+            parsed = urlsplit(explicit_origin)
+            if (parsed.scheme not in ("http", "https") or not parsed.netloc
+                    or parsed.path not in ("", "/") or parsed.query or parsed.fragment
+                    or parsed.username or parsed.password):
+                raise ValueError("preview_public_base_url must be an HTTP(S) origin")
+            self.preview_origin = explicit_origin
+        else:
+            port = int(config.get("port", 5000))
+            if not 1 <= port <= 65535:
+                raise ValueError("Invalid Lucy port")
+            self.preview_origin = f"http://localhost:{port}"
         self.base.mkdir(parents=True, exist_ok=True)
         self.worktrees.mkdir(parents=True, exist_ok=True)
 
@@ -91,6 +105,8 @@ class MariePreviewService:
         return {k: state[k] for k in ("id", "owner", "branch", "status", "base_sha")} | {
             "view_path": f"/preview/{state['view_token']}/",
             "editor_path": f"/preview/{state['edit_token']}/gallery-editor.html",
+            "view_url": f"{self.preview_origin}/preview/{state['view_token']}/",
+            "editor_url": f"{self.preview_origin}/preview/{state['edit_token']}/gallery-editor.html",
             "worktree": state["worktree"],
         }
 
