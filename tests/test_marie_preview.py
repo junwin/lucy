@@ -109,3 +109,17 @@ def test_unknown_collection_and_duplicate_names_rejected(project):
     with pytest.raises(ValueError):
         service.save_gallery(session["id"], "arla", "New Arrivals", ["one.jpg", "ONE.JPG"])
     service.cancel(session["id"], "arla")
+
+
+def test_share_preview_branch_without_publishing_to_staging(project):
+    service, remote = project
+    session = service.create("arla")
+    gallery = service.gallery(session["id"], "arla", "New Arrivals")
+    service.save_gallery(session["id"], "arla", "New Arrivals", ["two.jpg"], gallery["sha256"])
+    result = service.share(session["id"], "arla")
+    assert result["shared"] is True
+    assert git(remote, "show", f"{result['branch']}:assets/New Arrivals/gallery.txt") == "two.jpg"
+    assert git(remote, "show", "staging:assets/New Arrivals/gallery.txt") == "one.jpg\ntwo.jpg"
+    published = service.publish(session["id"], "arla")
+    assert published["status"] == "published"
+    assert git(remote, "show", "staging:assets/New Arrivals/gallery.txt") == "two.jpg"
