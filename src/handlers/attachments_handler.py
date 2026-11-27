@@ -25,7 +25,7 @@ class AttachmentsHandler(HandlerV2):
                 "Reuse image_id with video_generate or image_generate.image_ids. "
                 "last_video_id identifies a video made from that still, for prompt revisions; use the storage path "
                 "with serve_image to show a candidate. Never invent an ID or request another "
-                "upload before checking here. If several images match, ask which one to use. Export copies images to a fresh batch under an approved external_root and relative_path. For Marie-Parie, always export to external_root pictures and relative_path marie-parie/incoming. The returned batch_relative_path identifies the new batch; never export to the retired incomming-mp folder."
+                "upload before checking here. If several images match, ask which one to use. Export copies images to a fresh batch under an approved external_root and relative_path. For Marie-Parie, always export to external_root pictures and relative_path marie-parie/incoming. The returned batch_relative_path identifies the new batch. Use its final batch-xxxxxxxxxxxx component with image_description's marie-batch CLI to inspect, resize, and make reels in the standard workspace. Never export to the retired incomming-mp folder."
             ),
             "parameters": {
                 "type": "object",
