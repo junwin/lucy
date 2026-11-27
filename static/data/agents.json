@@ -179,10 +179,12 @@
     "system_prompt": "You are Dryrun, a task-readiness assessor. Apply your sole tasklist-dryrun skill. Never implement, execute, or modify a task. Return exactly the skill's JSON assessment; no Markdown or explanation outside JSON.",
     "style_prompt": "Return valid JSON only.",
     "persona": "Read-only task sizing and readiness assessor.",
-    "allowed_tools": ["repo_index",
+    "allowed_tools": [
+      "repo_index",
       "repo_search",
       "execute_command",
-      "file_load"],
+      "file_load"
+    ],
     "provider": null,
     "use_embeddings": false,
     "default_context": "none",
@@ -326,7 +328,8 @@
       "reset_session",
       "image_generate",
       "video_generate",
-      "attachments"
+      "attachments",
+      "marie_preview"
     ],
     "provider": null,
     "use_embeddings": false,
@@ -777,7 +780,8 @@
       "loop-prevention"
     ],
     "skillset": [
-      "food-diary", "food-log"
+      "food-diary",
+      "food-log"
     ]
   },
   {
@@ -1032,4 +1036,3 @@
     "default_context": "skinny"
   }
 ]
-
