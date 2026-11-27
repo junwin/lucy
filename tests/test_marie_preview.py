@@ -13,7 +13,7 @@ class Config:
 
     def get(self, key, default=None):
         return {
-            "external_roots": {"repos": str(self.roots)},
+            "external_roots": {"repos": str(self.roots), "pictures": str(self.store.parent / "Pictures")},
             "storage_root_path": str(self.store),
             "storage_namespace": "data",
         }.get(key, default)
@@ -172,3 +172,53 @@ def test_preview_url_can_use_configured_ngrok_origin(project):
     assert session["view_url"].startswith("https://example.ngrok.app/preview/")
     service.cancel(session["id"], "arla")
     service.preview_origin = original
+
+
+def test_import_new_batch_replaces_old_same_filename_image_bytes(project):
+    service, remote = project
+    session = service.create("arla")
+    folder = Path(session["worktree"]) / "assets" / "New Arrivals"
+    original_bytes = (folder / "one.jpg").read_bytes()
+    pictures = service.config.get("external_roots")["pictures"]
+    batch = "batch-0123456789ab"
+    source = Path(pictures) / "marie-parie" / "prepared" / "web" / batch
+    source.mkdir(parents=True)
+    (source / "one.jpg").write_bytes(b"arla-new-photo-not-john-old-photo")
+    (source / "three.jpg").write_bytes(b"new-third-photo")
+    old_gallery = service.gallery(session["id"], "arla", "New Arrivals")
+    result = service.import_web_batch(session["id"], "arla", "New Arrivals",
+                                      batch, replace=True,
+                                      expected_sha=old_gallery["sha256"])
+    assert result["count"] == 2
+    assert result["gallery_count"] == 2
+    assert result["replace"] is True
+    assert result["imported"][0].startswith("one-")
+    assert result["imported"][0].endswith(".jpg")
+    assert (folder / "one.jpg").read_bytes() == original_bytes
+    assert (folder / result["imported"][0]).read_bytes() == b"arla-new-photo-not-john-old-photo"
+    assert service.gallery(session["id"], "arla", "New Arrivals")["images"] == result["imported"]
+    assert (source / "one.jpg").read_bytes() == b"arla-new-photo-not-john-old-photo"
+    # Repeating import is idempotent and keeps the same image bytes and names.
+    again = service.import_web_batch(session["id"], "arla", "New Arrivals",
+                                     batch, replace=True, expected_sha=result["sha256"])
+    assert again["imported"] == result["imported"]
+    assert again["sha256"] == result["sha256"]
+    # Only preview files changed, remote staging remains unmodified.
+    assert git(remote, "show", "staging:assets/New Arrivals/gallery.txt") == "one.jpg\\ntwo.jpg"
+
+
+def test_import_batch_rejects_missing_or_stale_batch_without_gallery_changes(project):
+    service, _ = project
+    session = service.create("arla")
+    before = service.gallery(session["id"], "arla", "New Arrivals")
+    with pytest.raises(ValueError, match="Prepared web batch not found"):
+        service.import_web_batch(session["id"], "arla", "New Arrivals",
+                                 "batch-aaaaaaaaaaaa", replace=True)
+    source = Path(service.config.get("external_roots")["pictures"]) / "marie-parie" / "prepared" / "web" / "batch-aaaaaaaaaaaa"
+    source.mkdir(parents=True)
+    (source / "new.jpg").write_bytes(b"new")
+    with pytest.raises(ValueError, match="changed since"):
+        service.import_web_batch(session["id"], "arla", "New Arrivals",
+                                 "batch-aaaaaaaaaaaa", replace=True,
+                                 expected_sha="stale")
+    assert service.gallery(session["id"], "arla", "New Arrivals") == before
