@@ -20,11 +20,17 @@ class MariePreviewHandler(HandlerV2):
             "description": (
                 "Manage a private Marie-Parie website editing session. "
                 "Create a Git worktree from remote staging, review its temporary preview, "
-                "save a gallery order, share the preview branch for debugging, "
+                "save a gallery order, import a selected prepared website image batch, "
+                "share the preview branch for debugging, "
                 "publish approved changes to staging, or cancel. "
                 "Never publish or cancel without explicit user confirmation. "
                 "The preview's worktree path can be supplied as --repo to marie-publish "
                 "when preparing the initial images, without --commit or --push. "
+                "For new or repeated uploads ALWAYS use import_batch with the current "
+                "batch_id after approved filenames, before claiming preview updates. "
+                "save_gallery ONLY changes the display list; it NEVER copies photos. "
+                "import_batch copies the new batch and safely disambiguates same-name "
+                "different-content photos; replace=true substitutes the gallery list. "
                 "The response contains complete view_url and editor_url fields "
                 "built by Lucy. Link ONLY those exact URLs from the tool result. "
                 "Never reconstruct links from view_path, use Cloudflare staging "
@@ -33,13 +39,15 @@ class MariePreviewHandler(HandlerV2):
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "action": {"type": "string", "enum": ["create", "list", "status", "gallery", "save_gallery", "share", "publish", "cancel"]},
+                    "action": {"type": "string", "enum": ["create", "list", "status", "gallery", "save_gallery", "import_batch", "share", "publish", "cancel"]},
                     "session_id": {"type": ["string", "null"]},
                     "collection": {"type": ["string", "null"]},
                     "images": {"type": ["array", "null"], "items": {"type": "string"}},
                     "expected_sha": {"type": ["string", "null"]},
+                    "batch_id": {"type": ["string", "null"], "description": "For import_batch: exact ID of the current prepared web image batch"},
+                    "replace": {"type": ["boolean", "null"], "description": "For import_batch: replace gallery display list rather than append; never deletes originals"},
                 },
-                "required": ["action", "session_id", "collection", "images", "expected_sha"],
+                "required": ["action", "session_id", "collection", "images", "expected_sha", "batch_id", "replace"],
                 "additionalProperties": False,
             },
             "strict": True,
@@ -73,6 +81,11 @@ class MariePreviewHandler(HandlerV2):
             elif action == "save_gallery":
                 data = service.save_gallery(sid, account_name, args.get("collection"),
                                             args.get("images"), args.get("expected_sha"))
+            elif action == "import_batch":
+                data = service.import_web_batch(sid, account_name, args.get("collection"),
+                                                args.get("batch_id"),
+                                                replace=args.get("replace"),
+                                                expected_sha=args.get("expected_sha"))
             elif action == "share":
                 data = service.share(sid, account_name)
             elif action == "publish":
