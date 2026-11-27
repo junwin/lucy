@@ -204,7 +204,7 @@ def test_import_new_batch_replaces_old_same_filename_image_bytes(project):
     assert again["imported"] == result["imported"]
     assert again["sha256"] == result["sha256"]
     # Only preview files changed, remote staging remains unmodified.
-    assert git(remote, "show", "staging:assets/New Arrivals/gallery.txt") == "one.jpg\\ntwo.jpg"
+    assert git(remote, "show", "staging:assets/New Arrivals/gallery.txt") == "one.jpg\ntwo.jpg"
 
 
 def test_import_batch_rejects_missing_or_stale_batch_without_gallery_changes(project):
