@@ -40,6 +40,7 @@ class MariePreviewService:
         roots = config.get("external_roots") or {}
         if not isinstance(roots, dict) or not roots.get("repos"):
             raise ValueError("external_roots.repos is required")
+        self.config = config
         self.repos_root = Path(roots["repos"]).resolve()
         self.repo = self.repos_root / "marie-parie-web"
         self.worktrees = self.repos_root / "marie-parie-previews"
@@ -193,6 +194,110 @@ class MariePreviewService:
         finally:
             tmp.unlink(missing_ok=True)
         return {"collection": collection, "count": len(images),
+                "sha256": self._gallery_sha(gallery)}
+
+    def import_web_batch(self, sid, owner, collection, batch_id, replace=False, expected_sha=None):
+        """Copy this exact prepared batch into a preview, then update gallery.
+
+        Unlike save_gallery, this action transfers image BYTES and is safe when
+        an older batch uses the same filenames. All copied file paths stay inside
+        the preview collection; uploaded originals are never modified.
+        """
+        if not isinstance(batch_id, str) or not re.fullmatch(r"batch-[0-9a-f]{12}", batch_id):
+            raise ValueError("Use the batch-xxxxxxxxxxxx ID returned by attachments export")
+        if type(replace) is not bool:
+            raise ValueError("replace must be true or false")
+        state = self._load(sid, owner)
+        if state["status"] != "active":
+            raise ValueError("Preview session is closed")
+        folder, gallery = self._collection(state, collection)
+        current_sha = self._gallery_sha(gallery)
+        if expected_sha is not None and current_sha != expected_sha:
+            raise ValueError("Gallery changed since it was loaded; refresh before importing")
+
+        roots = self.config.get("external_roots") or {}
+        pictures = roots.get("pictures") if isinstance(roots, dict) else None
+        if not pictures:
+            raise ValueError("external_roots.pictures is required for batch import")
+        workspace = Path(pictures).resolve() / "marie-parie" / "prepared" / "web"
+        source = (workspace / batch_id).resolve()
+        if not source.is_relative_to(workspace) or not source.is_dir():
+            raise ValueError(f"Prepared web batch not found: {batch_id}")
+        photos = sorted(
+            (p for p in source.iterdir() if p.suffix.lower() == ".jpg" and p.is_file() and not p.is_symlink()),
+            key=lambda p: p.name.casefold())
+        if not photos:
+            raise ValueError("The selected batch has no prepared web JPEGs")
+        # A batch must not have duplicate names, including case-only variants.
+        if len({p.name.casefold() for p in photos}) != len(photos):
+            raise ValueError("Prepared batch has duplicate image filenames")
+        existing_names = {p.name.casefold() for p in folder.iterdir() if p.is_file()}
+        planned = []
+        used = set()
+        for photo in photos:
+            if not _FILENAME.fullmatch(photo.name):
+                raise ValueError(f"Unsafe prepared image filename: {photo.name}")
+            digest = hashlib.sha256(photo.read_bytes()).hexdigest()
+            name = photo.name
+            target = _within(folder, folder / name)
+            if target.exists():
+                if target.is_symlink() or not target.is_file():
+                    raise ValueError(f"Unsafe gallery target: {name}")
+                if hashlib.sha256(target.read_bytes()).hexdigest() != digest:
+                    # Content-addressed suffix disambiguates successive uploads
+                    # of identically named, but different, photographs.
+                    stem = photo.stem
+                    for count in range(8, 65, 4):
+                        proposal = f"{stem}-{digest[:count]}.jpg"
+                        candidate = _within(folder, folder / proposal)
+                        if candidate.exists() and (candidate.is_symlink() or
+                                hashlib.sha256(candidate.read_bytes()).hexdigest() != digest):
+                            continue
+                        name = proposal
+                        target = candidate
+                        break
+                    else:
+                        raise ValueError(f"Could not find a unique destination for {photo.name}")
+            if name.casefold() in used:
+                raise ValueError(f"Conflicting destinations in batch: {name}")
+            if name.casefold() in existing_names and not target.exists():
+                raise ValueError(f"Case-insensitive filename collision: {name}")
+            used.add(name.casefold())
+            planned.append((photo, target, name))
+
+        # Replacing means replacing gallery DISPLAY entries, not deleting
+        # old files; removing entries before the new files arrive is unsafe.
+        current = [name for name in gallery.read_text(encoding="utf-8").splitlines() if name]
+        new_names = [name for _, _, name in planned]
+        ordered = list(new_names)
+        if not replace:
+            seen = {name.casefold() for name in ordered}
+            ordered.extend(name for name in current if name.casefold() not in seen and not seen.add(name.casefold()))
+        created = []
+        try:
+            for photo, target, _ in planned:
+                if not target.exists():
+                    # Exclusive create avoids overwriting an image from another
+                    # preview batch if concurrent work happens in this folder.
+                    with photo.open("rb") as reader, target.open("xb") as writer:
+                        created.append(target)
+                        shutil.copyfileobj(reader, writer)
+            if self._gallery_sha(gallery) != current_sha:
+                raise ValueError("Gallery changed during import; retry")
+            content = "\\n".join(ordered) + ("\\n" if ordered else "")
+            tmp = gallery.with_name(".gallery-" + uuid.uuid4().hex + ".tmp")
+            try:
+                tmp.write_text(content, encoding="utf-8")
+                tmp.replace(gallery)
+            finally:
+                tmp.unlink(missing_ok=True)
+        except Exception:
+            for target in created:
+                target.unlink(missing_ok=True)
+            raise
+        return {"collection": collection, "batch_id": batch_id,
+                "imported": new_names, "count": len(new_names),
+                "gallery_count": len(ordered), "replace": replace,
                 "sha256": self._gallery_sha(gallery)}
 
     def _safe_changes(self, wt):
