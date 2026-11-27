@@ -347,7 +347,8 @@
     "skills": [
       "filepaths",
       "loop-prevention",
-      "marie-parie"
+      "marie-parie",
+      "marie-parie-gwen-skill"
     ],
     "prompt_policy": {
       "total_tokens": 10000,
