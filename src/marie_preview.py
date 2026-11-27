@@ -284,7 +284,7 @@ class MariePreviewService:
                         shutil.copyfileobj(reader, writer)
             if self._gallery_sha(gallery) != current_sha:
                 raise ValueError("Gallery changed during import; retry")
-            content = "\\n".join(ordered) + ("\\n" if ordered else "")
+            content = "\n".join(ordered) + ("\n" if ordered else "")
             tmp = gallery.with_name(".gallery-" + uuid.uuid4().hex + ".tmp")
             try:
                 tmp.write_text(content, encoding="utf-8")
